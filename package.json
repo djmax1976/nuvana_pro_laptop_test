@@ -1,0 +1,41 @@
+{
+  "name": "nuvana-pro",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test:e2e": "playwright test --project=e2e",
+    "test:e2e:ui": "playwright test --project=e2e --ui",
+    "test:e2e:p0": "playwright test --project=e2e --grep \"[P0]\"",
+    "test:e2e:p1": "playwright test --project=e2e --grep \"[P0]|[P1]\"",
+    "test:api": "playwright test --project=api",
+    "test:api:p0": "playwright test --project=api --grep \"[P0]\"",
+    "test:api:p1": "playwright test --project=api --grep \"[P0]|[P1]\"",
+    "test:api:p2": "playwright test --project=api --grep \"[P0]|[P1]|[P2]\"",
+    "test:api:ui": "playwright test --project=api --ui",
+    "test:api:error": "playwright test --project=api tests/api/error-handling.api.spec.ts",
+    "test:api:edge": "playwright test --project=api tests/api/edge-cases.api.spec.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.81.1",
+    "next": "14.2.18",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@faker-js/faker": "^10.1.0",
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.0.1",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.18",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.0.0"
+  }
+}

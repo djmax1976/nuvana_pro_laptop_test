@@ -1,0 +1,66 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+**/node_modules/
+**/.pnp
+**/.pnp.js
+**/package-lock.json
+
+# testing
+**/coverage/
+
+# next.js
+/.next/
+/out/
+
+# production
+**/build/
+**/dist/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+.env
+**/.env
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Prisma generated files
+**/.prisma/
+**/.cache/
+
+# IDE and editor files
+.cursor/
+.vscode/
+**/.husky/
+
+# Temp files
+nul
+NUL
+null
+
+# Test results and reports (generated files)
+playwright-report/
+test-results/
+
+# IDE workspace files
+.claude/
+
+# BMAD-specific ignores (DO NOT commit framework files)
+nuvana_docs/
+nuvana_control/
+my-files/
+bmad/
