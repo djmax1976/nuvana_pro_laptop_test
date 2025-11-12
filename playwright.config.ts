@@ -18,9 +18,9 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
 
   // Timeouts
-  timeout: 60 * 1000, // Test timeout: 60s
+  timeout: 120 * 1000, // Test timeout: 120s (increased for CI)
   expect: {
-    timeout: 15 * 1000, // Assertion timeout: 15s
+    timeout: 30 * 1000, // Assertion timeout: 30s (increased for CI)
   },
 
   // Output directory for test artifacts

@@ -366,13 +366,23 @@ jobs:
             exit 1
           }
       - name: Run API suite
-        run: npm run test:api
+        run: |
+          set -e
+          npm run test:api 2>&1 | tee test-output.log
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          if [ $TEST_EXIT_CODE -ne 0 ]; then
+            echo "Tests failed with exit code $TEST_EXIT_CODE"
+            echo "Last 100 lines of test output:"
+            tail -100 test-output.log || true
+            exit $TEST_EXIT_CODE
+          fi
         env:
           BACKEND_URL: ${{ env.BACKEND_URL }}
           DATABASE_URL: ${{ env.DATABASE_URL }}
           REDIS_URL: ${{ env.REDIS_URL }}
           RABBITMQ_URL: ${{ env.RABBITMQ_URL }}
           CI: true
+        continue-on-error: false
       - name: Upload API artifacts
         if: always()
         uses: actions/upload-artifact@v4
