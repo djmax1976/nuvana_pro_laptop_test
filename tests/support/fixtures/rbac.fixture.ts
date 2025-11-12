@@ -21,6 +21,26 @@ import { createJWTAccessToken } from "../factories";
 
 type RBACFixture = {
   backendUrl: string;
+  apiRequest: {
+    get: (
+      path: string,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+    post: (
+      path: string,
+      data?: unknown,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+    put: (
+      path: string,
+      data?: unknown,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+    delete: (
+      path: string,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+  };
   superadminApiRequest: {
     get: (
       path: string,
@@ -115,6 +135,56 @@ export const test = base.extend<RBACFixture>({
   backendUrl: async ({}, use) => {
     const url = process.env.BACKEND_URL || "http://localhost:3001";
     await use(url);
+  },
+
+  apiRequest: async ({ request, backendUrl }, use) => {
+    // Setup: Create unauthenticated API request helper
+    const apiRequest = {
+      get: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.get(`${backendUrl}${path}`, {
+          headers: options?.headers,
+        });
+      },
+      post: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.post(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            ...options?.headers,
+          },
+        });
+      },
+      put: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.put(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            ...options?.headers,
+          },
+        });
+      },
+      delete: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.delete(`${backendUrl}${path}`, {
+          headers: options?.headers,
+        });
+      },
+    };
+
+    await use(apiRequest);
   },
 
   prismaClient: async ({}, use: (prisma: PrismaClient) => Promise<void>) => {

@@ -19,6 +19,8 @@ model User {
   created_at       DateTime @default(now()) @db.Timestamptz(6)
   updated_at       DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
+  auditLogs AuditLog[]
+
   @@index([email])
   @@index([auth_provider_id])
   @@index([status])
@@ -53,5 +55,26 @@ model Store {
   @@index([company_id])
   @@index([status])
   @@map("stores")
+}
+
+model AuditLog {
+  log_id     String   @id @default(uuid()) @db.Uuid
+  user_id    String?  @db.Uuid
+  action     String   @db.VarChar(50) // CREATE | UPDATE | DELETE | OVERRIDE | PERMISSION_DENIED
+  table_name String   @db.VarChar(100)
+  record_id  String   @db.Uuid
+  old_values Json?    @db.JsonB
+  new_values Json?    @db.JsonB
+  reason     String?  @db.Text
+  ip_address String?  @db.VarChar(45) // IPv4 or IPv6 address
+  user_agent String?  @db.Text
+  timestamp  DateTime @default(now()) @db.Timestamptz(6)
+
+  user User? @relation(fields: [user_id], references: [user_id])
+
+  @@index([user_id])
+  @@index([table_name])
+  @@index([timestamp])
+  @@map("audit_logs")
 }
 

@@ -20,13 +20,10 @@ export async function healthRoutes(fastify: FastifyInstance) {
         version: process.env.npm_package_version || "1.0.0",
       };
 
-      // Determine overall health status
-      const allHealthy =
-        healthStatus.services.redis.healthy &&
-        healthStatus.services.rabbitmq.healthy;
-
-      const statusCode = allHealthy ? 200 : 503;
-      reply.code(statusCode);
+      // Health check endpoint should always return 200
+      // Individual service status is reported in the response body
+      // This allows monitoring tools to check service health without endpoint failure
+      reply.code(200);
 
       return healthStatus;
     },

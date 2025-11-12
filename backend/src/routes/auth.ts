@@ -20,21 +20,22 @@ export async function authRoutes(fastify: FastifyInstance) {
           error?: string;
         };
 
+        // Handle OAuth errors from provider FIRST (takes precedence)
+        // OAuth providers return error parameter when user denies access or other errors occur
+        if (query.error) {
+          reply.code(401);
+          return {
+            error: `OAuth authentication failed: ${query.error}`,
+            message: query.error,
+          };
+        }
+
         // Validate required code parameter
         if (!query.code) {
           reply.code(400);
           return {
             error: "Missing required parameter: code",
             message: "OAuth code is required for authentication",
-          };
-        }
-
-        // Handle OAuth errors from provider
-        if (query.error) {
-          reply.code(401);
-          return {
-            error: `OAuth authentication failed: ${query.error}`,
-            message: query.error,
           };
         }
 
