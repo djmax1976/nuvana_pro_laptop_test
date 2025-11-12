@@ -61,17 +61,23 @@ app.register(authRoutes);
 // Register admin routes (with permission middleware examples)
 app.register(adminRoutes);
 
-// Configure method not allowed handler to return 405 instead of 404
-app.setMethodNotAllowedHandler((request, reply) => {
-  reply.code(405).send({
-    error: "Method Not Allowed",
-    message: `${request.method} is not allowed for ${request.url}`,
-  });
-});
-
 // Legacy health check endpoint (backward compatibility)
-app.get("/health", async () => {
-  return { status: "ok", timestamp: new Date().toISOString() };
+// Handle all methods and return 405 for unsupported ones
+app.all("/health", async (request, reply) => {
+  const allowedMethods = ["GET", "HEAD", "OPTIONS"];
+
+  if (allowedMethods.includes(request.method)) {
+    // Return health status for allowed methods
+    return { status: "ok", timestamp: new Date().toISOString() };
+  } else {
+    // Return 405 for unsupported methods
+    reply.code(405);
+    reply.header("Allow", allowedMethods.join(", "));
+    return {
+      error: "Method Not Allowed",
+      message: `${request.method} is not allowed for ${request.url}. Supported methods: ${allowedMethods.join(", ")}`,
+    };
+  }
 });
 
 // Start server
