@@ -65,3 +65,32 @@ export {
   createMultiRoleJWTAccessToken,
   type JWTTokenPayload,
 } from "./jwt.factory";
+
+// RBAC factories
+export {
+  createRole,
+  createSuperadminRole,
+  createCorporateAdminRole,
+  createStoreManagerRole,
+  createShiftManagerRole,
+  createCashierRole,
+  createPermission,
+  createUserCreatePermission,
+  createUserReadPermission,
+  createUserUpdatePermission,
+  createUserDeletePermission,
+  createStoreCreatePermission,
+  createStoreReadPermission,
+  createShiftOpenPermission,
+  createShiftClosePermission,
+  createUserRole,
+  createRolePermission,
+  createRoles,
+  createPermissions,
+  createUserRoles,
+  createRolePermissions,
+  type RoleData,
+  type PermissionData,
+  type UserRoleData,
+  type RolePermissionData,
+} from "./rbac.factory";

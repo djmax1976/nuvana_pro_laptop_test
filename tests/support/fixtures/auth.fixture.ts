@@ -7,6 +7,7 @@ import { PrismaClient } from "@prisma/client";
  *
  * Provides fixtures for authenticated API testing:
  * - Authenticated API request helper
+ * - Unauthenticated API request helper (for testing auth failures)
  * - User with valid Supabase token
  * - Auto-cleanup of test users
  *
@@ -15,6 +16,31 @@ import { PrismaClient } from "@prisma/client";
 
 type AuthFixture = {
   backendUrl: string;
+  apiRequest: {
+    get: (
+      path: string,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+    post: (
+      path: string,
+      data?: unknown,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+    put: (
+      path: string,
+      data?: unknown,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+    patch: (
+      path: string,
+      data?: unknown,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+    delete: (
+      path: string,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+  };
   authenticatedApiRequest: {
     get: (
       path: string,
@@ -53,6 +79,73 @@ export const test = base.extend<AuthFixture>({
   backendUrl: async ({}, use) => {
     const url = process.env.BACKEND_URL || "http://localhost:3001";
     await use(url);
+  },
+
+  apiRequest: async ({ request, backendUrl }, use) => {
+    // Setup: Create unauthenticated API request helper
+    const apiRequest = {
+      get: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.get(`${backendUrl}${path}`, {
+          headers: options?.headers,
+        });
+      },
+      post: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.post(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            ...options?.headers,
+          },
+        });
+      },
+      put: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.put(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            ...options?.headers,
+          },
+        });
+      },
+      patch: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.fetch(`${backendUrl}${path}`, {
+          method: "PATCH",
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            ...options?.headers,
+          },
+        });
+      },
+      delete: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.delete(`${backendUrl}${path}`, {
+          headers: options?.headers,
+        });
+      },
+    };
+
+    // Provide to test
+    await use(apiRequest);
+
+    // Cleanup: No cleanup needed for API requests (stateless)
   },
 
   authenticatedUser: async ({}, use) => {

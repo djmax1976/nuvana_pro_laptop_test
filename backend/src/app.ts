@@ -8,6 +8,7 @@ import { initializeRedis, closeRedis } from "./utils/redis";
 import { initializeRabbitMQ, closeRabbitMQ } from "./utils/rabbitmq";
 import { healthRoutes } from "./routes/health";
 import { authRoutes } from "./routes/auth";
+import { adminRoutes } from "./routes/admin";
 
 // Load environment variables
 dotenv.config();
@@ -56,6 +57,9 @@ app.register(healthRoutes);
 
 // Register auth routes
 app.register(authRoutes);
+
+// Register admin routes (with permission middleware examples)
+app.register(adminRoutes);
 
 // Legacy health check endpoint (backward compatibility)
 app.get("/health", async () => {

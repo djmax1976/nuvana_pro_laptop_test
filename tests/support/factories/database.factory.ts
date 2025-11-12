@@ -9,6 +9,7 @@
 import { faker } from "@faker-js/faker";
 
 export type UserData = {
+  id?: string;
   email: string;
   name: string;
   auth_provider_id?: string | null;

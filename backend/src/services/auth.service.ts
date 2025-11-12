@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { rbacService } from "./rbac.service";
 
 /**
  * JWT token payload structure
@@ -89,19 +90,57 @@ export class AuthService {
   }
 
   /**
+   * Generate both access and refresh tokens with roles and permissions from database
+   * @param user_id - User ID from database
+   * @param email - User email
+   * @returns Token pair with access and refresh tokens, including roles and permissions
+   */
+  async generateTokenPairWithRBAC(
+    user_id: string,
+    email: string,
+  ): Promise<TokenPair> {
+    // Fetch user roles from database
+    const userRoles = await rbacService.getUserRoles(user_id);
+
+    // Extract role codes and collect all unique permissions
+    const roles: string[] = [];
+    const permissionsSet = new Set<string>();
+
+    for (const userRole of userRoles) {
+      roles.push(userRole.role_code);
+      // Add all permissions from this role
+      for (const permission of userRole.permissions) {
+        permissionsSet.add(permission);
+      }
+    }
+
+    const permissions = Array.from(permissionsSet);
+
+    return {
+      accessToken: this.generateAccessToken(user_id, email, roles, permissions),
+      refreshToken: this.generateRefreshToken(user_id, email),
+    };
+  }
+
+  /**
    * Generate both access and refresh tokens
    * @param user_id - User ID from database
    * @param email - User email
-   * @param roles - User roles array
-   * @param permissions - User permissions array
+   * @param roles - User roles array (optional, will fetch from DB if not provided)
+   * @param permissions - User permissions array (optional, will fetch from DB if not provided)
    * @returns Token pair with access and refresh tokens
    */
-  generateTokenPair(
+  async generateTokenPair(
     user_id: string,
     email: string,
-    roles: string[] = [],
-    permissions: string[] = [],
-  ): TokenPair {
+    roles?: string[],
+    permissions?: string[],
+  ): Promise<TokenPair> {
+    // If roles/permissions not provided, fetch from database
+    if (roles === undefined || permissions === undefined) {
+      return this.generateTokenPairWithRBAC(user_id, email);
+    }
+
     return {
       accessToken: this.generateAccessToken(user_id, email, roles, permissions),
       refreshToken: this.generateRefreshToken(user_id, email),

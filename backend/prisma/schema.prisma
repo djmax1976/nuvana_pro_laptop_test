@@ -19,6 +19,10 @@ model User {
   created_at       DateTime @default(now()) @db.Timestamptz(6)
   updated_at       DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
+  user_roles       UserRole[]
+  assigned_roles   UserRole[] @relation("UserRoleAssigner")
+  audit_logs       AuditLog[]
+
   @@index([email])
   @@index([auth_provider_id])
   @@index([status])
@@ -32,7 +36,8 @@ model Company {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  stores Store[]
+  stores     Store[]
+  user_roles UserRole[]
 
   @@index([status])
   @@map("companies")
@@ -49,9 +54,94 @@ model Store {
   updated_at   DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   company Company @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  user_roles    UserRole[]
 
   @@index([company_id])
   @@index([status])
   @@map("stores")
+}
+
+model Role {
+  role_id      String   @id @default(uuid()) @db.Uuid
+  scope        String   @db.VarChar(50) // SYSTEM | COMPANY | STORE
+  code         String   @unique @db.VarChar(100) // SUPERADMIN | CORPORATE_ADMIN | STORE_MANAGER | etc.
+  description  String?  @db.Text
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  user_roles       UserRole[]
+  role_permissions RolePermission[]
+
+  @@index([scope])
+  @@index([code])
+  @@map("roles")
+}
+
+model Permission {
+  permission_id String   @id @default(uuid()) @db.Uuid
+  code          String   @unique @db.VarChar(100) // USER_CREATE | SHIFT_OPEN | etc.
+  description   String?  @db.Text
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  role_permissions RolePermission[]
+
+  @@index([code])
+  @@map("permissions")
+}
+
+model UserRole {
+  user_role_id String   @id @default(uuid()) @db.Uuid
+  user_id      String   @db.Uuid
+  role_id      String   @db.Uuid
+  company_id   String?  @db.Uuid
+  store_id     String?  @db.Uuid
+  assigned_by  String?  @db.Uuid
+  assigned_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  user    User    @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  role    Role    @relation(fields: [role_id], references: [role_id], onDelete: Cascade)
+  company Company? @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  store   Store?  @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  assigner User?  @relation("UserRoleAssigner", fields: [assigned_by], references: [user_id])
+
+  @@unique([user_id, role_id, company_id, store_id])
+  @@index([user_id])
+  @@index([company_id])
+  @@index([store_id])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  role_id       String @db.Uuid
+  permission_id String @db.Uuid
+
+  role       Role       @relation(fields: [role_id], references: [role_id], onDelete: Cascade)
+  permission Permission @relation(fields: [permission_id], references: [permission_id], onDelete: Cascade)
+
+  @@id([role_id, permission_id])
+  @@index([role_id])
+  @@index([permission_id])
+  @@map("role_permissions")
+}
+
+model AuditLog {
+  log_id     String   @id @default(uuid()) @db.Uuid
+  user_id    String?  @db.Uuid
+  action     String   @db.VarChar(50) // CREATE | UPDATE | DELETE | OVERRIDE | PERMISSION_DENIED
+  table_name String   @db.VarChar(100)
+  record_id  String   @db.Uuid
+  old_values Json?    @db.JsonB
+  new_values Json?    @db.JsonB
+  reason     String?  @db.Text
+  ip_address String?  @db.VarChar(45) // IPv4 or IPv6 address
+  user_agent String?  @db.Text
+  timestamp  DateTime @default(now()) @db.Timestamptz(6)
+
+  user User? @relation(fields: [user_id], references: [user_id])
+
+  @@index([user_id])
+  @@index([table_name])
+  @@index([timestamp])
+  @@map("audit_logs")
 }
 
