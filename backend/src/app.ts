@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
+import cookie from "@fastify/cookie";
 import dotenv from "dotenv";
 import { initializeRedis, closeRedis } from "./utils/redis";
 import { initializeRabbitMQ, closeRabbitMQ } from "./utils/rabbitmq";
@@ -18,10 +19,16 @@ const app = Fastify({
   logger: true,
 });
 
+// Register cookie parser (required for httpOnly cookie support)
+app.register(cookie, {
+  secret:
+    process.env.COOKIE_SECRET || "default-cookie-secret-change-in-production",
+});
+
 // Register CORS
 app.register(cors, {
   origin: process.env.CORS_ORIGIN?.split(",") || ["http://localhost:3000"],
-  credentials: true,
+  credentials: true, // Required for cookies to work with CORS
 });
 
 // Register Helmet for security headers

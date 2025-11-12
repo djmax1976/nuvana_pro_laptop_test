@@ -1,6 +1,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { createClient } from "@supabase/supabase-js";
-import { getUserOrCreate } from "../services/user.service";
+import { getUserOrCreate, getUserById } from "../services/user.service";
+import { AuthService } from "../services/auth.service";
+import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 
 /**
  * OAuth callback endpoint that handles Supabase OAuth authentication
@@ -89,6 +91,35 @@ export async function authRoutes(fastify: FastifyInstance) {
             undefined,
         );
 
+        // Generate JWT tokens
+        // Note: Roles and permissions will be empty arrays until RBAC framework is implemented (Story 1-7)
+        const authService = new AuthService();
+        const { accessToken, refreshToken } = authService.generateTokenPair(
+          localUser.user_id,
+          localUser.email,
+          [], // roles - empty until RBAC implemented
+          [], // permissions - empty until RBAC implemented
+        );
+
+        // Set httpOnly cookies with secure flags
+        // Access token cookie (15 min expiry)
+        (reply as any).setCookie("accessToken", accessToken, {
+          httpOnly: true,
+          secure: true, // HTTPS only
+          sameSite: "strict", // CSRF protection
+          path: "/",
+          maxAge: 15 * 60, // 15 minutes in seconds
+        });
+
+        // Refresh token cookie (7 days expiry)
+        (reply as any).setCookie("refreshToken", refreshToken, {
+          httpOnly: true,
+          secure: true, // HTTPS only
+          sameSite: "strict", // CSRF protection
+          path: "/",
+          maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
+        });
+
         // Return user identity
         reply.code(200);
         return {
@@ -107,6 +138,115 @@ export async function authRoutes(fastify: FastifyInstance) {
           message: "An error occurred during authentication",
         };
       }
+    },
+  );
+
+  /**
+   * Refresh token endpoint
+   * POST /api/auth/refresh
+   * Rotates refresh token and generates new access/refresh token pair
+   */
+  fastify.post(
+    "/api/auth/refresh",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // Extract refresh token from httpOnly cookie
+        const refreshToken = (request as any).cookies?.refreshToken;
+
+        if (!refreshToken) {
+          reply.code(401);
+          return {
+            error: "Unauthorized",
+            message: "Missing refresh token cookie",
+          };
+        }
+
+        // Verify refresh token
+        const authService = new AuthService();
+        const decoded = authService.verifyRefreshToken(refreshToken);
+
+        // Get user from database by user_id to retrieve current roles/permissions
+        // Note: Roles and permissions will be empty until RBAC is implemented (Story 1-7)
+        const localUser = await getUserById(decoded.user_id);
+
+        // Generate new token pair (token rotation - old refresh token is now invalid)
+        const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
+          authService.generateTokenPair(
+            localUser.user_id,
+            localUser.email,
+            [], // roles - empty until RBAC implemented
+            [], // permissions - empty until RBAC implemented
+          );
+
+        // Set new httpOnly cookies with secure flags
+        // Access token cookie (15 min expiry)
+        (reply as any).setCookie("accessToken", newAccessToken, {
+          httpOnly: true,
+          secure: true, // HTTPS only
+          sameSite: "strict", // CSRF protection
+          path: "/",
+          maxAge: 15 * 60, // 15 minutes in seconds
+        });
+
+        // Refresh token cookie (7 days expiry) - rotated
+        (reply as any).setCookie("refreshToken", newRefreshToken, {
+          httpOnly: true,
+          secure: true, // HTTPS only
+          sameSite: "strict", // CSRF protection
+          path: "/",
+          maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
+        });
+
+        // Return success response
+        reply.code(200);
+        return {
+          message: "Tokens refreshed successfully",
+          user: {
+            id: localUser.user_id,
+            email: localUser.email,
+          },
+        };
+      } catch (error) {
+        fastify.log.error({ error }, "Refresh token error");
+
+        // Clear invalid cookies
+        (reply as any).clearCookie("accessToken", { path: "/" });
+        (reply as any).clearCookie("refreshToken", { path: "/" });
+
+        reply.code(401);
+        return {
+          error: "Unauthorized",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Refresh token validation failed",
+        };
+      }
+    },
+  );
+
+  /**
+   * Test protected endpoint to verify JWT middleware
+   * GET /api/auth/me
+   * Requires valid JWT access token in httpOnly cookie
+   */
+  fastify.get(
+    "/api/auth/me",
+    { preHandler: authMiddleware },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      // User context is attached by authMiddleware
+      const user = (request as any).user as UserIdentity;
+
+      reply.code(200);
+      return {
+        user: {
+          id: user.id,
+          email: user.email,
+          roles: user.roles,
+          permissions: user.permissions,
+        },
+        message: "JWT middleware successfully extracted user context",
+      };
     },
   );
 }

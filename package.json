@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "prisma:generate": "prisma generate",
+    "prepare": "npm run prisma:generate",
     "test:e2e": "playwright test --project=e2e",
     "test:e2e:ui": "playwright test --project=e2e --ui",
     "test:e2e:p0": "playwright test --project=e2e --grep \"[P0]\"",
@@ -17,11 +19,13 @@
     "test:api:p2": "playwright test --project=api --grep \"[P0]|[P1]|[P2]\"",
     "test:api:ui": "playwright test --project=api --ui",
     "test:api:error": "playwright test --project=api tests/api/error-handling.api.spec.ts",
-    "test:api:edge": "playwright test --project=api tests/api/edge-cases.api.spec.ts"
+    "test:api:edge": "playwright test --project=api tests/api/edge-cases.api.spec.ts",
+    "lint": "next lint"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.0",
     "@supabase/supabase-js": "^2.81.1",
-    "next": "14.2.18",
+    "next": "^14.2.33",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
@@ -35,6 +39,7 @@
     "eslint": "^8",
     "eslint-config-next": "14.2.18",
     "postcss": "^8",
+    "prisma": "^6.19.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.0.0"
   }

@@ -45,3 +45,23 @@ export async function getUserOrCreate(
 
   return user;
 }
+
+/**
+ * Get user by user_id
+ * @param userId - Local database user_id
+ * @returns User record from database
+ * @throws Error if user not found
+ */
+export async function getUserById(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: {
+      user_id: userId,
+    },
+  });
+
+  if (!user) {
+    throw new Error(`User not found with user_id: ${userId}`);
+  }
+
+  return user;
+}

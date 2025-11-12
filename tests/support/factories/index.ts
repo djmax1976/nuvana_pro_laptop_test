@@ -52,3 +52,16 @@ export {
   createSupabaseUserIdentity,
   type SupabaseTokenData,
 } from "./supabase.factory";
+
+// JWT factories
+export {
+  createJWTAccessToken,
+  createJWTRefreshToken,
+  createJWTAccessTokenPayload,
+  createJWTRefreshTokenPayload,
+  createExpiredJWTAccessToken,
+  createExpiredJWTRefreshToken,
+  createAdminJWTAccessToken,
+  createMultiRoleJWTAccessToken,
+  type JWTTokenPayload,
+} from "./jwt.factory";

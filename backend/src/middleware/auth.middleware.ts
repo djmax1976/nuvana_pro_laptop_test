@@ -1,13 +1,16 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { createClient } from "@supabase/supabase-js";
+import { AuthService } from "../services/auth.service";
 
 /**
- * User identity extracted from validated Supabase token
+ * User identity extracted from validated JWT token
  */
 export interface UserIdentity {
   id: string;
   email: string;
   name?: string;
+  roles: string[];
+  permissions: string[];
 }
 
 /**
@@ -61,33 +64,43 @@ export async function validateSupabaseToken(
     id: user.id,
     email: user.email,
     name: user.user_metadata?.name || user.user_metadata?.full_name,
+    roles: [], // Supabase token doesn't include roles
+    permissions: [], // Supabase token doesn't include permissions
   };
 }
 
 /**
- * Fastify middleware to validate Supabase token from Authorization header
+ * Fastify middleware to validate JWT token from httpOnly cookie
  * Attaches user identity to request object
  */
 export async function authMiddleware(
-  request: FastifyRequest,
+  request: FastifyRequest & { cookies?: { accessToken?: string } },
   reply: FastifyReply,
 ): Promise<void> {
   try {
-    // Extract token from Authorization header
-    const authHeader = request.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    // Extract access token from httpOnly cookie
+    const accessToken = request.cookies?.accessToken;
+
+    if (!accessToken) {
       reply.code(401);
       reply.send({
         error: "Unauthorized",
-        message: "Missing or invalid Authorization header",
+        message: "Missing access token cookie",
       });
       return;
     }
 
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+    // Validate JWT token and extract user identity
+    const authService = new AuthService();
+    const decoded = authService.verifyAccessToken(accessToken);
 
-    // Validate token and extract user identity
-    const userIdentity = await validateSupabaseToken(token);
+    // Extract user identity from token payload
+    const userIdentity: UserIdentity = {
+      id: decoded.user_id,
+      email: decoded.email,
+      roles: decoded.roles || [],
+      permissions: decoded.permissions || [],
+    };
 
     // Attach user identity to request for use in route handlers
     (request as any).user = userIdentity;
