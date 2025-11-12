@@ -19,7 +19,8 @@
     "test:api:p2": "playwright test --project=api --grep \"[P0]|[P1]|[P2]\"",
     "test:api:ui": "playwright test --project=api --ui",
     "test:api:error": "playwright test --project=api tests/api/error-handling.api.spec.ts",
-    "test:api:edge": "playwright test --project=api tests/api/edge-cases.api.spec.ts"
+    "test:api:edge": "playwright test --project=api tests/api/edge-cases.api.spec.ts",
+    "lint": "next lint"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
