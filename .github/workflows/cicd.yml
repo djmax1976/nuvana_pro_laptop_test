@@ -35,9 +35,16 @@ jobs:
       - name: TypeScript (root)
         run: npx tsc --noEmit
       - name: Install backend dependencies
-        run: cd backend && npm ci
+        working-directory: ./backend
+        run: npm ci
+      - name: Generate Prisma Client (for type checking)
+        working-directory: ./backend
+        run: npm run prisma:generate
+        env:
+          DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
       - name: TypeScript (backend)
-        run: cd backend && npx tsc --noEmit
+        working-directory: ./backend
+        run: npx tsc --noEmit
 
   changed_tests_burn_in:
     name: Burn-In Changed Tests
