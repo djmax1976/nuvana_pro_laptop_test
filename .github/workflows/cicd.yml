@@ -367,15 +367,38 @@ jobs:
           }
       - name: Run API suite
         run: |
-          set -e
+          echo "Starting API tests..."
           npm run test:api 2>&1 | tee test-output.log
           TEST_EXIT_CODE=${PIPESTATUS[0]}
+          echo "Test command exited with code: $TEST_EXIT_CODE"
+          
+          # Check test results
+          if grep -q "failed\|error\|Error" test-output.log; then
+            echo "Found errors in test output:"
+            grep -i "failed\|error" test-output.log | tail -20
+          fi
+          
+          # Check JUnit XML for failures
+          if [ -f test-results/junit.xml ]; then
+            echo "Checking JUnit XML for failures..."
+            FAILURES=$(grep -o 'failures="[0-9]*"' test-results/junit.xml | grep -o '[0-9]*' | head -1 || echo "0")
+            ERRORS=$(grep -o 'errors="[0-9]*"' test-results/junit.xml | grep -o '[0-9]*' | head -1 || echo "0")
+            echo "JUnit failures: $FAILURES, errors: $ERRORS"
+            
+            if [ "$FAILURES" != "0" ] || [ "$ERRORS" != "0" ]; then
+              echo "JUnit XML indicates failures or errors"
+              exit 1
+            fi
+          fi
+          
           if [ $TEST_EXIT_CODE -ne 0 ]; then
-            echo "Tests failed with exit code $TEST_EXIT_CODE"
-            echo "Last 100 lines of test output:"
-            tail -100 test-output.log || true
+            echo "Tests exited with non-zero code: $TEST_EXIT_CODE"
+            echo "Last 50 lines of test output:"
+            tail -50 test-output.log || true
             exit $TEST_EXIT_CODE
           fi
+          
+          echo "All tests passed successfully"
         env:
           BACKEND_URL: ${{ env.BACKEND_URL }}
           DATABASE_URL: ${{ env.DATABASE_URL }}
