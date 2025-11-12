@@ -304,23 +304,39 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_URL }}
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Wait for Redis to be ready
+        run: |
+          echo "Waiting for Redis to be ready..."
+          for i in {1..30}; do
+            if redis-cli -h 127.0.0.1 ping 2>/dev/null | grep -q PONG; then
+              echo "Redis is ready"
+              break
+            fi
+            echo "Attempt $i/30: Redis not ready yet, waiting..."
+            sleep 2
+          done
       - name: Wait for RabbitMQ to be ready
         run: |
           echo "Waiting for RabbitMQ to be ready..."
+          # Wait for port to be open
           for i in {1..30}; do
             if timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/5672" 2>/dev/null; then
               echo "RabbitMQ port 5672 is open"
               break
             fi
-            echo "Attempt $i/30: RabbitMQ not ready yet, waiting..."
+            echo "Attempt $i/30: RabbitMQ port not open yet, waiting..."
             sleep 2
           done
+          # Additional wait for RabbitMQ to fully initialize
+          echo "Waiting additional 5 seconds for RabbitMQ to fully initialize..."
+          sleep 5
           echo "RabbitMQ readiness check complete"
       - name: Start backend (background)
         run: |
           cd backend && npm run dev > backend.log 2>&1 &
           echo $! > backend.pid
-          sleep 5
+          echo "Backend started, waiting 15 seconds for initialization..."
+          sleep 15
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
           REDIS_URL: ${{ env.REDIS_URL }}
@@ -329,12 +345,14 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       - name: Check backend startup status
         run: |
-          sleep 10
           if ! ps -p $(cat backend/backend.pid) > /dev/null 2>&1; then
             echo "Backend process not running. Logs:"
             cat backend/backend.log || true
             exit 1
           fi
+          echo "Backend process is running (PID: $(cat backend/backend.pid))"
+          echo "Recent backend logs:"
+          tail -50 backend/backend.log || true
       - name: Wait for backend health
         run: |
           timeout 120 bash -c 'until curl -f ${{ env.BACKEND_URL }}/api/health; do sleep 2; done' || {
@@ -521,23 +539,39 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_URL }}
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Wait for Redis to be ready
+        run: |
+          echo "Waiting for Redis to be ready..."
+          for i in {1..30}; do
+            if redis-cli -h 127.0.0.1 ping 2>/dev/null | grep -q PONG; then
+              echo "Redis is ready"
+              break
+            fi
+            echo "Attempt $i/30: Redis not ready yet, waiting..."
+            sleep 2
+          done
       - name: Wait for RabbitMQ to be ready
         run: |
           echo "Waiting for RabbitMQ to be ready..."
+          # Wait for port to be open
           for i in {1..30}; do
             if timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/5672" 2>/dev/null; then
               echo "RabbitMQ port 5672 is open"
               break
             fi
-            echo "Attempt $i/30: RabbitMQ not ready yet, waiting..."
+            echo "Attempt $i/30: RabbitMQ port not open yet, waiting..."
             sleep 2
           done
+          # Additional wait for RabbitMQ to fully initialize
+          echo "Waiting additional 5 seconds for RabbitMQ to fully initialize..."
+          sleep 5
           echo "RabbitMQ readiness check complete"
       - name: Start backend
         run: |
           cd backend && npm run dev > backend.log 2>&1 &
           echo $! > backend.pid
-          sleep 5
+          echo "Backend started, waiting 15 seconds for initialization..."
+          sleep 15
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
           REDIS_URL: ${{ env.REDIS_URL }}
@@ -546,12 +580,14 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       - name: Check backend startup status
         run: |
-          sleep 10
           if ! ps -p $(cat backend/backend.pid) > /dev/null 2>&1; then
             echo "Backend process not running. Logs:"
             cat backend/backend.log || true
             exit 1
           fi
+          echo "Backend process is running (PID: $(cat backend/backend.pid))"
+          echo "Recent backend logs:"
+          tail -50 backend/backend.log || true
       - name: Wait for backend
         run: |
           timeout 120 bash -c 'until curl -f ${{ env.BACKEND_URL }}/api/health; do sleep 2; done' || {
