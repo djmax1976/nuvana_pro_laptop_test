@@ -33,7 +33,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         if (query.error) {
           reply.code(401);
           return {
-            error: "OAuth authentication failed",
+            error: `OAuth authentication failed: ${query.error}`,
             message: query.error,
           };
         }
@@ -91,15 +91,13 @@ export async function authRoutes(fastify: FastifyInstance) {
             undefined,
         );
 
-        // Generate JWT tokens
-        // Note: Roles and permissions will be empty arrays until RBAC framework is implemented (Story 1-7)
+        // Generate JWT tokens with roles and permissions from database
         const authService = new AuthService();
-        const { accessToken, refreshToken } = authService.generateTokenPair(
-          localUser.user_id,
-          localUser.email,
-          [], // roles - empty until RBAC implemented
-          [], // permissions - empty until RBAC implemented
-        );
+        const { accessToken, refreshToken } =
+          await authService.generateTokenPairWithRBAC(
+            localUser.user_id,
+            localUser.email,
+          );
 
         // Set httpOnly cookies with secure flags
         // Access token cookie (15 min expiry)
@@ -166,16 +164,13 @@ export async function authRoutes(fastify: FastifyInstance) {
         const decoded = authService.verifyRefreshToken(refreshToken);
 
         // Get user from database by user_id to retrieve current roles/permissions
-        // Note: Roles and permissions will be empty until RBAC is implemented (Story 1-7)
         const localUser = await getUserById(decoded.user_id);
 
-        // Generate new token pair (token rotation - old refresh token is now invalid)
+        // Generate new token pair with roles and permissions from database (token rotation - old refresh token is now invalid)
         const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
-          authService.generateTokenPair(
+          await authService.generateTokenPairWithRBAC(
             localUser.user_id,
             localUser.email,
-            [], // roles - empty until RBAC implemented
-            [], // permissions - empty until RBAC implemented
           );
 
         // Set new httpOnly cookies with secure flags
