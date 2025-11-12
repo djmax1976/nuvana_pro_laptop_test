@@ -29,9 +29,10 @@ test.describe("1.4-API-001: Redis Connection Configuration", () => {
 
     // AND: Response includes Redis health status
     const body = await response.json();
-    expect(body).toHaveProperty("redis");
-    expect(body.redis).toHaveProperty("status");
-    expect(body.redis.status).toBe("healthy");
+    expect(body).toHaveProperty("services");
+    expect(body.services).toHaveProperty("redis");
+    expect(body.services.redis).toHaveProperty("healthy");
+    expect(body.services.redis.healthy).toBe(true);
   });
 
   test("[P0] 1.4-API-001-002: Redis connection should support ping operation", async ({
@@ -44,8 +45,8 @@ test.describe("1.4-API-001: Redis Connection Configuration", () => {
     // THEN: Redis health check includes connection verification
     expect(response.status()).toBe(200);
     const body = await response.json();
-    expect(body.redis).toHaveProperty("status");
-    expect(body.redis.status).toBe("healthy");
+    expect(body.services.redis).toHaveProperty("healthy");
+    expect(body.services.redis.healthy).toBe(true);
     // Note: Ping operation is verified by healthy status
   });
 
@@ -61,9 +62,10 @@ test.describe("1.4-API-001: Redis Connection Configuration", () => {
 
     // AND: Redis health status indicates unhealthy
     const body = await response.json();
-    expect(body).toHaveProperty("redis");
-    expect(body.redis).toHaveProperty("status");
-    // Note: Status may be 'unhealthy' if Redis is down, but endpoint should not crash
+    expect(body).toHaveProperty("services");
+    expect(body.services).toHaveProperty("redis");
+    expect(body.services.redis).toHaveProperty("healthy");
+    // Note: healthy may be false if Redis is down, but endpoint should not crash
   });
 });
 
@@ -80,9 +82,10 @@ test.describe("1.4-API-002: RabbitMQ Connection Configuration", () => {
 
     // AND: Response includes RabbitMQ health status
     const body = await response.json();
-    expect(body).toHaveProperty("rabbitmq");
-    expect(body.rabbitmq).toHaveProperty("status");
-    expect(body.rabbitmq.status).toBe("healthy");
+    expect(body).toHaveProperty("services");
+    expect(body.services).toHaveProperty("rabbitmq");
+    expect(body.services.rabbitmq).toHaveProperty("healthy");
+    expect(body.services.rabbitmq.healthy).toBe(true);
   });
 
   test("[P0] 1.4-API-002-002: RabbitMQ channels should be created successfully", async ({
@@ -95,8 +98,8 @@ test.describe("1.4-API-002: RabbitMQ Connection Configuration", () => {
     // THEN: RabbitMQ health check includes channel creation verification
     expect(response.status()).toBe(200);
     const body = await response.json();
-    expect(body.rabbitmq).toHaveProperty("status");
-    expect(body.rabbitmq.status).toBe("healthy");
+    expect(body.services.rabbitmq).toHaveProperty("healthy");
+    expect(body.services.rabbitmq.healthy).toBe(true);
     // Note: Channel creation is verified by healthy status
   });
 
@@ -112,9 +115,10 @@ test.describe("1.4-API-002: RabbitMQ Connection Configuration", () => {
 
     // AND: RabbitMQ health status indicates unhealthy
     const body = await response.json();
-    expect(body).toHaveProperty("rabbitmq");
-    expect(body.rabbitmq).toHaveProperty("status");
-    // Note: Status may be 'unhealthy' if RabbitMQ is down, but endpoint should not crash
+    expect(body).toHaveProperty("services");
+    expect(body.services).toHaveProperty("rabbitmq");
+    expect(body.services.rabbitmq).toHaveProperty("healthy");
+    // Note: healthy may be false if RabbitMQ is down, but endpoint should not crash
   });
 });
 
@@ -129,10 +133,11 @@ test.describe("1.4-API-003: Health Check Endpoint", () => {
     // THEN: Response includes health status for both services
     expect(response.status()).toBe(200);
     const body = await response.json();
-    expect(body).toHaveProperty("redis");
-    expect(body).toHaveProperty("rabbitmq");
-    expect(body.redis).toHaveProperty("status");
-    expect(body.rabbitmq).toHaveProperty("status");
+    expect(body).toHaveProperty("services");
+    expect(body.services).toHaveProperty("redis");
+    expect(body.services).toHaveProperty("rabbitmq");
+    expect(body.services.redis).toHaveProperty("healthy");
+    expect(body.services.rabbitmq).toHaveProperty("healthy");
   });
 
   test("[P1] 1.4-API-003-002: Health check should include service version information", async ({
@@ -146,17 +151,9 @@ test.describe("1.4-API-003: Health Check Endpoint", () => {
     expect(response.status()).toBe(200);
     const body = await response.json();
 
-    // Redis version information (if available)
-    if (body.redis) {
-      // Version info may be in redis object or top-level
-      expect(body).toHaveProperty("version");
-    }
-
-    // RabbitMQ version information (if available)
-    if (body.rabbitmq) {
-      // Version info may be in rabbitmq object or top-level
-      expect(body).toHaveProperty("version");
-    }
+    // Version info is at top-level
+    expect(body).toHaveProperty("version");
+    expect(typeof body.version).toBe("string");
   });
 
   test("[P1] 1.4-API-003-003: Health check should return service status for each service independently", async ({
@@ -171,12 +168,12 @@ test.describe("1.4-API-003: Health Check Endpoint", () => {
     const body = await response.json();
 
     // Redis status is independent
-    expect(body.redis).toHaveProperty("status");
-    expect(["healthy", "unhealthy"]).toContain(body.redis.status);
+    expect(body.services.redis).toHaveProperty("healthy");
+    expect(typeof body.services.redis.healthy).toBe("boolean");
 
     // RabbitMQ status is independent
-    expect(body.rabbitmq).toHaveProperty("status");
-    expect(["healthy", "unhealthy"]).toContain(body.rabbitmq.status);
+    expect(body.services.rabbitmq).toHaveProperty("healthy");
+    expect(typeof body.services.rabbitmq.healthy).toBe("boolean");
 
     // One service can be unhealthy while the other is healthy
     // (This test verifies independent status reporting)

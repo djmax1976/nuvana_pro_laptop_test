@@ -63,7 +63,8 @@ test.describe("ERR-API-002: Error Handling - Invalid HTTP Methods", () => {
 
     // THEN: Response is 405 Method Not Allowed (or 404 if method not implemented)
     // Note: Fastify may return 404 for unsupported methods, both are acceptable
-    expect([404, 405]).toContain(response.status());
+    const status = response.status();
+    expect(status === 404 || status === 405).toBe(true);
   });
 
   test("[P1] ERR-API-002-002: PUT /health should return 405 Method Not Allowed", async ({
@@ -74,7 +75,8 @@ test.describe("ERR-API-002: Error Handling - Invalid HTTP Methods", () => {
     const response = await apiRequest.put("/health", {});
 
     // THEN: Response is 405 Method Not Allowed (or 404 if method not implemented)
-    expect([404, 405]).toContain(response.status());
+    const status = response.status();
+    expect(status === 404 || status === 405).toBe(true);
   });
 });
 
