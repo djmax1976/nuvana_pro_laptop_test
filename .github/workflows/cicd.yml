@@ -304,6 +304,10 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_URL }}
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Build backend
+        run: cd backend && npm run build
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
       - name: Wait for Redis to be ready
         run: |
           echo "Waiting for Redis to be ready..."
@@ -333,10 +337,11 @@ jobs:
           echo "RabbitMQ readiness check complete"
       - name: Start backend (background)
         run: |
-          cd backend && npm run dev > backend.log 2>&1 &
+          cd backend
+          node dist/app.js > backend.log 2>&1 &
           echo $! > backend.pid
-          echo "Backend started, waiting 15 seconds for initialization..."
-          sleep 15
+          echo "Backend started (PID: $!), waiting 20 seconds for initialization..."
+          sleep 20
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
           REDIS_URL: ${{ env.REDIS_URL }}
@@ -539,6 +544,10 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_URL }}
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Build backend
+        run: cd backend && npm run build
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
       - name: Wait for Redis to be ready
         run: |
           echo "Waiting for Redis to be ready..."
@@ -568,10 +577,11 @@ jobs:
           echo "RabbitMQ readiness check complete"
       - name: Start backend
         run: |
-          cd backend && npm run dev > backend.log 2>&1 &
+          cd backend
+          node dist/app.js > backend.log 2>&1 &
           echo $! > backend.pid
-          echo "Backend started, waiting 15 seconds for initialization..."
-          sleep 15
+          echo "Backend started (PID: $!), waiting 20 seconds for initialization..."
+          sleep 20
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
           REDIS_URL: ${{ env.REDIS_URL }}
