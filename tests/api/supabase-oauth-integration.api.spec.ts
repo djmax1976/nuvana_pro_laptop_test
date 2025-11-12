@@ -72,10 +72,11 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
     expect(body.user).toHaveProperty("auth_provider_id", supabaseUserId);
 
     // AND: User exists in database
-    const userInDb = await prismaClient.user.findUnique({
+    const usersInDb = await prismaClient.user.findMany({
       where: { auth_provider_id: supabaseUserId },
     });
-    expect(userInDb).toBeTruthy();
+    expect(usersInDb.length).toBeGreaterThan(0);
+    const userInDb = usersInDb[0];
     expect(userInDb?.email).toBe(newUserEmail);
   });
 
@@ -433,7 +434,7 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
 
     // Cleanup
     await prismaClient.user.delete({
-      where: { id: user.id },
+      where: { user_id: user.user_id },
     });
   });
 
@@ -452,18 +453,19 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
     });
 
     // WHEN: getUserOrCreate is called with existing auth_provider_id
-    const retrievedUser = await prismaClient.user.findUnique({
+    const retrievedUsers = await prismaClient.user.findMany({
       where: { auth_provider_id: existingUser.auth_provider_id },
     });
+    const retrievedUser = retrievedUsers[0] || null;
 
     // THEN: Existing user is retrieved
     expect(retrievedUser).toBeTruthy();
-    expect(retrievedUser?.id).toBe(createdUser.id);
+    expect(retrievedUser?.user_id).toBe(createdUser.user_id);
     expect(retrievedUser?.email).toBe(existingUser.email);
 
     // Cleanup
     await prismaClient.user.delete({
-      where: { id: createdUser.id },
+      where: { user_id: createdUser.user_id },
     });
   });
 
@@ -493,7 +495,7 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
 
     // Cleanup
     await prismaClient.user.delete({
-      where: { id: updatedUser.id },
+      where: { user_id: updatedUser.user_id },
     });
   });
 
@@ -525,7 +527,7 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
     // Cleanup
     if (usersInDb.length > 0) {
       await prismaClient.user.delete({
-        where: { id: usersInDb[0].id },
+        where: { user_id: usersInDb[0].user_id },
       });
     }
   });
@@ -552,12 +554,12 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
     expect(body.user).toHaveProperty("auth_provider_id", supabaseUserId);
 
     // Cleanup
-    const userInDb = await prismaClient.user.findUnique({
+    const usersInDb = await prismaClient.user.findMany({
       where: { auth_provider_id: supabaseUserId },
     });
-    if (userInDb) {
+    if (usersInDb.length > 0) {
       await prismaClient.user.delete({
-        where: { id: userInDb.id },
+        where: { user_id: usersInDb[0].user_id },
       });
     }
   });

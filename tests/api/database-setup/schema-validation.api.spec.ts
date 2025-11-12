@@ -115,7 +115,7 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
         data: {
           company_id: storeData.company_id,
           name: storeData.name,
-          location_json: storeData.location_json,
+          location_json: storeData.location_json as any,
           timezone: storeData.timezone,
           status: storeData.status,
         },

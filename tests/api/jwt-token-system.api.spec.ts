@@ -181,7 +181,7 @@ test.describe("1.6-API-001: JWT Token Generation in OAuth Callback", () => {
 
     // Cleanup
     await prismaClient.user.delete({
-      where: { id: createdUser.id },
+      where: { user_id: createdUser.user_id },
     });
   });
 });
