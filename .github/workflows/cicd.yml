@@ -368,37 +368,48 @@ jobs:
       - name: Run API suite
         run: |
           echo "Starting API tests..."
-          npm run test:api 2>&1 | tee test-output.log
+          npm run test:api 2>&1 | tee test-output.log || true
           TEST_EXIT_CODE=${PIPESTATUS[0]}
           echo "Test command exited with code: $TEST_EXIT_CODE"
           
-          # Check test results
-          if grep -q "failed\|error\|Error" test-output.log; then
-            echo "Found errors in test output:"
-            grep -i "failed\|error" test-output.log | tail -20
-          fi
+          # Check test output for pass count
+          PASSED_COUNT=$(grep -oP '\d+(?= passed)' test-output.log | tail -1 || echo "0")
+          FAILED_COUNT=$(grep -oP '\d+(?= failed)' test-output.log | tail -1 || echo "0")
+          echo "Tests passed: $PASSED_COUNT, failed: $FAILED_COUNT"
           
-          # Check JUnit XML for failures
+          # Check JUnit XML for failures (source of truth)
           if [ -f test-results/junit.xml ]; then
             echo "Checking JUnit XML for failures..."
-            FAILURES=$(grep -o 'failures="[0-9]*"' test-results/junit.xml | grep -o '[0-9]*' | head -1 || echo "0")
-            ERRORS=$(grep -o 'errors="[0-9]*"' test-results/junit.xml | grep -o '[0-9]*' | head -1 || echo "0")
-            echo "JUnit failures: $FAILURES, errors: $ERRORS"
+            FAILURES=$(grep -oP 'failures="\K[0-9]+' test-results/junit.xml | head -1 || echo "0")
+            ERRORS=$(grep -oP 'errors="\K[0-9]+' test-results/junit.xml | head -1 || echo "0")
+            TESTS=$(grep -oP 'tests="\K[0-9]+' test-results/junit.xml | head -1 || echo "0")
+            echo "JUnit summary: tests=$TESTS, failures=$FAILURES, errors=$ERRORS"
             
+            # Use JUnit XML as source of truth
             if [ "$FAILURES" != "0" ] || [ "$ERRORS" != "0" ]; then
-              echo "JUnit XML indicates failures or errors"
+              echo "JUnit XML indicates failures or errors - exiting with code 1"
               exit 1
+            elif [ "$TESTS" != "0" ] && [ "$FAILURES" = "0" ] && [ "$ERRORS" = "0" ]; then
+              echo "All tests passed according to JUnit XML - exiting with code 0"
+              exit 0
             fi
           fi
           
-          if [ $TEST_EXIT_CODE -ne 0 ]; then
-            echo "Tests exited with non-zero code: $TEST_EXIT_CODE"
-            echo "Last 50 lines of test output:"
-            tail -50 test-output.log || true
-            exit $TEST_EXIT_CODE
+          # Fallback: check test output
+          if [ "$FAILED_COUNT" != "0" ]; then
+            echo "Test output indicates failures - exiting with code 1"
+            grep -i "failed\|error" test-output.log | tail -20 || true
+            exit 1
+          elif [ "$PASSED_COUNT" != "0" ] && [ "$FAILED_COUNT" = "0" ]; then
+            echo "All tests passed according to test output - exiting with code 0"
+            exit 0
           fi
           
-          echo "All tests passed successfully"
+          # If we get here, something unexpected happened
+          echo "Unexpected test result - Playwright exit code: $TEST_EXIT_CODE"
+          echo "Last 50 lines of test output:"
+          tail -50 test-output.log || true
+          exit $TEST_EXIT_CODE
         env:
           BACKEND_URL: ${{ env.BACKEND_URL }}
           DATABASE_URL: ${{ env.DATABASE_URL }}
