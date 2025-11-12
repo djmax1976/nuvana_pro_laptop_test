@@ -2,9 +2,9 @@ name: Production CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, development]
   pull_request:
-    branches: [main, develop]
+    branches: [main, development]
   schedule:
     - cron: "0 3 * * 1" # Weekly burn-in + dynamic scans
 
