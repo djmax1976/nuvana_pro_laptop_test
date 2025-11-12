@@ -68,12 +68,17 @@ export default defineConfig({
   ],
 
   // Web server configuration (for starting backend during tests)
-  webServer: {
-    command: "cd backend && npm run dev",
-    url: (process.env.BACKEND_URL || "http://localhost:3001") + "/health",
-    reuseExistingServer: true, // Always reuse existing server (CI starts it manually)
-    timeout: 120000,
-    stdout: "ignore",
-    stderr: "pipe",
-  },
+  // Disabled in CI since backend is started manually in CI/CD pipeline
+  ...(process.env.CI
+    ? {}
+    : {
+        webServer: {
+          command: "cd backend && npm run dev",
+          url: (process.env.BACKEND_URL || "http://localhost:3001") + "/health",
+          reuseExistingServer: true,
+          timeout: 120000,
+          stdout: "ignore",
+          stderr: "pipe",
+        },
+      }),
 });
