@@ -13,7 +13,7 @@ env:
   BACKEND_URL: "http://localhost:3001"
   DATABASE_URL: "postgresql://ci_user:ci_password@127.0.0.1:5432/store_management_ci"
   REDIS_URL: "redis://127.0.0.1:6379"
-  RABBITMQ_URL: "amqp://127.0.0.1:5672"
+  RABBITMQ_URL: "amqp://ci_user:ci_password@127.0.0.1:5672"
   PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
   DEFAULT_BASE_BRANCH: "main"
   BURN_IN_ITERATIONS: "5"
@@ -304,6 +304,18 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_URL }}
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Wait for RabbitMQ to be ready
+        run: |
+          echo "Waiting for RabbitMQ to be ready..."
+          for i in {1..30}; do
+            if timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/5672" 2>/dev/null; then
+              echo "RabbitMQ port 5672 is open"
+              break
+            fi
+            echo "Attempt $i/30: RabbitMQ not ready yet, waiting..."
+            sleep 2
+          done
+          echo "RabbitMQ readiness check complete"
       - name: Start backend (background)
         run: |
           cd backend && npm run dev > backend.log 2>&1 &
@@ -509,6 +521,18 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_URL }}
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Wait for RabbitMQ to be ready
+        run: |
+          echo "Waiting for RabbitMQ to be ready..."
+          for i in {1..30}; do
+            if timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/5672" 2>/dev/null; then
+              echo "RabbitMQ port 5672 is open"
+              break
+            fi
+            echo "Attempt $i/30: RabbitMQ not ready yet, waiting..."
+            sleep 2
+          done
+          echo "RabbitMQ readiness check complete"
       - name: Start backend
         run: |
           cd backend && npm run dev > backend.log 2>&1 &
