@@ -71,7 +71,7 @@ export default defineConfig({
   webServer: {
     command: "cd backend && npm run dev",
     url: (process.env.BACKEND_URL || "http://localhost:3001") + "/health",
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: true, // Always reuse existing server (CI starts it manually)
     timeout: 120000,
     stdout: "ignore",
     stderr: "pipe",
