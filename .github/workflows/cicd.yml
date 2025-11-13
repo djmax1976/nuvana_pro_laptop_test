@@ -23,6 +23,7 @@ jobs:
   lint_typecheck:
     name: Lint & Type Check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js
@@ -37,16 +38,35 @@ jobs:
       - name: TypeScript
         run: npx tsc --noEmit
 
+  build_app:
+    name: Build Application
+    needs: lint_typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+
   changed_tests_burn_in:
     name: Burn-In Changed Tests
     needs: lint_typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -57,7 +77,10 @@ jobs:
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
       - name: Install Playwright browsers
+        if: steps.cache-browsers.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
       - name: Detect changed spec files
         id: changed_specs
@@ -80,6 +103,7 @@ jobs:
           echo "Running burn-in for changed specs (${{ env.BURN_IN_ITERATIONS }} iterations)"
           IFS=$'\n' read -rd '' -a SPECS <<<"${{ steps.changed_specs.outputs.changed_specs }}"
           for spec in "${SPECS[@]}"; do
+            [ -z "$spec" ] && continue
             for ((i=1;i<=${{ env.BURN_IN_ITERATIONS }};i++)); do
               echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
               echo "Iteration $i/${{ env.BURN_IN_ITERATIONS }} for $spec"
@@ -109,12 +133,14 @@ jobs:
     name: Selective Tests (PR fast feedback)
     needs: lint_typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -125,7 +151,10 @@ jobs:
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
       - name: Install Playwright browsers
+        if: steps.cache-browsers.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
       - name: Ensure selective runner is executable
         run: chmod +x ./scripts/selective-test-runner.sh || echo "Selective runner script not found, will create"
@@ -156,6 +185,7 @@ jobs:
     needs: lint_typecheck
     name: Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -175,6 +205,7 @@ jobs:
     needs: unit_tests
     name: Integration / API Contract Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:15
@@ -235,6 +266,7 @@ jobs:
     needs: integration_tests
     name: Playwright API Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -248,7 +280,10 @@ jobs:
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
       - name: Install Playwright browsers
+        if: steps.cache-browsers.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
       - name: Start backend (background)
         run: |
@@ -283,11 +318,18 @@ jobs:
           name: backend-logs
           path: backend.log
           retention-days: 7
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then
+            kill $(cat backend.pid) || true
+          fi
 
   e2e_tests:
     needs: api_tests
     name: Playwright UI Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -299,7 +341,10 @@ jobs:
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
       - name: Install Playwright browsers
+        if: steps.cache-browsers.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
       - name: Start backend (background)
         run: |
@@ -348,11 +393,21 @@ jobs:
             backend.log
             frontend.log
           retention-days: 7
+      - name: Stop services
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then
+            kill $(cat backend.pid) || true
+          fi
+          if [ -f frontend.pid ]; then
+            kill $(cat frontend.pid) || true
+          fi
 
   security_static:
     needs: lint_typecheck
     name: Static Security & Supply Chain
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       security-events: write
@@ -392,6 +447,7 @@ jobs:
     needs: api_tests
     name: Dynamic Security (ZAP + Fuzzing)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
@@ -438,11 +494,18 @@ jobs:
             zap-report.html
             backend.log
           retention-days: 30
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then
+            kill $(cat backend.pid) || true
+          fi
 
   artifact_build:
     needs: [e2e_tests, security_dynamic]
     name: Build & Publish Artifacts
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -467,6 +530,7 @@ jobs:
     needs: artifact_build
     name: Docker Build & Trivy Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
