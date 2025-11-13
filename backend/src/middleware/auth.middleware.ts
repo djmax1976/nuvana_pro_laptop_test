@@ -74,12 +74,12 @@ export async function validateSupabaseToken(
  * Attaches user identity to request object
  */
 export async function authMiddleware(
-  request: FastifyRequest & { cookies?: { accessToken?: string } },
+  request: FastifyRequest & { cookies?: { access_token?: string } },
   reply: FastifyReply,
 ): Promise<void> {
   try {
     // Extract access token from httpOnly cookie
-    const accessToken = request.cookies?.accessToken;
+    const accessToken = request.cookies?.access_token;
 
     if (!accessToken) {
       reply.code(401);

@@ -102,7 +102,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         // Set httpOnly cookies with secure flags
         // Access token cookie (15 min expiry)
-        (reply as any).setCookie("accessToken", accessToken, {
+        (reply as any).setCookie("access_token", accessToken, {
           httpOnly: true,
           secure: true, // HTTPS only
           sameSite: "strict", // CSRF protection
@@ -111,7 +111,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         });
 
         // Refresh token cookie (7 days expiry)
-        (reply as any).setCookie("refreshToken", refreshToken, {
+        (reply as any).setCookie("refresh_token", refreshToken, {
           httpOnly: true,
           secure: true, // HTTPS only
           sameSite: "strict", // CSRF protection
@@ -150,7 +150,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         // Extract refresh token from httpOnly cookie
-        const refreshToken = (request as any).cookies?.refreshToken;
+        const refreshToken = (request as any).cookies?.refresh_token;
 
         if (!refreshToken) {
           reply.code(401);
@@ -176,7 +176,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         // Set new httpOnly cookies with secure flags
         // Access token cookie (15 min expiry)
-        (reply as any).setCookie("accessToken", newAccessToken, {
+        (reply as any).setCookie("access_token", newAccessToken, {
           httpOnly: true,
           secure: true, // HTTPS only
           sameSite: "strict", // CSRF protection
@@ -185,7 +185,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         });
 
         // Refresh token cookie (7 days expiry) - rotated
-        (reply as any).setCookie("refreshToken", newRefreshToken, {
+        (reply as any).setCookie("refresh_token", newRefreshToken, {
           httpOnly: true,
           secure: true, // HTTPS only
           sameSite: "strict", // CSRF protection
@@ -206,8 +206,8 @@ export async function authRoutes(fastify: FastifyInstance) {
         fastify.log.error({ error }, "Refresh token error");
 
         // Clear invalid cookies
-        (reply as any).clearCookie("accessToken", { path: "/" });
-        (reply as any).clearCookie("refreshToken", { path: "/" });
+        (reply as any).clearCookie("access_token", { path: "/" });
+        (reply as any).clearCookie("refresh_token", { path: "/" });
 
         reply.code(401);
         return {

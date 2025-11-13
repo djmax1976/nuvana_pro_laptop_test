@@ -86,7 +86,6 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
   }) => {
     // GIVEN: User already exists in database
     const existingUser = createUser({
-      email: "existing@example.com",
       name: "Existing User",
       auth_provider_id: "supabase_user_id_existing",
     });
@@ -443,7 +442,6 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
   }) => {
     // GIVEN: User exists in database
     const existingUser = createUser({
-      email: "existing@example.com",
       name: "Existing User",
       auth_provider_id: "supabase_user_id_existing",
     });
@@ -474,7 +472,6 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
   }) => {
     // GIVEN: User exists with email
     const existingUser = createUser({
-      email: "duplicate@example.com",
       name: "Existing User",
       auth_provider_id: "supabase_user_id_existing",
     });

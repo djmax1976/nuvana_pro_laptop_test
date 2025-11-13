@@ -9,6 +9,7 @@ import { initializeRabbitMQ, closeRabbitMQ } from "./utils/rabbitmq";
 import { healthRoutes } from "./routes/health";
 import { authRoutes } from "./routes/auth";
 import { adminRoutes } from "./routes/admin";
+import { userRoutes } from "./routes/users";
 
 // Load environment variables
 dotenv.config();
@@ -58,26 +59,41 @@ app.register(healthRoutes);
 // Register auth routes
 app.register(authRoutes);
 
+// Register user routes
+app.register(userRoutes);
+
 // Register admin routes (with permission middleware examples)
 app.register(adminRoutes);
 
 // Legacy health check endpoint (backward compatibility)
-// Handle all methods and return 405 for unsupported ones
-app.all("/health", async (request, reply) => {
-  const allowedMethods = ["GET", "HEAD", "OPTIONS"];
+// Explicitly register allowed methods
+app.get("/health", async (request, reply) => {
+  return { status: "ok", timestamp: new Date().toISOString() };
+});
 
-  if (allowedMethods.includes(request.method)) {
-    // Return health status for allowed methods
-    return { status: "ok", timestamp: new Date().toISOString() };
-  } else {
-    // Return 405 for unsupported methods
+app.head("/health", async (request, reply) => {
+  reply.code(200);
+  return;
+});
+
+app.options("/health", async (request, reply) => {
+  reply.header("Allow", "GET, HEAD, OPTIONS");
+  reply.code(200);
+  return;
+});
+
+// Handle unsupported methods with 405
+app.route({
+  method: ["POST", "PUT", "PATCH", "DELETE"],
+  url: "/health",
+  handler: async (request, reply) => {
     reply.code(405);
-    reply.header("Allow", allowedMethods.join(", "));
+    reply.header("Allow", "GET, HEAD, OPTIONS");
     return {
       error: "Method Not Allowed",
-      message: `${request.method} is not allowed for ${request.url}. Supported methods: ${allowedMethods.join(", ")}`,
+      message: `${request.method} is not allowed for ${request.url}. Supported methods: GET, HEAD, OPTIONS`,
     };
-  }
+  },
 });
 
 // Start server
