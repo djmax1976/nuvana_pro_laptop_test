@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
+import { USER_CREATE, USER_READ, USER_DELETE } from "../constants/permissions";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -66,7 +67,7 @@ export async function userRoutes(fastify: FastifyInstance) {
    */
   fastify.get(
     "/api/users",
-    { preHandler: [authMiddleware, requirePermission("user:read")] },
+    { preHandler: [authMiddleware, requirePermission(USER_READ)] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const query = request.query as {
@@ -134,7 +135,7 @@ export async function userRoutes(fastify: FastifyInstance) {
    */
   fastify.post(
     "/api/users",
-    { preHandler: [authMiddleware, requirePermission("user:create")] },
+    { preHandler: [authMiddleware, requirePermission(USER_CREATE)] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const body = request.body as {
@@ -177,7 +178,7 @@ export async function userRoutes(fastify: FastifyInstance) {
         const user = await prisma.user.create({
           data: {
             email: body.email,
-            name: body.name ?? null,
+            name: body.name || body.email.split("@")[0], // Default to email prefix if name not provided
             auth_provider_id: body.auth_provider_id ?? null,
             status:
               (body.status as "ACTIVE" | "INACTIVE" | "SUSPENDED") || "ACTIVE",
@@ -285,7 +286,7 @@ export async function userRoutes(fastify: FastifyInstance) {
    */
   fastify.delete(
     "/api/users/:id",
-    { preHandler: [authMiddleware, requirePermission("user:delete")] },
+    { preHandler: [authMiddleware, requirePermission(USER_DELETE)] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const params = request.params as { id: string };
