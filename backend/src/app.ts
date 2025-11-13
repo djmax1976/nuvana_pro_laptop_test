@@ -11,6 +11,7 @@ import { authRoutes } from "./routes/auth";
 import { adminRoutes } from "./routes/admin";
 import { userRoutes } from "./routes/users";
 import { companyRoutes } from "./routes/companies";
+import { contactRoutes } from "./routes/contact";
 
 // Load environment variables
 dotenv.config();
@@ -65,6 +66,9 @@ app.register(userRoutes);
 
 // Register company routes
 app.register(companyRoutes);
+
+// Register contact routes (public - no auth required)
+app.register(contactRoutes);
 
 // Register admin routes (with permission middleware examples)
 app.register(adminRoutes);
