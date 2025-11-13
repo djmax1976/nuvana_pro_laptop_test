@@ -10,6 +10,7 @@ import { healthRoutes } from "./routes/health";
 import { authRoutes } from "./routes/auth";
 import { adminRoutes } from "./routes/admin";
 import { userRoutes } from "./routes/users";
+import { companyRoutes } from "./routes/companies";
 
 // Load environment variables
 dotenv.config();
@@ -61,6 +62,9 @@ app.register(authRoutes);
 
 // Register user routes
 app.register(userRoutes);
+
+// Register company routes
+app.register(companyRoutes);
 
 // Register admin routes (with permission middleware examples)
 app.register(adminRoutes);

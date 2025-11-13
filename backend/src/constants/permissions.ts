@@ -15,6 +15,12 @@ export const USER_READ = "USER_READ";
 export const USER_UPDATE = "USER_UPDATE";
 export const USER_DELETE = "USER_DELETE";
 
+// Company Management Permissions
+export const COMPANY_CREATE = "COMPANY_CREATE";
+export const COMPANY_READ = "COMPANY_READ";
+export const COMPANY_UPDATE = "COMPANY_UPDATE";
+export const COMPANY_DELETE = "COMPANY_DELETE";
+
 // Store Management Permissions
 export const STORE_CREATE = "STORE_CREATE";
 export const STORE_READ = "STORE_READ";
@@ -57,6 +63,12 @@ export const PERMISSIONS = {
   USER_READ,
   USER_UPDATE,
   USER_DELETE,
+
+  // Company Management
+  COMPANY_CREATE,
+  COMPANY_READ,
+  COMPANY_UPDATE,
+  COMPANY_DELETE,
 
   // Store Management
   STORE_CREATE,
@@ -112,6 +124,12 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [USER_READ]: "View user information",
   [USER_UPDATE]: "Update user information",
   [USER_DELETE]: "Delete users",
+
+  // Company Management
+  [COMPANY_CREATE]: "Create new companies",
+  [COMPANY_READ]: "View company information",
+  [COMPANY_UPDATE]: "Update company information",
+  [COMPANY_DELETE]: "Delete companies",
 
   // Store Management
   [STORE_CREATE]: "Create new stores",

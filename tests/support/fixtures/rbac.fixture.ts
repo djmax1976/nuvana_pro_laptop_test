@@ -1,3 +1,4 @@
+import { config } from "dotenv";
 import { test as base, APIRequestContext } from "@playwright/test";
 import { createUser, createCompany, createStore } from "../factories";
 import {
@@ -7,6 +8,9 @@ import {
 } from "../factories";
 import { PrismaClient } from "@prisma/client";
 import { createJWTAccessToken } from "../factories";
+
+// Load environment variables from .env.local for Playwright tests
+config({ path: ".env.local" });
 
 /**
  * RBAC Test Fixtures

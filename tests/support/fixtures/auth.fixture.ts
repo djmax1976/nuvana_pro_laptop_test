@@ -1,6 +1,10 @@
+import { config } from "dotenv";
 import { test as base, APIRequestContext } from "@playwright/test";
 import { createSupabaseToken, createUser } from "../factories";
 import { PrismaClient } from "@prisma/client";
+
+// Load environment variables from .env.local for Playwright tests
+config({ path: ".env.local" });
 
 /**
  * Auth Test Fixtures
