@@ -215,6 +215,13 @@ export function requireAllPermissions(requiredPermissions: PermissionCode[]) {
 }
 
 /**
+ * Alias for permissionMiddleware for better naming consistency
+ * @param requiredPermission - Permission code required to access the route
+ * @returns Fastify middleware function
+ */
+export const requirePermission = permissionMiddleware;
+
+/**
  * Create permission middleware with multiple required permissions (user must have ANY)
  * @param requiredPermissions - Array of permission codes, at least one must be present
  * @returns Fastify middleware function

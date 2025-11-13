@@ -67,16 +67,16 @@ app.register(adminRoutes);
 
 // Legacy health check endpoint (backward compatibility)
 // Explicitly register allowed methods
-app.get("/health", async (request, reply) => {
+app.get("/health", async () => {
   return { status: "ok", timestamp: new Date().toISOString() };
 });
 
-app.head("/health", async (request, reply) => {
+app.head("/health", async (_request, reply) => {
   reply.code(200);
   return;
 });
 
-app.options("/health", async (request, reply) => {
+app.options("/health", async (_request, reply) => {
   reply.header("Allow", "GET, HEAD, OPTIONS");
   reply.code(200);
   return;

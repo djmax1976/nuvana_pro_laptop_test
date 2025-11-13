@@ -14,7 +14,7 @@ export interface UserIdentity {
 
 /**
  * Get existing user by auth_provider_id or create new user
- * Uses upsert to prevent race conditions in concurrent scenarios
+ * Uses email-based upsert to prevent race conditions (email is unique)
  * @param authProviderId - Supabase user ID (from token sub field)
  * @param email - User email from Supabase token
  * @param name - User name from Supabase token (optional)
@@ -26,16 +26,26 @@ export async function getUserOrCreate(
   name?: string,
 ) {
   try {
-    // Use upsert to atomically get or create user
-    // This prevents race conditions where multiple concurrent requests
-    // try to create the same user simultaneously
-    const user = await prisma.user.upsert({
+    // First, try to find existing user by auth_provider_id
+    let user = await prisma.user.findFirst({
       where: {
         auth_provider_id: authProviderId,
       },
+    });
+
+    if (user) {
+      return user;
+    }
+
+    // User doesn't exist by auth_provider_id, use email-based upsert
+    // Email is unique, so this is atomic and race-condition safe
+    user = await prisma.user.upsert({
+      where: {
+        email: email,
+      },
       update: {
-        // Update email/name if they've changed in the auth provider
-        email,
+        // Update auth_provider_id if user exists with this email but different provider
+        auth_provider_id: authProviderId,
         name: name || email.split("@")[0],
       },
       create: {
@@ -48,24 +58,8 @@ export async function getUserOrCreate(
 
     return user;
   } catch (error: any) {
-    // Handle unique constraint violation on email
-    // This can happen if a user already exists with the same email but different auth_provider_id
-    if (error.code === "P2002") {
-      // Find existing user by auth_provider_id and return it
-      const existingUser = await prisma.user.findFirst({
-        where: {
-          auth_provider_id: authProviderId,
-        },
-      });
-
-      if (existingUser) {
-        return existingUser;
-      }
-
-      // If we still can't find the user, throw the original error
-      throw error;
-    }
-
+    // Handle any unexpected errors
+    console.error("Error in getUserOrCreate:", error);
     throw error;
   }
 }

@@ -177,8 +177,8 @@ export async function userRoutes(fastify: FastifyInstance) {
         const user = await prisma.user.create({
           data: {
             email: body.email,
-            name: body.name || null,
-            auth_provider_id: body.auth_provider_id || null,
+            name: body.name ?? null,
+            auth_provider_id: body.auth_provider_id ?? null,
             status:
               (body.status as "ACTIVE" | "INACTIVE" | "SUSPENDED") || "ACTIVE",
           },
