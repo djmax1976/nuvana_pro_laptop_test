@@ -11,12 +11,17 @@ echo "=== Burn-In Test Runner ==="
 ITERATIONS="${BURN_IN_ITERATIONS:-5}"
 echo "Burn-in iterations: $ITERATIONS"
 
-# Get base branch (default to main)
-BASE_BRANCH="${GITHUB_BASE_REF:-main}"
-echo "Base branch: $BASE_BRANCH"
-
-# Find changed test files
-CHANGED_TESTS=$(git diff --name-only "origin/$BASE_BRANCH"...HEAD | grep -E '\.(spec|test)\.(ts|tsx|js|jsx)$' || echo "")
+# Find changed test files based on event type
+if [ -n "${GITHUB_BASE_REF:-}" ]; then
+  # Pull request: compare against base branch
+  BASE_BRANCH="$GITHUB_BASE_REF"
+  echo "PR mode - Base branch: $BASE_BRANCH"
+  CHANGED_TESTS=$(git diff --name-only "origin/$BASE_BRANCH"...HEAD | grep -E '\.(spec|test)\.(ts|tsx|js|jsx)$' || echo "")
+else
+  # Push event: compare against previous commit
+  echo "Push mode - Comparing HEAD~1...HEAD"
+  CHANGED_TESTS=$(git diff --name-only HEAD~1 HEAD | grep -E '\.(spec|test)\.(ts|tsx|js|jsx)$' || echo "")
+fi
 
 if [ -z "$CHANGED_TESTS" ]; then
   echo "No test files changed - skipping burn-in"

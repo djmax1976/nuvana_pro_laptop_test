@@ -8,12 +8,17 @@ set -euo pipefail
 echo "=== Selective Test Runner ==="
 echo "Analyzing changed files..."
 
-# Get base branch (default to main)
-BASE_BRANCH="${GITHUB_BASE_REF:-main}"
-echo "Base branch: $BASE_BRANCH"
-
-# Get changed files
-CHANGED_FILES=$(git diff --name-only "origin/$BASE_BRANCH"...HEAD || echo "")
+# Get changed files based on event type
+if [ -n "${GITHUB_BASE_REF:-}" ]; then
+  # Pull request: compare against base branch
+  BASE_BRANCH="$GITHUB_BASE_REF"
+  echo "PR mode - Base branch: $BASE_BRANCH"
+  CHANGED_FILES=$(git diff --name-only "origin/$BASE_BRANCH"...HEAD || echo "")
+else
+  # Push event: compare against previous commit
+  echo "Push mode - Comparing HEAD~1...HEAD"
+  CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD || echo "")
+fi
 
 if [ -z "$CHANGED_FILES" ]; then
   echo "No files changed - skipping tests"

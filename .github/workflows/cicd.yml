@@ -32,7 +32,6 @@ jobs:
   selective_tests:
     name: Selective Tests
     needs: lint_typecheck
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +50,6 @@ jobs:
   changed_tests_burn_in:
     name: Burn-In Changed Tests
     needs: selective_tests
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
