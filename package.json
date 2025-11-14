@@ -4,12 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:ci": "cd backend && npm run dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "prisma:generate": "prisma generate",
     "prepare": "npm run prisma:generate",
     "test:component": "vitest run tests/component/ContactForm.test.tsx",
+    "test:api:health": "playwright test --project=api tests/api/backend-setup.api.spec.ts --grep \"Health Check\"",
     "test:e2e": "playwright test --project=e2e",
     "test:e2e:ui": "playwright test --project=e2e --ui",
     "test:e2e:p0": "playwright test --project=e2e --grep \"[P0]\"",
@@ -56,6 +58,7 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.0.0",
     "vite": "^7.2.2",
-    "vitest": "^4.0.8"
+    "vitest": "^4.0.8",
+    "wait-on": "^9.0.3"
   }
 }
