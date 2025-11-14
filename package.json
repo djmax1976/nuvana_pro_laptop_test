@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:ci": "cd backend && npm run dev",
+    "dev:ci:full": "concurrently \"npm run dev\" \"npm run dev:ci\"",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -15,6 +16,7 @@
     "test:e2e": "playwright test --project=e2e",
     "test:e2e:ui": "playwright test --project=e2e --ui",
     "test:e2e:p0": "playwright test --project=e2e --grep \"[P0]\"",
+    "test:e2e:health": "playwright test --project=e2e tests/e2e/health-check.spec.ts --grep \"[P0]\"",
     "test:e2e:p1": "playwright test --project=e2e --grep \"[P0]|[P1]\"",
     "test:api": "playwright test --project=api",
     "test:api:p0": "playwright test --project=api --grep \"[P0]\"",
@@ -49,6 +51,7 @@
     "@types/react-dom": "^18",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.0.1",
+    "concurrently": "^9.2.1",
     "eslint": "^8",
     "eslint-config-next": "14.2.18",
     "jsdom": "^27.2.0",

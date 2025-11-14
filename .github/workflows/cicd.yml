@@ -1,4 +1,4 @@
-# Stage 0 + Stage 1 + Stage 2 (Foundation + Component Tests + API Smoke)
+# Stage 0 + Stage 1 + Stage 2 + Stage 3 (Foundation + Component + API + E2E Smoke)
 # Progressive CI pipeline following progression plan
 
 name: Lean CI
@@ -12,6 +12,7 @@ on:
 env:
   NODE_VERSION: "20"
   BACKEND_URL: "http://localhost:3001"
+  FRONTEND_URL: "http://localhost:3000"
   NEXT_TELEMETRY_DISABLED: "1"
 
 jobs:
@@ -110,3 +111,66 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+
+  e2e_smoke:
+    name: E2E Smoke
+    needs: build_app
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+      rabbitmq:
+        image: rabbitmq:3.13-management
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd="rabbitmq-diagnostics -q ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Install backend dependencies
+        run: cd backend && npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Start full stack
+        run: |
+          npm run dev:ci:full > full.log 2>&1 &
+          echo $! > full.pid
+        env:
+          REDIS_URL: redis://localhost:6379
+          RABBITMQ_URL: amqp://guest:guest@localhost:5672
+      - name: Wait for frontend and backend
+        run: |
+          npx wait-on ${{ env.FRONTEND_URL }} --timeout 60000
+          npx wait-on ${{ env.BACKEND_URL }}/api/health --timeout 60000
+      - name: Run E2E health check
+        run: npm run test:e2e:health
+      - name: Upload full stack logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-stack-logs-e2e-smoke
+          path: full.log
+          retention-days: 7
+      - name: Stop full stack
+        if: always()
+        run: |
+          if [ -f full.pid ]; then
+            kill $(cat full.pid) || true
+          fi
