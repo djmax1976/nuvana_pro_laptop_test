@@ -1,4 +1,4 @@
-# Stage 0 + Stage 1 + Stage 2 + Stage 3 (Foundation + Component + API + E2E Smoke)
+# Stage 0 + Stage 1 + Stage 2 + Stage 3 + Stage 4 (Foundation + Component + API + E2E + Stability)
 # Progressive CI pipeline following progression plan
 
 name: Lean CI
@@ -14,6 +14,7 @@ env:
   BACKEND_URL: "http://localhost:3001"
   FRONTEND_URL: "http://localhost:3000"
   NEXT_TELEMETRY_DISABLED: "1"
+  BURN_IN_ITERATIONS: "5"
 
 jobs:
   lint_typecheck:
@@ -27,6 +28,49 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npx tsc --noEmit
+
+  selective_tests:
+    name: Selective Tests
+    needs: lint_typecheck
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Install backend dependencies
+        run: cd backend && npm ci
+      - name: Run selective tests
+        run: bash scripts/test-changed.sh
+
+  changed_tests_burn_in:
+    name: Burn-In Changed Tests
+    needs: selective_tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Install backend dependencies
+        run: cd backend && npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Run burn-in loop
+        env:
+          BURN_IN_ITERATIONS: ${{ env.BURN_IN_ITERATIONS }}
+        run: bash scripts/burn-in.sh
 
   component_smoke:
     name: Component Smoke
