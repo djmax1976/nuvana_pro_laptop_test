@@ -1,5 +1,5 @@
-# Stage 0 (Foundation) pipeline fragment
-# Replace <<NODE_VERSION>> if project requires a specific version.
+# Stage 0 + Stage 1 (Foundation + Component Tests)
+# Progressive CI pipeline following progression plan
 
 name: Lean CI
 
@@ -25,6 +25,20 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npx tsc --noEmit
+
+  component_smoke:
+    name: Component Smoke
+    needs: lint_typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Run component tests
+        run: npm run test:component -- --reporter=dot
 
   build_app:
     needs: lint_typecheck
