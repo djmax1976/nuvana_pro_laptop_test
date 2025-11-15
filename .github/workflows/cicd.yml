@@ -39,6 +39,39 @@ jobs:
     name: Selective Tests
     needs: lint_typecheck
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15.14
+        env:
+          POSTGRES_DB: nuvana_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+      rabbitmq:
+        image: rabbitmq:3.13-management
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd="rabbitmq-diagnostics -q ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,14 +83,71 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npm run prisma:generate
+      - name: Run Prisma migrations
+        run: cd backend && npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+      - name: Start backend (if API tests needed)
+        run: |
+          npm run dev:ci > backend.log 2>&1 &
+          echo $! > backend.pid
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          REDIS_URL: redis://localhost:6379
+          RABBITMQ_URL: amqp://guest:guest@localhost:5672
+      - name: Wait for backend health (if started)
+        run: |
+          timeout 30 bash -c 'until npx wait-on ${{ env.BACKEND_URL }}/api/health --timeout 5000 2>/dev/null; do sleep 2; done' || echo "Backend not needed for this test run"
+        continue-on-error: true
       - name: Run selective tests
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/test-changed.sh
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then
+            kill $(cat backend.pid) || true
+          fi
 
   changed_tests_burn_in:
     name: Burn-In Changed Tests
     needs: selective_tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:15.14
+        env:
+          POSTGRES_DB: nuvana_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+      rabbitmq:
+        image: rabbitmq:3.13-management
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd="rabbitmq-diagnostics -q ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,12 +159,39 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npm run prisma:generate
+      - name: Run Prisma migrations
+        run: cd backend && npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
+      - name: Start backend (if API/E2E tests needed)
+        run: |
+          npm run dev:ci > backend.log 2>&1 &
+          echo $! > backend.pid
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          REDIS_URL: redis://localhost:6379
+          RABBITMQ_URL: amqp://guest:guest@localhost:5672
+      - name: Wait for backend health (if started)
+        run: |
+          timeout 30 bash -c 'until npx wait-on ${{ env.BACKEND_URL }}/api/health --timeout 5000 2>/dev/null; do sleep 2; done' || echo "Backend not needed for this test run"
+        continue-on-error: true
       - name: Run burn-in loop
         env:
           BURN_IN_ITERATIONS: ${{ env.BURN_IN_ITERATIONS }}
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          REDIS_URL: redis://localhost:6379
+          RABBITMQ_URL: amqp://guest:guest@localhost:5672
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/burn-in.sh
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then
+            kill $(cat backend.pid) || true
+          fi
 
   component_smoke:
     name: Component Smoke
@@ -95,6 +212,19 @@ jobs:
     needs: lint_typecheck
     runs-on: ubuntu-latest
     services:
+      postgres:
+        image: postgres:15.14
+        env:
+          POSTGRES_DB: nuvana_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
       redis:
         image: redis:7
         ports:
@@ -123,11 +253,18 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npm run prisma:generate
+      - name: Run Prisma migrations
+        run: cd backend && npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
       - name: Start backend
         run: |
           npm run dev:ci > backend.log 2>&1 &
           echo $! > backend.pid
         env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
       - name: Wait for backend health
@@ -166,6 +303,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     services:
+      postgres:
+        image: postgres:15.14
+        env:
+          POSTGRES_DB: nuvana_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
       redis:
         image: redis:7
         ports:
@@ -194,6 +344,12 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npm run prisma:generate
+      - name: Run Prisma migrations
+        run: cd backend && npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
       - name: Start full stack
@@ -201,6 +357,7 @@ jobs:
           npm run dev:ci:full > full.log 2>&1 &
           echo $! > full.pid
         env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
       - name: Wait for frontend and backend
@@ -249,6 +406,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
+      postgres:
+        image: postgres:15.14
+        env:
+          POSTGRES_DB: nuvana_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
       redis:
         image: redis:7
         ports:
@@ -277,11 +447,18 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npm run prisma:generate
+      - name: Run Prisma migrations
+        run: cd backend && npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
       - name: Start backend
         run: |
           npm run dev:ci > backend.log 2>&1 &
           echo $! > backend.pid
         env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
       - name: Wait for backend
