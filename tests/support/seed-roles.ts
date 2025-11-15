@@ -2,7 +2,7 @@
  * Seed roles for testing
  * Run this before tests to ensure required roles exist
  */
-import { PrismaClient } from "../../backend/node_modules/@prisma/client/index.js";
+import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 

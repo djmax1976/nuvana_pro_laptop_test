@@ -18,6 +18,9 @@ import {
   Building2,
 } from "lucide-react";
 
+// Disable static optimization for this page
+export const dynamic = "force-dynamic";
+
 export default function Home() {
   const [isVisible, setIsVisible] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);

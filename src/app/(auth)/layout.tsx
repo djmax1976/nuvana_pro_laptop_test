@@ -1,9 +1,4 @@
-import type { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: "Authentication - Nuvana Pro",
-  description: "Sign in to Nuvana Pro",
-};
+"use client";
 
 /**
  * Minimal layout for authentication pages
