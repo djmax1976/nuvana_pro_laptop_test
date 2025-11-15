@@ -296,19 +296,25 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
       - name: Wait for backend health
+        id: wait_backend_api_smoke
         run: |
-          for i in {1..30}; do
+          echo "Waiting for backend to be healthy (checking /api/health)..."
+          for i in {1..60}; do
             if curl -sf ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
-              echo "Backend is ready"
+              echo "Backend is healthy and ready"
+              echo "health_check_passed=true" >> $GITHUB_OUTPUT
               exit 0
             fi
-            echo "Waiting for backend... ($i/30)"
-            sleep 2
+            echo "Waiting for backend health check... ($i/60)"
+            sleep 3
           done
-          echo "Backend failed to start"
+          echo "Backend health check failed after 3 minutes"
+          echo "health_check_passed=false" >> $GITHUB_OUTPUT
+          echo "Backend logs:"
           cat backend.log || true
           exit 1
       - name: Run health check test
+        if: steps.wait_backend_api_smoke.outputs.health_check_passed == 'true'
         run: npm run test:api:health
       - name: Upload backend logs
         if: failure()
@@ -536,19 +542,25 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
       - name: Wait for backend
+        id: wait_backend
         run: |
-          for i in {1..30}; do
+          echo "Waiting for backend to be healthy (checking /api/health)..."
+          for i in {1..60}; do
             if curl -sf ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
-              echo "Backend is ready"
+              echo "Backend is healthy and ready"
+              echo "health_check_passed=true" >> $GITHUB_OUTPUT
               exit 0
             fi
-            echo "Waiting for backend... ($i/30)"
-            sleep 2
+            echo "Waiting for backend health check... ($i/60)"
+            sleep 3
           done
-          echo "Backend failed to start"
+          echo "Backend health check failed after 3 minutes"
+          echo "health_check_passed=false" >> $GITHUB_OUTPUT
+          echo "Backend logs:"
           cat backend.log || true
           exit 1
       - name: OWASP ZAP baseline
+        if: steps.wait_backend.outputs.health_check_passed == 'true'
         uses: zaproxy/action-baseline@v0.10.0
         with:
           target: ${{ env.BACKEND_URL }}

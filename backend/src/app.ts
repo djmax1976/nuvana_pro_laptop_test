@@ -107,29 +107,39 @@ app.route({
 // Start server
 const start = async () => {
   try {
-    // Initialize Redis connection
+    // Initialize Redis connection with retry
     app.log.info("Initializing Redis connection...");
     try {
       await initializeRedis();
       app.log.info("Redis connection established");
     } catch (err) {
-      app.log.error({ err }, "Failed to initialize Redis connection");
-      throw new Error("Cannot start server without Redis connection");
+      app.log.warn(
+        { err },
+        "Redis connection failed - server will start but health checks will report degraded",
+      );
+      // Don't crash - Redis reconnect logic will handle reconnection
+      // Health check endpoint will report service as unhealthy
     }
 
-    // Initialize RabbitMQ connection
+    // Initialize RabbitMQ connection with retry
     app.log.info("Initializing RabbitMQ connection...");
     try {
       await initializeRabbitMQ();
       app.log.info("RabbitMQ connection established");
     } catch (err) {
-      app.log.error({ err }, "Failed to initialize RabbitMQ connection");
-      throw new Error("Cannot start server without RabbitMQ connection");
+      app.log.warn(
+        { err },
+        "RabbitMQ connection failed - server will start but health checks will report degraded",
+      );
+      // Don't crash - RabbitMQ reconnect logic will handle reconnection
+      // Health check endpoint will report service as unhealthy
     }
 
-    // Start server after connections are established
+    // Start server even if dependencies are temporarily unavailable
+    // The health check endpoint will report service health accurately
     await app.listen({ port: PORT, host: "0.0.0.0" });
     app.log.info(`Server listening on port ${PORT}`);
+    app.log.info("Health endpoint available at /api/health");
   } catch (err) {
     app.log.error(err);
     process.exit(1);
