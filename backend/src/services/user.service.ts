@@ -67,47 +67,55 @@ export async function getUserOrCreate(
 
     return user;
   } catch (error: any) {
-    // Handle concurrent race condition:
+    // Handle duplicate email scenario:
     // If upsert fails due to unique constraint violation on email (NOT auth_provider_id),
-    // it means another concurrent request created a user with this email but different auth_provider_id
-    // In this rare case, retry by finding the user that was just created
+    // it means a user with this email already exists but with a different auth_provider_id.
+    // This can happen in two cases:
+    // 1. Concurrent race condition (another request just created the user)
+    // 2. User changed OAuth provider but kept same email (e.g., switched from Google to GitHub)
     if (error.code === "P2002" && error.meta?.target?.includes("email")) {
       console.log(
-        `Concurrent user creation detected for email ${email}, retrying...`,
+        `User with email ${email} already exists, attempting to update auth_provider_id...`,
       );
 
-      // Find the user that was just created by the concurrent request
+      // Find the existing user by email
       const existingUser = await prisma.user.findUnique({
         where: { email },
       });
 
       if (existingUser) {
-        // Update the existing user with the current auth_provider_id
-        // Handle case where auth_provider_id might already exist on another user
-        try {
-          return await prisma.user.update({
-            where: { email },
-            data: {
-              auth_provider_id: authProviderId,
-              name: getNormalizedName(),
-            },
-          });
-        } catch (updateError: any) {
-          // If update fails due to auth_provider_id constraint,
-          // it means another user already has this auth_provider_id
-          // In this case, return the existing user (don't update)
-          if (
-            updateError.code === "P2002" &&
-            updateError.meta?.target?.includes("auth_provider_id")
-          ) {
-            console.log(
-              `Auth provider ID ${authProviderId} already exists on different user, returning existing user`,
-            );
-            return existingUser;
-          }
-          // Re-throw other errors
-          throw updateError;
+        // Check if the existing user already has this auth_provider_id
+        if (existingUser.auth_provider_id === authProviderId) {
+          console.log(
+            `User already has auth_provider_id ${authProviderId}, returning existing user`,
+          );
+          return existingUser;
         }
+
+        // Check if another user already has this auth_provider_id
+        const userWithAuthId = await prisma.user.findUnique({
+          where: { auth_provider_id: authProviderId },
+        });
+
+        if (userWithAuthId && userWithAuthId.user_id !== existingUser.user_id) {
+          // Another user already has this auth_provider_id
+          // This is a conflict - same auth_provider_id trying to claim different email
+          console.error(
+            `Conflict: auth_provider_id ${authProviderId} already belongs to different user ${userWithAuthId.user_id}`,
+          );
+          throw new Error(
+            `Authentication provider ID already associated with different account`,
+          );
+        }
+
+        // Safe to update the existing user's auth_provider_id
+        return await prisma.user.update({
+          where: { email },
+          data: {
+            auth_provider_id: authProviderId,
+            name: getNormalizedName(),
+          },
+        });
       }
     }
 
