@@ -45,7 +45,7 @@ jobs:
       - name: Install backend dependencies
         run: cd backend && npm ci
       - name: Run selective tests
-        run: bash scripts/test-changed.sh
+        run: bash nuvana_control/workflows/11-ci_pipeline/scripts/test-changed.sh
 
   changed_tests_burn_in:
     name: Burn-In Changed Tests
@@ -68,7 +68,7 @@ jobs:
       - name: Run burn-in loop
         env:
           BURN_IN_ITERATIONS: ${{ env.BURN_IN_ITERATIONS }}
-        run: bash scripts/burn-in.sh
+        run: bash nuvana_control/workflows/11-ci_pipeline/scripts/burn-in.sh
 
   component_smoke:
     name: Component Smoke
@@ -235,7 +235,7 @@ jobs:
       - name: npm audit high+
         run: npm audit --production --audit-level=high || true
       - name: License check
-        run: node scripts/license-check.js
+        run: node nuvana_control/workflows/11-ci_pipeline/scripts/license-check.js
 
   security_dynamic:
     name: Dynamic Security
@@ -279,7 +279,7 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
       - name: Wait for backend
-        run: bash scripts/wait-for-url.sh "${{ env.BACKEND_URL }}/api/health"
+        run: bash nuvana_control/workflows/11-ci_pipeline/scripts/wait-for-url.sh "${{ env.BACKEND_URL }}/api/health"
       - name: OWASP ZAP baseline
         uses: zaproxy/action-baseline@v0.10.0
         with:
