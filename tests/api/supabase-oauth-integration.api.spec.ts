@@ -22,6 +22,10 @@ import { createSupabaseToken, createUser } from "../support/factories";
  */
 
 test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
+  // Clean up all users before each test to ensure isolation
+  test.beforeEach(async ({ prismaClient }) => {
+    await prismaClient.user.deleteMany({});
+  });
   test("[P0] 1.5-API-001-001: GET /api/auth/callback should validate Supabase token and return user identity", async ({
     apiRequest,
     prismaClient,
@@ -268,6 +272,11 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
 });
 
 test.describe("1.5-API-002: Token Validation Middleware", () => {
+  // Clean up all users before each test to ensure isolation
+  test.beforeEach(async ({ prismaClient }) => {
+    await prismaClient.user.deleteMany({});
+  });
+
   test("[P0] 1.5-API-002-001: should validate valid Supabase token", async ({
     apiRequest,
   }) => {
@@ -432,6 +441,11 @@ test.describe("1.5-API-002: Token Validation Middleware", () => {
 });
 
 test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
+  // Clean up all users before each test to ensure isolation
+  test.beforeEach(async ({ prismaClient }) => {
+    await prismaClient.user.deleteMany({});
+  });
+
   test("[P0] 1.5-API-003-001: should create user if auth_provider_id does not exist", async ({
     prismaClient,
   }) => {
