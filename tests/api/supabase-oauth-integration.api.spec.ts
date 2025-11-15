@@ -475,31 +475,52 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
   });
 
   test("[P0] 1.5-API-003-003: should handle duplicate email gracefully", async ({
+    apiRequest,
     prismaClient,
   }) => {
-    // GIVEN: User exists with email
-    const existingUser = createUser({
-      name: "Existing User",
-      auth_provider_id: "supabase_user_id_existing",
+    // GIVEN: User exists with email "user@example.com" but different auth_provider_id
+    // The mock OAuth code "valid_oauth_code_123" returns email "user@example.com"
+    // with auth_provider_id "supabase_user_id_123"
+    const mockEmail = "user@example.com";
+    const mockAuthId = "supabase_user_id_123";
+    const oauthCode = "valid_oauth_code_123";
+    const state = "random_state_string";
+
+    // Create user with same email but different auth_provider_id
+    // This simulates a duplicate email scenario
+    const existingUser = await prismaClient.user.create({
+      data: {
+        email: mockEmail,
+        name: "Original User",
+        auth_provider_id: "different_auth_id_for_duplicate_test",
+        status: "ACTIVE",
+      },
     });
 
-    await prismaClient.user.create({
-      data: existingUser,
+    // WHEN: OAuth callback is called with same email but different auth_provider_id
+    // This will trigger the duplicate email error handling path in getUserOrCreate
+    const response = await apiRequest.get(
+      `/api/auth/callback?code=${oauthCode}&state=${state}`,
+    );
+
+    // THEN: Should handle gracefully by updating existing user with new auth_provider_id
+    expect(response.status()).toBe(200);
+
+    const body = await response.json();
+    expect(body).toHaveProperty("user");
+
+    // Verify the existing user was updated (not a new user created)
+    const updatedUser = await prismaClient.user.findUnique({
+      where: { email: mockEmail },
     });
 
-    // WHEN: Attempting to create user with same email but different auth_provider_id
-    // THEN: Should either update existing user or return error
-    // (Implementation decision: update existing user with new auth_provider_id)
-    const updatedUser = await prismaClient.user.update({
-      where: { email: existingUser.email },
-      data: { auth_provider_id: "supabase_user_id_new" },
-    });
-
-    expect(updatedUser.auth_provider_id).toBe("supabase_user_id_new");
+    expect(updatedUser).toBeTruthy();
+    expect(updatedUser?.user_id).toBe(existingUser.user_id); // Same user ID
+    expect(updatedUser?.auth_provider_id).toBe(mockAuthId); // Updated auth_provider_id
 
     // Cleanup
     await prismaClient.user.delete({
-      where: { user_id: updatedUser.user_id },
+      where: { user_id: updatedUser!.user_id },
     });
   });
 

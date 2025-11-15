@@ -83,13 +83,31 @@ export async function getUserOrCreate(
 
       if (existingUser) {
         // Update the existing user with the current auth_provider_id
-        return await prisma.user.update({
-          where: { email },
-          data: {
-            auth_provider_id: authProviderId,
-            name: getNormalizedName(),
-          },
-        });
+        // Handle case where auth_provider_id might already exist on another user
+        try {
+          return await prisma.user.update({
+            where: { email },
+            data: {
+              auth_provider_id: authProviderId,
+              name: getNormalizedName(),
+            },
+          });
+        } catch (updateError: any) {
+          // If update fails due to auth_provider_id constraint,
+          // it means another user already has this auth_provider_id
+          // In this case, return the existing user (don't update)
+          if (
+            updateError.code === "P2002" &&
+            updateError.meta?.target?.includes("auth_provider_id")
+          ) {
+            console.log(
+              `Auth provider ID ${authProviderId} already exists on different user, returning existing user`,
+            );
+            return existingUser;
+          }
+          // Re-throw other errors
+          throw updateError;
+        }
       }
     }
 
