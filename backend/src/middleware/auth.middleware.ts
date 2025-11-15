@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply } from "fastify";
-import { createClient } from "@supabase/supabase-js";
+import { getSupabaseClient } from "../utils/supabase";
 import { AuthService } from "../services/auth.service";
 
 /**
@@ -29,7 +29,7 @@ export async function validateSupabaseToken(
     throw new Error("Supabase configuration is missing");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const supabase = getSupabaseClient(supabaseUrl, supabaseServiceKey);
 
   // Verify the JWT token with Supabase
   const {

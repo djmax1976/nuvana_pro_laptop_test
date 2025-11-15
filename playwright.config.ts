@@ -82,7 +82,7 @@ export default defineConfig({
             stderr: "pipe",
           },
           {
-            command: "cd backend && npm run dev",
+            command: "cd backend && npm run dev:test",
             url:
               (process.env.BACKEND_URL || "http://localhost:3001") + "/health",
             reuseExistingServer: true,

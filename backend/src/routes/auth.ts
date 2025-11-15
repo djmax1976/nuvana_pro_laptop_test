@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { createClient } from "@supabase/supabase-js";
+import { getSupabaseClient } from "../utils/supabase";
 import { getUserOrCreate, getUserById } from "../services/user.service";
 import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
@@ -52,7 +52,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           };
         }
 
-        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        const supabase = getSupabaseClient(supabaseUrl, supabaseServiceKey);
 
         // Exchange OAuth code for session (Supabase handles this)
         // Note: In production, the frontend typically handles the OAuth flow

@@ -93,7 +93,7 @@ jobs:
         run: cd backend && npm run build
       - name: Start backend (if API tests needed)
         run: |
-          cd backend && node dist/app.js > ../backend.log 2>&1 &
+          cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
@@ -184,7 +184,7 @@ jobs:
         run: cd backend && npm run build
       - name: Start backend (if API/E2E tests needed)
         run: |
-          cd backend && node dist/app.js > ../backend.log 2>&1 &
+          cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
@@ -289,7 +289,7 @@ jobs:
         run: cd backend && npm run build
       - name: Start backend
         run: |
-          cd backend && node dist/app.js > ../backend.log 2>&1 &
+          cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
@@ -409,7 +409,7 @@ jobs:
         run: |
           npm run dev > frontend.log 2>&1 &
           echo $! > frontend.pid
-          cd backend && node dist/app.js > ../backend.log 2>&1 &
+          cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
@@ -540,7 +540,7 @@ jobs:
         run: cd backend && npm run build
       - name: Start backend
         run: |
-          cd backend && node dist/app.js > ../backend.log 2>&1 &
+          cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
