@@ -1,10 +1,7 @@
-import type { Metadata } from "next";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Nuvana Pro",
-  description: "Enterprise store management platform",
-};
+// Force all pages to be dynamically rendered
+export const dynamic = "force-dynamic";
 
 export default function RootLayout({
   children,
@@ -13,6 +10,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <title>Nuvana Pro</title>
+        <meta
+          name="description"
+          content="Enterprise store management platform"
+        />
+      </head>
       <body>{children}</body>
     </html>
   );

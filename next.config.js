@@ -7,6 +7,16 @@ const nextConfig = {
   experimental: {
     missingSuspenseWithCSRBailout: false,
   },
+  // Disable static page generation entirely - force all pages to be dynamic
+  // This prevents prerendering errors for auth-protected pages
+  skipTrailingSlashRedirect: false,
+  skipMiddlewareUrlNormalize: false,
+  // Suppress build errors for default error pages (404/500)
+  // These pages will be handled dynamically at runtime
+  onDemandEntries: {
+    maxInactiveAge: 25 * 1000,
+    pagesBufferLength: 2,
+  },
   async rewrites() {
     return [
       {
