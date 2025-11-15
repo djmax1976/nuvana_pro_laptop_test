@@ -34,7 +34,13 @@ export async function getUserOrCreate(
 ) {
   // Normalize name: handle null, undefined, and empty string
   // Helper function to avoid duplication
-  const getNormalizedName = () => name?.trim() || email.split("@")[0];
+  // If name is null/undefined/empty, use email prefix as fallback
+  const getNormalizedName = () => {
+    if (!name || (typeof name === "string" && name.trim() === "")) {
+      return email.split("@")[0];
+    }
+    return name.trim();
+  };
 
   try {
     const normalizedName = getNormalizedName();

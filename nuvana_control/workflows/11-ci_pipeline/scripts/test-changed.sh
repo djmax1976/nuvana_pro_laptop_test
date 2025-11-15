@@ -79,8 +79,9 @@ if [ "$RUN_COMPONENT" = true ]; then
 fi
 
 if [ "$RUN_API" = true ]; then
-  echo "Running API [P0] tests..."
-  npm run test:api:p0 || exit 1
+  echo "Running API [P0] tests only..."
+  # Use explicit grep pattern to ensure only P0 tests run (not P1, P2, etc.)
+  npm run test:api -- --grep "\[P0\]" || exit 1
 fi
 
 if [ "$RUN_E2E" = true ]; then
