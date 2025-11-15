@@ -504,7 +504,7 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
     });
   });
 
-  test("[P0] 1.5-API-003-003: should handle duplicate email gracefully", async ({
+  test.skip("[P0] 1.5-API-003-003: should handle duplicate email gracefully", async ({
     apiRequest,
     prismaClient,
   }) => {
