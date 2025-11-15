@@ -295,6 +295,11 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          JWT_SECRET: test_jwt_secret_for_ci_only_12345678
+          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
+          COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
       - name: Wait for backend health
         id: wait_backend_api_smoke
         run: |
@@ -541,6 +546,11 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          JWT_SECRET: test_jwt_secret_for_ci_only_12345678
+          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
+          COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
       - name: Wait for backend
         id: wait_backend
         run: |
