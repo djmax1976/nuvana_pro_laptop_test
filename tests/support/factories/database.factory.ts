@@ -18,7 +18,7 @@ export type UserData = {
 
 export type CompanyData = {
   name: string;
-  status: "ACTIVE" | "INACTIVE" | "SUSPENDED";
+  status: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
 };
 
 export type StoreData = {

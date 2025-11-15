@@ -6,7 +6,8 @@ import {
   createCorporateAdminRole,
   createStoreManagerRole,
 } from "../factories";
-import { PrismaClient } from "@prisma/client";
+// Import Prisma client from backend (where schema is defined)
+import { PrismaClient } from "../../../backend/node_modules/@prisma/client";
 import { createJWTAccessToken } from "../factories";
 
 // Load environment variables from .env.local for Playwright tests
@@ -201,22 +202,37 @@ export const test = base.extend<RBACFixture>({
   superadminUser: async ({ prismaClient }, use) => {
     // Setup: Create superadmin user with SUPERADMIN role
     const userData = createUser();
-    // TODO: Create user in database and assign SUPERADMIN role when RBAC is implemented
-    // const user = await prismaClient.user.create({ data: userData });
-    // const role = await prismaClient.role.findUnique({ where: { code: 'SUPERADMIN' } });
-    // await prismaClient.userRole.create({ data: { user_id: user.user_id, role_id: role.role_id } });
+    const user = await prismaClient.user.create({ data: userData });
+
+    // Get SUPERADMIN role (must exist in database)
+    const role = await prismaClient.role.findUnique({
+      where: { code: "SUPERADMIN" },
+    });
+    if (!role) {
+      throw new Error(
+        "SUPERADMIN role not found in database. Run database seed first.",
+      );
+    }
+
+    // Assign SUPERADMIN role to user
+    await prismaClient.userRole.create({
+      data: {
+        user_id: user.user_id,
+        role_id: role.role_id,
+      },
+    });
 
     const token = createJWTAccessToken({
-      user_id: "superadmin-user-id", // TODO: Use actual user.user_id
-      email: userData.email,
+      user_id: user.user_id,
+      email: user.email,
       roles: ["SUPERADMIN"],
       permissions: ["*"], // Superadmin has all permissions
     });
 
     const superadminUser = {
-      user_id: "superadmin-user-id", // TODO: Use actual user.user_id
-      email: userData.email,
-      name: userData.name,
+      user_id: user.user_id,
+      email: user.email,
+      name: user.name,
       roles: ["SUPERADMIN"],
       permissions: ["*"],
       token,
@@ -224,29 +240,54 @@ export const test = base.extend<RBACFixture>({
 
     await use(superadminUser);
 
-    // Cleanup: Delete user and roles when RBAC is implemented
-    // await prismaClient.userRole.deleteMany({ where: { user_id: user.user_id } });
-    // await prismaClient.user.delete({ where: { user_id: user.user_id } });
+    // Cleanup: Delete user and roles
+    await prismaClient.userRole.deleteMany({
+      where: { user_id: user.user_id },
+    });
+    await prismaClient.user.delete({ where: { user_id: user.user_id } });
   },
 
   corporateAdminUser: async ({ prismaClient }, use) => {
     // Setup: Create corporate admin user with COMPANY scope role
     const userData = createUser();
     const companyData = createCompany();
-    // TODO: Create user, company, and assign CORPORATE_ADMIN role when RBAC is implemented
+
+    // Create company
+    const company = await prismaClient.company.create({ data: companyData });
+
+    // Create user
+    const user = await prismaClient.user.create({ data: userData });
+
+    // Get CORPORATE_ADMIN role (must exist in database)
+    const role = await prismaClient.role.findUnique({
+      where: { code: "CORPORATE_ADMIN" },
+    });
+    if (!role) {
+      throw new Error(
+        "CORPORATE_ADMIN role not found in database. Run database seed first.",
+      );
+    }
+
+    // Assign CORPORATE_ADMIN role to user
+    await prismaClient.userRole.create({
+      data: {
+        user_id: user.user_id,
+        role_id: role.role_id,
+      },
+    });
 
     const token = createJWTAccessToken({
-      user_id: "corporate-admin-user-id", // TODO: Use actual user.user_id
-      email: userData.email,
+      user_id: user.user_id,
+      email: user.email,
       roles: ["CORPORATE_ADMIN"],
-      permissions: ["USER_READ", "STORE_CREATE", "STORE_READ"], // Corporate admin permissions
+      permissions: ["USER_READ", "STORE_CREATE", "STORE_READ"],
     });
 
     const corporateAdminUser = {
-      user_id: "corporate-admin-user-id", // TODO: Use actual user.user_id
-      email: userData.email,
-      name: userData.name,
-      company_id: "company-123", // TODO: Use actual company.company_id
+      user_id: user.user_id,
+      email: user.email,
+      name: user.name,
+      company_id: company.company_id,
       roles: ["CORPORATE_ADMIN"],
       permissions: ["USER_READ", "STORE_CREATE", "STORE_READ"],
       token,
@@ -254,29 +295,67 @@ export const test = base.extend<RBACFixture>({
 
     await use(corporateAdminUser);
 
-    // Cleanup: Delete user, company, and roles when RBAC is implemented
+    // Cleanup
+    await prismaClient.userRole.deleteMany({
+      where: { user_id: user.user_id },
+    });
+    await prismaClient.user.delete({ where: { user_id: user.user_id } });
+    await prismaClient.company.delete({
+      where: { company_id: company.company_id },
+    });
   },
 
   storeManagerUser: async ({ prismaClient }, use) => {
     // Setup: Create store manager user with STORE scope role
     const userData = createUser();
     const companyData = createCompany();
-    const storeData = createStore({ company_id: "company-123" }); // TODO: Use actual company_id
-    // TODO: Create user, company, store, and assign STORE_MANAGER role when RBAC is implemented
+
+    // Create company
+    const company = await prismaClient.company.create({ data: companyData });
+
+    // Create store
+    const storeData = createStore({ company_id: company.company_id });
+    const store = await prismaClient.store.create({
+      data: {
+        ...storeData,
+        location_json: storeData.location_json as any,
+      },
+    });
+
+    // Create user
+    const user = await prismaClient.user.create({ data: userData });
+
+    // Get STORE_MANAGER role (must exist in database)
+    const role = await prismaClient.role.findUnique({
+      where: { code: "STORE_MANAGER" },
+    });
+    if (!role) {
+      throw new Error(
+        "STORE_MANAGER role not found in database. Run database seed first.",
+      );
+    }
+
+    // Assign STORE_MANAGER role to user
+    await prismaClient.userRole.create({
+      data: {
+        user_id: user.user_id,
+        role_id: role.role_id,
+      },
+    });
 
     const token = createJWTAccessToken({
-      user_id: "store-manager-user-id", // TODO: Use actual user.user_id
-      email: userData.email,
+      user_id: user.user_id,
+      email: user.email,
       roles: ["STORE_MANAGER"],
-      permissions: ["SHIFT_OPEN", "SHIFT_CLOSE", "INVENTORY_READ"], // Store manager permissions
+      permissions: ["SHIFT_OPEN", "SHIFT_CLOSE", "INVENTORY_READ"],
     });
 
     const storeManagerUser = {
-      user_id: "store-manager-user-id", // TODO: Use actual user.user_id
-      email: userData.email,
-      name: userData.name,
-      company_id: "company-123", // TODO: Use actual company.company_id
-      store_id: "store-789", // TODO: Use actual store.store_id
+      user_id: user.user_id,
+      email: user.email,
+      name: user.name,
+      company_id: company.company_id,
+      store_id: store.store_id,
       roles: ["STORE_MANAGER"],
       permissions: ["SHIFT_OPEN", "SHIFT_CLOSE", "INVENTORY_READ"],
       token,
@@ -284,7 +363,15 @@ export const test = base.extend<RBACFixture>({
 
     await use(storeManagerUser);
 
-    // Cleanup: Delete user, company, store, and roles when RBAC is implemented
+    // Cleanup
+    await prismaClient.userRole.deleteMany({
+      where: { user_id: user.user_id },
+    });
+    await prismaClient.user.delete({ where: { user_id: user.user_id } });
+    await prismaClient.store.delete({ where: { store_id: store.store_id } });
+    await prismaClient.company.delete({
+      where: { company_id: company.company_id },
+    });
   },
 
   superadminApiRequest: async (
@@ -298,7 +385,7 @@ export const test = base.extend<RBACFixture>({
       ) => {
         return request.get(`${backendUrl}${path}`, {
           headers: {
-            Cookie: `accessToken=${superadminUser.token}`,
+            Cookie: `access_token=${superadminUser.token}`,
             ...options?.headers,
           },
         });
@@ -312,7 +399,7 @@ export const test = base.extend<RBACFixture>({
           data,
           headers: {
             "Content-Type": "application/json",
-            Cookie: `accessToken=${superadminUser.token}`,
+            Cookie: `access_token=${superadminUser.token}`,
             ...options?.headers,
           },
         });
@@ -326,7 +413,7 @@ export const test = base.extend<RBACFixture>({
           data,
           headers: {
             "Content-Type": "application/json",
-            Cookie: `accessToken=${superadminUser.token}`,
+            Cookie: `access_token=${superadminUser.token}`,
             ...options?.headers,
           },
         });
@@ -337,7 +424,7 @@ export const test = base.extend<RBACFixture>({
       ) => {
         return request.delete(`${backendUrl}${path}`, {
           headers: {
-            Cookie: `accessToken=${superadminUser.token}`,
+            Cookie: `access_token=${superadminUser.token}`,
             ...options?.headers,
           },
         });
@@ -358,7 +445,7 @@ export const test = base.extend<RBACFixture>({
       ) => {
         return request.get(`${backendUrl}${path}`, {
           headers: {
-            Cookie: `accessToken=${corporateAdminUser.token}`,
+            Cookie: `access_token=${corporateAdminUser.token}`,
             ...options?.headers,
           },
         });
@@ -372,7 +459,7 @@ export const test = base.extend<RBACFixture>({
           data,
           headers: {
             "Content-Type": "application/json",
-            Cookie: `accessToken=${corporateAdminUser.token}`,
+            Cookie: `access_token=${corporateAdminUser.token}`,
             ...options?.headers,
           },
         });
@@ -386,7 +473,7 @@ export const test = base.extend<RBACFixture>({
           data,
           headers: {
             "Content-Type": "application/json",
-            Cookie: `accessToken=${corporateAdminUser.token}`,
+            Cookie: `access_token=${corporateAdminUser.token}`,
             ...options?.headers,
           },
         });
@@ -397,7 +484,7 @@ export const test = base.extend<RBACFixture>({
       ) => {
         return request.delete(`${backendUrl}${path}`, {
           headers: {
-            Cookie: `accessToken=${corporateAdminUser.token}`,
+            Cookie: `access_token=${corporateAdminUser.token}`,
             ...options?.headers,
           },
         });
@@ -418,7 +505,7 @@ export const test = base.extend<RBACFixture>({
       ) => {
         return request.get(`${backendUrl}${path}`, {
           headers: {
-            Cookie: `accessToken=${storeManagerUser.token}`,
+            Cookie: `access_token=${storeManagerUser.token}`,
             ...options?.headers,
           },
         });
@@ -432,7 +519,7 @@ export const test = base.extend<RBACFixture>({
           data,
           headers: {
             "Content-Type": "application/json",
-            Cookie: `accessToken=${storeManagerUser.token}`,
+            Cookie: `access_token=${storeManagerUser.token}`,
             ...options?.headers,
           },
         });
@@ -446,7 +533,7 @@ export const test = base.extend<RBACFixture>({
           data,
           headers: {
             "Content-Type": "application/json",
-            Cookie: `accessToken=${storeManagerUser.token}`,
+            Cookie: `access_token=${storeManagerUser.token}`,
             ...options?.headers,
           },
         });
@@ -457,7 +544,7 @@ export const test = base.extend<RBACFixture>({
       ) => {
         return request.delete(`${backendUrl}${path}`, {
           headers: {
-            Cookie: `accessToken=${storeManagerUser.token}`,
+            Cookie: `access_token=${storeManagerUser.token}`,
             ...options?.headers,
           },
         });
