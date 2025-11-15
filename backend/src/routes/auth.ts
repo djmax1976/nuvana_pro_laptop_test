@@ -131,6 +131,11 @@ export async function authRoutes(fastify: FastifyInstance) {
         };
       } catch (error) {
         fastify.log.error({ error }, "OAuth callback error");
+        console.error("OAuth callback error details:", error);
+        console.error(
+          "Error stack:",
+          error instanceof Error ? error.stack : "No stack",
+        );
         reply.code(500);
         return {
           error: "Internal server error",
