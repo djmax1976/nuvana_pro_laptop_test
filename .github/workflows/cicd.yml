@@ -114,6 +114,10 @@ jobs:
       - name: Make scripts executable
         run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
       - name: Run selective tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          REDIS_URL: redis://localhost:6379
+          RABBITMQ_URL: amqp://guest:guest@localhost:5672
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/test-changed.sh
       - name: Stop backend
         if: always()
