@@ -91,6 +91,11 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
     expect(usersInDb.length).toBeGreaterThan(0);
     const userInDb = usersInDb[0];
     expect(userInDb?.email).toBe(newUserEmail);
+
+    // Cleanup
+    await prismaClient.user.delete({
+      where: { user_id: body.user.user_id },
+    });
   });
 
   test("[P0] 1.5-API-001-003: GET /api/auth/callback should retrieve existing user if already exists", async ({
@@ -132,6 +137,11 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
       where: { auth_provider_id: existingUser.auth_provider_id },
     });
     expect(usersInDb.length).toBe(1);
+
+    // Cleanup
+    await prismaClient.user.delete({
+      where: { user_id: body.user.user_id },
+    });
   });
 
   test("[P0] 1.5-API-001-004: GET /api/auth/callback should return 401 for invalid OAuth code", async ({
