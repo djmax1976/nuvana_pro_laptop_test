@@ -30,9 +30,12 @@ export interface UserIdentity {
 export async function getUserOrCreate(
   authProviderId: string,
   email: string,
-  name?: string,
+  name?: string | null,
 ) {
   try {
+    // Normalize name: handle null, undefined, and empty string
+    const normalizedName = name?.trim() || email.split("@")[0];
+
     // Atomic upsert by auth_provider_id (requires unique constraint in schema)
     // This is a single database operation - no race condition possible
     const user = await prisma.user.upsert({
@@ -43,11 +46,11 @@ export async function getUserOrCreate(
         // Update email/name if provider ID already exists
         // (handles edge case where user changed email in OAuth provider)
         email,
-        name: name || email.split("@")[0],
+        name: normalizedName,
       },
       create: {
         email,
-        name: name || email.split("@")[0], // Use email prefix if name not provided
+        name: normalizedName, // Use email prefix if name not provided/empty
         auth_provider_id: authProviderId,
         status: "ACTIVE",
       },
@@ -75,7 +78,7 @@ export async function getUserOrCreate(
           where: { email },
           data: {
             auth_provider_id: authProviderId,
-            name: name || email.split("@")[0],
+            name: normalizedName,
           },
         });
       }
