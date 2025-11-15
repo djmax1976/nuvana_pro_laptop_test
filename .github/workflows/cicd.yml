@@ -89,25 +89,38 @@ jobs:
         run: cd backend && npx prisma migrate deploy
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+      - name: Build backend
+        run: cd backend && npm run build
       - name: Start backend (if API tests needed)
         run: |
-          npm run dev:ci > backend.log 2>&1 &
-          echo $! > backend.pid
+          cd backend && node dist/app.js > ../backend.log 2>&1 &
+          echo $! > ../backend.pid
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
       - name: Wait for backend health (if started)
         run: |
-          timeout 30 bash -c 'until npx wait-on ${{ env.BACKEND_URL }}/api/health --timeout 5000 2>/dev/null; do sleep 2; done' || echo "Backend not needed for this test run"
+          for i in {1..30}; do
+            if curl -sf ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+          echo "Backend health check timeout - may not be needed for this test run"
         continue-on-error: true
+      - name: Make scripts executable
+        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
       - name: Run selective tests
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/test-changed.sh
       - name: Stop backend
         if: always()
         run: |
           if [ -f backend.pid ]; then
-            kill $(cat backend.pid) || true
+            kill $(cat backend.pid) 2>/dev/null || true
+            rm -f backend.pid
           fi
 
   changed_tests_burn_in:
@@ -167,18 +180,30 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
+      - name: Build backend
+        run: cd backend && npm run build
       - name: Start backend (if API/E2E tests needed)
         run: |
-          npm run dev:ci > backend.log 2>&1 &
-          echo $! > backend.pid
+          cd backend && node dist/app.js > ../backend.log 2>&1 &
+          echo $! > ../backend.pid
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
       - name: Wait for backend health (if started)
         run: |
-          timeout 30 bash -c 'until npx wait-on ${{ env.BACKEND_URL }}/api/health --timeout 5000 2>/dev/null; do sleep 2; done' || echo "Backend not needed for this test run"
+          for i in {1..30}; do
+            if curl -sf ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+          echo "Backend health check timeout - may not be needed for this test run"
         continue-on-error: true
+      - name: Make scripts executable
+        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
       - name: Run burn-in loop
         env:
           BURN_IN_ITERATIONS: ${{ env.BURN_IN_ITERATIONS }}
@@ -190,7 +215,8 @@ jobs:
         if: always()
         run: |
           if [ -f backend.pid ]; then
-            kill $(cat backend.pid) || true
+            kill $(cat backend.pid) 2>/dev/null || true
+            rm -f backend.pid
           fi
 
   component_smoke:
@@ -259,16 +285,29 @@ jobs:
         run: cd backend && npx prisma migrate deploy
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+      - name: Build backend
+        run: cd backend && npm run build
       - name: Start backend
         run: |
-          npm run dev:ci > backend.log 2>&1 &
-          echo $! > backend.pid
+          cd backend && node dist/app.js > ../backend.log 2>&1 &
+          echo $! > ../backend.pid
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
       - name: Wait for backend health
-        run: npx wait-on ${{ env.BACKEND_URL }}/api/health --timeout 60000
+        run: |
+          for i in {1..30}; do
+            if curl -sf ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+          echo "Backend failed to start"
+          cat backend.log || true
+          exit 1
       - name: Run health check test
         run: npm run test:api:health
       - name: Upload backend logs
@@ -282,7 +321,8 @@ jobs:
         if: always()
         run: |
           if [ -f backend.pid ]; then
-            kill $(cat backend.pid) || true
+            kill $(cat backend.pid) 2>/dev/null || true
+            rm -f backend.pid
           fi
 
   build_app:
@@ -352,18 +392,41 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
+      - name: Build backend
+        run: cd backend && npm run build
       - name: Start full stack
         run: |
-          npm run dev:ci:full > full.log 2>&1 &
-          echo $! > full.pid
+          npm run dev > frontend.log 2>&1 &
+          echo $! > frontend.pid
+          cd backend && node dist/app.js > ../backend.log 2>&1 &
+          echo $! > ../backend.pid
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
       - name: Wait for frontend and backend
         run: |
-          npx wait-on ${{ env.FRONTEND_URL }} --timeout 60000
-          npx wait-on ${{ env.BACKEND_URL }}/api/health --timeout 60000
+          echo "Waiting for frontend..."
+          for i in {1..30}; do
+            if curl -sf ${{ env.FRONTEND_URL }} > /dev/null 2>&1; then
+              echo "Frontend is ready"
+              break
+            fi
+            echo "Waiting for frontend... ($i/30)"
+            sleep 2
+          done
+          echo "Waiting for backend..."
+          for i in {1..30}; do
+            if curl -sf ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+          echo "Services failed to start"
+          cat frontend.log backend.log || true
+          exit 1
       - name: Run E2E health check
         run: npm run test:e2e:health
       - name: Upload full stack logs
@@ -376,8 +439,17 @@ jobs:
       - name: Stop full stack
         if: always()
         run: |
+          if [ -f frontend.pid ]; then
+            kill $(cat frontend.pid) 2>/dev/null || true
+            rm -f frontend.pid
+          fi
+          if [ -f backend.pid ]; then
+            kill $(cat backend.pid) 2>/dev/null || true
+            rm -f backend.pid
+          fi
           if [ -f full.pid ]; then
-            kill $(cat full.pid) || true
+            kill $(cat full.pid) 2>/dev/null || true
+            rm -f full.pid
           fi
 
   security_static:
@@ -453,16 +525,29 @@ jobs:
         run: cd backend && npx prisma migrate deploy
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+      - name: Build backend
+        run: cd backend && npm run build
       - name: Start backend
         run: |
-          npm run dev:ci > backend.log 2>&1 &
-          echo $! > backend.pid
+          cd backend && node dist/app.js > ../backend.log 2>&1 &
+          echo $! > ../backend.pid
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
       - name: Wait for backend
-        run: bash nuvana_control/workflows/11-ci_pipeline/scripts/wait-for-url.sh "${{ env.BACKEND_URL }}/api/health"
+        run: |
+          for i in {1..30}; do
+            if curl -sf ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+          echo "Backend failed to start"
+          cat backend.log || true
+          exit 1
       - name: OWASP ZAP baseline
         uses: zaproxy/action-baseline@v0.10.0
         with:
@@ -479,5 +564,6 @@ jobs:
         if: always()
         run: |
           if [ -f backend.pid ]; then
-            kill $(cat backend.pid) || true
+            kill $(cat backend.pid) 2>/dev/null || true
+            rm -f backend.pid
           fi
