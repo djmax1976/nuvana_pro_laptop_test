@@ -95,6 +95,10 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
       - name: Build backend
         run: cd backend && npm run build
+      - name: Make scripts executable
+        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
+      - name: Clean up port 3001 (if occupied)
+        run: bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
       - name: Start backend (if API tests needed)
         run: |
           cd backend && npm run start:test > ../backend.log 2>&1 &
@@ -115,8 +119,6 @@ jobs:
           done
           echo "Backend health check timeout - may not be needed for this test run"
         continue-on-error: true
-      - name: Make scripts executable
-        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
       - name: Run selective tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
@@ -130,6 +132,8 @@ jobs:
             kill $(cat backend.pid) 2>/dev/null || true
             rm -f backend.pid
           fi
+          # Extra cleanup: kill any remaining process on port 3001
+          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
   changed_tests_burn_in:
     name: Burn-In Changed Tests
@@ -190,6 +194,10 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Build backend
         run: cd backend && npm run build
+      - name: Make scripts executable
+        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
+      - name: Clean up port 3001 (if occupied)
+        run: bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
       - name: Start backend (if API/E2E tests needed)
         run: |
           cd backend && npm run start:test > ../backend.log 2>&1 &
@@ -210,8 +218,6 @@ jobs:
           done
           echo "Backend health check timeout - may not be needed for this test run"
         continue-on-error: true
-      - name: Make scripts executable
-        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
       - name: Run burn-in loop
         env:
           BURN_IN_ITERATIONS: ${{ env.BURN_IN_ITERATIONS }}
@@ -226,6 +232,8 @@ jobs:
             kill $(cat backend.pid) 2>/dev/null || true
             rm -f backend.pid
           fi
+          # Extra cleanup: kill any remaining process on port 3001
+          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
   component_smoke:
     name: Component Smoke
@@ -295,6 +303,10 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
       - name: Build backend
         run: cd backend && npm run build
+      - name: Make scripts executable
+        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
+      - name: Clean up port 3001 (if occupied)
+        run: bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
       - name: Start backend
         run: |
           cd backend && npm run start:test > ../backend.log 2>&1 &
@@ -343,6 +355,8 @@ jobs:
             kill $(cat backend.pid) 2>/dev/null || true
             rm -f backend.pid
           fi
+          # Extra cleanup: kill any remaining process on port 3001
+          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
   build_app:
     needs: lint_typecheck
@@ -413,6 +427,12 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Build backend
         run: cd backend && npm run build
+      - name: Make scripts executable
+        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
+      - name: Clean up ports (if occupied)
+        run: |
+          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000
+          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
       - name: Start full stack
         run: |
           npm run dev > frontend.log 2>&1 &
@@ -470,6 +490,9 @@ jobs:
             kill $(cat full.pid) 2>/dev/null || true
             rm -f full.pid
           fi
+          # Extra cleanup: kill any remaining processes on ports
+          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000 || true
+          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
   security_static:
     name: Static Security & Dependencies
@@ -546,6 +569,10 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
       - name: Build backend
         run: cd backend && npm run build
+      - name: Make scripts executable
+        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
+      - name: Clean up port 3001 (if occupied)
+        run: bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
       - name: Start backend
         run: |
           cd backend && npm run start:test > ../backend.log 2>&1 &
@@ -598,3 +625,5 @@ jobs:
             kill $(cat backend.pid) 2>/dev/null || true
             rm -f backend.pid
           fi
+          # Extra cleanup: kill any remaining process on port 3001
+          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
