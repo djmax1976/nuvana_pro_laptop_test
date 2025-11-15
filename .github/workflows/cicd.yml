@@ -26,8 +26,14 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - name: Install backend dependencies
+        run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npm run prisma:generate
       - run: npm run lint
       - run: npx tsc --noEmit
+      - name: Type-check backend
+        run: cd backend && npx tsc --noEmit
 
   selective_tests:
     name: Selective Tests
