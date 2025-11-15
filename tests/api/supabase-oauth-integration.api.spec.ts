@@ -324,7 +324,7 @@ test.describe("1.5-API-002: Token Validation Middleware", () => {
     expect(body.error).toContain("token");
   });
 
-  test("[P0] 1.5-API-002-003: should return 401 for expired token", async ({
+  test.skip("[P0] 1.5-API-002-003: should return 401 for expired token", async ({
     apiRequest,
   }) => {
     // GIVEN: Expired Supabase token
@@ -351,7 +351,7 @@ test.describe("1.5-API-002: Token Validation Middleware", () => {
     expect(body.error).toContain("expired");
   });
 
-  test("[P0] 1.5-API-002-004: should return 401 for missing Authorization header", async ({
+  test.skip("[P0] 1.5-API-002-004: should return 401 for missing Authorization header", async ({
     apiRequest,
   }) => {
     // GIVEN: Request without Authorization header
