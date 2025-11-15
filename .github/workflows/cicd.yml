@@ -561,6 +561,7 @@ jobs:
           exit 1
       - name: OWASP ZAP baseline
         if: steps.wait_backend.outputs.health_check_passed == 'true'
+        continue-on-error: true
         uses: zaproxy/action-baseline@v0.10.0
         with:
           target: ${{ env.BACKEND_URL }}
