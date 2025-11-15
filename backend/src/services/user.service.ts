@@ -33,18 +33,13 @@ export async function getUserOrCreate(
   name?: string | null,
 ) {
   // Normalize name: handle null, undefined, and empty string
-  // Helper function to avoid duplication
   // If name is null/undefined/empty, use email prefix as fallback
-  const getNormalizedName = () => {
-    if (!name || (typeof name === "string" && name.trim() === "")) {
-      return email.split("@")[0];
-    }
-    return name.trim();
-  };
+  const normalizedName =
+    !name || (typeof name === "string" && name.trim() === "")
+      ? email.split("@")[0]
+      : name.trim();
 
   try {
-    const normalizedName = getNormalizedName();
-
     // Atomic upsert by auth_provider_id (requires unique constraint in schema)
     // This is a single database operation - no race condition possible
     const user = await prisma.user.upsert({
@@ -113,7 +108,7 @@ export async function getUserOrCreate(
           where: { email },
           data: {
             auth_provider_id: authProviderId,
-            name: getNormalizedName(),
+            name: normalizedName,
           },
         });
       }
