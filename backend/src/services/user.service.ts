@@ -32,10 +32,10 @@ export async function getUserOrCreate(
   email: string,
   name?: string | null,
 ) {
-  try {
-    // Normalize name: handle null, undefined, and empty string
-    const normalizedName = name?.trim() || email.split("@")[0];
+  // Normalize name: handle null, undefined, and empty string
+  const normalizedName = name?.trim() || email.split("@")[0];
 
+  try {
     // Atomic upsert by auth_provider_id (requires unique constraint in schema)
     // This is a single database operation - no race condition possible
     const user = await prisma.user.upsert({
