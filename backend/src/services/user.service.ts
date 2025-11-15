@@ -14,7 +14,14 @@ export interface UserIdentity {
 
 /**
  * Get existing user by auth_provider_id or create new user
- * Uses email-based upsert to prevent race conditions (email is unique)
+ * Uses atomic upsert on auth_provider_id (unique constraint) to prevent race conditions
+ *
+ * RACE-CONDITION SAFE:
+ * - Single atomic database operation (no check-then-create gap)
+ * - Unique constraint on auth_provider_id prevents duplicates at DB level
+ * - Handles concurrent OAuth callbacks for same user correctly
+ * - Retries on unique constraint violations (concurrent race resolution)
+ *
  * @param authProviderId - Supabase user ID (from token sub field)
  * @param email - User email from Supabase token
  * @param name - User name from Supabase token (optional)
@@ -26,26 +33,16 @@ export async function getUserOrCreate(
   name?: string,
 ) {
   try {
-    // First, try to find existing user by auth_provider_id
-    let user = await prisma.user.findFirst({
+    // Atomic upsert by auth_provider_id (requires unique constraint in schema)
+    // This is a single database operation - no race condition possible
+    const user = await prisma.user.upsert({
       where: {
         auth_provider_id: authProviderId,
-      },
-    });
-
-    if (user) {
-      return user;
-    }
-
-    // User doesn't exist by auth_provider_id, use email-based upsert
-    // Email is unique, so this is atomic and race-condition safe
-    user = await prisma.user.upsert({
-      where: {
-        email: email,
       },
       update: {
-        // Update auth_provider_id if user exists with this email but different provider
-        auth_provider_id: authProviderId,
+        // Update email/name if provider ID already exists
+        // (handles edge case where user changed email in OAuth provider)
+        email,
         name: name || email.split("@")[0],
       },
       create: {
@@ -58,7 +55,33 @@ export async function getUserOrCreate(
 
     return user;
   } catch (error: any) {
-    // Handle any unexpected errors
+    // Handle concurrent race condition:
+    // If upsert fails due to unique constraint violation on email (NOT auth_provider_id),
+    // it means another concurrent request created a user with this email but different auth_provider_id
+    // In this rare case, retry by finding the user that was just created
+    if (error.code === "P2002" && error.meta?.target?.includes("email")) {
+      console.log(
+        `Concurrent user creation detected for email ${email}, retrying...`,
+      );
+
+      // Find the user that was just created by the concurrent request
+      const existingUser = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (existingUser) {
+        // Update the existing user with the current auth_provider_id
+        return await prisma.user.update({
+          where: { email },
+          data: {
+            auth_provider_id: authProviderId,
+            name: name || email.split("@")[0],
+          },
+        });
+      }
+    }
+
+    // For any other error, log and re-throw
     console.error("Error in getUserOrCreate:", error);
     throw error;
   }

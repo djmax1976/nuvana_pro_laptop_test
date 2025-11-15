@@ -14,7 +14,7 @@ model User {
   user_id          String   @id @default(uuid()) @db.Uuid
   email            String   @unique @db.VarChar(255)
   name             String   @db.VarChar(255)
-  auth_provider_id String?  @db.VarChar(255)
+  auth_provider_id String?  @unique @db.VarChar(255)
   status           String   @default("ACTIVE") @db.VarChar(50)
   created_at       DateTime @default(now()) @db.Timestamptz(6)
   updated_at       DateTime @default(now()) @updatedAt @db.Timestamptz(6)
@@ -24,7 +24,6 @@ model User {
   audit_logs       AuditLog[]
 
   @@index([email])
-  @@index([auth_provider_id])
   @@index([status])
   @@map("users")
 }
