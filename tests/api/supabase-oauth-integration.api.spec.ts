@@ -24,6 +24,7 @@ import { createSupabaseToken, createUser } from "../support/factories";
 test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
   test("[P0] 1.5-API-001-001: GET /api/auth/callback should validate Supabase token and return user identity", async ({
     apiRequest,
+    prismaClient,
   }) => {
     // GIVEN: Valid OAuth callback with code and state
     const oauthCode = "valid_oauth_code_123";
@@ -51,6 +52,11 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
       "auth_provider_id",
       "supabase_user_id_123",
     );
+
+    // Cleanup - delete the created user to prevent test isolation issues
+    await prismaClient.user.delete({
+      where: { user_id: body.user.user_id },
+    });
   });
 
   test("[P0] 1.5-API-001-002: GET /api/auth/callback should create new user if not exists", async ({
