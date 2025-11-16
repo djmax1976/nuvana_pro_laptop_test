@@ -502,12 +502,7 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
     });
   });
 
-  // CI ENVIRONMENT ISSUE: Returns 500 in CI, but 200 locally
-  // Root cause: Duplicate email scenario triggers unhandled error in CI environment
-  // Passes locally with npm run dev:test (USE_SUPABASE_MOCK=true)
-  // CI logs show 500 error instead of expected 200 response
-  // Backend implementation is correct - this is a CI-specific environment issue
-  test.skip("[P0] 1.5-API-003-003: should handle duplicate email gracefully", async ({
+  test("[P0] 1.5-API-003-003: should handle duplicate email gracefully", async ({
     apiRequest,
     prismaClient,
   }) => {
