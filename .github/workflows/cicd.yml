@@ -215,6 +215,10 @@ jobs:
           JWT_SECRET: test_jwt_secret_for_ci_only_12345678
           JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
           COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
+          SUPABASE_URL: https://dummy.supabase.co
+          SUPABASE_SERVICE_KEY: dummy_service_key_for_ci_mock
+          NODE_ENV: test
+          USE_SUPABASE_MOCK: "true"
       - name: Wait for backend health (if started)
         run: |
           for i in {1..30}; do
