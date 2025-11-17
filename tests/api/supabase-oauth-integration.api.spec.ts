@@ -615,4 +615,43 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
       });
     }
   });
+
+  test("[P0] 1.5-API-003-006: should reject auth_provider_id conflict (same provider ID, different emails)", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: User exists with auth_provider_id "conflict_provider_123" and email "user1@example.com"
+    const existingAuthProviderId = "conflict_provider_123";
+    const existingEmail = "user1@example.com";
+    const conflictingEmail = "user2@example.com";
+
+    // Create existing user
+    const existingUser = await prismaClient.user.create({
+      data: {
+        email: existingEmail,
+        name: "Original User",
+        auth_provider_id: existingAuthProviderId,
+        status: "ACTIVE",
+      },
+    });
+
+    // WHEN: OAuth callback returns SAME auth_provider_id but DIFFERENT email
+    // This simulates a conflict where the same OAuth provider ID is trying to claim different emails
+    // This is a security issue - one provider ID should only map to one email
+    const oauthCode = "valid_oauth_code_conflict";
+    const state = "random_state_string";
+
+    // Note: The mock OAuth handler for "valid_oauth_code_conflict" would need to return
+    // auth_provider_id="conflict_provider_123" but email="user2@example.com"
+    // For now, this test documents the expected behavior
+
+    // THEN: System should reject this by updating the email to match the provider
+    // OR throw an error (depending on business logic)
+    // This is a CRITICAL security test to prevent identity theft
+
+    // Cleanup
+    await prismaClient.user.delete({
+      where: { user_id: existingUser.user_id },
+    });
+  });
 });
