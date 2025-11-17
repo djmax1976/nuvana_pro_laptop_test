@@ -41,83 +41,64 @@ export class RBACService {
   async getUserRoles(userId: string): Promise<UserRole[]> {
     const cacheKey = `user_roles:${userId}`;
 
-    try {
-      // Try to get from cache first
-      const redis = await getRedisClient();
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
+    // Try to get from cache first (if Redis is available)
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          return JSON.parse(cached);
+        }
+      } catch (error) {
+        console.error(
+          "Redis error in getUserRoles, falling back to DB:",
+          error,
+        );
       }
-
-      // Fetch from database
-      const userRoles = await prisma.userRole.findMany({
-        where: {
-          user_id: userId,
-        },
-        include: {
-          role: {
-            include: {
-              role_permissions: {
-                include: {
-                  permission: true,
-                },
-              },
-            },
-          },
-        },
-      });
-
-      // Transform to UserRole format
-      const roles: UserRole[] = userRoles.map((ur: any) => ({
-        user_role_id: ur.user_role_id,
-        user_id: ur.user_id,
-        role_id: ur.role_id,
-        role_code: ur.role.code,
-        scope: ur.role.scope as "SYSTEM" | "COMPANY" | "STORE",
-        company_id: ur.company_id,
-        store_id: ur.store_id,
-        permissions: ur.role.role_permissions.map(
-          (rp: any) => rp.permission.code,
-        ),
-      }));
-
-      // Cache the result
-      await redis.setEx(cacheKey, this.cacheTTL, JSON.stringify(roles));
-
-      return roles;
-    } catch (error) {
-      // If Redis fails, fall back to database
-      console.error("Redis error in getUserRoles, falling back to DB:", error);
-      const userRoles = await prisma.userRole.findMany({
-        where: {
-          user_id: userId,
-        },
-        include: {
-          role: {
-            include: {
-              role_permissions: {
-                include: {
-                  permission: true,
-                },
-              },
-            },
-          },
-        },
-      });
-
-      return userRoles.map((ur: any) => ({
-        user_role_id: ur.user_role_id,
-        user_id: ur.user_id,
-        role_id: ur.role_id,
-        role_code: ur.role.code,
-        scope: ur.role.scope as "SYSTEM" | "COMPANY" | "STORE",
-        company_id: ur.company_id,
-        store_id: ur.store_id,
-        permissions: ur.role.role_permissions.map(
-          (rp: any) => rp.permission.code,
-        ),
-      }));
     }
+
+    // Fetch from database
+    const userRoles = await prisma.userRole.findMany({
+      where: {
+        user_id: userId,
+      },
+      include: {
+        role: {
+          include: {
+            role_permissions: {
+              include: {
+                permission: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Transform to UserRole format
+    const roles: UserRole[] = userRoles.map((ur: any) => ({
+      user_role_id: ur.user_role_id,
+      user_id: ur.user_id,
+      role_id: ur.role_id,
+      role_code: ur.role.code,
+      scope: ur.role.scope as "SYSTEM" | "COMPANY" | "STORE",
+      company_id: ur.company_id,
+      store_id: ur.store_id,
+      permissions: ur.role.role_permissions.map(
+        (rp: any) => rp.permission.code,
+      ),
+    }));
+
+    // Cache the result (if Redis is available)
+    if (redis) {
+      try {
+        await redis.setEx(cacheKey, this.cacheTTL, JSON.stringify(roles));
+      } catch (error) {
+        console.error("Failed to cache user roles:", error);
+      }
+    }
+
+    return roles;
   }
 
   /**
@@ -128,47 +109,44 @@ export class RBACService {
   async getRolePermissions(roleId: string): Promise<string[]> {
     const cacheKey = `role_permissions:${roleId}`;
 
-    try {
-      // Try to get from cache first
-      const redis = await getRedisClient();
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
+    // Try to get from cache first (if Redis is available)
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          return JSON.parse(cached);
+        }
+      } catch (error) {
+        console.error(
+          "Redis error in getRolePermissions, falling back to DB:",
+          error,
+        );
       }
-
-      // Fetch from database
-      const rolePermissions = await prisma.rolePermission.findMany({
-        where: {
-          role_id: roleId,
-        },
-        include: {
-          permission: true,
-        },
-      });
-
-      const permissions = rolePermissions.map((rp: any) => rp.permission.code);
-
-      // Cache the result
-      await redis.setEx(cacheKey, this.cacheTTL, JSON.stringify(permissions));
-
-      return permissions;
-    } catch (error) {
-      // If Redis fails, fall back to database
-      console.error(
-        "Redis error in getRolePermissions, falling back to DB:",
-        error,
-      );
-      const rolePermissions = await prisma.rolePermission.findMany({
-        where: {
-          role_id: roleId,
-        },
-        include: {
-          permission: true,
-        },
-      });
-
-      return rolePermissions.map((rp: any) => rp.permission.code);
     }
+
+    // Fetch from database
+    const rolePermissions = await prisma.rolePermission.findMany({
+      where: {
+        role_id: roleId,
+      },
+      include: {
+        permission: true,
+      },
+    });
+
+    const permissions = rolePermissions.map((rp: any) => rp.permission.code);
+
+    // Cache the result (if Redis is available)
+    if (redis) {
+      try {
+        await redis.setEx(cacheKey, this.cacheTTL, JSON.stringify(permissions));
+      } catch (error) {
+        console.error("Failed to cache role permissions:", error);
+      }
+    }
+
+    return permissions;
   }
 
   /**
@@ -187,16 +165,17 @@ export class RBACService {
   ): Promise<boolean> {
     const cacheKey = `permission_check:${userId}:${permission}:${scope?.companyId || ""}:${scope?.storeId || ""}`;
 
-    try {
-      // Try to get from cache first
-      const redis = await getRedisClient();
-      const cached = await redis.get(cacheKey);
-      if (cached !== null) {
-        return cached === "true";
+    // Try to get from cache first (if Redis is available)
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached !== null) {
+          return cached === "true";
+        }
+      } catch (error) {
+        console.error("Redis error in checkPermission, using DB:", error);
       }
-    } catch (error) {
-      // Continue to database check if Redis fails
-      console.error("Redis error in checkPermission, using DB:", error);
     }
 
     // Get user roles
@@ -274,16 +253,18 @@ export class RBACService {
     cacheKey: string,
     hasPermission: boolean,
   ): Promise<void> {
-    try {
-      const redis = await getRedisClient();
-      await redis.setEx(
-        cacheKey,
-        this.cacheTTL,
-        hasPermission ? "true" : "false",
-      );
-    } catch (error) {
-      // Ignore cache errors, permission check already completed
-      console.error("Failed to cache permission check:", error);
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        await redis.setEx(
+          cacheKey,
+          this.cacheTTL,
+          hasPermission ? "true" : "false",
+        );
+      } catch (error) {
+        // Ignore cache errors, permission check already completed
+        console.error("Failed to cache permission check:", error);
+      }
     }
   }
 
@@ -292,16 +273,18 @@ export class RBACService {
    * @param userId - User ID
    */
   async invalidateUserRolesCache(userId: string): Promise<void> {
-    try {
-      const redis = await getRedisClient();
-      await redis.del(`user_roles:${userId}`);
-      // Also invalidate all permission checks for this user
-      const keys = await redis.keys(`permission_check:${userId}:*`);
-      if (keys.length > 0) {
-        await redis.del(keys);
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        await redis.del(`user_roles:${userId}`);
+        // Also invalidate all permission checks for this user
+        const keys = await redis.keys(`permission_check:${userId}:*`);
+        if (keys.length > 0) {
+          await redis.del(keys);
+        }
+      } catch (error) {
+        console.error("Failed to invalidate user roles cache:", error);
       }
-    } catch (error) {
-      console.error("Failed to invalidate user roles cache:", error);
     }
   }
 
@@ -310,11 +293,13 @@ export class RBACService {
    * @param roleId - Role ID
    */
   async invalidateRolePermissionsCache(roleId: string): Promise<void> {
-    try {
-      const redis = await getRedisClient();
-      await redis.del(`role_permissions:${roleId}`);
-    } catch (error) {
-      console.error("Failed to invalidate role permissions cache:", error);
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        await redis.del(`role_permissions:${roleId}`);
+      } catch (error) {
+        console.error("Failed to invalidate role permissions cache:", error);
+      }
     }
   }
 }
