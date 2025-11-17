@@ -268,11 +268,12 @@ export const test = base.extend<RBACFixture>({
       );
     }
 
-    // Assign CORPORATE_ADMIN role to user
+    // Assign CORPORATE_ADMIN role to user with company_id (COMPANY scope)
     await prismaClient.userRole.create({
       data: {
         user_id: user.user_id,
         role_id: role.role_id,
+        company_id: company.company_id,
       },
     });
 
@@ -280,7 +281,13 @@ export const test = base.extend<RBACFixture>({
       user_id: user.user_id,
       email: user.email,
       roles: ["CORPORATE_ADMIN"],
-      permissions: ["USER_READ", "STORE_CREATE", "STORE_READ"],
+      permissions: [
+        "USER_READ",
+        "STORE_CREATE",
+        "STORE_READ",
+        "STORE_UPDATE",
+        "STORE_DELETE",
+      ],
     });
 
     const corporateAdminUser = {
@@ -289,7 +296,13 @@ export const test = base.extend<RBACFixture>({
       name: user.name,
       company_id: company.company_id,
       roles: ["CORPORATE_ADMIN"],
-      permissions: ["USER_READ", "STORE_CREATE", "STORE_READ"],
+      permissions: [
+        "USER_READ",
+        "STORE_CREATE",
+        "STORE_READ",
+        "STORE_UPDATE",
+        "STORE_DELETE",
+      ],
       token,
     };
 

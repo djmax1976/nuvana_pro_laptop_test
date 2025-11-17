@@ -11,6 +11,7 @@ import { authRoutes } from "./routes/auth";
 import { adminRoutes } from "./routes/admin";
 import { userRoutes } from "./routes/users";
 import { companyRoutes } from "./routes/companies";
+import { storeRoutes } from "./routes/store";
 import { contactRoutes } from "./routes/contact";
 
 // Load environment variables
@@ -68,6 +69,9 @@ app.register(userRoutes);
 // Register company routes
 app.register(companyRoutes);
 
+// Register store routes
+app.register(storeRoutes);
+
 // Register contact routes (public - no auth required)
 app.register(contactRoutes);
 
@@ -87,6 +91,7 @@ app.get("/", async () => {
       auth: "/api/auth/*",
       users: "/api/users/*",
       companies: "/api/companies/*",
+      stores: "/api/stores/*",
       admin: "/api/admin/*",
       contact: "/api/contact",
     },

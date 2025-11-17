@@ -1,4 +1,4 @@
-# Stage 0 + Stage 1 + Stage 2 + Stage 3 + Stage 4 + Stage 5 (Foundation + Component + API + E2E + Stability + Security)
+# Stage 0 + Stage 1 + Stage 2 + Stage 3 + Stage 4 + Stage 5 + Stage 6 (Foundation + Component + API + E2E + Stability + Security + Artifacts)
 # Progressive CI pipeline following progression plan
 
 name: Lean CI
@@ -650,3 +650,29 @@ jobs:
           fi
           # Extra cleanup: kill any remaining process on port 3001
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
+
+  artifact_build:
+    name: Build & Upload Artifacts
+    needs: build_app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Install backend dependencies
+        run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npm run prisma:generate
+      - run: npm run build
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            .next
+            backend/dist
+            package-lock.json
+          retention-days: 30
