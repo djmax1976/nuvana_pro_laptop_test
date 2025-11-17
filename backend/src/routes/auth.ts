@@ -3,6 +3,7 @@ import { getSupabaseClient } from "../utils/supabase";
 import { getUserOrCreate, getUserById } from "../services/user.service";
 import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
+import { stateService } from "../services/state.service";
 
 /**
  * OAuth callback endpoint that handles Supabase OAuth authentication
@@ -40,8 +41,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         }
 
         // Validate state parameter for CSRF protection
-        // In production, state should be validated against a session-stored value
-        // For now, we enforce that state parameter is present
+        // State must be present, non-empty, and match a previously stored value
         if (!query.state || query.state.trim() === "") {
           fastify.log.warn(
             "OAuth callback received without state parameter - CSRF vulnerability",
@@ -54,12 +54,21 @@ export async function authRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // TODO: In production, implement proper state validation:
-        // 1. Store state in Redis/session before OAuth redirect
-        // 2. Validate query.state matches stored value
-        // 3. Ensure state is single-use (delete after validation)
-        // Example: const storedState = await redis.get(`oauth:state:${query.state}`);
-        //          if (!storedState) return 400 "Invalid state";
+        // Validate state against stored values (single-use, auto-deleted after validation)
+        // In production, replace in-memory state store with Redis for distributed systems
+        const isValidState = stateService.validateState(query.state);
+        if (!isValidState) {
+          fastify.log.warn(
+            { state: query.state },
+            "OAuth callback received with invalid or expired state - CSRF attack attempt",
+          );
+          reply.code(400);
+          return {
+            error: "Invalid state parameter",
+            message:
+              "State parameter is invalid, expired, or already used. Please restart the OAuth flow.",
+          };
+        }
 
         // Initialize Supabase client for token validation
         const supabaseUrl = process.env.SUPABASE_URL;
@@ -272,4 +281,49 @@ export async function authRoutes(fastify: FastifyInstance) {
       };
     },
   );
+
+  /**
+   * Test helper endpoint to store OAuth state for CSRF testing
+   * POST /api/auth/test/store-state
+   * Only available in test environment
+   */
+  if (process.env.NODE_ENV === "test") {
+    fastify.post(
+      "/api/auth/test/store-state",
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        let body = request.body as any;
+
+        // Handle Playwright's data wrapping format
+        if (body && typeof body === "object" && "data" in body) {
+          // If data is a string, parse it
+          if (typeof body.data === "string") {
+            try {
+              body = JSON.parse(body.data);
+            } catch (e) {
+              // If parsing fails, use as-is
+            }
+          } else {
+            // If data is already an object, use it directly
+            body = body.data;
+          }
+        }
+
+        if (!body || !body.state) {
+          fastify.log.error({ body }, "Missing state parameter in request");
+          reply.code(400);
+          return {
+            error: "Missing required parameter: state",
+          };
+        }
+
+        stateService.storeState(body.state, body.ttl);
+
+        reply.code(200);
+        return {
+          message: "State stored successfully",
+          state: body.state,
+        };
+      },
+    );
+  }
 }

@@ -1,5 +1,6 @@
 import { test, expect } from "../support/fixtures";
 import { createSupabaseToken, createUser } from "../support/factories";
+import { APIRequestContext } from "@playwright/test";
 
 /**
  * Supabase OAuth Integration API Tests
@@ -21,6 +22,34 @@ import { createSupabaseToken, createUser } from "../support/factories";
  * See: tests/support/fixtures/supabase-mock.fixture.ts for mock implementation
  */
 
+/**
+ * Helper function to store OAuth state for CSRF validation
+ * @param apiRequest - Playwright API request context
+ * @param state - State string to store
+ * @param ttl - Optional time-to-live in milliseconds
+ */
+async function storeOAuthState(
+  apiRequest: any,
+  state: string,
+  ttl?: number,
+): Promise<void> {
+  const payload = JSON.stringify({ state, ttl });
+
+  const response = await apiRequest.post("/api/auth/test/store-state", {
+    data: payload,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok()) {
+    const body = await response.text();
+    throw new Error(
+      `Failed to store OAuth state: ${response.status()} - ${body}`,
+    );
+  }
+}
+
 test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
   // Clean up all users before each test to ensure isolation
   test.beforeEach(async ({ prismaClient }) => {
@@ -38,6 +67,9 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
       name: "Test User",
       sub: "supabase_user_id_123",
     });
+
+    // Store state for CSRF validation
+    await storeOAuthState(apiRequest, state);
 
     // WHEN: OAuth callback endpoint is called
     const response = await apiRequest.get(
@@ -73,6 +105,9 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
     const newUserEmail = "newuser@example.com";
     const newUserName = "New User";
     const supabaseUserId = "supabase_user_id_new";
+
+    // Store state for CSRF validation
+    await storeOAuthState(apiRequest, state);
 
     // WHEN: OAuth callback endpoint is called
     const response = await apiRequest.get(
@@ -120,6 +155,9 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
     const oauthCode = "valid_oauth_code_existing";
     const state = "random_state_string";
 
+    // Store state for CSRF validation
+    await storeOAuthState(apiRequest, state);
+
     // WHEN: OAuth callback endpoint is called
     const response = await apiRequest.get(
       `/api/auth/callback?code=${oauthCode}&state=${state}`,
@@ -154,6 +192,9 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
     // GIVEN: Invalid OAuth callback code
     const invalidCode = "invalid_oauth_code";
     const state = "random_state_string";
+
+    // Store state for CSRF validation
+    await storeOAuthState(apiRequest, state);
 
     // WHEN: OAuth callback endpoint is called with invalid code
     const response = await apiRequest.get(
@@ -207,18 +248,18 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
     expect(body.error).toContain("state");
   });
 
-  test.skip("[P1] 1.5-API-001-007: GET /api/auth/callback should return 400 for invalid state parameter", async ({
+  test("[P1] 1.5-API-001-007: GET /api/auth/callback should return 400 for invalid state parameter", async ({
     apiRequest,
   }) => {
-    // TODO: Full CSRF validation requires session/Redis to store and validate state
-    // Currently we only check that state is present (not empty)
-    // This test is skipped until full state validation is implemented
-
-    // GIVEN: OAuth callback with invalid state (CSRF protection)
+    // GIVEN: Valid state stored in session, but callback uses invalid state
     const oauthCode = "valid_oauth_code_123";
+    const validState = "valid_state_matching_session";
     const invalidState = "invalid_state_not_matching_session";
 
-    // WHEN: OAuth callback endpoint is called with invalid state
+    // Store valid state for CSRF validation
+    await storeOAuthState(apiRequest, validState);
+
+    // WHEN: OAuth callback endpoint is called with invalid state (CSRF protection)
     const response = await apiRequest.get(
       `/api/auth/callback?code=${oauthCode}&state=${invalidState}`,
     );
@@ -238,6 +279,9 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
     // GIVEN: OAuth callback with empty code parameter
     const emptyCode = "";
     const state = "random_state_string";
+
+    // Store state for CSRF validation
+    await storeOAuthState(apiRequest, state);
 
     // WHEN: OAuth callback endpoint is called with empty code
     const response = await apiRequest.get(
@@ -260,6 +304,9 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
     const error = "access_denied";
     const state = "random_state_string";
 
+    // Store state for CSRF validation
+    await storeOAuthState(apiRequest, state);
+
     // WHEN: OAuth callback endpoint is called with error
     const response = await apiRequest.get(
       `/api/auth/callback?error=${error}&state=${state}`,
@@ -281,28 +328,24 @@ test.describe("1.5-API-002: Token Validation Middleware", () => {
     await prismaClient.user.deleteMany({});
   });
 
-  test.skip("[P0] 1.5-API-002-001: should validate valid Supabase token", async ({
+  test("[P0] 1.5-API-002-001: should validate valid JWT token from OAuth flow", async ({
     apiRequest,
   }) => {
-    // TODO: This test uses createSupabaseToken() which creates a Supabase JWT,
-    // but /api/auth/me expects our backend's JWT (from AuthService.generateTokenPairWithRBAC)
-    // Need to either:
-    // 1. Create a user via OAuth callback first, then extract the access_token cookie
-    // 2. Or test the Supabase token validation middleware separately from /api/auth/me
+    // GIVEN: User authenticated via OAuth callback (receives backend JWT in cookie)
+    const oauthCode = "valid_oauth_code_123";
+    const state = "random_state_string";
 
-    // GIVEN: Valid Supabase token
-    const validToken = createSupabaseToken({
-      email: "user@example.com",
-      name: "Test User",
-      sub: "supabase_user_id_123",
-    });
+    // Store state for CSRF validation
+    await storeOAuthState(apiRequest, state);
 
-    // WHEN: Protected endpoint is called with valid token
-    const response = await apiRequest.get("/api/auth/me", {
-      headers: {
-        Authorization: `Bearer ${validToken}`,
-      },
-    });
+    // Authenticate via OAuth callback to get access_token cookie
+    const authResponse = await apiRequest.get(
+      `/api/auth/callback?code=${oauthCode}&state=${state}`,
+    );
+    expect(authResponse.status()).toBe(200);
+
+    // WHEN: Protected endpoint is called with valid JWT cookie
+    const response = await apiRequest.get("/api/auth/me");
 
     // THEN: Request is authorized
     expect(response.status()).toBe(200);
@@ -310,6 +353,10 @@ test.describe("1.5-API-002: Token Validation Middleware", () => {
     // AND: User identity is available in request
     const body = await response.json();
     expect(body).toHaveProperty("user");
+    expect(body.user).toHaveProperty("id");
+    expect(body.user).toHaveProperty("email");
+    expect(body.user).toHaveProperty("roles");
+    expect(body.user).toHaveProperty("permissions");
   });
 
   test("[P0] 1.5-API-002-002: should return 401 for invalid token", async ({
@@ -535,6 +582,9 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
       },
     });
 
+    // Store state for CSRF validation
+    await storeOAuthState(apiRequest, state);
+
     // WHEN: OAuth callback is called with same email but different auth_provider_id
     // This will trigger the duplicate email error handling path in getUserOrCreate
     const response = await apiRequest.get(
@@ -568,13 +618,20 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
   }) => {
     // GIVEN: Same OAuth callback triggered concurrently (race condition scenario)
     const oauthCode = "valid_oauth_code_concurrent";
-    const state = "random_state_string";
+    const state1 = "random_state_string_1";
+    const state2 = "random_state_string_2";
     const supabaseUserId = "supabase_user_id_concurrent";
+
+    // Store both states for CSRF validation (concurrent requests need separate states)
+    await Promise.all([
+      storeOAuthState(apiRequest, state1),
+      storeOAuthState(apiRequest, state2),
+    ]);
 
     // WHEN: Multiple concurrent OAuth callback requests are made
     const [response1, response2] = await Promise.all([
-      apiRequest.get(`/api/auth/callback?code=${oauthCode}&state=${state}`),
-      apiRequest.get(`/api/auth/callback?code=${oauthCode}&state=${state}`),
+      apiRequest.get(`/api/auth/callback?code=${oauthCode}&state=${state1}`),
+      apiRequest.get(`/api/auth/callback?code=${oauthCode}&state=${state2}`),
     ]);
 
     // THEN: Both requests should succeed (200 OK)
@@ -603,6 +660,9 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
     const oauthCode = "valid_oauth_code_no_name";
     const state = "random_state_string";
     const supabaseUserId = "supabase_user_id_no_name";
+
+    // Store state for CSRF validation
+    await storeOAuthState(apiRequest, state);
 
     // WHEN: OAuth callback endpoint is called with user having no name
     const response = await apiRequest.get(
