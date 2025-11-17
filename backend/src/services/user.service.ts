@@ -81,13 +81,31 @@ export async function getUserOrCreate(
     console.log(
       `Updating user ${email} from auth_provider_id ${existingUserByEmail.auth_provider_id} to ${authProviderId}`,
     );
-    return await prisma.user.update({
-      where: { email },
-      data: {
-        auth_provider_id: authProviderId,
-        name: normalizedName,
-      },
-    });
+    try {
+      return await prisma.user.update({
+        where: { email },
+        data: {
+          auth_provider_id: authProviderId,
+          name: normalizedName,
+        },
+      });
+    } catch (error: any) {
+      // Handle race condition: auth_provider_id was claimed by another user between our check and update
+      if (
+        error.code === "P2002" &&
+        error.meta?.target?.includes("auth_provider_id")
+      ) {
+        console.error(
+          `Race condition: auth_provider_id ${authProviderId} was claimed during update attempt`,
+        );
+        throw new Error(
+          `Authentication provider ID already associated with different account`,
+        );
+      }
+      // Re-throw any other error with detailed logging
+      console.error("Error updating user with new auth_provider_id:", error);
+      throw error;
+    }
   }
 
   // STEP 2: No user with this email - proceed with atomic upsert by auth_provider_id
