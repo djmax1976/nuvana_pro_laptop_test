@@ -113,3 +113,54 @@ export async function authMiddleware(
     });
   }
 }
+
+/**
+ * Fastify middleware to validate Supabase token from Bearer Authorization header
+ * Attaches user identity to request object
+ * Used for endpoints that accept Supabase OAuth tokens directly
+ */
+export async function supabaseAuthMiddleware(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  try {
+    // Extract Bearer token from Authorization header
+    const authHeader = request.headers.authorization;
+
+    if (!authHeader) {
+      reply.code(401);
+      reply.send({
+        error: "Unauthorized",
+        message: "Missing Authorization header",
+      });
+      return;
+    }
+
+    // Parse Bearer token
+    const parts = authHeader.split(" ");
+    if (parts.length !== 2 || parts[0] !== "Bearer") {
+      reply.code(401);
+      reply.send({
+        error: "Unauthorized",
+        message:
+          "Invalid Authorization header format. Expected: Bearer <token>",
+      });
+      return;
+    }
+
+    const token = parts[1];
+
+    // Validate Supabase token and extract user identity
+    const userIdentity = await validateSupabaseToken(token);
+
+    // Attach user identity to request for use in route handlers
+    (request as any).user = userIdentity;
+  } catch (error) {
+    reply.code(401);
+    reply.send({
+      error: "Unauthorized",
+      message:
+        error instanceof Error ? error.message : "Token validation failed",
+    });
+  }
+}

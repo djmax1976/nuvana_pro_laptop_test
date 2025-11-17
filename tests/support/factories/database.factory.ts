@@ -26,11 +26,10 @@ export type StoreData = {
   name: string;
   location_json?: {
     address?: string;
-    city?: string;
-    state?: string;
-    zip?: string;
-    latitude?: number;
-    longitude?: number;
+    gps?: {
+      lat: number;
+      lng: number;
+    };
   } | null;
   timezone: string;
   status: "ACTIVE" | "INACTIVE" | "CLOSED";
@@ -66,11 +65,10 @@ export const createStore = (overrides: Partial<StoreData> = {}): StoreData => ({
   name: `${faker.company.name()} Store`,
   location_json: {
     address: faker.location.streetAddress(),
-    city: faker.location.city(),
-    state: faker.location.state({ abbreviated: true }),
-    zip: faker.location.zipCode(),
-    latitude: Number(faker.location.latitude()),
-    longitude: Number(faker.location.longitude()),
+    gps: {
+      lat: Number(faker.location.latitude()),
+      lng: Number(faker.location.longitude()),
+    },
   },
   timezone: "America/New_York",
   status: "ACTIVE",
