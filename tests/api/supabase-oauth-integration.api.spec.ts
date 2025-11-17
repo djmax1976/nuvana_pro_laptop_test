@@ -599,6 +599,15 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
       `/api/auth/callback?code=${oauthCode}&state=${state}`,
     );
 
+    // Debug: Log response for CI debugging
+    if (response.status() !== 200) {
+      const errorBody = await response.json();
+      console.error("OAuth callback failed:", {
+        status: response.status(),
+        body: errorBody,
+      });
+    }
+
     // THEN: Should handle gracefully by updating existing user with new auth_provider_id
     expect(response.status()).toBe(200);
 
