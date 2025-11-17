@@ -187,13 +187,9 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
     expect(body.error).toContain("code");
   });
 
-  test.skip("[P1] 1.5-API-001-006: GET /api/auth/callback should return 400 for missing state parameter", async ({
+  test("[P1] 1.5-API-001-006: GET /api/auth/callback should return 400 for missing state parameter", async ({
     apiRequest,
   }) => {
-    // TODO: Implement CSRF protection with state parameter validation
-    // Currently the backend does not validate the state parameter
-    // This test documents the expected behavior once CSRF protection is implemented
-
     // GIVEN: OAuth callback without state parameter (CSRF protection)
     const oauthCode = "valid_oauth_code_123";
 
@@ -214,9 +210,9 @@ test.describe("1.5-API-001: OAuth Callback Endpoint", () => {
   test.skip("[P1] 1.5-API-001-007: GET /api/auth/callback should return 400 for invalid state parameter", async ({
     apiRequest,
   }) => {
-    // TODO: Implement CSRF protection with state parameter validation
-    // Currently the backend does not validate the state parameter
-    // This test documents the expected behavior once CSRF protection is implemented
+    // TODO: Full CSRF validation requires session/Redis to store and validate state
+    // Currently we only check that state is present (not empty)
+    // This test is skipped until full state validation is implemented
 
     // GIVEN: OAuth callback with invalid state (CSRF protection)
     const oauthCode = "valid_oauth_code_123";

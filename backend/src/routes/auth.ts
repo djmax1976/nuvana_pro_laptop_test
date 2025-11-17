@@ -39,6 +39,28 @@ export async function authRoutes(fastify: FastifyInstance) {
           };
         }
 
+        // Validate state parameter for CSRF protection
+        // In production, state should be validated against a session-stored value
+        // For now, we enforce that state parameter is present
+        if (!query.state || query.state.trim() === "") {
+          fastify.log.warn(
+            "OAuth callback received without state parameter - CSRF vulnerability",
+          );
+          reply.code(400);
+          return {
+            error: "Missing required parameter: state",
+            message:
+              "State parameter is required for CSRF protection in OAuth flow",
+          };
+        }
+
+        // TODO: In production, implement proper state validation:
+        // 1. Store state in Redis/session before OAuth redirect
+        // 2. Validate query.state matches stored value
+        // 3. Ensure state is single-use (delete after validation)
+        // Example: const storedState = await redis.get(`oauth:state:${query.state}`);
+        //          if (!storedState) return 400 "Invalid state";
+
         // Initialize Supabase client for token validation
         const supabaseUrl = process.env.SUPABASE_URL;
         const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
