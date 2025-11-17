@@ -449,11 +449,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
 
         // Check if store exists FIRST (before permission check)
         // This ensures we return 404 for non-existent stores, not 403
-        const storeExists = await prisma.store.findUnique({
+        const store = await prisma.store.findUnique({
           where: { store_id: params.storeId },
         });
 
-        if (!storeExists) {
+        if (!store) {
           reply.code(404);
           return {
             error: "Not found",
@@ -471,11 +471,14 @@ export async function storeRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Get store (service will verify company isolation)
-        const store = await storeService.getStoreById(
-          params.storeId,
-          userCompanyId,
-        );
+        // Check company isolation
+        if (store.company_id !== userCompanyId) {
+          reply.code(403);
+          return {
+            error: "Forbidden",
+            message: "You can only access stores for your assigned company",
+          };
+        }
 
         reply.code(200);
         return store;
@@ -641,11 +644,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
 
         // Check if store exists FIRST (before permission check)
         // This ensures we return 404 for non-existent stores, not 403
-        const storeExists = await prisma.store.findUnique({
+        const oldStore = await prisma.store.findUnique({
           where: { store_id: params.storeId },
         });
 
-        if (!storeExists) {
+        if (!oldStore) {
           reply.code(404);
           return {
             error: "Not found",
@@ -663,11 +666,14 @@ export async function storeRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Get old values before update
-        const oldStore = await storeService.getStoreById(
-          params.storeId,
-          userCompanyId,
-        );
+        // Check company isolation
+        if (oldStore.company_id !== userCompanyId) {
+          reply.code(403);
+          return {
+            error: "Forbidden",
+            message: "You can only update stores for your assigned company",
+          };
+        }
 
         // Update store (service will verify company isolation)
         const store = await storeService.updateStore(
@@ -820,11 +826,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
 
         // Check if store exists FIRST (before permission check)
         // This ensures we return 404 for non-existent stores, not 403
-        const storeExists = await prisma.store.findUnique({
+        const oldStore = await prisma.store.findUnique({
           where: { store_id: params.storeId },
         });
 
-        if (!storeExists) {
+        if (!oldStore) {
           reply.code(404);
           return {
             error: "Not found",
@@ -842,11 +848,14 @@ export async function storeRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Get old values before soft delete
-        const oldStore = await storeService.getStoreById(
-          params.storeId,
-          userCompanyId,
-        );
+        // Check company isolation
+        if (oldStore.company_id !== userCompanyId) {
+          reply.code(403);
+          return {
+            error: "Forbidden",
+            message: "You can only delete stores for your assigned company",
+          };
+        }
 
         // Soft delete store (service will verify company isolation)
         const store = await storeService.deleteStore(
