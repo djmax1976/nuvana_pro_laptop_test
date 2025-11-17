@@ -571,6 +571,14 @@ test.describe("1.5-API-003: User Service - getUserOrCreate", () => {
     const oauthCode = "valid_oauth_code_123";
     const state = "random_state_string";
 
+    // CRITICAL: Clean up any leftover users with this auth_provider_id from previous tests
+    // This prevents unique constraint violations when updating the user
+    await prismaClient.user.deleteMany({
+      where: {
+        OR: [{ email: mockEmail }, { auth_provider_id: mockAuthId }],
+      },
+    });
+
     // Create user with same email but different auth_provider_id
     // This simulates a duplicate email scenario
     const existingUser = await prismaClient.user.create({
