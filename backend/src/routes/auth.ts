@@ -71,8 +71,16 @@ export async function authRoutes(fastify: FastifyInstance) {
         }
 
         // Initialize Supabase client for token validation
-        const supabaseUrl = process.env.SUPABASE_URL;
-        const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+        // In test mode with mock enabled, use dummy values since the mock doesn't need real credentials
+        const useMock =
+          process.env.NODE_ENV === "test" &&
+          process.env.USE_SUPABASE_MOCK === "true";
+        const supabaseUrl =
+          process.env.SUPABASE_URL ||
+          (useMock ? "https://mock.supabase.co" : "");
+        const supabaseServiceKey =
+          process.env.SUPABASE_SERVICE_KEY ||
+          (useMock ? "mock_service_key" : "");
 
         if (!supabaseUrl || !supabaseServiceKey) {
           fastify.log.error("Missing Supabase configuration");
