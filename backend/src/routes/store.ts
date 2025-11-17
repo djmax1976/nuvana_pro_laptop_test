@@ -447,6 +447,20 @@ export async function storeRoutes(fastify: FastifyInstance) {
         const params = request.params as { storeId: string };
         const user = (request as any).user as UserIdentity;
 
+        // Check if store exists FIRST (before permission check)
+        // This ensures we return 404 for non-existent stores, not 403
+        const storeExists = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+        });
+
+        if (!storeExists) {
+          reply.code(404);
+          return {
+            error: "Not found",
+            message: "Store not found",
+          };
+        }
+
         // Get user's company_id for isolation check
         const userCompanyId = await getUserCompanyId(user.id);
         if (!userCompanyId) {
@@ -625,6 +639,20 @@ export async function storeRoutes(fastify: FastifyInstance) {
         };
         const user = (request as any).user as UserIdentity;
 
+        // Check if store exists FIRST (before permission check)
+        // This ensures we return 404 for non-existent stores, not 403
+        const storeExists = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+        });
+
+        if (!storeExists) {
+          reply.code(404);
+          return {
+            error: "Not found",
+            message: "Store not found",
+          };
+        }
+
         // Get user's company_id for isolation check
         const userCompanyId = await getUserCompanyId(user.id);
         if (!userCompanyId) {
@@ -789,6 +817,20 @@ export async function storeRoutes(fastify: FastifyInstance) {
       try {
         const params = request.params as { storeId: string };
         const user = (request as any).user as UserIdentity;
+
+        // Check if store exists FIRST (before permission check)
+        // This ensures we return 404 for non-existent stores, not 403
+        const storeExists = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+        });
+
+        if (!storeExists) {
+          reply.code(404);
+          return {
+            error: "Not found",
+            message: "Store not found",
+          };
+        }
 
         // Get user's company_id for isolation check
         const userCompanyId = await getUserCompanyId(user.id);
