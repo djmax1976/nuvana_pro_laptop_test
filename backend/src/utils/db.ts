@@ -29,11 +29,9 @@ class RLSPrismaClient extends PrismaClient {
           let variableSet = false;
           try {
             // Set session variable for RLS policies
-            // Wrap in try-catch to handle cases where SET might fail
+            // Use parameterized query to prevent SQL injection
             try {
-              await this.$executeRawUnsafe(
-                `SET app.current_user_id = '${userId}'`,
-              );
+              await this.$executeRaw`SET app.current_user_id = ${userId}`;
               variableSet = true;
             } catch (setError: any) {
               // If SET fails, log but continue - RLS policies will use NULL/default
@@ -46,7 +44,7 @@ class RLSPrismaClient extends PrismaClient {
             // Clear the session variable after query completes (if it was set)
             if (variableSet) {
               try {
-                await this.$executeRawUnsafe(`RESET app.current_user_id`);
+                await this.$executeRaw`RESET app.current_user_id`;
               } catch (resetError) {
                 // Ignore reset errors - variable will be cleared when connection is reused
                 console.warn(
@@ -59,7 +57,7 @@ class RLSPrismaClient extends PrismaClient {
             // Ensure we clear the variable even if query fails
             if (variableSet) {
               try {
-                await this.$executeRawUnsafe(`RESET app.current_user_id`);
+                await this.$executeRaw`RESET app.current_user_id`;
               } catch (resetError) {
                 // Ignore reset errors
               }
