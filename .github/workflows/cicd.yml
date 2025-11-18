@@ -366,6 +366,8 @@ jobs:
           exit 1
       - name: Run health check test
         if: steps.wait_backend_api_smoke.outputs.health_check_passed == 'true'
+        env:
+          BACKEND_URL: ${{ env.BACKEND_URL }}
         run: npm run test:api:health
       - name: Upload backend logs
         if: failure()
@@ -503,6 +505,8 @@ jobs:
           exit 1
       - name: Run E2E health check
         env:
+          BACKEND_URL: ${{ env.BACKEND_URL }}
+          FRONTEND_URL: ${{ env.FRONTEND_URL }}
           JWT_SECRET: test_jwt_secret_for_ci_only_12345678
           JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
           COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
