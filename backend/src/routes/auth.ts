@@ -75,20 +75,29 @@ export async function authRoutes(fastify: FastifyInstance) {
         const useMock =
           process.env.NODE_ENV === "test" &&
           process.env.USE_SUPABASE_MOCK === "true";
-        const supabaseUrl =
-          process.env.SUPABASE_URL ||
-          (useMock ? "https://mock.supabase.co" : "");
-        const supabaseServiceKey =
-          process.env.SUPABASE_SERVICE_KEY ||
-          (useMock ? "mock_service_key" : "");
 
-        if (!supabaseUrl || !supabaseServiceKey) {
-          fastify.log.error("Missing Supabase configuration");
-          reply.code(500);
-          return {
-            error: "Server configuration error",
-            message: "Supabase configuration is missing",
-          };
+        // If using mock, skip Supabase URL/key validation (mock doesn't need real credentials)
+        let supabaseUrl: string;
+        let supabaseServiceKey: string;
+
+        if (useMock) {
+          // Mock mode: use dummy values, don't require real Supabase config
+          supabaseUrl = process.env.SUPABASE_URL || "https://mock.supabase.co";
+          supabaseServiceKey =
+            process.env.SUPABASE_SERVICE_KEY || "mock_service_key";
+        } else {
+          // Production mode: require real Supabase configuration
+          supabaseUrl = process.env.SUPABASE_URL || "";
+          supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || "";
+
+          if (!supabaseUrl || !supabaseServiceKey) {
+            fastify.log.error("Missing Supabase configuration");
+            reply.code(500);
+            return {
+              error: "Server configuration error",
+              message: "Supabase configuration is missing",
+            };
+          }
         }
 
         const supabase = getSupabaseClient(supabaseUrl, supabaseServiceKey);

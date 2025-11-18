@@ -24,6 +24,35 @@ import { faker } from "@faker-js/faker";
  * Priority: P0 (Critical - Authentication)
  */
 
+/**
+ * Helper function to store OAuth state for CSRF validation
+ * Required before calling OAuth callback endpoint
+ * @param apiRequest - Playwright API request context
+ * @param state - State string to store
+ * @param ttl - Optional time-to-live in milliseconds
+ */
+async function storeOAuthState(
+  apiRequest: any,
+  state: string,
+  ttl?: number,
+): Promise<void> {
+  const payload = JSON.stringify({ state, ttl });
+
+  const response = await apiRequest.post("/api/auth/test/store-state", {
+    data: payload,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok()) {
+    const body = await response.text();
+    throw new Error(
+      `Failed to store OAuth state: ${response.status()} - ${body}`,
+    );
+  }
+}
+
 test.describe("1.6-API-001: JWT Token Generation in OAuth Callback", () => {
   test("[P0] 1.6-API-001-001: GET /api/auth/callback should generate access and refresh tokens after successful OAuth", async ({
     apiRequest,
@@ -32,6 +61,9 @@ test.describe("1.6-API-001: JWT Token Generation in OAuth Callback", () => {
     // GIVEN: User has authenticated via Supabase OAuth
     const oauthCode = faker.string.alphanumeric(32);
     const state = faker.string.alphanumeric(16);
+
+    // Store state for CSRF validation (required before callback)
+    await storeOAuthState(apiRequest, state);
 
     // WHEN: OAuth callback endpoint is called (after successful OAuth)
     const response = await apiRequest.get(
@@ -79,6 +111,9 @@ test.describe("1.6-API-001: JWT Token Generation in OAuth Callback", () => {
     const oauthCode = faker.string.alphanumeric(32);
     const state = faker.string.alphanumeric(16);
 
+    // Store state for CSRF validation (required before callback)
+    await storeOAuthState(apiRequest, state);
+
     // WHEN: OAuth callback endpoint is called
     const response = await apiRequest.get(
       `/api/auth/callback?code=${oauthCode}&state=${state}`,
@@ -106,6 +141,9 @@ test.describe("1.6-API-001: JWT Token Generation in OAuth Callback", () => {
     // GIVEN: User has authenticated via Supabase OAuth
     const oauthCode = faker.string.alphanumeric(32);
     const state = faker.string.alphanumeric(16);
+
+    // Store state for CSRF validation (required before callback)
+    await storeOAuthState(apiRequest, state);
 
     // WHEN: OAuth callback endpoint is called
     const response = await apiRequest.get(
@@ -144,6 +182,9 @@ test.describe("1.6-API-001: JWT Token Generation in OAuth Callback", () => {
 
     const oauthCode = faker.string.alphanumeric(32);
     const state = faker.string.alphanumeric(16);
+
+    // Store state for CSRF validation (required before callback)
+    await storeOAuthState(apiRequest, state);
 
     // WHEN: OAuth callback endpoint is called
     const response = await apiRequest.get(
