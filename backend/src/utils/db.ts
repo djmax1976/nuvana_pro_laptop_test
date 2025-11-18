@@ -16,22 +16,25 @@ class RLSPrismaClient extends PrismaClient {
     super();
 
     // Add middleware to set RLS context before each query
-    this.$use(async (params, next) => {
-      const userId = rlsContext.getStore();
+    // Using type assertion because $use is not properly typed in extended classes
+    (this as any).$use(
+      async (params: any, next: (params: any) => Promise<any>) => {
+        const userId = rlsContext.getStore();
 
-      if (userId) {
-        // Set session variable for RLS policies
-        // Use $executeRawUnsafe to set session variable on the connection
-        await this.$executeRawUnsafe(
-          `SET LOCAL app.current_user_id = '${userId}'`,
-        );
-      } else {
-        // Clear session variable if no user context
-        await this.$executeRawUnsafe(`SET LOCAL app.current_user_id = NULL`);
-      }
+        if (userId) {
+          // Set session variable for RLS policies
+          // Use $executeRawUnsafe to set session variable on the connection
+          await this.$executeRawUnsafe(
+            `SET LOCAL app.current_user_id = '${userId}'`,
+          );
+        } else {
+          // Clear session variable if no user context
+          await this.$executeRawUnsafe(`SET LOCAL app.current_user_id = NULL`);
+        }
 
-      return next(params);
-    });
+        return next(params);
+      },
+    );
   }
 }
 
