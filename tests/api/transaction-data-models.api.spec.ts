@@ -1110,11 +1110,8 @@ test.describe("Transaction Data Models - Security", () => {
     const otherUser = await prismaClient.user.create({
       data: {
         email: `other-${Date.now()}@test.com`,
-        company_id: otherCompany.company_id,
-        supabase_uid: `supabase-${Date.now()}`,
-        first_name: "Other",
-        last_name: "User",
-        role: "CASHIER",
+        name: "Other User",
+        auth_provider_id: `auth-${Date.now()}`,
         status: "ACTIVE",
       },
     });
@@ -1183,11 +1180,8 @@ test.describe("Transaction Data Models - Security", () => {
     const otherUser = await prismaClient.user.create({
       data: {
         email: `unauth-${Date.now()}@test.com`,
-        company_id: otherCompany.company_id,
-        supabase_uid: `supabase-unauth-${Date.now()}`,
-        first_name: "Unauth",
-        last_name: "User",
-        role: "CASHIER",
+        name: "Unauth User",
+        auth_provider_id: `auth-unauth-${Date.now()}`,
         status: "ACTIVE",
       },
     });
@@ -1379,7 +1373,7 @@ test.describe("Transaction Data Models - Shift Rules", () => {
         opening_amount: 100.0,
         status: "CLOSED",
         closing_amount: 500.0,
-        closed_at: new Date(),
+        end_time: new Date(),
       },
     });
 
