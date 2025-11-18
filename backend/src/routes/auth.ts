@@ -78,7 +78,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           }
         } else {
           // Test mode with mock: log but don't enforce state validation
-          // This allows tests to work without pre-storing state
+          // This allows tests to work without pre-storing state (restores previous working behavior)
           fastify.log.debug(
             { state: query.state },
             "Test mode: Skipping state validation (USE_SUPABASE_MOCK=true)",
