@@ -127,6 +127,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
             onChange={(e) => setEmail(e.target.value)}
             required
             disabled={isLoading}
+            autoComplete="email"
           />
         </div>
 
@@ -141,6 +142,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
             required
             disabled={isLoading}
             minLength={6}
+            autoComplete={isSignUp ? "new-password" : "current-password"}
           />
         </div>
 
