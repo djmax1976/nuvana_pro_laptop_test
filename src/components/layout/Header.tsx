@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { User, LogOut, Settings } from "lucide-react";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 interface UserInfo {
   name?: string;
@@ -81,6 +82,7 @@ export function Header() {
         {/* Placeholder for breadcrumbs or page title */}
       </div>
       <div className="flex items-center gap-4">
+        <ThemeToggle />
         {user ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

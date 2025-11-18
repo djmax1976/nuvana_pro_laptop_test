@@ -1,0 +1,8 @@
+
+Running 3 tests using 1 worker
+
+  ok 1 [api] › tests\api\supabase-oauth-integration.api.spec.ts:327:7 › 1.5-API-002: Token Validation Middleware › [P0] 1.5-API-002-003: should return 401 for expired token (472ms)
+  ok 2 [api] › tests\api\supabase-oauth-integration.api.spec.ts:353:7 › 1.5-API-002: Token Validation Middleware › [P0] 1.5-API-002-004: should return 401 for missing Authorization header (72ms)
+  ok 3 [api] › tests\api\supabase-oauth-integration.api.spec.ts:505:7 › 1.5-API-003: User Service - getUserOrCreate › [P0] 1.5-API-003-003: should handle duplicate email gracefully (133ms)
+
+  3 passed (3.1s)

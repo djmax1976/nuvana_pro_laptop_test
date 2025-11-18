@@ -1,5 +1,6 @@
 import "./globals.css";
 import { QueryProvider } from "@/lib/providers/query-provider";
+import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { Toaster } from "@/components/ui/toaster";
 
 // Force all pages to be dynamically rendered
@@ -11,7 +12,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <title>Nuvana Pro</title>
         <meta
@@ -20,10 +21,12 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <QueryProvider>
-          {children}
-          <Toaster />
-        </QueryProvider>
+        <ThemeProvider>
+          <QueryProvider>
+            {children}
+            <Toaster />
+          </QueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

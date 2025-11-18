@@ -1,0 +1,51 @@
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
+import { renderWithProviders, screen } from "../support/test-utils";
+import { Sidebar } from "@/components/layout/Sidebar";
+
+// Mock Next.js navigation
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/dashboard",
+}));
+
+describe("Sidebar Component - Permission Enforcement", () => {
+  it("should display Companies link for System Admin", () => {
+    // GIVEN: User is System Admin
+    // Note: Currently Sidebar shows all items because userRoles is empty
+    // This test verifies the Companies link exists (will be filtered when auth is implemented)
+    renderWithProviders(<Sidebar />);
+
+    // THEN: Companies link should be present
+    // When auth is implemented, this will only show for SYSTEM_ADMIN role
+    expect(screen.getByTestId("nav-link-companies")).toBeInTheDocument();
+  });
+
+  it("should display Stores link for Corporate Admin and Store Manager", () => {
+    // GIVEN: User is Corporate Admin or Store Manager
+    renderWithProviders(<Sidebar />);
+
+    // THEN: Stores link should be present
+    // When auth is implemented, this will only show for CORPORATE_ADMIN or STORE_MANAGER roles
+    expect(screen.getByTestId("nav-link-stores")).toBeInTheDocument();
+  });
+
+  it("should display Dashboard link for all users", () => {
+    // GIVEN: Any authenticated user
+    renderWithProviders(<Sidebar />);
+
+    // THEN: Dashboard link should be present (no role restriction)
+    expect(screen.getByTestId("nav-link-dashboard")).toBeInTheDocument();
+  });
+
+  it("should filter navigation items based on user roles", () => {
+    // GIVEN: Sidebar component with role-based filtering logic
+    renderWithProviders(<Sidebar />);
+
+    // THEN: Navigation items should be filtered
+    // Currently shows all items because userRoles is empty (placeholder)
+    // When auth context is implemented, items will be filtered by roles
+    const sidebar = screen.getByTestId("sidebar-navigation");
+    expect(sidebar).toBeInTheDocument();
+  });
+});
+
