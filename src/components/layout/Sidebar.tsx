@@ -20,7 +20,11 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-const navItems: NavItem[] = [
+interface NavItemWithRole extends NavItem {
+  roles?: string[]; // Roles that can see this item (undefined = all roles)
+}
+
+const allNavItems: NavItemWithRole[] = [
   {
     title: "Dashboard",
     href: "/dashboard",
@@ -28,13 +32,15 @@ const navItems: NavItem[] = [
   },
   {
     title: "Companies",
-    href: "/dashboard/companies",
+    href: "/companies",
     icon: Building2,
+    roles: ["SYSTEM_ADMIN"], // System Admin only
   },
   {
     title: "Stores",
-    href: "/dashboard/stores",
+    href: "/stores",
     icon: Store,
+    roles: ["CORPORATE_ADMIN", "STORE_MANAGER"], // Corporate Admin and Store Manager
   },
   {
     title: "Shifts",
@@ -69,6 +75,20 @@ interface SidebarProps {
 
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
+
+  // TODO: Get user roles from authentication context
+  // For now, show all items - role-based filtering will be implemented
+  // when authentication context is available
+  const userRoles: string[] = []; // Placeholder - will be populated from auth context
+  const hasRole = (roles?: string[]) => {
+    if (!roles || roles.length === 0) return true; // No role restriction = visible to all
+    // If userRoles is empty (not yet implemented), show all items for development
+    if (userRoles.length === 0) return true;
+    return roles.some((role) => userRoles.includes(role));
+  };
+
+  // Filter nav items based on user roles
+  const navItems = allNavItems.filter((item) => hasRole(item.roles));
 
   return (
     <div

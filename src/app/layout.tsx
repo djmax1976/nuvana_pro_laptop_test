@@ -1,4 +1,6 @@
 import "./globals.css";
+import { QueryProvider } from "@/lib/providers/query-provider";
+import { Toaster } from "@/components/ui/toaster";
 
 // Force all pages to be dynamically rendered
 export const dynamic = "force-dynamic";
@@ -17,7 +19,12 @@ export default function RootLayout({
           content="Enterprise store management platform"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <QueryProvider>
+          {children}
+          <Toaster />
+        </QueryProvider>
+      </body>
     </html>
   );
 }
