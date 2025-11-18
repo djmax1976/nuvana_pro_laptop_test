@@ -7,6 +7,7 @@
  */
 
 import { faker } from "@faker-js/faker";
+import { Prisma } from "@prisma/client";
 
 export type UserData = {
   id?: string;
@@ -24,13 +25,7 @@ export type CompanyData = {
 export type StoreData = {
   company_id: string;
   name: string;
-  location_json?: {
-    address?: string;
-    gps?: {
-      lat: number;
-      lng: number;
-    };
-  } | null;
+  location_json?: Prisma.InputJsonValue;
   timezone: string;
   status: "ACTIVE" | "INACTIVE" | "CLOSED";
 };
