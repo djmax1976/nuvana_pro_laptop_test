@@ -1,5 +1,10 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createStore, createCompany, createUser, createJWTAccessToken } from "../support/factories";
+import {
+  createStore,
+  createCompany,
+  createUser,
+  createJWTAccessToken,
+} from "../support/factories";
 
 /**
  * Store Management API Tests - OPTIMIZED VERSION
@@ -69,15 +74,15 @@ test.describe("Store Management API - CRUD Operations", () => {
     );
 
     // THEN: Store is created successfully
-    expect(response.status()).toBe(201, "Store creation should return 201 Created");
+    expect(response.status()).toBe(201);
     const body = await response.json();
-    expect(body).toHaveProperty("store_id", "Response should include store_id");
-    expect(body).toHaveProperty("company_id", corporateAdminUser.company_id, "Store should be assigned to user's company");
-    expect(body).toHaveProperty("name", storeData.name, "Store name should match input");
-    expect(body).toHaveProperty("timezone", storeData.timezone, "Store timezone should match input");
-    expect(body).toHaveProperty("status", "ACTIVE", "Store status should default to ACTIVE");
-    expect(body).toHaveProperty("created_at", "Store should have created_at timestamp");
-    expect(body).toHaveProperty("updated_at", "Store should have updated_at timestamp");
+    expect(body).toHaveProperty("store_id");
+    expect(body).toHaveProperty("company_id", corporateAdminUser.company_id);
+    expect(body).toHaveProperty("name", storeData.name);
+    expect(body).toHaveProperty("timezone", storeData.timezone);
+    expect(body).toHaveProperty("status", "ACTIVE");
+    expect(body).toHaveProperty("created_at");
+    expect(body).toHaveProperty("updated_at");
 
     // AND: Audit log entry is created (critical for compliance)
     const auditLog = await prismaClient.auditLog.findFirst({
@@ -106,10 +111,10 @@ test.describe("Store Management API - CRUD Operations", () => {
     );
 
     // THEN: Validation error returned
-    expect(response.status()).toBe(400, "Should return 400 Bad Request for missing required field");
+    expect(response.status()).toBe(400);
     const body = await response.json();
-    expect(body).toHaveProperty("error", "Error response should include error field");
-    expect(body).toHaveProperty("message", "Error response should include message field");
+    expect(body).toHaveProperty("error");
+    expect(body).toHaveProperty("message");
   });
 
   test("[P0] POST /api/companies/:companyId/stores - should reject invalid timezone", async ({
@@ -173,10 +178,10 @@ test.describe("Store Management API - CRUD Operations", () => {
     );
 
     // THEN: 403 Forbidden
-    expect(response.status()).toBe(403, "Should return 403 Forbidden for cross-company access attempt");
+    expect(response.status()).toBe(403);
     const body = await response.json();
-    expect(body).toHaveProperty("error", "Forbidden", "Error should indicate Forbidden");
-    expect(body.message).toContain("assigned company", "Error message should mention company isolation");
+    expect(body).toHaveProperty("error", "Forbidden");
+    expect(body.message).toContain("assigned company");
   });
 
   test("[P0] GET /api/stores/:storeId - should retrieve store by ID", async ({
@@ -877,7 +882,9 @@ test.describe("Store Configuration API", () => {
     const updatedStore = await prismaClient.store.findUnique({
       where: { store_id: store.store_id },
     });
-    expect(updatedStore?.configuration).toMatchObject(configurationData);
+    expect((updatedStore as any)?.configuration).toMatchObject(
+      configurationData,
+    );
 
     // AND: Audit log entry is created
     const auditLog = await prismaClient.auditLog.findFirst({
@@ -1042,15 +1049,19 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: Forbidden error is returned
-    expect(response.status()).toBe(403, "Should return 403 Forbidden for cross-company access");
+    expect(response.status()).toBe(403);
     const body = await response.json();
     expect(body).toHaveProperty("error", "Forbidden");
     expect(body.message).toContain("assigned company");
 
     // Cleanup
-    await prismaClient.userRole.deleteMany({ where: { user_id: user2.user_id } });
+    await prismaClient.userRole.deleteMany({
+      where: { user_id: user2.user_id },
+    });
     await prismaClient.user.delete({ where: { user_id: user2.user_id } });
-    await prismaClient.company.delete({ where: { company_id: company2.company_id } });
+    await prismaClient.company.delete({
+      where: { company_id: company2.company_id },
+    });
   });
 
   test("[P0] PUT /api/stores/:storeId/configuration - should return 404 for non-existent store", async ({
@@ -1103,7 +1114,7 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: Configuration is updated successfully with US format
-    expect(response.status()).toBe(200, "Should accept US standard HH:mm format");
+    expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.configuration.operating_hours.monday.open).toBe("09:00");
     expect(body.configuration.operating_hours.monday.close).toBe("17:00");
@@ -1138,7 +1149,7 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: Validation error is returned
-    expect(response.status()).toBe(400, "Should reject invalid time format 24:00");
+    expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body).toHaveProperty("error", "Validation error");
   });
@@ -1168,7 +1179,7 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: Validation error is returned
-    expect(response.status()).toBe(400, "Should reject invalid time format 25:00");
+    expect(response.status()).toBe(400);
   });
 
   test("[P1] PUT /api/stores/:storeId/configuration - should reject time without leading zero (9:00)", async ({
@@ -1196,7 +1207,7 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: Validation error is returned (US format requires HH:mm)
-    expect(response.status()).toBe(400, "Should reject time format without leading zero");
+    expect(response.status()).toBe(400);
   });
 
   test("[P1] PUT /api/stores/:storeId/configuration - should reject invalid time format (abc:def)", async ({
@@ -1224,7 +1235,7 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: Validation error is returned
-    expect(response.status()).toBe(400, "Should reject non-numeric time format");
+    expect(response.status()).toBe(400);
   });
 
   test("[P1] PUT /api/stores/:storeId/configuration - should accept boundary times (00:00, 23:59)", async ({
@@ -1252,7 +1263,7 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: Configuration is updated successfully
-    expect(response.status()).toBe(200, "Should accept boundary times 00:00 and 23:59");
+    expect(response.status()).toBe(200);
   });
 
   test("[P1] PUT /api/stores/:storeId/configuration - should reject same open and close time", async ({
@@ -1280,7 +1291,7 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: Validation error is returned (close must be after open)
-    expect(response.status()).toBe(400, "Should reject same open and close time");
+    expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.message).toContain("close time must be after open time");
   });
@@ -1310,7 +1321,7 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: Validation error is returned
-    expect(response.status()).toBe(400, "Should reject missing close time when open is provided");
+    expect(response.status()).toBe(400);
   });
 
   test("[P1] PUT /api/stores/:storeId/configuration - should reject missing required fields (close without open)", async ({
@@ -1338,7 +1349,7 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: Validation error is returned
-    expect(response.status()).toBe(400, "Should reject missing open time when close is provided");
+    expect(response.status()).toBe(400);
   });
 
   test("[P1] PUT /api/stores/:storeId/configuration - should reject closed=true with open/close times (conflicting data)", async ({
@@ -1395,7 +1406,7 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: Validation error is returned (need open/close if not closed)
-    expect(response.status()).toBe(400, "Should reject closed=false without open/close times");
+    expect(response.status()).toBe(400);
   });
 
   // =============================================================================
@@ -1425,7 +1436,7 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: Validation error is returned (not SQL execution)
-    expect(response.status()).toBe(400, "Should reject SQL injection in timezone");
+    expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body).toHaveProperty("error");
   });
@@ -1486,11 +1497,13 @@ test.describe("Store Configuration API", () => {
     // THEN: Should accept but sanitize, or reject
     // XSS payload should not execute when data is retrieved
     expect([200, 400]).toContain(response.status());
-    
+
     if (response.status() === 200) {
       const body = await response.json();
       // If stored, verify it's sanitized (no script tags in response)
-      expect(JSON.stringify(body.configuration.location.address)).not.toContain("<script>");
+      expect(JSON.stringify(body.configuration.location.address)).not.toContain(
+        "<script>",
+      );
     }
   });
 
@@ -1540,7 +1553,7 @@ test.describe("Store Configuration API", () => {
     // WHEN: Attempting JSON injection
     const maliciousConfig = {
       timezone: "America/New_York",
-      "__proto__": { "isAdmin": true }, // Prototype pollution attempt
+      __proto__: { isAdmin: true }, // Prototype pollution attempt
     };
 
     const response = await corporateAdminApiRequest.put(
@@ -1550,7 +1563,7 @@ test.describe("Store Configuration API", () => {
 
     // THEN: Should reject or sanitize prototype pollution
     expect([200, 400]).toContain(response.status());
-    
+
     if (response.status() === 200) {
       const body = await response.json();
       // Verify prototype pollution didn't work
@@ -1647,7 +1660,7 @@ test.describe("Store Configuration API", () => {
     );
 
     // THEN: 401 Unauthorized
-    expect(response.status()).toBe(401, "Should reject unauthenticated access to configuration endpoint");
+    expect(response.status()).toBe(401);
     const body = await response.json();
     expect(body).toHaveProperty("error");
   });
@@ -1708,7 +1721,7 @@ test.describe("Store Configuration API", () => {
 
     // THEN: Should accept but ignore/disallow additional fields
     expect([200, 400]).toContain(response.status());
-    
+
     if (response.status() === 200) {
       const body = await response.json();
       // Verify additional fields were not accepted
@@ -1743,7 +1756,7 @@ test.describe("Store Configuration API", () => {
     // THEN: Response should not contain sensitive data
     expect(response.status()).toBe(200);
     const body = await response.json();
-    
+
     // Verify no sensitive fields leaked
     expect(body).not.toHaveProperty("password");
     expect(body).not.toHaveProperty("secret");

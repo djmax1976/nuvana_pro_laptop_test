@@ -30,6 +30,26 @@ export interface LocationJson {
 }
 
 /**
+ * Store configuration type
+ */
+export interface StoreConfiguration {
+  timezone?: string;
+  location?: {
+    address?: string;
+    gps?: GpsCoordinates;
+  };
+  operating_hours?: {
+    monday?: { open?: string; close?: string; closed?: boolean };
+    tuesday?: { open?: string; close?: string; closed?: boolean };
+    wednesday?: { open?: string; close?: string; closed?: boolean };
+    thursday?: { open?: string; close?: string; closed?: boolean };
+    friday?: { open?: string; close?: string; closed?: boolean };
+    saturday?: { open?: string; close?: string; closed?: boolean };
+    sunday?: { open?: string; close?: string; closed?: boolean };
+  };
+}
+
+/**
  * Store entity type
  */
 export interface Store {
@@ -39,6 +59,7 @@ export interface Store {
   location_json: LocationJson | null;
   timezone: string;
   status: StoreStatus;
+  configuration?: StoreConfiguration | null;
   created_at: string;
   updated_at: string;
 }
