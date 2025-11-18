@@ -48,6 +48,7 @@ model Store {
   name          String   @db.VarChar(255)
   location_json Json?    @db.JsonB
   timezone      String   @default("America/New_York") @db.VarChar(50)
+  configuration Json?    @db.JsonB
   status        String   @default("ACTIVE") @db.VarChar(50)
   created_at    DateTime @default(now()) @db.Timestamptz(6)
   updated_at    DateTime @default(now()) @updatedAt @db.Timestamptz(6)

@@ -397,6 +397,83 @@ export function useUpdateStore() {
 }
 
 /**
+ * Store configuration input
+ */
+export interface StoreConfigurationInput {
+  timezone?: string; // IANA timezone format
+  location?: {
+    address?: string;
+    gps?: { lat: number; lng: number };
+  };
+  operating_hours?: {
+    monday?: { open?: string; close?: string; closed?: boolean };
+    tuesday?: { open?: string; close?: string; closed?: boolean };
+    wednesday?: { open?: string; close?: string; closed?: boolean };
+    thursday?: { open?: string; close?: string; closed?: boolean };
+    friday?: { open?: string; close?: string; closed?: boolean };
+    saturday?: { open?: string; close?: string; closed?: boolean };
+    sunday?: { open?: string; close?: string; closed?: boolean };
+  };
+}
+
+/**
+ * Update store configuration
+ * @param storeId - Store UUID
+ * @param config - Store configuration data
+ * @returns Updated store
+ */
+export async function updateStoreConfiguration(
+  storeId: string,
+  config: StoreConfigurationInput,
+): Promise<Store> {
+  if (!storeId) {
+    throw new Error("Store ID is required");
+  }
+
+  if (config.timezone && !validateTimezone(config.timezone)) {
+    throw new Error(
+      "Timezone must be in IANA format (e.g., America/New_York, Europe/London)",
+    );
+  }
+
+  if (config.location) {
+    validateLocationJson(config.location);
+  }
+
+  return apiRequest<Store>(`/api/stores/${storeId}/configuration`, {
+    method: "PUT",
+    body: JSON.stringify(config),
+  });
+}
+
+/**
+ * Hook to update store configuration
+ * @returns TanStack Query mutation for updating store configuration
+ */
+export function useUpdateStoreConfiguration() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      storeId,
+      config,
+    }: {
+      storeId: string;
+      config: StoreConfigurationInput;
+    }) => updateStoreConfiguration(storeId, config),
+    onSuccess: (data) => {
+      // Invalidate both list and detail queries
+      queryClient.invalidateQueries({
+        queryKey: storeKeys.detail(data.store_id),
+      });
+      queryClient.invalidateQueries({
+        queryKey: storeKeys.list(data.company_id),
+      });
+    },
+  });
+}
+
+/**
  * Hook to delete a store
  * @returns TanStack Query mutation for deleting a store
  */

@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import { format } from "date-fns";
-import { Pencil, Trash2, ArrowLeft, MapPin } from "lucide-react";
+import { Pencil, Trash2, ArrowLeft, MapPin, Settings } from "lucide-react";
 import Link from "next/link";
 import {
   AlertDialog,
@@ -134,6 +134,14 @@ export default function StoreDetailPage({ params }: StoreDetailPageProps) {
           </Button>
         </Link>
         <div className="flex gap-2">
+          <Link
+            href={`/stores/${store.store_id}/configuration?companyId=${store.company_id}`}
+          >
+            <Button variant="outline">
+              <Settings className="mr-2 h-4 w-4" />
+              Configure Store
+            </Button>
+          </Link>
           <Link
             href={`/stores/${store.store_id}/edit?companyId=${store.company_id}`}
           >

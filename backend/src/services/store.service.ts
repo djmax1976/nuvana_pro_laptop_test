@@ -35,6 +35,42 @@ export interface UpdateStoreInput {
 }
 
 /**
+ * Operating hours for a single day
+ */
+export interface DayOperatingHours {
+  open: string; // Time in HH:mm format (e.g., "09:00")
+  close: string; // Time in HH:mm format (e.g., "17:00")
+  closed?: boolean; // If true, store is closed on this day
+}
+
+/**
+ * Operating hours structure
+ * Keys are day names: "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+ */
+export interface OperatingHours {
+  monday?: DayOperatingHours;
+  tuesday?: DayOperatingHours;
+  wednesday?: DayOperatingHours;
+  thursday?: DayOperatingHours;
+  friday?: DayOperatingHours;
+  saturday?: DayOperatingHours;
+  sunday?: DayOperatingHours;
+}
+
+/**
+ * Store configuration structure
+ * Contains timezone, location, and operating hours
+ */
+export interface StoreConfiguration {
+  timezone?: string; // IANA timezone format (e.g., America/New_York)
+  location?: {
+    address?: string;
+    gps?: { lat: number; lng: number };
+  };
+  operating_hours?: OperatingHours;
+}
+
+/**
  * Valid IANA timezone database format validation
  * @param timezone - Timezone string to validate
  * @returns true if valid IANA timezone format
@@ -335,6 +371,137 @@ export class StoreService {
         throw error;
       }
       console.error("Error updating store:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update store configuration with company isolation check
+   * @param storeId - Store UUID
+   * @param userCompanyId - User's assigned company ID (for isolation check)
+   * @param config - Store configuration data
+   * @returns Updated store record
+   * @throws Error if store not found, validation fails, or user tries to update store from different company
+   */
+  async updateStoreConfiguration(
+    storeId: string,
+    userCompanyId: string,
+    config: StoreConfiguration,
+  ) {
+    // Validate timezone format if provided
+    if (config.timezone && !isValidIANATimezone(config.timezone)) {
+      throw new Error(
+        `Invalid timezone format. Must be IANA timezone format (e.g., America/New_York, Europe/London)`,
+      );
+    }
+
+    // Validate location structure if provided
+    if (config.location) {
+      if (
+        config.location.address !== undefined &&
+        typeof config.location.address !== "string"
+      ) {
+        throw new Error("location.address must be a string");
+      }
+      if (config.location.gps) {
+        if (
+          typeof config.location.gps.lat !== "number" ||
+          typeof config.location.gps.lng !== "number"
+        ) {
+          throw new Error("location.gps must have lat and lng as numbers");
+        }
+        // Validate GPS coordinates range
+        if (config.location.gps.lat < -90 || config.location.gps.lat > 90) {
+          throw new Error("GPS latitude must be between -90 and 90");
+        }
+        if (config.location.gps.lng < -180 || config.location.gps.lng > 180) {
+          throw new Error("GPS longitude must be between -180 and 180");
+        }
+      }
+    }
+
+    // Validate operating hours format if provided
+    if (config.operating_hours) {
+      const days = [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+      ];
+      for (const day of days) {
+        const dayHours = config.operating_hours?.[day as keyof OperatingHours];
+        if (dayHours) {
+          // If closed is true, skip other validations
+          if (dayHours.closed === true) {
+            continue;
+          }
+          // Validate time format (HH:mm)
+          const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9]$/;
+          if (!dayHours.open || !timeRegex.test(dayHours.open)) {
+            throw new Error(
+              `${day} open time must be in HH:mm format (e.g., 09:00)`,
+            );
+          }
+          if (!dayHours.close || !timeRegex.test(dayHours.close)) {
+            throw new Error(
+              `${day} close time must be in HH:mm format (e.g., 17:00)`,
+            );
+          }
+          // Validate that close time is after open time
+          const [openHour, openMin] = dayHours.open.split(":").map(Number);
+          const [closeHour, closeMin] = dayHours.close.split(":").map(Number);
+          const openMinutes = openHour * 60 + openMin;
+          const closeMinutes = closeHour * 60 + closeMin;
+          if (closeMinutes <= openMinutes) {
+            throw new Error(
+              `${day} close time must be after open time`,
+            );
+          }
+        }
+      }
+    }
+
+    try {
+      // Check if store exists and verify company isolation
+      const existingStore = await prisma.store.findUnique({
+        where: {
+          store_id: storeId,
+        },
+      });
+
+      if (!existingStore) {
+        throw new Error(`Store with ID ${storeId} not found`);
+      }
+
+      // Company isolation check: user can only update stores for their company
+      if (existingStore.company_id !== userCompanyId) {
+        throw new Error(
+          "Forbidden: You can only update stores for your assigned company",
+        );
+      }
+
+      // Update store configuration
+      const store = await prisma.store.update({
+        where: {
+          store_id: storeId,
+        },
+        data: {
+          configuration: config as any,
+        },
+      });
+
+      return store;
+    } catch (error: any) {
+      if (
+        error.message.includes("not found") ||
+        error.message.includes("Forbidden")
+      ) {
+        throw error;
+      }
+      console.error("Error updating store configuration:", error);
       throw error;
     }
   }

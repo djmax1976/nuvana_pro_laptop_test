@@ -2,7 +2,10 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
-import { storeService } from "../services/store.service";
+import {
+  storeService,
+  type StoreConfiguration,
+} from "../services/store.service";
 import { rbacService } from "../services/rbac.service";
 import { PrismaClient } from "@prisma/client";
 
@@ -753,6 +756,322 @@ export async function storeRoutes(fastify: FastifyInstance) {
         return {
           error: "Internal server error",
           message: "Failed to update store",
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /api/stores/:storeId/configuration
+   * Update store configuration (timezone, location, operating hours)
+   * Protected route - requires STORE_UPDATE permission
+   * Only Store Managers can update their store's configuration
+   */
+  fastify.put(
+    "/api/stores/:storeId/configuration",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.STORE_UPDATE),
+      ],
+      schema: {
+        description: "Update store configuration",
+        tags: ["stores"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          properties: {
+            timezone: {
+              type: "string",
+              pattern: "^[A-Z][a-z]+(\\/[A-Z][a-z_]+)+$|^UTC$|^GMT(\\+|-)\\d+$",
+              description:
+                "IANA timezone format (e.g., America/New_York, Europe/London)",
+            },
+            location: {
+              type: "object",
+              properties: {
+                address: {
+                  type: "string",
+                  description: "Store address",
+                },
+                gps: {
+                  type: "object",
+                  properties: {
+                    lat: {
+                      type: "number",
+                      minimum: -90,
+                      maximum: 90,
+                      description: "GPS latitude",
+                    },
+                    lng: {
+                      type: "number",
+                      minimum: -180,
+                      maximum: 180,
+                      description: "GPS longitude",
+                    },
+                  },
+                  required: ["lat", "lng"],
+                },
+              },
+              description: "Store location (address and/or GPS coordinates)",
+            },
+            operating_hours: {
+              type: "object",
+              properties: {
+                monday: {
+                  type: "object",
+                  properties: {
+                    open: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                      description: "Open time in HH:mm format",
+                    },
+                    close: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                      description: "Close time in HH:mm format",
+                    },
+                    closed: {
+                      type: "boolean",
+                      description: "If true, store is closed on this day",
+                    },
+                  },
+                },
+                tuesday: {
+                  type: "object",
+                  properties: {
+                    open: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    close: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    closed: { type: "boolean" },
+                  },
+                },
+                wednesday: {
+                  type: "object",
+                  properties: {
+                    open: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    close: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    closed: { type: "boolean" },
+                  },
+                },
+                thursday: {
+                  type: "object",
+                  properties: {
+                    open: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    close: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    closed: { type: "boolean" },
+                  },
+                },
+                friday: {
+                  type: "object",
+                  properties: {
+                    open: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    close: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    closed: { type: "boolean" },
+                  },
+                },
+                saturday: {
+                  type: "object",
+                  properties: {
+                    open: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    close: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    closed: { type: "boolean" },
+                  },
+                },
+                sunday: {
+                  type: "object",
+                  properties: {
+                    open: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    close: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    closed: { type: "boolean" },
+                  },
+                },
+              },
+              description: "Operating hours for each day of the week",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              store_id: { type: "string", format: "uuid" },
+              company_id: { type: "string", format: "uuid" },
+              name: { type: "string" },
+              configuration: { type: "object" },
+              created_at: { type: "string", format: "date-time" },
+              updated_at: { type: "string", format: "date-time" },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const params = request.params as { storeId: string };
+        const body = request.body as {
+          timezone?: string;
+          location?: {
+            address?: string;
+            gps?: { lat: number; lng: number };
+          };
+          operating_hours?: {
+            monday?: { open?: string; close?: string; closed?: boolean };
+            tuesday?: { open?: string; close?: string; closed?: boolean };
+            wednesday?: { open?: string; close?: string; closed?: boolean };
+            thursday?: { open?: string; close?: string; closed?: boolean };
+            friday?: { open?: string; close?: string; closed?: boolean };
+            saturday?: { open?: string; close?: string; closed?: boolean };
+            sunday?: { open?: string; close?: string; closed?: boolean };
+          };
+        };
+        const user = (request as any).user as UserIdentity;
+
+        // Check if store exists FIRST (before permission check)
+        const oldStore = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+        });
+
+        if (!oldStore) {
+          reply.code(404);
+          return {
+            error: "Not found",
+            message: "Store not found",
+          };
+        }
+
+        // Get user's company_id for isolation check
+        const userCompanyId = await getUserCompanyId(user.id);
+        if (!userCompanyId) {
+          reply.code(403);
+          return {
+            error: "Forbidden",
+            message: "You must have a COMPANY scope role to update store configuration",
+          };
+        }
+
+        // Check company isolation
+        if (oldStore.company_id !== userCompanyId) {
+          reply.code(403);
+          return {
+            error: "Forbidden",
+            message: "You can only update stores for your assigned company",
+          };
+        }
+
+        // Update store configuration (service will verify company isolation and validate)
+        const store = await storeService.updateStoreConfiguration(
+          params.storeId,
+          userCompanyId,
+          {
+            timezone: body.timezone,
+            location: body.location,
+            operating_hours: body.operating_hours,
+          },
+        );
+
+        // Log configuration update to AuditLog (BLOCKING)
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        try {
+          await prisma.auditLog.create({
+            data: {
+              user_id: user.id,
+              action: "UPDATE",
+              table_name: "stores",
+              record_id: store.store_id,
+              old_values: { configuration: oldStore.configuration } as any,
+              new_values: { configuration: store.configuration } as any,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              reason: `Store configuration updated by ${user.email} (roles: ${user.roles.join(", ")})`,
+            },
+          });
+        } catch (auditError) {
+          // If audit log fails, revert the update and fail the request
+          await prisma.store.update({
+            where: { store_id: params.storeId },
+            data: { configuration: oldStore.configuration },
+          });
+          throw new Error("Failed to create audit log - operation rolled back");
+        }
+
+        reply.code(200);
+        return store;
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error updating store configuration");
+        if (
+          error.message.includes("required") ||
+          error.message.includes("Invalid") ||
+          error.message.includes("cannot") ||
+          error.message.includes("must be")
+        ) {
+          reply.code(400);
+          return {
+            error: "Validation error",
+            message: error.message,
+          };
+        }
+        if (error.message.includes("not found")) {
+          reply.code(404);
+          return {
+            error: "Not found",
+            message: error.message,
+          };
+        }
+        if (error.message.includes("Forbidden")) {
+          reply.code(403);
+          return {
+            error: "Forbidden",
+            message: error.message,
+          };
+        }
+        reply.code(500);
+        return {
+          error: "Internal server error",
+          message: "Failed to update store configuration",
         };
       }
     },
