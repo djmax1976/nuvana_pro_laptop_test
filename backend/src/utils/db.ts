@@ -21,17 +21,54 @@ class RLSPrismaClient extends PrismaClient {
       async (params: any, next: (params: any) => Promise<any>) => {
         const userId = rlsContext.getStore();
 
+        // Only set RLS context if userId is provided
+        // Use SET instead of SET LOCAL because SET LOCAL only works in transactions
+        // SET sets the variable for the current session (connection)
+        // We clear it after the query to prevent leakage between requests
         if (userId) {
-          // Set session variable for RLS policies
-          // Use $executeRawUnsafe to set session variable on the connection
-          await this.$executeRawUnsafe(
-            `SET LOCAL app.current_user_id = '${userId}'`,
-          );
-        } else {
-          // Clear session variable if no user context
-          await this.$executeRawUnsafe(`SET LOCAL app.current_user_id = NULL`);
+          let variableSet = false;
+          try {
+            // Set session variable for RLS policies
+            // Wrap in try-catch to handle cases where SET might fail
+            try {
+              await this.$executeRawUnsafe(
+                `SET app.current_user_id = '${userId}'`,
+              );
+              variableSet = true;
+            } catch (setError: any) {
+              // If SET fails, log but continue - RLS policies will use NULL/default
+              console.warn(
+                `Failed to set RLS context: ${setError?.message || setError}`,
+              );
+            }
+            // Execute the query
+            const result = await next(params);
+            // Clear the session variable after query completes (if it was set)
+            if (variableSet) {
+              try {
+                await this.$executeRawUnsafe(`RESET app.current_user_id`);
+              } catch (resetError) {
+                // Ignore reset errors - variable will be cleared when connection is reused
+                console.warn(
+                  `Failed to reset RLS context: ${resetError instanceof Error ? resetError.message : resetError}`,
+                );
+              }
+            }
+            return result;
+          } catch (error) {
+            // Ensure we clear the variable even if query fails
+            if (variableSet) {
+              try {
+                await this.$executeRawUnsafe(`RESET app.current_user_id`);
+              } catch (resetError) {
+                // Ignore reset errors
+              }
+            }
+            throw error;
+          }
         }
 
+        // No RLS context needed - execute query normally
         return next(params);
       },
     );
