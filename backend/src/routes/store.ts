@@ -2,10 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
-import {
-  storeService,
-  type StoreConfiguration,
-} from "../services/store.service";
+import { storeService } from "../services/store.service";
 import { rbacService } from "../services/rbac.service";
 import { PrismaClient } from "@prisma/client";
 
@@ -850,48 +847,84 @@ export async function storeRoutes(fastify: FastifyInstance) {
                 tuesday: {
                   type: "object",
                   properties: {
-                    open: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
-                    close: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    open: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                    },
+                    close: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                    },
                     closed: { type: "boolean" },
                   },
                 },
                 wednesday: {
                   type: "object",
                   properties: {
-                    open: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
-                    close: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    open: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                    },
+                    close: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                    },
                     closed: { type: "boolean" },
                   },
                 },
                 thursday: {
                   type: "object",
                   properties: {
-                    open: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
-                    close: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    open: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                    },
+                    close: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                    },
                     closed: { type: "boolean" },
                   },
                 },
                 friday: {
                   type: "object",
                   properties: {
-                    open: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
-                    close: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    open: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                    },
+                    close: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                    },
                     closed: { type: "boolean" },
                   },
                 },
                 saturday: {
                   type: "object",
                   properties: {
-                    open: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
-                    close: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    open: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                    },
+                    close: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                    },
                     closed: { type: "boolean" },
                   },
                 },
                 sunday: {
                   type: "object",
                   properties: {
-                    open: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
-                    close: { type: "string", pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$" },
+                    open: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                    },
+                    close: {
+                      type: "string",
+                      pattern: "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+                    },
                     closed: { type: "boolean" },
                   },
                 },
@@ -983,7 +1016,8 @@ export async function storeRoutes(fastify: FastifyInstance) {
           reply.code(403);
           return {
             error: "Forbidden",
-            message: "You must have a COMPANY scope role to update store configuration",
+            message:
+              "You must have a COMPANY scope role to update store configuration",
           };
         }
 
@@ -1003,7 +1037,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
           {
             timezone: body.timezone,
             location: body.location,
-            operating_hours: body.operating_hours,
+            operating_hours: body.operating_hours as any,
           },
         );
 
@@ -1033,7 +1067,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
           // If audit log fails, revert the update and fail the request
           await prisma.store.update({
             where: { store_id: params.storeId },
-            data: { configuration: oldStore.configuration },
+            data: { configuration: oldStore.configuration as any },
           });
           throw new Error("Failed to create audit log - operation rolled back");
         }
