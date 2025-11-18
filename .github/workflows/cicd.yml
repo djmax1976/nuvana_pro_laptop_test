@@ -104,6 +104,8 @@ jobs:
           cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
+          NODE_ENV: test
+          USE_SUPABASE_MOCK: "true"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
@@ -126,6 +128,8 @@ jobs:
         continue-on-error: true
       - name: Run selective tests
         env:
+          NODE_ENV: test
+          USE_SUPABASE_MOCK: "true"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
@@ -332,6 +336,8 @@ jobs:
           cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
+          NODE_ENV: test
+          USE_SUPABASE_MOCK: "true"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
@@ -460,6 +466,8 @@ jobs:
           cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
+          NODE_ENV: test
+          USE_SUPABASE_MOCK: "true"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
@@ -609,6 +617,8 @@ jobs:
           cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
+          NODE_ENV: test
+          USE_SUPABASE_MOCK: "true"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
