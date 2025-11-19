@@ -1,0 +1,900 @@
+import { test, expect } from "../support/fixtures/rbac.fixture";
+import { createClient } from "../support/factories";
+
+/**
+ * Client Management API Tests
+ *
+ * Tests for Client Management API endpoints:
+ * - Create, read, update, delete clients (CRUD operations)
+ * - Permission enforcement (only System Admins can manage clients)
+ * - Audit logging for all client operations
+ * - Soft delete functionality (deleted_at timestamp, not hard delete)
+ * - Validation and error handling
+ *
+ * Priority: P0 (Critical - Multi-tenant hierarchy foundation)
+ *
+ * Story: 2.6 - Client Management API and UI
+ */
+
+test.describe("Client Management API - CRUD Operations", () => {
+  test("[P0] POST /api/clients - should create client with valid data (AC #1)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a System Admin with valid client data
+    const clientData = createClient({
+      name: "Test Client Organization",
+      status: "ACTIVE",
+    });
+
+    // WHEN: Creating a client via API
+    const response = await superadminApiRequest.post("/api/clients", {
+      name: clientData.name,
+      status: clientData.status,
+      metadata: clientData.metadata,
+    });
+
+    // THEN: Client is created successfully
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty("client_id");
+    expect(body.data).toHaveProperty("name", clientData.name);
+    expect(body.data).toHaveProperty("status", clientData.status);
+    expect(body.data).toHaveProperty("created_at");
+    expect(body.data).toHaveProperty("updated_at");
+
+    // AND: Client record exists in database
+    const client = await prismaClient.client.findUnique({
+      where: { client_id: body.data.client_id },
+    });
+    expect(client).not.toBeNull();
+    expect(client?.name).toBe(clientData.name);
+
+    // AND: Audit log entry is created
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        table_name: "clients",
+        record_id: body.data.client_id,
+        action: "CREATE",
+      },
+    });
+    expect(auditLog).not.toBeNull();
+    expect(auditLog?.action).toBe("CREATE");
+  });
+
+  test("[P0] POST /api/clients - should reject invalid data (missing name) (AC #1)", async ({
+    superadminApiRequest,
+  }) => {
+    // GIVEN: I am authenticated as a System Admin with invalid client data (missing name)
+    // WHEN: Creating a client with missing required field
+    const response = await superadminApiRequest.post("/api/clients", {
+      status: "ACTIVE",
+      // name is missing
+    });
+
+    // THEN: Validation error is returned
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body).toHaveProperty("error");
+  });
+
+  test("[P0] POST /api/clients - should reject invalid status value (AC #1)", async ({
+    superadminApiRequest,
+  }) => {
+    // GIVEN: I am authenticated as a System Admin with invalid status
+    // WHEN: Creating a client with invalid status
+    const response = await superadminApiRequest.post("/api/clients", {
+      name: "Test Client",
+      status: "INVALID_STATUS",
+    });
+
+    // THEN: Validation error is returned
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body).toHaveProperty("error");
+  });
+
+  test("[P0] POST /api/clients - should reject non-admin users (AC #1)", async ({
+    storeManagerApiRequest,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager (not System Admin)
+    const clientData = createClient();
+
+    // WHEN: Attempting to create a client
+    const response = await storeManagerApiRequest.post("/api/clients", {
+      name: clientData.name,
+      status: clientData.status,
+    });
+
+    // THEN: Permission denied error is returned
+    expect(response.status()).toBe(403);
+    const body = await response.json();
+    expect(body.error).toBe("Forbidden");
+  });
+
+  test("[P0] GET /api/clients - should list all clients with pagination (AC #2)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a System Admin and multiple clients exist
+    const client1 = await prismaClient.client.create({
+      data: createClient({ name: "Client One" }),
+    });
+    const client2 = await prismaClient.client.create({
+      data: createClient({ name: "Client Two" }),
+    });
+
+    // WHEN: Retrieving all clients (default pagination)
+    const response = await superadminApiRequest.get("/api/clients");
+
+    // THEN: Paginated list with metadata is returned
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body).toHaveProperty("data");
+    expect(body).toHaveProperty("meta");
+    expect(Array.isArray(body.data)).toBe(true);
+    expect(body.data.length).toBeGreaterThanOrEqual(2);
+
+    // Verify pagination metadata
+    expect(body.meta.page).toBe(1);
+    expect(body.meta.limit).toBeDefined();
+    expect(body.meta.total).toBeGreaterThanOrEqual(2);
+
+    // Verify client data includes company count
+    const clientIds = body.data.map((c: any) => c.client_id);
+    expect(clientIds).toContain(client1.client_id);
+    expect(clientIds).toContain(client2.client_id);
+  });
+
+  test("[P1] GET /api/clients - should support search/filter by name (AC #2)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Multiple clients exist with different names
+    await prismaClient.client.create({
+      data: createClient({ name: "Alpha Corp" }),
+    });
+    await prismaClient.client.create({
+      data: createClient({ name: "Beta Inc" }),
+    });
+
+    // WHEN: Searching for clients with "Alpha"
+    const response = await superadminApiRequest.get(
+      "/api/clients?search=Alpha",
+    );
+
+    // THEN: Only matching clients are returned
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.some((c: any) => c.name.includes("Alpha"))).toBe(true);
+    expect(body.data.every((c: any) => !c.name.includes("Beta"))).toBe(true);
+  });
+
+  test("[P1] GET /api/clients - should filter by status (AC #2)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Clients with different statuses exist
+    await prismaClient.client.create({
+      data: createClient({ name: "Active Client", status: "ACTIVE" }),
+    });
+    await prismaClient.client.create({
+      data: createClient({ name: "Inactive Client", status: "INACTIVE" }),
+    });
+
+    // WHEN: Filtering by ACTIVE status
+    const response = await superadminApiRequest.get(
+      "/api/clients?status=ACTIVE",
+    );
+
+    // THEN: Only ACTIVE clients are returned
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.every((c: any) => c.status === "ACTIVE")).toBe(true);
+  });
+
+  test("[P0] GET /api/clients/:clientId - should retrieve client by ID with company count (AC #3)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a System Admin and a client exists
+    const clientData = createClient();
+    const client = await prismaClient.client.create({
+      data: {
+        name: clientData.name,
+        status: clientData.status,
+        metadata: clientData.metadata,
+      },
+    });
+
+    // WHEN: Retrieving client by ID
+    const response = await superadminApiRequest.get(
+      `/api/clients/${client.client_id}`,
+    );
+
+    // THEN: Client details are returned with company count
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty("client_id", client.client_id);
+    expect(body.data).toHaveProperty("name", client.name);
+    expect(body.data).toHaveProperty("status", client.status);
+    expect(body.data).toHaveProperty("companyCount");
+    expect(body.data).toHaveProperty("created_at");
+    expect(body.data).toHaveProperty("updated_at");
+  });
+
+  test("[P0] GET /api/clients/:clientId - should return 404 for non-existent client (AC #3)", async ({
+    superadminApiRequest,
+  }) => {
+    // GIVEN: I am authenticated as a System Admin
+    const nonExistentId = "00000000-0000-0000-0000-000000000000";
+
+    // WHEN: Retrieving non-existent client
+    const response = await superadminApiRequest.get(
+      `/api/clients/${nonExistentId}`,
+    );
+
+    // THEN: 404 Not Found is returned
+    expect(response.status()).toBe(404);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body).toHaveProperty("error");
+  });
+
+  test("[P0] PUT /api/clients/:clientId - should update client (AC #3)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a System Admin and a client exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Original Name" }),
+    });
+    const originalUpdatedAt = client.updated_at;
+
+    // WHEN: Updating client
+    const response = await superadminApiRequest.put(
+      `/api/clients/${client.client_id}`,
+      {
+        name: "Updated Name",
+        status: "INACTIVE",
+      },
+    );
+
+    // THEN: Client is updated successfully
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty("name", "Updated Name");
+    expect(body.data).toHaveProperty("status", "INACTIVE");
+    expect(body.data).toHaveProperty("updated_at");
+    expect(new Date(body.data.updated_at).getTime()).toBeGreaterThan(
+      originalUpdatedAt.getTime(),
+    );
+
+    // AND: Database record is updated
+    const updatedClient = await prismaClient.client.findUnique({
+      where: { client_id: client.client_id },
+    });
+    expect(updatedClient?.name).toBe("Updated Name");
+    expect(updatedClient?.status).toBe("INACTIVE");
+
+    // AND: Audit log entry is created
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        table_name: "clients",
+        record_id: client.client_id,
+        action: "UPDATE",
+      },
+    });
+    expect(auditLog).not.toBeNull();
+  });
+
+  test("[P0] PUT /api/clients/:clientId - should log status change to INACTIVE (AC #4)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am editing a client with ACTIVE status
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Client to Deactivate", status: "ACTIVE" }),
+    });
+
+    // WHEN: I deactivate the client
+    const response = await superadminApiRequest.put(
+      `/api/clients/${client.client_id}`,
+      {
+        status: "INACTIVE",
+      },
+    );
+
+    // THEN: The client status changes to INACTIVE
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.status).toBe("INACTIVE");
+
+    // AND: The change is logged in AuditLog with old and new values
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        table_name: "clients",
+        record_id: client.client_id,
+        action: "UPDATE",
+      },
+      orderBy: { timestamp: "desc" },
+    });
+    expect(auditLog).not.toBeNull();
+    expect(JSON.stringify(auditLog?.old_values)).toContain("ACTIVE");
+    expect(JSON.stringify(auditLog?.new_values)).toContain("INACTIVE");
+  });
+
+  test("[P0] DELETE /api/clients/:clientId - should soft delete client (AC #5)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I want to delete a client
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Client to Delete", status: "INACTIVE" }),
+    });
+
+    // WHEN: I attempt soft delete
+    const response = await superadminApiRequest.delete(
+      `/api/clients/${client.client_id}`,
+    );
+
+    // THEN: The client is marked as deleted (soft delete)
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    // AND: deleted_at is set
+    const deletedClient = await prismaClient.client.findUnique({
+      where: { client_id: client.client_id },
+    });
+    expect(deletedClient?.deleted_at).not.toBeNull();
+
+    // AND: The deletion is logged in AuditLog
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        table_name: "clients",
+        record_id: client.client_id,
+        action: "DELETE",
+      },
+    });
+    expect(auditLog).not.toBeNull();
+  });
+
+  test("[P1] GET /api/clients - should exclude soft-deleted clients by default (AC #5)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client has been soft-deleted
+    const client = await prismaClient.client.create({
+      data: {
+        ...createClient({ name: "Deleted Client" }),
+        deleted_at: new Date(),
+      },
+    });
+
+    // WHEN: Listing clients
+    const response = await superadminApiRequest.get("/api/clients");
+
+    // THEN: Soft-deleted clients are excluded from list
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    const clientIds = body.data.map((c: any) => c.client_id);
+    expect(clientIds).not.toContain(client.client_id);
+  });
+
+  test("[P1] DELETE /api/clients/:clientId - should reject deleting ACTIVE client (AC #5)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An ACTIVE client exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Active Client", status: "ACTIVE" }),
+    });
+
+    // WHEN: Attempting to delete ACTIVE client
+    const response = await superadminApiRequest.delete(
+      `/api/clients/${client.client_id}`,
+    );
+
+    // THEN: Deletion is rejected
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.message).toContain("INACTIVE");
+  });
+});
+
+test.describe("Client Management API - Permission Enforcement", () => {
+  test("[P0] All endpoints should require System Admin role", async ({
+    storeManagerApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager (not System Admin)
+    const client = await prismaClient.client.create({
+      data: createClient(),
+    });
+
+    // WHEN: Attempting various client operations
+    const getResponse = await storeManagerApiRequest.get("/api/clients");
+    const getOneResponse = await storeManagerApiRequest.get(
+      `/api/clients/${client.client_id}`,
+    );
+    const createResponse = await storeManagerApiRequest.post("/api/clients", {
+      name: "New Client",
+    });
+    const updateResponse = await storeManagerApiRequest.put(
+      `/api/clients/${client.client_id}`,
+      {
+        name: "Updated",
+      },
+    );
+    const deleteResponse = await storeManagerApiRequest.delete(
+      `/api/clients/${client.client_id}`,
+    );
+
+    // THEN: All operations return 403 Forbidden
+    expect(getResponse.status()).toBe(403);
+    expect(getOneResponse.status()).toBe(403);
+    expect(createResponse.status()).toBe(403);
+    expect(updateResponse.status()).toBe(403);
+    expect(deleteResponse.status()).toBe(403);
+  });
+});
+
+test.describe("Client Management API - Business Logic", () => {
+  test("[P0] DELETE /api/clients/:clientId - should cascade soft delete to associated companies (AC #5)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client exists with associated companies
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Client With Companies", status: "INACTIVE" }),
+    });
+    const company = await prismaClient.company.create({
+      data: {
+        name: "Associated Company",
+        client_id: client.client_id,
+        status: "ACTIVE",
+      },
+    });
+
+    // WHEN: Soft deleting the client
+    const response = await superadminApiRequest.delete(
+      `/api/clients/${client.client_id}`,
+    );
+
+    // THEN: Client is soft deleted
+    expect(response.status()).toBe(200);
+
+    // AND: Associated companies are also soft deleted
+    const deletedCompany = await prismaClient.company.findUnique({
+      where: { company_id: company.company_id },
+    });
+    expect(deletedCompany?.deleted_at).not.toBeNull();
+  });
+
+  test("[P1] PUT /api/clients/:clientId - should allow reactivation from INACTIVE to ACTIVE", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An INACTIVE client exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Inactive Client", status: "INACTIVE" }),
+    });
+
+    // WHEN: Reactivating the client
+    const response = await superadminApiRequest.put(
+      `/api/clients/${client.client_id}`,
+      {
+        status: "ACTIVE",
+      },
+    );
+
+    // THEN: Client is reactivated successfully
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.status).toBe("ACTIVE");
+
+    // AND: Database record reflects the change
+    const reactivatedClient = await prismaClient.client.findUnique({
+      where: { client_id: client.client_id },
+    });
+    expect(reactivatedClient?.status).toBe("ACTIVE");
+
+    // AND: Audit log captures the reactivation
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        table_name: "clients",
+        record_id: client.client_id,
+        action: "UPDATE",
+      },
+      orderBy: { timestamp: "desc" },
+    });
+    expect(auditLog).not.toBeNull();
+    expect(JSON.stringify(auditLog?.old_values)).toContain("INACTIVE");
+    expect(JSON.stringify(auditLog?.new_values)).toContain("ACTIVE");
+  });
+
+  test("[P2] POST /api/clients - should allow duplicate client names (names not unique)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client with a specific name already exists
+    await prismaClient.client.create({
+      data: createClient({ name: "Duplicate Name Corp" }),
+    });
+
+    // WHEN: Creating another client with the same name
+    const response = await superadminApiRequest.post("/api/clients", {
+      name: "Duplicate Name Corp",
+      status: "ACTIVE",
+    });
+
+    // THEN: Client is created successfully (names don't need to be unique)
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.name).toBe("Duplicate Name Corp");
+  });
+});
+
+test.describe("Client Management API - Edge Cases", () => {
+  test.describe("Name Field Edge Cases", () => {
+    test("[P1] POST /api/clients - should reject empty string name", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Creating client with empty name
+      const response = await superadminApiRequest.post("/api/clients", {
+        name: "",
+        status: "ACTIVE",
+      });
+
+      // THEN: Validation error is returned
+      expect(response.status()).toBe(400);
+      const body = await response.json();
+      expect(body.success).toBe(false);
+    });
+
+    test("[P2] POST /api/clients - should handle very long name (1000+ characters)", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Creating client with very long name
+      const longName = "A".repeat(1001);
+      const response = await superadminApiRequest.post("/api/clients", {
+        name: longName,
+        status: "ACTIVE",
+      });
+
+      // THEN: Either accepts or rejects with validation error (depends on implementation)
+      expect([201, 400]).toContain(response.status());
+    });
+
+    test("[P2] POST /api/clients - should handle special characters in name", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Creating client with special characters
+      const response = await superadminApiRequest.post("/api/clients", {
+        name: "Test @#$%^&* Corp",
+        status: "ACTIVE",
+      });
+
+      // THEN: Client is created successfully
+      expect(response.status()).toBe(201);
+      const body = await response.json();
+      expect(body.data.name).toBe("Test @#$%^&* Corp");
+    });
+
+    test("[P2] POST /api/clients - should handle unicode/emoji characters in name", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Creating client with unicode/emoji
+      const response = await superadminApiRequest.post("/api/clients", {
+        name: "Test 日本語 Corp 🏢",
+        status: "ACTIVE",
+      });
+
+      // THEN: Client is created successfully
+      expect(response.status()).toBe(201);
+      const body = await response.json();
+      expect(body.data.name).toBe("Test 日本語 Corp 🏢");
+    });
+
+    test("[P1] POST /api/clients - should reject whitespace-only name", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Creating client with whitespace-only name
+      const response = await superadminApiRequest.post("/api/clients", {
+        name: "   ",
+        status: "ACTIVE",
+      });
+
+      // THEN: Validation error is returned
+      expect(response.status()).toBe(400);
+      const body = await response.json();
+      expect(body.success).toBe(false);
+    });
+
+    test("[P2] POST /api/clients - should trim leading/trailing whitespace", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Creating client with leading/trailing whitespace
+      const response = await superadminApiRequest.post("/api/clients", {
+        name: "  Trimmed Corp  ",
+        status: "ACTIVE",
+      });
+
+      // THEN: Client is created with trimmed name
+      expect(response.status()).toBe(201);
+      const body = await response.json();
+      // Name should be trimmed or stored as-is depending on implementation
+      expect(body.data.name.trim()).toBe("Trimmed Corp");
+    });
+  });
+
+  test.describe("Metadata Field Edge Cases", () => {
+    test("[P2] POST /api/clients - should accept empty metadata object", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Creating client with empty metadata
+      const response = await superadminApiRequest.post("/api/clients", {
+        name: "Empty Metadata Corp",
+        status: "ACTIVE",
+        metadata: {},
+      });
+
+      // THEN: Client is created successfully
+      expect(response.status()).toBe(201);
+    });
+
+    test("[P2] POST /api/clients - should accept null metadata", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Creating client with null metadata
+      const response = await superadminApiRequest.post("/api/clients", {
+        name: "Null Metadata Corp",
+        status: "ACTIVE",
+        metadata: null,
+      });
+
+      // THEN: Client is created successfully
+      expect(response.status()).toBe(201);
+    });
+
+    test("[P2] POST /api/clients - should handle deeply nested metadata", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Creating client with deeply nested metadata
+      const deepMetadata = {
+        level1: {
+          level2: {
+            level3: {
+              level4: {
+                level5: { value: "deep" },
+              },
+            },
+          },
+        },
+      };
+      const response = await superadminApiRequest.post("/api/clients", {
+        name: "Deep Metadata Corp",
+        status: "ACTIVE",
+        metadata: deepMetadata,
+      });
+
+      // THEN: Client is created successfully
+      expect(response.status()).toBe(201);
+    });
+
+    test("[P2] POST /api/clients - should handle large metadata object", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Creating client with large metadata (100+ keys)
+      const largeMetadata: Record<string, string> = {};
+      for (let i = 0; i < 100; i++) {
+        largeMetadata[`key${i}`] = `value${i}`;
+      }
+      const response = await superadminApiRequest.post("/api/clients", {
+        name: "Large Metadata Corp",
+        status: "ACTIVE",
+        metadata: largeMetadata,
+      });
+
+      // THEN: Client is created successfully or rejected with size limit error
+      expect([201, 400]).toContain(response.status());
+    });
+  });
+
+  test.describe("Client ID Edge Cases", () => {
+    test("[P1] GET /api/clients/:clientId - should reject invalid UUID format", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Requesting with invalid UUID
+      const response = await superadminApiRequest.get(
+        "/api/clients/not-a-uuid",
+      );
+
+      // THEN: Bad request error is returned
+      expect(response.status()).toBe(400);
+      const body = await response.json();
+      expect(body.success).toBe(false);
+    });
+
+    test("[P1] GET /api/clients/:clientId - should reject empty string ID", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Requesting with empty ID (this typically matches the list route)
+      const response = await superadminApiRequest.get("/api/clients/");
+
+      // THEN: Returns list or 400 depending on routing
+      expect([200, 400]).toContain(response.status());
+    });
+
+    test("[P1] PUT /api/clients/:clientId - should reject invalid UUID format", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Updating with invalid UUID
+      const response = await superadminApiRequest.put(
+        "/api/clients/invalid-uuid",
+        {
+          name: "Updated Name",
+        },
+      );
+
+      // THEN: Bad request error is returned
+      expect(response.status()).toBe(400);
+    });
+
+    test("[P1] DELETE /api/clients/:clientId - should reject invalid UUID format", async ({
+      superadminApiRequest,
+    }) => {
+      // WHEN: Deleting with invalid UUID
+      const response = await superadminApiRequest.delete(
+        "/api/clients/invalid-uuid",
+      );
+
+      // THEN: Bad request error is returned
+      expect(response.status()).toBe(400);
+    });
+  });
+});
+
+test.describe("Client Management API - Security", () => {
+  test("[P0] POST /api/clients - should prevent SQL injection in name field", async ({
+    superadminApiRequest,
+  }) => {
+    // WHEN: Attempting SQL injection
+    const response = await superadminApiRequest.post("/api/clients", {
+      name: "'; DROP TABLE clients;--",
+      status: "ACTIVE",
+    });
+
+    // THEN: Request is handled safely (either created or rejected, but not executed)
+    expect([201, 400]).toContain(response.status());
+    // If created, verify the literal string was stored
+    if (response.status() === 201) {
+      const body = await response.json();
+      expect(body.data.name).toBe("'; DROP TABLE clients;--");
+    }
+  });
+
+  test("[P0] GET /api/clients - should prevent SQL injection in search parameter", async ({
+    superadminApiRequest,
+  }) => {
+    // WHEN: Attempting SQL injection in search
+    const response = await superadminApiRequest.get(
+      "/api/clients?search=' OR '1'='1",
+    );
+
+    // THEN: Request is handled safely
+    expect(response.status()).toBe(200);
+  });
+
+  test("[P0] All endpoints should reject unauthenticated requests", async ({
+    request,
+    prismaClient,
+  }) => {
+    // GIVEN: A client exists
+    const client = await prismaClient.client.create({
+      data: createClient(),
+    });
+
+    // WHEN: Making requests without authentication
+    const getResponse = await request.get("/api/clients");
+    const getOneResponse = await request.get(
+      `/api/clients/${client.client_id}`,
+    );
+    const createResponse = await request.post("/api/clients", {
+      data: { name: "Test", status: "ACTIVE" },
+    });
+    const updateResponse = await request.put(
+      `/api/clients/${client.client_id}`,
+      {
+        data: { name: "Updated" },
+      },
+    );
+    const deleteResponse = await request.delete(
+      `/api/clients/${client.client_id}`,
+    );
+
+    // THEN: All return 401 Unauthorized
+    expect(getResponse.status()).toBe(401);
+    expect(getOneResponse.status()).toBe(401);
+    expect(createResponse.status()).toBe(401);
+    expect(updateResponse.status()).toBe(401);
+    expect(deleteResponse.status()).toBe(401);
+  });
+
+  test("[P1] GET /api/clients/:clientId - should not leak sensitive data in response", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client exists
+    const client = await prismaClient.client.create({
+      data: createClient(),
+    });
+
+    // WHEN: Retrieving client details
+    const response = await superadminApiRequest.get(
+      `/api/clients/${client.client_id}`,
+    );
+
+    // THEN: Response should not contain sensitive internal fields
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+
+    // Verify no sensitive fields are exposed
+    expect(body.data).not.toHaveProperty("password");
+    expect(body.data).not.toHaveProperty("internal_id");
+    expect(body.data).not.toHaveProperty("__v");
+  });
+
+  test("[P1] PUT /api/clients/:clientId - should validate authorization for specific client", async ({
+    corporateAdminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client exists that the Corporate Admin should not access
+    const client = await prismaClient.client.create({
+      data: createClient(),
+    });
+
+    // WHEN: Corporate Admin tries to update client
+    const response = await corporateAdminApiRequest.put(
+      `/api/clients/${client.client_id}`,
+      {
+        name: "Hacked Name",
+      },
+    );
+
+    // THEN: Access is denied
+    expect(response.status()).toBe(403);
+  });
+
+  test("[P2] POST /api/clients - should prevent XSS in name field", async ({
+    superadminApiRequest,
+  }) => {
+    // WHEN: Attempting XSS injection
+    const response = await superadminApiRequest.post("/api/clients", {
+      name: "<script>alert('xss')</script>",
+      status: "ACTIVE",
+    });
+
+    // THEN: Request is handled safely
+    expect([201, 400]).toContain(response.status());
+    // If created, XSS should be stored as literal text (sanitized on display)
+    if (response.status() === 201) {
+      const body = await response.json();
+      expect(body.data.name).toBe("<script>alert('xss')</script>");
+    }
+  });
+});

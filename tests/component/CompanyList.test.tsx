@@ -1,4 +1,3 @@
-import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, waitFor } from "../support/test-utils";
 import { CompanyList } from "@/components/companies/CompanyList";
@@ -35,7 +34,7 @@ vi.mock("@/lib/api/companies", () => ({
   useCompanies: vi.fn(),
 }));
 
-describe("CompanyList Component", () => {
+describe("2.4-COMPONENT: CompanyList Component", () => {
   const mockCompanies: Company[] = [
     {
       company_id: "123e4567-e89b-12d3-a456-426614174000",
@@ -69,7 +68,7 @@ describe("CompanyList Component", () => {
     vi.clearAllMocks();
   });
 
-  it("should render loading skeleton when data is loading", () => {
+  it("[P1] 2.4-COMPONENT-012: should render loading skeleton when data is loading", () => {
     // GIVEN: Companies API is loading
     vi.mocked(companiesApi.useCompanies).mockReturnValue({
       data: undefined,
@@ -90,7 +89,7 @@ describe("CompanyList Component", () => {
     expect(skeletonLoaders.length).toBeGreaterThan(0);
   });
 
-  it("should render error message when API fails", () => {
+  it("[P1] 2.4-COMPONENT-013: should render error message when API fails", () => {
     // GIVEN: Companies API returns an error
     vi.mocked(companiesApi.useCompanies).mockReturnValue({
       data: undefined,
@@ -109,7 +108,7 @@ describe("CompanyList Component", () => {
     expect(screen.getByText("Failed to load companies")).toBeInTheDocument();
   });
 
-  it("should render empty state when no companies exist", () => {
+  it("[P1] 2.4-COMPONENT-014: should render empty state when no companies exist", () => {
     // GIVEN: Companies API returns empty list
     vi.mocked(companiesApi.useCompanies).mockReturnValue({
       data: { data: [], meta: mockResponse.meta },
@@ -131,7 +130,7 @@ describe("CompanyList Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("should render companies list with all required columns", async () => {
+  it("[P0] 2.4-COMPONENT-015: should render companies list with all required columns", async () => {
     // GIVEN: Companies API returns data
     vi.mocked(companiesApi.useCompanies).mockReturnValue({
       data: mockResponse,
@@ -162,7 +161,7 @@ describe("CompanyList Component", () => {
     expect(screen.getByText("Actions")).toBeInTheDocument();
   });
 
-  it("should display Create Company button", () => {
+  it("[P1] 2.4-COMPONENT-016: should display Create Company button", () => {
     // GIVEN: Companies API returns data
     vi.mocked(companiesApi.useCompanies).mockReturnValue({
       data: mockResponse,
@@ -182,7 +181,7 @@ describe("CompanyList Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("should display View and Edit action buttons for each company", async () => {
+  it("[P1] 2.4-COMPONENT-017: should display View and Edit action buttons for each company", async () => {
     // GIVEN: Companies API returns data
     vi.mocked(companiesApi.useCompanies).mockReturnValue({
       data: mockResponse,

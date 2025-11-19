@@ -14,8 +14,8 @@ import { createCompany } from "../support/factories";
  * Priority: P0 (Critical - Multi-tenant foundation)
  */
 
-test.describe("Company Management API - CRUD Operations", () => {
-  test("[P0] POST /api/companies - should create company with valid data (AC #1)", async ({
+test.describe("2.1-API: Company Management API - CRUD Operations", () => {
+  test("[P0] 2.1-API-001: POST /api/companies - should create company with valid data (AC #1)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -59,7 +59,7 @@ test.describe("Company Management API - CRUD Operations", () => {
     expect(auditLog?.action).toBe("CREATE");
   });
 
-  test("[P0] POST /api/companies - should reject invalid data (AC #1)", async ({
+  test("[P0] 2.1-API-002: POST /api/companies - should reject invalid data (AC #1)", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: I am authenticated as a System Admin with invalid company data (missing name)
@@ -75,7 +75,7 @@ test.describe("Company Management API - CRUD Operations", () => {
     expect(body).toHaveProperty("error");
   });
 
-  test("[P0] GET /api/companies/:companyId - should retrieve company by ID (AC #2)", async ({
+  test("[P0] 2.1-API-003: GET /api/companies/:companyId - should retrieve company by ID (AC #2)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -103,7 +103,7 @@ test.describe("Company Management API - CRUD Operations", () => {
     expect(body).toHaveProperty("updated_at");
   });
 
-  test("[P0] GET /api/companies - should list all companies with pagination (AC #2)", async ({
+  test("[P0] 2.1-API-004: GET /api/companies - should list all companies with pagination (AC #2)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -142,7 +142,7 @@ test.describe("Company Management API - CRUD Operations", () => {
     expect(companyIds).toContain(company2.company_id);
   });
 
-  test("[P0] PUT /api/companies/:companyId - should update company (AC #3)", async ({
+  test("[P0] 2.1-API-005: PUT /api/companies/:companyId - should update company (AC #3)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -189,7 +189,7 @@ test.describe("Company Management API - CRUD Operations", () => {
     expect(auditLog).not.toBeNull();
   });
 
-  test("[P0] DELETE /api/companies/:companyId - should soft delete non-ACTIVE company (AC #4)", async ({
+  test("[P0] 2.1-API-006: DELETE /api/companies/:companyId - should soft delete non-ACTIVE company (AC #4)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -227,8 +227,8 @@ test.describe("Company Management API - CRUD Operations", () => {
   });
 });
 
-test.describe("Company Management API - Permission Enforcement", () => {
-  test("[P0] should deny access to non-System Admin users (AC #1, #2, #3, #4)", async ({
+test.describe("2.1-API: Company Management API - Permission Enforcement", () => {
+  test("[P0] 2.1-API-007: should deny access to non-System Admin users (AC #1, #2, #3, #4)", async ({
     corporateAdminApiRequest,
     storeManagerApiRequest,
   }) => {
@@ -255,7 +255,7 @@ test.describe("Company Management API - Permission Enforcement", () => {
     expect(listResponse.status()).toBe(403);
   });
 
-  test("[P0] should deny access without authentication (AC #1, #2, #3, #4)", async ({
+  test("[P0] 2.1-API-008: should deny access without authentication (AC #1, #2, #3, #4)", async ({
     apiRequest,
   }) => {
     // GIVEN: I am not authenticated
@@ -269,8 +269,8 @@ test.describe("Company Management API - Permission Enforcement", () => {
   });
 });
 
-test.describe("Company Management API - Error Handling", () => {
-  test("[P1] GET /api/companies/:companyId - should return 404 for non-existent company (AC #2)", async ({
+test.describe("2.1-API: Company Management API - Error Handling", () => {
+  test("[P1] 2.1-API-009: GET /api/companies/:companyId - should return 404 for non-existent company (AC #2)", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: I am authenticated as a System Admin
@@ -285,7 +285,7 @@ test.describe("Company Management API - Error Handling", () => {
     expect(body).toHaveProperty("error");
   });
 
-  test("[P1] PUT /api/companies/:companyId - should return 404 for non-existent company (AC #3)", async ({
+  test("[P1] 2.1-API-010: PUT /api/companies/:companyId - should return 404 for non-existent company (AC #3)", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: I am authenticated as a System Admin
@@ -301,7 +301,7 @@ test.describe("Company Management API - Error Handling", () => {
     expect(response.status()).toBe(404);
   });
 
-  test("[P1] DELETE /api/companies/:companyId - should return 404 for non-existent company (AC #4)", async ({
+  test("[P1] 2.1-API-011: DELETE /api/companies/:companyId - should return 404 for non-existent company (AC #4)", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: I am authenticated as a System Admin
@@ -314,7 +314,7 @@ test.describe("Company Management API - Error Handling", () => {
     expect(response.status()).toBe(404);
   });
 
-  test("[P0] DELETE /api/companies/:companyId - should prevent deletion of ACTIVE company", async ({
+  test("[P0] 2.1-API-012: DELETE /api/companies/:companyId - should prevent deletion of ACTIVE company", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -342,8 +342,8 @@ test.describe("Company Management API - Error Handling", () => {
   });
 });
 
-test.describe("Company Management API - Validation Edge Cases", () => {
-  test("[P0] POST /api/companies - should reject whitespace-only company name", async ({
+test.describe("2.1-API: Company Management API - Validation Edge Cases", () => {
+  test("[P0] 2.1-API-013: POST /api/companies - should reject whitespace-only company name", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: I am authenticated as a System Admin
@@ -359,7 +359,7 @@ test.describe("Company Management API - Validation Edge Cases", () => {
     expect(body.message).toContain("whitespace");
   });
 
-  test("[P0] POST /api/companies - should reject empty company name", async ({
+  test("[P0] 2.1-API-014: POST /api/companies - should reject empty company name", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: I am authenticated as a System Admin
@@ -376,7 +376,7 @@ test.describe("Company Management API - Validation Edge Cases", () => {
     expect(body.message.toLowerCase()).toMatch(/required|characters/);
   });
 
-  test("[P0] POST /api/companies - should accept company name with exactly 255 characters", async ({
+  test("[P0] 2.1-API-015: POST /api/companies - should accept company name with exactly 255 characters", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -395,7 +395,7 @@ test.describe("Company Management API - Validation Edge Cases", () => {
     expect(body.name).toBe(longName);
   });
 
-  test("[P0] POST /api/companies - should reject company name exceeding 255 characters", async ({
+  test("[P0] 2.1-API-016: POST /api/companies - should reject company name exceeding 255 characters", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: I am authenticated as a System Admin
@@ -413,7 +413,7 @@ test.describe("Company Management API - Validation Edge Cases", () => {
     expect(body.message).toContain("255");
   });
 
-  test("[P0] POST /api/companies - should reject invalid status", async ({
+  test("[P0] 2.1-API-017: POST /api/companies - should reject invalid status", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: I am authenticated as a System Admin
@@ -427,7 +427,7 @@ test.describe("Company Management API - Validation Edge Cases", () => {
     expect(response.status()).toBe(400);
   });
 
-  test("[P0] POST /api/companies - should allow PENDING status", async ({
+  test("[P0] 2.1-API-018: POST /api/companies - should allow PENDING status", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -444,7 +444,7 @@ test.describe("Company Management API - Validation Edge Cases", () => {
     expect(body.status).toBe("PENDING");
   });
 
-  test("[P0] PUT /api/companies/:companyId - should allow status transitions", async ({
+  test("[P0] 2.1-API-019: PUT /api/companies/:companyId - should allow status transitions", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -467,7 +467,7 @@ test.describe("Company Management API - Validation Edge Cases", () => {
     expect(body.status).toBe("ACTIVE");
   });
 
-  test("[P0] PUT /api/companies/:companyId - should reject whitespace-only name update", async ({
+  test("[P0] 2.1-API-020: PUT /api/companies/:companyId - should reject whitespace-only name update", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -490,7 +490,7 @@ test.describe("Company Management API - Validation Edge Cases", () => {
     expect(body.message).toContain("whitespace");
   });
 
-  test("[P0] should allow duplicate company names", async ({
+  test("[P0] 2.1-API-021: should allow duplicate company names", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -512,8 +512,8 @@ test.describe("Company Management API - Validation Edge Cases", () => {
   });
 });
 
-test.describe("Company Management API - Audit Log Validation", () => {
-  test("[P0] audit log should include username and roles", async ({
+test.describe("2.1-API: Company Management API - Audit Log Validation", () => {
+  test("[P0] 2.1-API-022: audit log should include username and roles", async ({
     superadminApiRequest,
     superadminUser,
     prismaClient,
@@ -542,7 +542,7 @@ test.describe("Company Management API - Audit Log Validation", () => {
     expect(auditLog?.reason).toContain("roles:");
   });
 
-  test("[P0] audit log should capture x-forwarded-for IP when behind proxy", async ({
+  test("[P0] 2.1-API-023: audit log should capture x-forwarded-for IP when behind proxy", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -580,8 +580,8 @@ test.describe("Company Management API - Audit Log Validation", () => {
   });
 });
 
-test.describe("Company Management API - Security Tests", () => {
-  test("[P0] should sanitize SQL injection attempts in company name", async ({
+test.describe("2.1-API: Company Management API - Security Tests", () => {
+  test("[P0] 2.1-API-024: should sanitize SQL injection attempts in company name", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -610,7 +610,7 @@ test.describe("Company Management API - Security Tests", () => {
     expect(savedCompany?.name).toBe(sqlInjectionAttempt.trim());
   });
 
-  test("[P0] should reject XSS attempts in company name", async ({
+  test("[P0] 2.1-API-025: should reject XSS attempts in company name", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: I am authenticated as a System Admin
@@ -631,7 +631,7 @@ test.describe("Company Management API - Security Tests", () => {
     expect(body.name).toBe(xssAttempt);
   });
 
-  test("[P0] should reject excessively long company names (buffer overflow protection)", async ({
+  test("[P0] 2.1-API-026: should reject excessively long company names (buffer overflow protection)", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: I am authenticated as a System Admin
@@ -650,8 +650,8 @@ test.describe("Company Management API - Security Tests", () => {
   });
 });
 
-test.describe("Company Management API - Concurrent Operations", () => {
-  test("[P0] should handle concurrent updates to same company", async ({
+test.describe("2.1-API: Company Management API - Concurrent Operations", () => {
+  test("[P0] 2.1-API-027: should handle concurrent updates to same company", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -708,7 +708,7 @@ test.describe("Company Management API - Concurrent Operations", () => {
     expect(auditLogs.length).toBeGreaterThanOrEqual(2);
   });
 
-  test("[P0] should detect concurrent modification with last_updated_at", async ({
+  test("[P0] 2.1-API-028: should detect concurrent modification with last_updated_at", async ({
     superadminApiRequest,
     prismaClient,
   }) => {

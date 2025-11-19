@@ -1,4 +1,3 @@
-import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, waitFor } from "../support/test-utils";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";

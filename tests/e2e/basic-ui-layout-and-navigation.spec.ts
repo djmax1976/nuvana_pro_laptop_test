@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test as base, expect, Route, Response } from "@playwright/test";
 import { createUser } from "../support/factories";
 
 /**
@@ -12,49 +12,56 @@ import { createUser } from "../support/factories";
  * - Responsive behavior
  *
  * Story: 1-8-basic-ui-layout-and-navigation
- * Status: ready-for-dev
+ * Status: review
  * Priority: P0 (Critical - Core user experience foundation)
  */
 
-// Helper to set authenticated user in localStorage
-async function setAuthenticatedUser(
-  page: any,
-  user: { id: string; email: string; name: string },
-) {
-  await page.addInitScript((userData: any) => {
-    localStorage.setItem(
-      "auth_session",
-      JSON.stringify({
-        id: userData.id,
-        email: userData.email,
-        name: userData.name,
-        user_metadata: {
-          email: userData.email,
-          full_name: userData.name,
-        },
-      }),
+// Extend test with authenticated user fixture for proper cleanup
+const test = base.extend<{
+  authenticatedPage: {
+    page: typeof base.prototype.page;
+    user: ReturnType<typeof createUser>;
+  };
+}>({
+  authenticatedPage: async ({ page }, use) => {
+    // Create user with factory-generated unique ID
+    const user = createUser();
+
+    // Setup: Set localStorage before test
+    await page.addInitScript(
+      (userData: any) => {
+        localStorage.setItem(
+          "auth_session",
+          JSON.stringify({
+            id: userData.id,
+            email: userData.email,
+            name: userData.name,
+            user_metadata: {
+              email: userData.email,
+              full_name: userData.name,
+            },
+          }),
+        );
+      },
+      { id: user.id, email: user.email, name: user.name },
     );
-  }, user);
-}
+
+    await use({ page, user });
+
+    // Cleanup: Clear localStorage after test
+    await page.evaluate(() => localStorage.clear());
+  },
+});
 
 test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
   test("[P0] 1.8-E2E-001-001: should display dashboard layout with sidebar navigation when user is authenticated", async ({
-    page,
+    authenticatedPage,
   }) => {
-    // GIVEN: User is authenticated
-    const user = createUser({
-      id: "user-123", // Override with specific ID for consistent test behavior
-      email: "user@example.com",
-      name: "Test User",
-    });
-    await setAuthenticatedUser(page, {
-      id: user.id!,
-      email: user.email,
-      name: user.name,
-    });
+    const { page, user } = authenticatedPage;
 
+    // GIVEN: User is authenticated
     // Intercept auth check before navigation
-    await page.route("**/api/auth/me*", async (route) => {
+    await page.route("**/api/auth/me*", async (route: Route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -88,24 +95,15 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
   });
 
   test("[P0] 1.8-E2E-001-002: should display header with user info and logout when user is authenticated", async ({
-    page,
+    authenticatedPage,
   }) => {
-    // GIVEN: User is authenticated
-    const user = createUser({
-      id: "user-123",
-      email: "user@example.com",
-      name: "Test User",
-    });
-    await setAuthenticatedUser(page, {
-      id: user.id!,
-      email: user.email,
-      name: user.name,
-    });
+    const { page, user } = authenticatedPage;
 
+    // GIVEN: User is authenticated
     // Set desktop viewport (lg breakpoint is 1024px)
     await page.setViewportSize({ width: 1280, height: 720 });
 
-    await page.route("**/api/auth/me*", async (route) => {
+    await page.route("**/api/auth/me*", async (route: Route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -122,7 +120,8 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
     // WHEN: User accesses the application
     // Network-first: Wait for auth check response before asserting
     const authResponsePromise = page.waitForResponse(
-      (resp) => resp.url().includes("/api/auth/me") && resp.status() === 200,
+      (resp: Response) =>
+        resp.url().includes("/api/auth/me") && resp.status() === 200,
     );
     await page.goto("/dashboard");
     await authResponsePromise;
@@ -150,30 +149,21 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
     // AND: User name is displayed in dropdown menu
     await expect(
       page.locator('[data-testid="user-name"]').first(),
-    ).toContainText("Test User");
+    ).toContainText(user.name);
 
     // AND: User email is displayed in dropdown menu
     await expect(
       page.locator('[data-testid="user-email"]').first(),
-    ).toContainText("user@example.com");
+    ).toContainText(user.email);
   });
 
   test("[P0] 1.8-E2E-001-003: should route correctly when navigation links are clicked", async ({
-    page,
+    authenticatedPage,
   }) => {
-    // GIVEN: User is authenticated and on dashboard
-    const user = createUser({
-      id: "user-123",
-      email: "user@example.com",
-      name: "Test User",
-    });
-    await setAuthenticatedUser(page, {
-      id: user.id!,
-      email: user.email,
-      name: user.name,
-    });
+    const { page, user } = authenticatedPage;
 
-    await page.route("**/api/auth/me*", async (route) => {
+    // GIVEN: User is authenticated and on dashboard
+    await page.route("**/api/auth/me*", async (route: Route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -192,42 +182,29 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
       page.locator('[data-testid="dashboard-layout"]'),
     ).toBeVisible();
 
-    // WHEN: User clicks a navigation link (e.g., companies link when it exists)
-    // Note: This test will fail until navigation links are implemented
+    // WHEN: User clicks a navigation link (companies link)
     const navLink = page.locator('[data-testid="nav-link-companies"]');
-    const linkExists = await navLink.isVisible().catch(() => false);
 
-    if (linkExists) {
-      await navLink.click();
+    // THEN: Navigation link must be visible (deterministic assertion)
+    await expect(navLink).toBeVisible();
 
-      // THEN: User is routed to the correct page
-      await page.waitForURL(/.*companies.*/, { timeout: 5000 });
-    } else {
-      // Test will fail - navigation links not implemented yet
-      expect(linkExists).toBe(true);
-    }
+    await navLink.click();
+
+    // AND: User is routed to the correct page
+    await page.waitForURL(/.*companies.*/, { timeout: 5000 });
   });
 
   test("[P0] 1.8-E2E-001-004: should handle logout functionality correctly", async ({
-    page,
+    authenticatedPage,
     context,
   }) => {
-    // GIVEN: User is authenticated and on dashboard
-    const user = createUser({
-      id: "user-123",
-      email: "user@example.com",
-      name: "Test User",
-    });
-    await setAuthenticatedUser(page, {
-      id: user.id!,
-      email: user.email,
-      name: user.name,
-    });
+    const { page, user } = authenticatedPage;
 
+    // GIVEN: User is authenticated and on dashboard
     // Set desktop viewport
     await page.setViewportSize({ width: 1280, height: 720 });
 
-    await page.route("**/api/auth/me*", async (route) => {
+    await page.route("**/api/auth/me*", async (route: Route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -242,7 +219,7 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
     });
 
     // Network-first: Intercept logout endpoint BEFORE navigation
-    await page.route("**/api/auth/logout*", async (route) => {
+    await page.route("**/api/auth/logout*", async (route: Route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -252,10 +229,11 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
 
     // Network-first: Wait for auth check response
     const authResponsePromise = page.waitForResponse(
-      (resp) => resp.url().includes("/api/auth/me") && resp.status() === 200,
+      (resp: Response) =>
+        resp.url().includes("/api/auth/me") && resp.status() === 200,
     );
     const logoutResponsePromise = page.waitForResponse(
-      (resp) =>
+      (resp: Response) =>
         resp.url().includes("/api/auth/logout") && resp.status() === 200,
     );
 
@@ -298,21 +276,12 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
   });
 
   test("[P0] 1.8-E2E-001-005: should display responsive sidebar (collapsible on mobile)", async ({
-    page,
+    authenticatedPage,
   }) => {
-    // GIVEN: User is authenticated
-    const user = createUser({
-      id: "user-123",
-      email: "user@example.com",
-      name: "Test User",
-    });
-    await setAuthenticatedUser(page, {
-      id: user.id!,
-      email: user.email,
-      name: user.name,
-    });
+    const { page, user } = authenticatedPage;
 
-    await page.route("**/api/auth/me*", async (route) => {
+    // GIVEN: User is authenticated
+    await page.route("**/api/auth/me*", async (route: Route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -334,35 +303,21 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
     const desktopSidebar = page.locator(
       'aside:has([data-testid="sidebar-navigation"])',
     );
-    const isDesktopSidebarHidden = await desktopSidebar
-      .evaluate((el) => {
-        return window.getComputedStyle(el).display === "none";
-      })
-      .catch(() => true);
 
-    // Desktop sidebar should be hidden on mobile
-    expect(isDesktopSidebarHidden).toBe(true);
+    // Deterministic assertion: desktop sidebar should be hidden on mobile
+    await expect(desktopSidebar).toBeHidden();
 
     // AND: Sidebar toggle button is visible
     await expect(page.locator('[data-testid="sidebar-toggle"]')).toBeVisible();
   });
 
   test("[P0] 1.8-E2E-001-006: should apply design system colors correctly", async ({
-    page,
+    authenticatedPage,
   }) => {
-    // GIVEN: User is authenticated
-    const user = createUser({
-      id: "user-123",
-      email: "user@example.com",
-      name: "Test User",
-    });
-    await setAuthenticatedUser(page, {
-      id: user.id!,
-      email: user.email,
-      name: user.name,
-    });
+    const { page, user } = authenticatedPage;
 
-    await page.route("**/api/auth/me*", async (route) => {
+    // GIVEN: User is authenticated
+    await page.route("**/api/auth/me*", async (route: Route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -383,39 +338,26 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
     const activeNavLink = page
       .locator('[data-testid="sidebar-navigation"] a')
       .first();
-    const activeNavLinkExists = await activeNavLink
-      .isVisible()
-      .catch(() => false);
 
-    if (activeNavLinkExists) {
-      const backgroundColor = await activeNavLink.evaluate((el) => {
-        return window.getComputedStyle(el).backgroundColor;
-      });
-      // Verify primary color is used in active nav link (should have primary background)
-      // Primary color #0066FF = rgb(0, 102, 255)
-      expect(backgroundColor).toMatch(/rgb\(0, 102, 255\)|rgba\(0, 102, 255/i);
-    } else {
-      // Test will fail - sidebar navigation not visible
-      expect(activeNavLinkExists).toBe(true);
-    }
+    // Deterministic assertion: nav link must be visible
+    await expect(activeNavLink).toBeVisible();
+
+    const backgroundColor = await activeNavLink.evaluate((el: Element) => {
+      return window.getComputedStyle(el).backgroundColor;
+    });
+
+    // Verify primary color is used in active nav link (should have primary background)
+    // Primary color #0066FF = rgb(0, 102, 255)
+    expect(backgroundColor).toMatch(/rgb\(0, 102, 255\)|rgba\(0, 102, 255/i);
   });
 
   test("[P0] 1.8-E2E-001-007: should apply design system typography correctly", async ({
-    page,
+    authenticatedPage,
   }) => {
-    // GIVEN: User is authenticated
-    const user = createUser({
-      id: "user-123",
-      email: "user@example.com",
-      name: "Test User",
-    });
-    await setAuthenticatedUser(page, {
-      id: user.id!,
-      email: user.email,
-      name: user.name,
-    });
+    const { page, user } = authenticatedPage;
 
-    await page.route("**/api/auth/me*", async (route) => {
+    // GIVEN: User is authenticated
+    await page.route("**/api/auth/me*", async (route: Route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -434,18 +376,16 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
 
     // THEN: Inter font is applied to headings and body text
     const heading = page.locator("h1, h2, h3").first();
-    const headingExists = await heading.isVisible().catch(() => false);
 
-    if (headingExists) {
-      const fontFamily = await heading.evaluate((el) => {
-        return window.getComputedStyle(el).fontFamily;
-      });
-      // Verify Inter font is used
-      expect(fontFamily).toMatch(/Inter/i);
-    } else {
-      // Test will fail - typography not applied yet
-      expect(headingExists).toBe(true);
-    }
+    // Deterministic assertion: heading must be visible
+    await expect(heading).toBeVisible();
+
+    const fontFamily = await heading.evaluate((el: Element) => {
+      return window.getComputedStyle(el).fontFamily;
+    });
+
+    // Verify Inter font is used
+    expect(fontFamily).toMatch(/Inter/i);
   });
 
   test("[P0] 1.8-E2E-001-008: should use (auth) route group layout for authentication pages", async ({
@@ -471,24 +411,15 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
   });
 
   test("[P0] 1.8-E2E-001-009: should use (dashboard) route group layout for dashboard pages", async ({
-    page,
+    authenticatedPage,
   }) => {
-    // GIVEN: User is authenticated
-    const user = createUser({
-      id: "user-123",
-      email: "user@example.com",
-      name: "Test User",
-    });
-    await setAuthenticatedUser(page, {
-      id: user.id!,
-      email: user.email,
-      name: user.name,
-    });
+    const { page, user } = authenticatedPage;
 
+    // GIVEN: User is authenticated
     // Set desktop viewport
     await page.setViewportSize({ width: 1280, height: 720 });
 
-    await page.route("**/api/auth/me*", async (route) => {
+    await page.route("**/api/auth/me*", async (route: Route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -505,7 +436,8 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
     // WHEN: User accesses dashboard page
     // Network-first: Wait for auth check response
     const authResponsePromise = page.waitForResponse(
-      (resp) => resp.url().includes("/api/auth/me") && resp.status() === 200,
+      (resp: Response) =>
+        resp.url().includes("/api/auth/me") && resp.status() === 200,
     );
     await page.goto("/dashboard");
     await authResponsePromise;
@@ -527,24 +459,15 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
   });
 
   test("[P0] 1.8-E2E-001-010: should display user menu dropdown with profile and logout options", async ({
-    page,
+    authenticatedPage,
   }) => {
-    // GIVEN: User is authenticated
-    const user = createUser({
-      id: "user-123",
-      email: "user@example.com",
-      name: "Test User",
-    });
-    await setAuthenticatedUser(page, {
-      id: user.id!,
-      email: user.email,
-      name: user.name,
-    });
+    const { page, user } = authenticatedPage;
 
+    // GIVEN: User is authenticated
     // Set desktop viewport
     await page.setViewportSize({ width: 1280, height: 720 });
 
-    await page.route("**/api/auth/me*", async (route) => {
+    await page.route("**/api/auth/me*", async (route: Route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -560,7 +483,8 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
 
     // Network-first: Wait for auth check response
     const authResponsePromise = page.waitForResponse(
-      (resp) => resp.url().includes("/api/auth/me") && resp.status() === 200,
+      (resp: Response) =>
+        resp.url().includes("/api/auth/me") && resp.status() === 200,
     );
     await page.goto("/dashboard");
     await authResponsePromise;

@@ -22,169 +22,175 @@ import { faker } from "@faker-js/faker";
  * Story: 1-6-jwt-token-system
  * Status: ready-for-dev
  * Priority: P0 (Critical - Authentication)
+ *
+ * NOTE: OAuth authentication is DISABLED in this application.
+ * Tests that depend on OAuth callback are skipped.
  */
 
-test.describe("1.6-API-001: JWT Token Generation in OAuth Callback", () => {
-  test("[P0] 1.6-API-001-001: GET /api/auth/callback should generate access and refresh tokens after successful OAuth", async ({
-    apiRequest,
-    prismaClient,
-  }) => {
-    // GIVEN: User has authenticated via Supabase OAuth
-    const oauthCode = faker.string.alphanumeric(32);
-    const state = faker.string.alphanumeric(16);
+test.describe.skip(
+  "1.6-API-001: JWT Token Generation in OAuth Callback [DISABLED - OAuth not supported]",
+  () => {
+    test("[P0] 1.6-API-001-001: GET /api/auth/callback should generate access and refresh tokens after successful OAuth", async ({
+      apiRequest,
+      prismaClient,
+    }) => {
+      // GIVEN: User has authenticated via Supabase OAuth
+      const oauthCode = faker.string.alphanumeric(32);
+      const state = faker.string.alphanumeric(16);
 
-    // WHEN: OAuth callback endpoint is called (after successful OAuth)
-    const response = await apiRequest.get(
-      `/api/auth/callback?code=${oauthCode}&state=${state}`,
-    );
+      // WHEN: OAuth callback endpoint is called (after successful OAuth)
+      const response = await apiRequest.get(
+        `/api/auth/callback?code=${oauthCode}&state=${state}`,
+      );
 
-    // THEN: Response is 200 OK
-    expect(response.status()).toBe(200);
+      // THEN: Response is 200 OK
+      expect(response.status()).toBe(200);
 
-    // AND: Access token is set in httpOnly cookie
-    const setCookieHeader = response.headers()["set-cookie"];
-    const cookies = Array.isArray(setCookieHeader)
-      ? setCookieHeader
-      : setCookieHeader
-        ? [setCookieHeader]
-        : [];
-    const accessTokenCookie = cookies.find((cookie: string) =>
-      cookie.includes("access_token"),
-    );
-    expect(accessTokenCookie).toBeTruthy();
-    expect(accessTokenCookie).toContain("HttpOnly");
-    expect(accessTokenCookie).toContain("Secure");
-    expect(accessTokenCookie).toContain("SameSite=Strict");
+      // AND: Access token is set in httpOnly cookie
+      const setCookieHeader = response.headers()["set-cookie"];
+      const cookies = Array.isArray(setCookieHeader)
+        ? setCookieHeader
+        : setCookieHeader
+          ? [setCookieHeader]
+          : [];
+      const accessTokenCookie = cookies.find((cookie: string) =>
+        cookie.includes("access_token"),
+      );
+      expect(accessTokenCookie).toBeTruthy();
+      expect(accessTokenCookie).toContain("HttpOnly");
+      expect(accessTokenCookie).toContain("Secure");
+      expect(accessTokenCookie).toContain("SameSite=Strict");
 
-    // AND: Refresh token is set in httpOnly cookie
-    const refreshTokenCookie = cookies.find((cookie: string) =>
-      cookie.includes("refresh_token"),
-    );
-    expect(refreshTokenCookie).toBeTruthy();
-    expect(refreshTokenCookie).toContain("HttpOnly");
-    expect(refreshTokenCookie).toContain("Secure");
-    expect(refreshTokenCookie).toContain("SameSite=Strict");
+      // AND: Refresh token is set in httpOnly cookie
+      const refreshTokenCookie = cookies.find((cookie: string) =>
+        cookie.includes("refresh_token"),
+      );
+      expect(refreshTokenCookie).toBeTruthy();
+      expect(refreshTokenCookie).toContain("HttpOnly");
+      expect(refreshTokenCookie).toContain("Secure");
+      expect(refreshTokenCookie).toContain("SameSite=Strict");
 
-    // AND: Response contains user information
-    const body = await response.json();
-    expect(body).toHaveProperty("user");
-    expect(body.user).toHaveProperty("id");
-    expect(body.user).toHaveProperty("email");
-  });
-
-  test("[P0] 1.6-API-001-002: Access token should have 15 minute expiry", async ({
-    apiRequest,
-  }) => {
-    // GIVEN: User has authenticated via Supabase OAuth
-    const oauthCode = faker.string.alphanumeric(32);
-    const state = faker.string.alphanumeric(16);
-
-    // WHEN: OAuth callback endpoint is called
-    const response = await apiRequest.get(
-      `/api/auth/callback?code=${oauthCode}&state=${state}`,
-    );
-
-    // THEN: Response is 200 OK
-    expect(response.status()).toBe(200);
-
-    // AND: Access token cookie has Max-Age of 900 seconds (15 minutes)
-    const setCookieHeader = response.headers()["set-cookie"];
-    const cookies = Array.isArray(setCookieHeader)
-      ? setCookieHeader
-      : setCookieHeader
-        ? [setCookieHeader]
-        : [];
-    const accessTokenCookie = cookies.find((cookie: string) =>
-      cookie.includes("access_token"),
-    );
-    expect(accessTokenCookie).toContain("Max-Age=900");
-  });
-
-  test("[P0] 1.6-API-001-003: Refresh token should have 7 day expiry", async ({
-    apiRequest,
-  }) => {
-    // GIVEN: User has authenticated via Supabase OAuth
-    const oauthCode = faker.string.alphanumeric(32);
-    const state = faker.string.alphanumeric(16);
-
-    // WHEN: OAuth callback endpoint is called
-    const response = await apiRequest.get(
-      `/api/auth/callback?code=${oauthCode}&state=${state}`,
-    );
-
-    // THEN: Response is 200 OK
-    expect(response.status()).toBe(200);
-
-    // AND: Refresh token cookie has Max-Age of 604800 seconds (7 days)
-    const setCookieHeader = response.headers()["set-cookie"];
-    const cookies = Array.isArray(setCookieHeader)
-      ? setCookieHeader
-      : setCookieHeader
-        ? [setCookieHeader]
-        : [];
-    const refreshTokenCookie = cookies.find((cookie: string) =>
-      cookie.includes("refresh_token"),
-    );
-    expect(refreshTokenCookie).toContain("Max-Age=604800");
-  });
-
-  test("[P0] 1.6-API-001-004: JWT access token should contain user_id, email, roles, and permissions", async ({
-    apiRequest,
-    prismaClient,
-  }) => {
-    // GIVEN: User exists in database
-    const user = createUser({
-      email: faker.internet.email(),
-      name: faker.person.fullName(),
-      auth_provider_id: faker.string.uuid(),
-    });
-    const createdUser = await prismaClient.user.create({
-      data: user,
+      // AND: Response contains user information
+      const body = await response.json();
+      expect(body).toHaveProperty("user");
+      expect(body.user).toHaveProperty("id");
+      expect(body.user).toHaveProperty("email");
     });
 
-    const oauthCode = faker.string.alphanumeric(32);
-    const state = faker.string.alphanumeric(16);
+    test("[P0] 1.6-API-001-002: Access token should have 15 minute expiry", async ({
+      apiRequest,
+    }) => {
+      // GIVEN: User has authenticated via Supabase OAuth
+      const oauthCode = faker.string.alphanumeric(32);
+      const state = faker.string.alphanumeric(16);
 
-    // WHEN: OAuth callback endpoint is called
-    const response = await apiRequest.get(
-      `/api/auth/callback?code=${oauthCode}&state=${state}`,
-    );
+      // WHEN: OAuth callback endpoint is called
+      const response = await apiRequest.get(
+        `/api/auth/callback?code=${oauthCode}&state=${state}`,
+      );
 
-    // THEN: Response is 200 OK
-    expect(response.status()).toBe(200);
+      // THEN: Response is 200 OK
+      expect(response.status()).toBe(200);
 
-    // AND: Access token cookie contains JWT with required claims
-    const setCookieHeader = response.headers()["set-cookie"];
-    const cookies = Array.isArray(setCookieHeader)
-      ? setCookieHeader
-      : setCookieHeader
-        ? [setCookieHeader]
-        : [];
-    const accessTokenCookie = cookies.find((cookie: string) =>
-      cookie.includes("access_token"),
-    );
-    expect(accessTokenCookie).toBeTruthy();
-
-    // Extract token from cookie (format: access_token=TOKEN; ...)
-    const tokenMatch = accessTokenCookie?.match(/access_token=([^;]+)/);
-    expect(tokenMatch).toBeTruthy();
-    const token = tokenMatch![1];
-
-    // Decode JWT payload (base64 decode second part)
-    const payload = JSON.parse(
-      Buffer.from(token.split(".")[1], "base64").toString(),
-    );
-    expect(payload).toHaveProperty("user_id");
-    expect(payload).toHaveProperty("email", user.email);
-    expect(payload).toHaveProperty("roles");
-    expect(payload).toHaveProperty("permissions");
-
-    // Cleanup
-    await prismaClient.user.delete({
-      where: { user_id: createdUser.user_id },
+      // AND: Access token cookie has Max-Age of 900 seconds (15 minutes)
+      const setCookieHeader = response.headers()["set-cookie"];
+      const cookies = Array.isArray(setCookieHeader)
+        ? setCookieHeader
+        : setCookieHeader
+          ? [setCookieHeader]
+          : [];
+      const accessTokenCookie = cookies.find((cookie: string) =>
+        cookie.includes("access_token"),
+      );
+      expect(accessTokenCookie).toContain("Max-Age=900");
     });
-  });
-});
+
+    test("[P0] 1.6-API-001-003: Refresh token should have 7 day expiry", async ({
+      apiRequest,
+    }) => {
+      // GIVEN: User has authenticated via Supabase OAuth
+      const oauthCode = faker.string.alphanumeric(32);
+      const state = faker.string.alphanumeric(16);
+
+      // WHEN: OAuth callback endpoint is called
+      const response = await apiRequest.get(
+        `/api/auth/callback?code=${oauthCode}&state=${state}`,
+      );
+
+      // THEN: Response is 200 OK
+      expect(response.status()).toBe(200);
+
+      // AND: Refresh token cookie has Max-Age of 604800 seconds (7 days)
+      const setCookieHeader = response.headers()["set-cookie"];
+      const cookies = Array.isArray(setCookieHeader)
+        ? setCookieHeader
+        : setCookieHeader
+          ? [setCookieHeader]
+          : [];
+      const refreshTokenCookie = cookies.find((cookie: string) =>
+        cookie.includes("refresh_token"),
+      );
+      expect(refreshTokenCookie).toContain("Max-Age=604800");
+    });
+
+    test("[P0] 1.6-API-001-004: JWT access token should contain user_id, email, roles, and permissions", async ({
+      apiRequest,
+      prismaClient,
+    }) => {
+      // GIVEN: User exists in database
+      const user = createUser({
+        email: faker.internet.email(),
+        name: faker.person.fullName(),
+        auth_provider_id: faker.string.uuid(),
+      });
+      const createdUser = await prismaClient.user.create({
+        data: user,
+      });
+
+      const oauthCode = faker.string.alphanumeric(32);
+      const state = faker.string.alphanumeric(16);
+
+      // WHEN: OAuth callback endpoint is called
+      const response = await apiRequest.get(
+        `/api/auth/callback?code=${oauthCode}&state=${state}`,
+      );
+
+      // THEN: Response is 200 OK
+      expect(response.status()).toBe(200);
+
+      // AND: Access token cookie contains JWT with required claims
+      const setCookieHeader = response.headers()["set-cookie"];
+      const cookies = Array.isArray(setCookieHeader)
+        ? setCookieHeader
+        : setCookieHeader
+          ? [setCookieHeader]
+          : [];
+      const accessTokenCookie = cookies.find((cookie: string) =>
+        cookie.includes("access_token"),
+      );
+      expect(accessTokenCookie).toBeTruthy();
+
+      // Extract token from cookie (format: access_token=TOKEN; ...)
+      const tokenMatch = accessTokenCookie?.match(/access_token=([^;]+)/);
+      expect(tokenMatch).toBeTruthy();
+      const token = tokenMatch![1];
+
+      // Decode JWT payload (base64 decode second part)
+      const payload = JSON.parse(
+        Buffer.from(token.split(".")[1], "base64").toString(),
+      );
+      expect(payload).toHaveProperty("user_id");
+      expect(payload).toHaveProperty("email", user.email);
+      expect(payload).toHaveProperty("roles");
+      expect(payload).toHaveProperty("permissions");
+
+      // Cleanup
+      await prismaClient.user.delete({
+        where: { user_id: createdUser.user_id },
+      });
+    });
+  },
+);
 
 test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
   test("[P0] 1.6-API-002-001: Protected route should accept valid JWT access token from cookie", async ({

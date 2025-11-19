@@ -1,208 +1,28 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { getSupabaseClient } from "../utils/supabase";
-import { getUserOrCreate, getUserById } from "../services/user.service";
+import { getUserById } from "../services/user.service";
 import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { stateService } from "../services/state.service";
 
+// NOTE: OAuth and signup are disabled in this application
+// Unused imports removed: getSupabaseClient, getUserOrCreate
+
 /**
- * OAuth callback endpoint that handles Supabase OAuth authentication
+ * OAuth callback endpoint - DISABLED
+ * OAuth authentication is not supported in this application.
  * GET /api/auth/callback
  */
 export async function authRoutes(fastify: FastifyInstance) {
   fastify.get(
     "/api/auth/callback",
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        // Extract query parameters
-        const query = request.query as {
-          code?: string;
-          state?: string;
-          error?: string;
-        };
-
-        // Handle OAuth errors from provider FIRST (takes precedence)
-        // OAuth providers return error parameter when user denies access or other errors occur
-        if (query.error) {
-          reply.code(401);
-          return {
-            error: `OAuth authentication failed: ${query.error}`,
-            message: query.error,
-          };
-        }
-
-        // Validate required code parameter
-        if (!query.code) {
-          reply.code(400);
-          return {
-            error: "Missing required parameter: code",
-            message: "OAuth code is required for authentication",
-          };
-        }
-
-        // Validate state parameter for CSRF protection
-        // State must be present, non-empty, and match a previously stored value
-        if (!query.state || query.state.trim() === "") {
-          fastify.log.warn(
-            "OAuth callback received without state parameter - CSRF vulnerability",
-          );
-          reply.code(400);
-          return {
-            error: "Missing required parameter: state",
-            message:
-              "State parameter is required for CSRF protection in OAuth flow",
-          };
-        }
-
-        // Validate state against stored values (single-use, auto-deleted after validation)
-        // In production, replace in-memory state store with Redis for distributed systems
-        // In test mode with mock enabled, skip state validation to allow tests to work without pre-storing state
-        const useMock =
-          process.env.NODE_ENV === "test" &&
-          process.env.USE_SUPABASE_MOCK === "true";
-
-        if (!useMock) {
-          // Production mode: enforce state validation for CSRF protection
-          const isValidState = stateService.validateState(query.state);
-          if (!isValidState) {
-            fastify.log.warn(
-              { state: query.state },
-              "OAuth callback received with invalid or expired state - CSRF attack attempt",
-            );
-            reply.code(400);
-            return {
-              error: "Invalid state parameter",
-              message:
-                "State parameter is invalid, expired, or already used. Please restart the OAuth flow.",
-            };
-          }
-        } else {
-          // Test mode with mock: log but don't enforce state validation
-          // This allows tests to work without pre-storing state (restores previous working behavior)
-          fastify.log.debug(
-            { state: query.state },
-            "Test mode: Skipping state validation (USE_SUPABASE_MOCK=true)",
-          );
-        }
-
-        // Initialize Supabase client for token validation
-        // In test mode with mock enabled, use dummy values since the mock doesn't need real credentials
-        // Note: useMock already defined above for state validation
-
-        // If using mock, skip Supabase URL/key validation (mock doesn't need real credentials)
-        let supabaseUrl: string;
-        let supabaseServiceKey: string;
-
-        if (useMock) {
-          // Mock mode: use dummy values, don't require real Supabase config
-          supabaseUrl = process.env.SUPABASE_URL || "https://mock.supabase.co";
-          supabaseServiceKey =
-            process.env.SUPABASE_SERVICE_KEY || "mock_service_key";
-        } else {
-          // Production mode: require real Supabase configuration
-          supabaseUrl = process.env.SUPABASE_URL || "";
-          supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || "";
-
-          if (!supabaseUrl || !supabaseServiceKey) {
-            fastify.log.error("Missing Supabase configuration");
-            reply.code(500);
-            return {
-              error: "Server configuration error",
-              message: "Supabase configuration is missing",
-            };
-          }
-        }
-
-        const supabase = getSupabaseClient(supabaseUrl, supabaseServiceKey);
-
-        // Exchange OAuth code for session (Supabase handles this)
-        // Note: In production, the frontend typically handles the OAuth flow
-        // and sends the access token to the backend for validation
-        // For this implementation, we'll validate the code directly
-        const { data: sessionData, error: sessionError } =
-          await supabase.auth.exchangeCodeForSession(query.code);
-
-        if (sessionError || !sessionData.session) {
-          fastify.log.error(
-            { error: sessionError },
-            "Failed to exchange code for session",
-          );
-          reply.code(401);
-          return {
-            error: "Invalid OAuth code",
-            message: "The provided authorization code is invalid or expired",
-          };
-        }
-
-        // Extract user identity from session
-        const user = sessionData.user;
-        if (!user || !user.id || !user.email) {
-          reply.code(401);
-          return {
-            error: "Invalid user data",
-            message: "Unable to extract user identity from OAuth token",
-          };
-        }
-
-        // Get or create user in local database
-        const localUser = await getUserOrCreate(
-          user.id, // auth_provider_id (Supabase user ID)
-          user.email,
-          user.user_metadata?.name ||
-            user.user_metadata?.full_name ||
-            undefined,
-        );
-
-        // Generate JWT tokens with roles and permissions from database
-        const authService = new AuthService();
-        const { accessToken, refreshToken } =
-          await authService.generateTokenPairWithRBAC(
-            localUser.user_id,
-            localUser.email,
-          );
-
-        // Set httpOnly cookies with secure flags
-        // Access token cookie (15 min expiry)
-        (reply as any).setCookie("access_token", accessToken, {
-          httpOnly: true,
-          secure: true, // HTTPS only
-          sameSite: "strict", // CSRF protection
-          path: "/",
-          maxAge: 15 * 60, // 15 minutes in seconds
-        });
-
-        // Refresh token cookie (7 days expiry)
-        (reply as any).setCookie("refresh_token", refreshToken, {
-          httpOnly: true,
-          secure: true, // HTTPS only
-          sameSite: "strict", // CSRF protection
-          path: "/",
-          maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
-        });
-
-        // Return user identity
-        reply.code(200);
-        return {
-          user: {
-            id: localUser.user_id,
-            email: localUser.email,
-            name: localUser.name,
-            auth_provider_id: localUser.auth_provider_id,
-          },
-        };
-      } catch (error) {
-        fastify.log.error({ error }, "OAuth callback error");
-        console.error("OAuth callback error details:", error);
-        console.error(
-          "Error stack:",
-          error instanceof Error ? error.stack : "No stack",
-        );
-        reply.code(500);
-        return {
-          error: "Internal server error",
-          message: "An error occurred during authentication",
-        };
-      }
+    async (_request: FastifyRequest, reply: FastifyReply) => {
+      // OAuth is disabled - return 403 Forbidden
+      reply.code(403);
+      return {
+        error: "OAuth disabled",
+        message:
+          "OAuth authentication is not supported. Please use email/password login.",
+      };
     },
   );
 

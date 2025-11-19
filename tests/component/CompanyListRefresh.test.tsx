@@ -1,4 +1,3 @@
-import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, waitFor } from "../support/test-utils";
 import { QueryClient } from "@tanstack/react-query";
@@ -22,7 +21,7 @@ vi.mock("@/lib/api/companies", () => ({
   useCompanies: vi.fn(),
 }));
 
-describe("CompanyList - List Refresh After Operations", () => {
+describe("2.4-COMPONENT: CompanyList - List Refresh After Operations", () => {
   const mockCompanies: Company[] = [
     {
       company_id: "123e4567-e89b-12d3-a456-426614174000",
@@ -51,7 +50,7 @@ describe("CompanyList - List Refresh After Operations", () => {
     vi.clearAllMocks();
   });
 
-  it("should refetch companies list after create operation", async () => {
+  it("[P1] 2.4-COMPONENT-040: should refetch companies list after create operation", async () => {
     // GIVEN: Companies list is displayed
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -83,7 +82,7 @@ describe("CompanyList - List Refresh After Operations", () => {
     expect(mockRefetch).toBeDefined();
   });
 
-  it("should refetch companies list after update operation", async () => {
+  it("[P1] 2.4-COMPONENT-041: should refetch companies list after update operation", async () => {
     // GIVEN: Companies list is displayed
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -112,7 +111,7 @@ describe("CompanyList - List Refresh After Operations", () => {
     expect(mockRefetch).toBeDefined();
   });
 
-  it("should refetch companies list after delete operation", async () => {
+  it("[P1] 2.4-COMPONENT-042: should refetch companies list after delete operation", async () => {
     // GIVEN: Companies list is displayed
     const queryClient = new QueryClient({
       defaultOptions: {

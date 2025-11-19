@@ -1,4 +1,3 @@
-import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi } from "vitest";
 import { renderWithProviders, screen } from "../support/test-utils";
 import { Sidebar } from "@/components/layout/Sidebar";

@@ -68,7 +68,7 @@ async function createTestStoreAndShift(
 // =============================================================================
 
 test.describe("Transaction Import API - Authentication", () => {
-  test("[P0] should return 401 when JWT token is missing", async ({
+  test("3.2-API-001: [P0] should return 401 when JWT token is missing", async ({
     request,
   }) => {
     // GIVEN: A valid transaction payload
@@ -92,7 +92,7 @@ test.describe("Transaction Import API - Authentication", () => {
     );
   });
 
-  test("[P0] should return 401 when JWT token is invalid", async ({
+  test("3.2-API-002: [P0] should return 401 when JWT token is invalid", async ({
     request,
   }) => {
     // GIVEN: An invalid JWT token
@@ -114,7 +114,7 @@ test.describe("Transaction Import API - Authentication", () => {
     expect(body.success, "Response should indicate failure").toBe(false);
   });
 
-  test("[P0] should return 403 when user lacks TRANSACTION_CREATE permission", async ({
+  test("3.2-API-003: [P0] should return 403 when user lacks TRANSACTION_CREATE permission", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -146,7 +146,7 @@ test.describe("Transaction Import API - Authentication", () => {
     ).toContain(response.status());
   });
 
-  test("[P0] should return 403 when store_id is not accessible to user", async ({
+  test("3.2-API-004: [P0] should return 403 when store_id is not accessible to user", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -198,7 +198,7 @@ test.describe("Transaction Import API - Authentication", () => {
 // =============================================================================
 
 test.describe("Transaction Import API - Core Functionality", () => {
-  test("[P1] should return 202 Accepted with correlation_id for valid transaction", async ({
+  test("3.2-API-005: [P1] should return 202 Accepted with correlation_id for valid transaction", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -234,7 +234,7 @@ test.describe("Transaction Import API - Core Functionality", () => {
     expect(body.data.status, "Status should be 'queued'").toBe("queued");
   });
 
-  test("[P1] should return valid UUID format for correlation_id", async ({
+  test("3.2-API-006: [P1] should return valid UUID format for correlation_id", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -266,7 +266,7 @@ test.describe("Transaction Import API - Core Functionality", () => {
     ).toMatch(uuidRegex);
   });
 
-  test("[P1] should return 404 when shift_id does not exist", async ({
+  test("3.2-API-007: [P1] should return 404 when shift_id does not exist", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -297,7 +297,7 @@ test.describe("Transaction Import API - Core Functionality", () => {
     expect(body.success, "Response should indicate failure").toBe(false);
   });
 
-  test("[P1] should return 409 when shift is CLOSED", async ({
+  test("3.2-API-008: [P1] should return 409 when shift is CLOSED", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -337,7 +337,7 @@ test.describe("Transaction Import API - Core Functionality", () => {
     ).toContain(response.status());
   });
 
-  test("[P1] should enqueue message to RabbitMQ transactions.processing queue", async ({
+  test("3.2-API-009: [P1] should enqueue message to RabbitMQ transactions.processing queue", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -367,7 +367,7 @@ test.describe("Transaction Import API - Core Functionality", () => {
     ).toContain(response.status());
   });
 
-  test("[P1] should return 503 when RabbitMQ connection fails", async ({
+  test("3.2-API-010: [P1] should return 503 when RabbitMQ connection fails", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -409,7 +409,7 @@ test.describe("Transaction Import API - Validation", () => {
   // EDGE CASES: Line Items
   // =============================================================================
 
-  test("[P2] should return 400 when line_items array is empty", async ({
+  test("3.2-API-011: [P2] should return 400 when line_items array is empty", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -439,7 +439,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should accept single item transaction", async ({
+  test("3.2-API-012: [P2] should accept single item transaction", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -479,7 +479,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P3] should handle large number of line items (100+)", async ({
+  test("3.2-API-013: [P3] should handle large number of line items (100+)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -519,7 +519,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should return 400 when line item quantity is zero", async ({
+  test("3.2-API-014: [P2] should return 400 when line item quantity is zero", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -556,7 +556,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should return 400 when line item quantity is negative", async ({
+  test("3.2-API-015: [P2] should return 400 when line item quantity is negative", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -593,7 +593,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should return 400 when line item unit_price is zero", async ({
+  test("3.2-API-016: [P2] should return 400 when line item unit_price is zero", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -633,7 +633,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should return 400 when line item unit_price is negative", async ({
+  test("3.2-API-017: [P2] should return 400 when line item unit_price is negative", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -674,7 +674,7 @@ test.describe("Transaction Import API - Validation", () => {
   // EDGE CASES: Payments
   // =============================================================================
 
-  test("[P2] should return 400 when payments array is empty", async ({
+  test("3.2-API-018: [P2] should return 400 when payments array is empty", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -704,7 +704,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should accept multiple payments (split payment)", async ({
+  test("3.2-API-019: [P2] should accept multiple payments (split payment)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -740,7 +740,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should accept exact payment match", async ({
+  test("3.2-API-020: [P2] should accept exact payment match", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -773,7 +773,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should accept overpayment (change scenario)", async ({
+  test("3.2-API-021: [P2] should accept overpayment (change scenario)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -806,7 +806,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should return 400 when payment amount is zero", async ({
+  test("3.2-API-022: [P2] should return 400 when payment amount is zero", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -836,7 +836,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should return 400 when payment amount is negative", async ({
+  test("3.2-API-023: [P2] should return 400 when payment amount is negative", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -870,7 +870,7 @@ test.describe("Transaction Import API - Validation", () => {
   // EDGE CASES: Numeric Fields
   // =============================================================================
 
-  test("[P2] should handle zero transaction (subtotal=0, tax=0, discount=0)", async ({
+  test("3.2-API-024: [P2] should handle zero transaction (subtotal=0, tax=0, discount=0)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -906,7 +906,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should return 400 when subtotal is negative", async ({
+  test("3.2-API-025: [P2] should return 400 when subtotal is negative", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -938,7 +938,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P3] should handle very large transaction amounts (1,000,000+)", async ({
+  test("3.2-API-026: [P3] should handle very large transaction amounts (1,000,000+)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -979,7 +979,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P3] should handle decimal precision correctly", async ({
+  test("3.2-API-027: [P3] should handle decimal precision correctly", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1020,7 +1020,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should return 400 when discount exceeds subtotal", async ({
+  test("3.2-API-028: [P2] should return 400 when discount exceeds subtotal", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1056,7 +1056,7 @@ test.describe("Transaction Import API - Validation", () => {
   // ORIGINAL VALIDATION TESTS
   // =============================================================================
 
-  test("[P2] should return 400 with details when required fields are missing", async ({
+  test("3.2-API-029: [P2] should return 400 with details when required fields are missing", async ({
     corporateAdminApiRequest,
   }) => {
     // GIVEN: A payload missing required fields
@@ -1088,7 +1088,7 @@ test.describe("Transaction Import API - Validation", () => {
     }
   });
 
-  test("[P2] should return 400 when payment method is invalid", async ({
+  test("3.2-API-030: [P2] should return 400 when payment method is invalid", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1125,7 +1125,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should return 400 when payment total is less than transaction total", async ({
+  test("3.2-API-031: [P2] should return 400 when payment total is less than transaction total", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1165,7 +1165,7 @@ test.describe("Transaction Import API - Validation", () => {
     ).toContain(response.status());
   });
 
-  test("[P2] should return 400 when store_id is not valid UUID format", async ({
+  test("3.2-API-032: [P2] should return 400 when store_id is not valid UUID format", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1200,7 +1200,7 @@ test.describe("Transaction Import API - Validation", () => {
 // =============================================================================
 
 test.describe("Transaction Import API - Security", () => {
-  test("[P1] should reject SQL injection in string fields", async ({
+  test("3.2-API-033: [P1] should reject SQL injection in string fields", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1251,7 +1251,7 @@ test.describe("Transaction Import API - Security", () => {
     }
   });
 
-  test("[P1] should return 401 for expired JWT token", async ({
+  test("3.2-API-034: [P1] should return 401 for expired JWT token", async ({
     request,
     corporateAdminUser,
     prismaClient,
@@ -1285,7 +1285,7 @@ test.describe("Transaction Import API - Security", () => {
     expect(response.status(), "Should return 401 for expired token").toBe(401);
   });
 
-  test("[P1] should return 401 for malformed JWT token", async ({
+  test("3.2-API-035: [P1] should return 401 for malformed JWT token", async ({
     request,
     corporateAdminUser,
     prismaClient,
@@ -1329,7 +1329,7 @@ test.describe("Transaction Import API - Security", () => {
     }
   });
 
-  test("[P1] should reject oversized payload", async ({
+  test("3.2-API-036: [P1] should reject oversized payload", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1365,7 +1365,7 @@ test.describe("Transaction Import API - Security", () => {
     );
   });
 
-  test("[P1] should not leak internal error details in response", async ({
+  test("3.2-API-037: [P1] should not leak internal error details in response", async ({
     corporateAdminApiRequest,
   }) => {
     // GIVEN: A malformed payload that might trigger internal errors

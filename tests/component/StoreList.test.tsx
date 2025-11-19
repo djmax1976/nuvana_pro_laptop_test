@@ -1,4 +1,3 @@
-import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, waitFor } from "../support/test-utils";
 import { StoreList } from "@/components/stores/StoreList";
@@ -35,7 +34,7 @@ vi.mock("@/lib/api/stores", () => ({
   useStoresByCompany: vi.fn(),
 }));
 
-describe("StoreList Component", () => {
+describe("2.4-COMPONENT: StoreList Component", () => {
   const companyId = "123e4567-e89b-12d3-a456-426614174000";
 
   const mockStores: Store[] = [
@@ -77,7 +76,7 @@ describe("StoreList Component", () => {
     vi.clearAllMocks();
   });
 
-  it("should render loading skeleton when data is loading", () => {
+  it("[P1] 2.4-COMPONENT-032: should render loading skeleton when data is loading", () => {
     // GIVEN: Stores API is loading
     vi.mocked(storesApi.useStoresByCompany).mockReturnValue({
       data: undefined,
@@ -98,7 +97,7 @@ describe("StoreList Component", () => {
     expect(skeletonLoaders.length).toBeGreaterThan(0);
   });
 
-  it("should render error message when API fails", () => {
+  it("[P1] 2.4-COMPONENT-033: should render error message when API fails", () => {
     // GIVEN: Stores API returns an error
     vi.mocked(storesApi.useStoresByCompany).mockReturnValue({
       data: undefined,
@@ -117,7 +116,7 @@ describe("StoreList Component", () => {
     expect(screen.getByText("Failed to load stores")).toBeInTheDocument();
   });
 
-  it("should render empty state when no stores exist", () => {
+  it("[P1] 2.4-COMPONENT-034: should render empty state when no stores exist", () => {
     // GIVEN: Stores API returns empty list
     vi.mocked(storesApi.useStoresByCompany).mockReturnValue({
       data: { data: [], meta: mockResponse.meta },
@@ -139,7 +138,7 @@ describe("StoreList Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("should render stores list with all required columns", async () => {
+  it("[P0] 2.4-COMPONENT-035: should render stores list with all required columns", async () => {
     // GIVEN: Stores API returns data
     vi.mocked(storesApi.useStoresByCompany).mockReturnValue({
       data: mockResponse,
@@ -173,7 +172,7 @@ describe("StoreList Component", () => {
     expect(screen.getByText("Actions")).toBeInTheDocument();
   });
 
-  it("should display location address when available", async () => {
+  it("[P1] 2.4-COMPONENT-036: should display location address when available", async () => {
     // GIVEN: Store has location with address
     vi.mocked(storesApi.useStoresByCompany).mockReturnValue({
       data: mockResponse,
@@ -193,7 +192,7 @@ describe("StoreList Component", () => {
     });
   });
 
-  it("should display GPS coordinates when address is not available", async () => {
+  it("[P1] 2.4-COMPONENT-037: should display GPS coordinates when address is not available", async () => {
     // GIVEN: Store has GPS coordinates but no address
     const storeWithGPS: Store = {
       store_id: "423e4567-e89b-12d3-a456-426614174003",
@@ -226,7 +225,7 @@ describe("StoreList Component", () => {
     });
   });
 
-  it("should display Create Store button", () => {
+  it("[P1] 2.4-COMPONENT-038: should display Create Store button", () => {
     // GIVEN: Stores API returns data
     vi.mocked(storesApi.useStoresByCompany).mockReturnValue({
       data: mockResponse,
@@ -246,7 +245,7 @@ describe("StoreList Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("should display View and Edit action buttons for each store", async () => {
+  it("[P1] 2.4-COMPONENT-039: should display View and Edit action buttons for each store", async () => {
     // GIVEN: Stores API returns data
     vi.mocked(storesApi.useStoresByCompany).mockReturnValue({
       data: mockResponse,

@@ -1,4 +1,3 @@
-import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, waitFor } from "../support/test-utils";
 import { QueryClient } from "@tanstack/react-query";
@@ -22,7 +21,7 @@ vi.mock("@/lib/api/stores", () => ({
   useStoresByCompany: vi.fn(),
 }));
 
-describe("StoreList - List Refresh After Operations", () => {
+describe("2.4-COMPONENT: StoreList - List Refresh After Operations", () => {
   const companyId = "123e4567-e89b-12d3-a456-426614174000";
 
   const mockStores: Store[] = [
@@ -56,7 +55,7 @@ describe("StoreList - List Refresh After Operations", () => {
     vi.clearAllMocks();
   });
 
-  it("should refetch stores list after create operation", async () => {
+  it("[P1] 2.4-COMPONENT-043: should refetch stores list after create operation", async () => {
     // GIVEN: Stores list is displayed
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -85,7 +84,7 @@ describe("StoreList - List Refresh After Operations", () => {
     expect(mockRefetch).toBeDefined();
   });
 
-  it("should refetch stores list after update operation", async () => {
+  it("[P1] 2.4-COMPONENT-044: should refetch stores list after update operation", async () => {
     // GIVEN: Stores list is displayed
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -114,7 +113,7 @@ describe("StoreList - List Refresh After Operations", () => {
     expect(mockRefetch).toBeDefined();
   });
 
-  it("should refetch stores list after delete operation", async () => {
+  it("[P1] 2.4-COMPONENT-045: should refetch stores list after delete operation", async () => {
     // GIVEN: Stores list is displayed
     const queryClient = new QueryClient({
       defaultOptions: {

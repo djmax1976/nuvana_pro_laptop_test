@@ -7,7 +7,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    setupFiles: [],
+    setupFiles: ["./tests/support/vitest-setup.ts"],
+    include: ["tests/**/*.{test,spec}.{ts,tsx}"],
+    pool: "forks",
   },
   resolve: {
     alias: {

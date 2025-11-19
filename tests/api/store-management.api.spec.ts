@@ -47,7 +47,7 @@ import {
 // =============================================================================
 
 test.describe("Store Management API - CRUD Operations", () => {
-  test("[P0] POST /api/companies/:companyId/stores - should create store with valid data", async ({
+  test("2.2-API-001: [P0] POST /api/companies/:companyId/stores - should create store with valid data", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -97,7 +97,7 @@ test.describe("Store Management API - CRUD Operations", () => {
     expect(auditLog?.user_id).toBe(corporateAdminUser.user_id);
   });
 
-  test("[P0] POST /api/companies/:companyId/stores - should reject invalid data", async ({
+  test("2.2-API-002: [P0] POST /api/companies/:companyId/stores - should reject invalid data", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
   }) => {
@@ -117,7 +117,7 @@ test.describe("Store Management API - CRUD Operations", () => {
     expect(body).toHaveProperty("message");
   });
 
-  test("[P0] POST /api/companies/:companyId/stores - should reject invalid timezone", async ({
+  test("2.2-API-003: [P0] POST /api/companies/:companyId/stores - should reject invalid timezone", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
   }) => {
@@ -137,7 +137,7 @@ test.describe("Store Management API - CRUD Operations", () => {
     expect(body).toHaveProperty("error");
   });
 
-  test("[P0] POST /api/companies/:companyId/stores - should reject invalid GPS coordinates", async ({
+  test("2.2-API-004: [P0] POST /api/companies/:companyId/stores - should reject invalid GPS coordinates", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
   }) => {
@@ -159,7 +159,7 @@ test.describe("Store Management API - CRUD Operations", () => {
     expect(body).toHaveProperty("error");
   });
 
-  test("[P0] POST /api/companies/:companyId/stores - should enforce company isolation", async ({
+  test("2.2-API-005: [P0] POST /api/companies/:companyId/stores - should enforce company isolation", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -184,7 +184,7 @@ test.describe("Store Management API - CRUD Operations", () => {
     expect(body.message).toContain("assigned company");
   });
 
-  test("[P0] GET /api/stores/:storeId - should retrieve store by ID", async ({
+  test("2.2-API-006: [P0] GET /api/stores/:storeId - should retrieve store by ID", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -217,7 +217,7 @@ test.describe("Store Management API - CRUD Operations", () => {
     // If API returns 200 with correct data, DB state is implicitly verified
   });
 
-  test("[P0] GET /api/stores/:storeId - should enforce company isolation", async ({
+  test("2.2-API-007: [P0] GET /api/stores/:storeId - should enforce company isolation", async ({
     corporateAdminApiRequest,
     prismaClient,
   }) => {
@@ -245,7 +245,7 @@ test.describe("Store Management API - CRUD Operations", () => {
     expect(body).toHaveProperty("error", "Forbidden");
   });
 
-  test("[P0] GET /api/companies/:companyId/stores - should list stores for company", async ({
+  test("2.2-API-008: [P0] GET /api/companies/:companyId/stores - should list stores for company", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -286,7 +286,7 @@ test.describe("Store Management API - CRUD Operations", () => {
     expect(storeIds).toContain(store2.store_id);
   });
 
-  test("[P0] PUT /api/stores/:storeId - should update store", async ({
+  test("2.2-API-009: [P0] PUT /api/stores/:storeId - should update store", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -329,7 +329,7 @@ test.describe("Store Management API - CRUD Operations", () => {
     expect(auditLog?.new_values).toContain("Updated Name");
   });
 
-  test("[P0] PUT /api/stores/:storeId - should enforce company isolation", async ({
+  test("2.2-API-010: [P0] PUT /api/stores/:storeId - should enforce company isolation", async ({
     corporateAdminApiRequest,
     prismaClient,
   }) => {
@@ -358,7 +358,7 @@ test.describe("Store Management API - CRUD Operations", () => {
     expect(response.status()).toBe(403);
   });
 
-  test("[P0] DELETE /api/stores/:storeId - should soft delete store", async ({
+  test("2.2-API-011: [P0] DELETE /api/stores/:storeId - should soft delete store", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -399,7 +399,7 @@ test.describe("Store Management API - CRUD Operations", () => {
     expect(auditLog).not.toBeNull();
   });
 
-  test("[P0] DELETE /api/stores/:storeId - should enforce company isolation", async ({
+  test("2.2-API-012: [P0] DELETE /api/stores/:storeId - should enforce company isolation", async ({
     corporateAdminApiRequest,
     prismaClient,
   }) => {
@@ -431,7 +431,7 @@ test.describe("Store Management API - CRUD Operations", () => {
 // =============================================================================
 
 test.describe("Store Management API - Permissions", () => {
-  test("[P0] should reject operations without STORE_CREATE permission", async ({
+  test("2.2-API-013: [P0] should reject operations without STORE_CREATE permission", async ({
     storeManagerApiRequest,
     storeManagerUser,
   }) => {
@@ -447,7 +447,7 @@ test.describe("Store Management API - Permissions", () => {
     expect(response.status()).toBe(403);
   });
 
-  test("[P0] should reject operations without STORE_READ permission", async ({
+  test("2.2-API-014: [P0] should reject operations without STORE_READ permission", async ({
     storeManagerApiRequest,
     prismaClient,
     storeManagerUser,
@@ -477,7 +477,7 @@ test.describe("Store Management API - Permissions", () => {
 // =============================================================================
 
 test.describe("Store Management API - Audit Trail", () => {
-  test("[P0] audit log should include user_id and action", async ({
+  test("2.2-API-015: [P0] audit log should include user_id and action", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -506,7 +506,7 @@ test.describe("Store Management API - Audit Trail", () => {
     expect(auditLog?.action).toBe("CREATE");
   });
 
-  test("[P0] audit log should capture IP address and user agent", async ({
+  test("2.2-API-016: [P0] audit log should capture IP address and user agent", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -540,7 +540,7 @@ test.describe("Store Management API - Audit Trail", () => {
 // =============================================================================
 
 test.describe("Store Management API - Error Handling", () => {
-  test("[P0] should return 404 for non-existent store", async ({
+  test("2.2-API-017: [P0] should return 404 for non-existent store", async ({
     corporateAdminApiRequest,
   }) => {
     // WHEN: Requesting non-existent UUID
@@ -553,7 +553,7 @@ test.describe("Store Management API - Error Handling", () => {
     expect(response.status()).toBe(404);
   });
 
-  test("[P0] should return 400 for invalid location_json structure", async ({
+  test("2.2-API-018: [P0] should return 400 for invalid location_json structure", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
   }) => {
@@ -577,7 +577,7 @@ test.describe("Store Management API - Error Handling", () => {
 // =============================================================================
 
 test.describe("Store Management API - Security", () => {
-  test("[P0] AUTH BYPASS - should reject access without JWT token", async ({
+  test("2.2-API-019: [P0] AUTH BYPASS - should reject access without JWT token", async ({
     request,
   }) => {
     // WHEN: Accessing protected endpoint without authentication
@@ -589,7 +589,7 @@ test.describe("Store Management API - Security", () => {
     expect(body).toHaveProperty("error");
   });
 
-  test("[P0] RBAC BYPASS - Store Manager cannot access System Admin endpoints", async ({
+  test("2.2-API-020: [P0] RBAC BYPASS - Store Manager cannot access System Admin endpoints", async ({
     storeManagerApiRequest,
   }) => {
     // WHEN: Store Manager tries to access admin endpoint
@@ -601,7 +601,7 @@ test.describe("Store Management API - Security", () => {
     expect(response.status()).toBe(403);
   });
 
-  test.skip("[P0] CSRF PROTECTION - should validate CSRF tokens on state-changing operations", async ({
+  test.skip("2.2-API-021: [P0] CSRF PROTECTION - should validate CSRF tokens on state-changing operations", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
   }) => {
@@ -626,7 +626,7 @@ test.describe("Store Management API - Security", () => {
 // =============================================================================
 
 test.describe("Store Management API - Resilience", () => {
-  test("[P1] RACE CONDITION - concurrent updates should be handled safely", async ({
+  test("2.2-API-022: [P1] RACE CONDITION - concurrent updates should be handled safely", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -668,7 +668,7 @@ test.describe("Store Management API - Resilience", () => {
     expect(auditLogs.length).toBeGreaterThanOrEqual(1);
   });
 
-  test("[P1] CONCURRENT CREATE - simultaneous creates should both succeed", async ({
+  test("2.2-API-023: [P1] CONCURRENT CREATE - simultaneous creates should both succeed", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -701,7 +701,7 @@ test.describe("Store Management API - Resilience", () => {
 // =============================================================================
 
 test.describe("Store Management API - Validation (P1)", () => {
-  test("[P1] should default timezone to America/New_York when not provided", async ({
+  test("2.2-API-024: [P1] should default timezone to America/New_York when not provided", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
   }) => {
@@ -718,7 +718,7 @@ test.describe("Store Management API - Validation (P1)", () => {
     expect(body.timezone).toBe("America/New_York");
   });
 
-  test("[P1] should default status to ACTIVE when not provided", async ({
+  test("2.2-API-025: [P1] should default status to ACTIVE when not provided", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
   }) => {
@@ -735,7 +735,7 @@ test.describe("Store Management API - Validation (P1)", () => {
     expect(body.status).toBe("ACTIVE");
   });
 
-  test("[P1] should trim whitespace from store name", async ({
+  test("2.2-API-026: [P1] should trim whitespace from store name", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
   }) => {
@@ -751,7 +751,7 @@ test.describe("Store Management API - Validation (P1)", () => {
     expect(body.name).toBe("Whitespace Store");
   });
 
-  test("[P1] should reject creation when company does not exist", async ({
+  test("2.2-API-027: [P1] should reject creation when company does not exist", async ({
     corporateAdminApiRequest,
   }) => {
     const fakeCompanyId = "00000000-0000-0000-0000-000000000000";
@@ -765,7 +765,7 @@ test.describe("Store Management API - Validation (P1)", () => {
     expect(response.status()).toBe(400);
   });
 
-  test("[P1] should update only name field", async ({
+  test("2.2-API-028: [P1] should update only name field", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -838,7 +838,7 @@ test.describe("Store Management API - Validation (P1)", () => {
 // =============================================================================
 
 test.describe("Store Configuration API", () => {
-  test("[P0] PUT /api/stores/:storeId/configuration - should update store configuration with valid data", async ({
+  test("2.5-API-001: [P0] PUT /api/stores/:storeId/configuration - should update store configuration with valid data", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -902,7 +902,7 @@ test.describe("Store Configuration API", () => {
     expect(auditLog?.new_values).toHaveProperty("configuration");
   });
 
-  test("[P0] PUT /api/stores/:storeId/configuration - should validate timezone format", async ({
+  test("2.5-API-002: [P0] PUT /api/stores/:storeId/configuration - should validate timezone format", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -931,7 +931,7 @@ test.describe("Store Configuration API", () => {
     expect(body.message).toContain("timezone");
   });
 
-  test("[P0] PUT /api/stores/:storeId/configuration - should validate GPS coordinates range", async ({
+  test("2.5-API-003: [P0] PUT /api/stores/:storeId/configuration - should validate GPS coordinates range", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -962,7 +962,7 @@ test.describe("Store Configuration API", () => {
     expect(body.message).toContain("latitude");
   });
 
-  test("[P0] PUT /api/stores/:storeId/configuration - should validate operating hours format", async ({
+  test("2.5-API-004: [P0] PUT /api/stores/:storeId/configuration - should validate operating hours format", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -993,7 +993,7 @@ test.describe("Store Configuration API", () => {
     expect(body.message).toContain("close time must be after open time");
   });
 
-  test("[P0] PUT /api/stores/:storeId/configuration - should enforce company isolation", async ({
+  test("2.5-API-005: [P0] PUT /api/stores/:storeId/configuration - should enforce company isolation", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1064,7 +1064,7 @@ test.describe("Store Configuration API", () => {
     });
   });
 
-  test("[P0] PUT /api/stores/:storeId/configuration - should return 404 for non-existent store", async ({
+  test("2.5-API-006: [P0] PUT /api/stores/:storeId/configuration - should return 404 for non-existent store", async ({
     corporateAdminApiRequest,
   }) => {
     // GIVEN: A non-existent store ID
@@ -1088,7 +1088,7 @@ test.describe("Store Configuration API", () => {
   // BUSINESS LOGIC TESTS
   // =============================================================================
 
-  test("[P0] PUT /api/stores/:storeId/configuration - should enforce US standard operating hours format", async ({
+  test("2.5-API-007: [P0] PUT /api/stores/:storeId/configuration - should enforce US standard operating hours format", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1124,7 +1124,7 @@ test.describe("Store Configuration API", () => {
   // EDGE CASE TESTS - OPERATING HOURS
   // =============================================================================
 
-  test("[P1] PUT /api/stores/:storeId/configuration - should reject invalid time format (24:00)", async ({
+  test("2.5-API-008: [P1] PUT /api/stores/:storeId/configuration - should reject invalid time format (24:00)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1154,7 +1154,7 @@ test.describe("Store Configuration API", () => {
     expect(body).toHaveProperty("error", "Validation error");
   });
 
-  test("[P1] PUT /api/stores/:storeId/configuration - should reject invalid time format (25:00)", async ({
+  test("2.5-API-009: [P1] PUT /api/stores/:storeId/configuration - should reject invalid time format (25:00)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1182,7 +1182,7 @@ test.describe("Store Configuration API", () => {
     expect(response.status()).toBe(400);
   });
 
-  test("[P1] PUT /api/stores/:storeId/configuration - should reject time without leading zero (9:00)", async ({
+  test("2.5-API-010: [P1] PUT /api/stores/:storeId/configuration - should reject time without leading zero (9:00)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1210,7 +1210,7 @@ test.describe("Store Configuration API", () => {
     expect(response.status()).toBe(400);
   });
 
-  test("[P1] PUT /api/stores/:storeId/configuration - should reject invalid time format (abc:def)", async ({
+  test("2.5-API-011: [P1] PUT /api/stores/:storeId/configuration - should reject invalid time format (abc:def)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1238,7 +1238,7 @@ test.describe("Store Configuration API", () => {
     expect(response.status()).toBe(400);
   });
 
-  test("[P1] PUT /api/stores/:storeId/configuration - should accept boundary times (00:00, 23:59)", async ({
+  test("2.5-API-012: [P1] PUT /api/stores/:storeId/configuration - should accept boundary times (00:00, 23:59)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1266,7 +1266,7 @@ test.describe("Store Configuration API", () => {
     expect(response.status()).toBe(200);
   });
 
-  test("[P1] PUT /api/stores/:storeId/configuration - should reject same open and close time", async ({
+  test("2.5-API-013: [P1] PUT /api/stores/:storeId/configuration - should reject same open and close time", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1296,7 +1296,7 @@ test.describe("Store Configuration API", () => {
     expect(body.message).toContain("close time must be after open time");
   });
 
-  test("[P1] PUT /api/stores/:storeId/configuration - should reject missing required fields (open without close)", async ({
+  test("2.5-API-014: [P1] PUT /api/stores/:storeId/configuration - should reject missing required fields (open without close)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1324,7 +1324,7 @@ test.describe("Store Configuration API", () => {
     expect(response.status()).toBe(400);
   });
 
-  test("[P1] PUT /api/stores/:storeId/configuration - should reject missing required fields (close without open)", async ({
+  test("2.5-API-015: [P1] PUT /api/stores/:storeId/configuration - should reject missing required fields (close without open)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1352,7 +1352,7 @@ test.describe("Store Configuration API", () => {
     expect(response.status()).toBe(400);
   });
 
-  test("[P1] PUT /api/stores/:storeId/configuration - should reject closed=true with open/close times (conflicting data)", async ({
+  test("2.5-API-016: [P1] PUT /api/stores/:storeId/configuration - should reject closed=true with open/close times (conflicting data)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1381,7 +1381,7 @@ test.describe("Store Configuration API", () => {
     expect([200, 400]).toContain(response.status());
   });
 
-  test("[P1] PUT /api/stores/:storeId/configuration - should reject closed=false but no open/close times", async ({
+  test("2.5-API-017: [P1] PUT /api/stores/:storeId/configuration - should reject closed=false but no open/close times", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1413,7 +1413,7 @@ test.describe("Store Configuration API", () => {
   // SECURITY TESTS - STORE CONFIGURATION ENDPOINT
   // =============================================================================
 
-  test("[P0] SECURITY - should reject SQL injection in timezone field", async ({
+  test("2.5-API-018: [P0] SECURITY - should reject SQL injection in timezone field", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1441,7 +1441,7 @@ test.describe("Store Configuration API", () => {
     expect(body).toHaveProperty("error");
   });
 
-  test("[P0] SECURITY - should reject SQL injection in address field", async ({
+  test("2.5-API-019: [P0] SECURITY - should reject SQL injection in address field", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1470,7 +1470,7 @@ test.describe("Store Configuration API", () => {
     expect([200, 400]).toContain(response.status());
   });
 
-  test("[P0] SECURITY - should reject XSS in address field", async ({
+  test("2.5-API-020: [P0] SECURITY - should reject XSS in address field", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1507,7 +1507,7 @@ test.describe("Store Configuration API", () => {
     }
   });
 
-  test("[P0] SECURITY - should reject path traversal in address field", async ({
+  test("2.5-API-021: [P0] SECURITY - should reject path traversal in address field", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1536,7 +1536,7 @@ test.describe("Store Configuration API", () => {
     expect([200, 400]).toContain(response.status());
   });
 
-  test("[P0] SECURITY - should reject JSON injection in configuration object", async ({
+  test("2.5-API-022: [P0] SECURITY - should reject JSON injection in configuration object", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1571,7 +1571,7 @@ test.describe("Store Configuration API", () => {
     }
   });
 
-  test("[P0] SECURITY - should reject deeply nested objects causing DoS", async ({
+  test("2.5-API-023: [P0] SECURITY - should reject deeply nested objects causing DoS", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1602,7 +1602,7 @@ test.describe("Store Configuration API", () => {
     expect([200, 400, 413, 500]).toContain(response.status());
   });
 
-  test("[P0] SECURITY - should reject extremely large payloads causing DoS", async ({
+  test("2.5-API-024: [P0] SECURITY - should reject extremely large payloads causing DoS", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1632,7 +1632,7 @@ test.describe("Store Configuration API", () => {
     expect([200, 400, 413, 500]).toContain(response.status());
   });
 
-  test("[P0] SECURITY - should reject access without JWT token (configuration endpoint)", async ({
+  test("2.5-API-025: [P0] SECURITY - should reject access without JWT token (configuration endpoint)", async ({
     request,
     prismaClient,
   }) => {
@@ -1665,7 +1665,7 @@ test.describe("Store Configuration API", () => {
     expect(body).toHaveProperty("error");
   });
 
-  test("[P0] SECURITY - should reject token tampering (modified JWT)", async ({
+  test("2.5-API-026: [P0] SECURITY - should reject token tampering (modified JWT)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1694,7 +1694,7 @@ test.describe("Store Configuration API", () => {
     expect([200, 401]).toContain(response.status());
   });
 
-  test("[P0] SECURITY - should reject mass assignment (additional fields beyond allowed)", async ({
+  test("2.5-API-028: [P0] SECURITY - should reject mass assignment (additional fields beyond allowed)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -1731,7 +1731,7 @@ test.describe("Store Configuration API", () => {
     }
   });
 
-  test("[P0] SECURITY - should prevent data leakage (no sensitive data in response)", async ({
+  test("2.5-API-027: [P0] SECURITY - should prevent data leakage (no sensitive data in response)", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,

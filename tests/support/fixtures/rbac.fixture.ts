@@ -134,6 +134,7 @@ type RBACFixture = {
     token: string;
   };
   prismaClient: PrismaClient;
+  rlsPrismaClient: PrismaClient;
 };
 
 export const test = base.extend<RBACFixture>({
@@ -197,6 +198,26 @@ export const test = base.extend<RBACFixture>({
     await prisma.$connect();
     await use(prisma);
     await prisma.$disconnect();
+  },
+
+  rlsPrismaClient: async ({}, use: (prisma: PrismaClient) => Promise<void>) => {
+    // Create a Prisma client that connects as app_user (non-superuser)
+    // This client respects RLS policies unlike the postgres superuser
+    const rlsPrisma = new PrismaClient({
+      datasources: {
+        db: {
+          url:
+            process.env.DATABASE_URL?.replace(
+              "postgres:postgres",
+              "app_user:app_user_password",
+            ) ||
+            "postgresql://app_user:app_user_password@localhost:5432/nuvana_dev",
+        },
+      },
+    });
+    await rlsPrisma.$connect();
+    await use(rlsPrisma);
+    await rlsPrisma.$disconnect();
   },
 
   superadminUser: async ({ prismaClient }, use) => {

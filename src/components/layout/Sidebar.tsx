@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Building2,
+  Users,
   Store,
   Clock,
   Package,
@@ -29,6 +30,12 @@ const allNavItems: NavItemWithRole[] = [
     title: "Dashboard",
     href: "/dashboard",
     icon: LayoutDashboard,
+  },
+  {
+    title: "Clients",
+    href: "/clients",
+    icon: Users,
+    roles: ["SYSTEM_ADMIN"], // System Admin only
   },
   {
     title: "Companies",

@@ -1,4 +1,3 @@
-import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, waitFor } from "../support/test-utils";
 import userEvent from "@testing-library/user-event";
@@ -31,7 +30,7 @@ vi.mock("@/hooks/use-toast", () => ({
   }),
 }));
 
-describe("CompanyForm Component", () => {
+describe("2.4-COMPONENT: CompanyForm Component", () => {
   const mockCompany: Company = {
     company_id: "123e4567-e89b-12d3-a456-426614174000",
     name: "Existing Company",
@@ -64,7 +63,7 @@ describe("CompanyForm Component", () => {
     );
   });
 
-  it("should render all form fields", () => {
+  it("[P1] 2.4-COMPONENT-001: should render all form fields", () => {
     // GIVEN: Form is rendered for creating a new company
     renderWithProviders(<CompanyForm />);
 
@@ -76,7 +75,7 @@ describe("CompanyForm Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("should display validation error when name is empty", async () => {
+  it("[P0] 2.4-COMPONENT-002: should display validation error when name is empty", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<CompanyForm />);
@@ -93,7 +92,7 @@ describe("CompanyForm Component", () => {
     });
   });
 
-  it("should display validation error when name exceeds 255 characters", async () => {
+  it("[P0] 2.4-COMPONENT-003: should display validation error when name exceeds 255 characters", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<CompanyForm />);
@@ -114,7 +113,7 @@ describe("CompanyForm Component", () => {
     });
   });
 
-  it("should validate status field is required", async () => {
+  it("[P1] 2.4-COMPONENT-004: should validate status field is required", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<CompanyForm />);
@@ -135,7 +134,7 @@ describe("CompanyForm Component", () => {
     });
   });
 
-  it("should accept valid status values (ACTIVE, INACTIVE, SUSPENDED, PENDING)", async () => {
+  it("[P1] 2.4-COMPONENT-005: should accept valid status values (ACTIVE, INACTIVE, SUSPENDED, PENDING)", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<CompanyForm />);
@@ -159,7 +158,7 @@ describe("CompanyForm Component", () => {
     });
   });
 
-  it("should pre-fill form fields when editing existing company", () => {
+  it("[P1] 2.4-COMPONENT-006: should pre-fill form fields when editing existing company", () => {
     // GIVEN: Form is rendered with existing company data
     renderWithProviders(<CompanyForm company={mockCompany} />);
 
@@ -173,7 +172,7 @@ describe("CompanyForm Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("should call createCompany mutation when creating new company", async () => {
+  it("[P0] 2.4-COMPONENT-007: should call createCompany mutation when creating new company", async () => {
     // GIVEN: Form is rendered for creating
     const user = userEvent.setup();
     renderWithProviders(<CompanyForm />);
@@ -195,7 +194,7 @@ describe("CompanyForm Component", () => {
     });
   });
 
-  it("should call updateCompany mutation when updating existing company", async () => {
+  it("[P0] 2.4-COMPONENT-008: should call updateCompany mutation when updating existing company", async () => {
     // GIVEN: Form is rendered with existing company
     const user = userEvent.setup();
     renderWithProviders(<CompanyForm company={mockCompany} />);
@@ -221,7 +220,7 @@ describe("CompanyForm Component", () => {
     });
   });
 
-  it("should display success toast after successful creation", async () => {
+  it("[P1] 2.4-COMPONENT-009: should display success toast after successful creation", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<CompanyForm />);
@@ -243,7 +242,7 @@ describe("CompanyForm Component", () => {
     });
   });
 
-  it("should display error toast on API error", async () => {
+  it("[P1] 2.4-COMPONENT-010: should display error toast on API error", async () => {
     // GIVEN: Create mutation fails
     const errorMutation = {
       mutateAsync: vi.fn().mockRejectedValue(new Error("API Error")),
@@ -276,7 +275,7 @@ describe("CompanyForm Component", () => {
     });
   });
 
-  it("should disable form fields during submission", async () => {
+  it("[P1] 2.4-COMPONENT-011: should disable form fields during submission", async () => {
     // GIVEN: Mutation will take time to resolve (simulating loading)
     const user = userEvent.setup();
     let resolveMutation: (value: any) => void;

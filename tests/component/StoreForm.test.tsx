@@ -1,4 +1,3 @@
-import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, waitFor } from "../support/test-utils";
 import userEvent from "@testing-library/user-event";
@@ -31,7 +30,7 @@ vi.mock("@/hooks/use-toast", () => ({
   }),
 }));
 
-describe("StoreForm Component", () => {
+describe("2.4-COMPONENT: StoreForm Component", () => {
   const companyId = "123e4567-e89b-12d3-a456-426614174000";
 
   const mockStore: Store = {
@@ -72,7 +71,7 @@ describe("StoreForm Component", () => {
     );
   });
 
-  it("should render all form fields", () => {
+  it("[P1] 2.4-COMPONENT-018: should render all form fields", () => {
     // GIVEN: Form is rendered for creating a new store
     renderWithProviders(<StoreForm companyId={companyId} />);
 
@@ -88,7 +87,7 @@ describe("StoreForm Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("should display validation error when name is empty", async () => {
+  it("[P0] 2.4-COMPONENT-019: should display validation error when name is empty", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<StoreForm companyId={companyId} />);
@@ -103,7 +102,7 @@ describe("StoreForm Component", () => {
     });
   });
 
-  it("should display validation error when name exceeds 255 characters", async () => {
+  it("[P0] 2.4-COMPONENT-020: should display validation error when name exceeds 255 characters", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<StoreForm companyId={companyId} />);
@@ -122,7 +121,7 @@ describe("StoreForm Component", () => {
     });
   });
 
-  it("should display validation error for invalid timezone format", async () => {
+  it("[P0] 2.4-COMPONENT-021: should display validation error for invalid timezone format", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<StoreForm companyId={companyId} />);
@@ -144,7 +143,7 @@ describe("StoreForm Component", () => {
     });
   });
 
-  it("should accept valid IANA timezone format", async () => {
+  it("[P1] 2.4-COMPONENT-022: should accept valid IANA timezone format", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<StoreForm companyId={companyId} />);
@@ -161,7 +160,7 @@ describe("StoreForm Component", () => {
     });
   });
 
-  it("should display validation error for GPS latitude out of bounds", async () => {
+  it("[P0] 2.4-COMPONENT-023: should display validation error for GPS latitude out of bounds", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<StoreForm companyId={companyId} />);
@@ -182,7 +181,7 @@ describe("StoreForm Component", () => {
     });
   });
 
-  it("should display validation error for GPS longitude out of bounds", async () => {
+  it("[P0] 2.4-COMPONENT-024: should display validation error for GPS longitude out of bounds", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<StoreForm companyId={companyId} />);
@@ -203,7 +202,7 @@ describe("StoreForm Component", () => {
     });
   });
 
-  it("should accept valid GPS coordinates", async () => {
+  it("[P1] 2.4-COMPONENT-025: should accept valid GPS coordinates", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<StoreForm companyId={companyId} />);
@@ -234,7 +233,7 @@ describe("StoreForm Component", () => {
     });
   });
 
-  it("should pre-fill form fields when editing existing store", () => {
+  it("[P1] 2.4-COMPONENT-026: should pre-fill form fields when editing existing store", () => {
     // GIVEN: Form is rendered with existing store data
     renderWithProviders(<StoreForm companyId={companyId} store={mockStore} />);
 
@@ -250,7 +249,7 @@ describe("StoreForm Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("should call createStore mutation when creating new store", async () => {
+  it("[P0] 2.4-COMPONENT-027: should call createStore mutation when creating new store", async () => {
     // GIVEN: Form is rendered for creating
     const user = userEvent.setup();
     renderWithProviders(<StoreForm companyId={companyId} />);
@@ -277,7 +276,7 @@ describe("StoreForm Component", () => {
     );
   });
 
-  it("should call updateStore mutation when updating existing store", async () => {
+  it("[P0] 2.4-COMPONENT-028: should call updateStore mutation when updating existing store", async () => {
     // GIVEN: Form is rendered with existing store
     const user = userEvent.setup();
     renderWithProviders(<StoreForm companyId={companyId} store={mockStore} />);
@@ -300,7 +299,7 @@ describe("StoreForm Component", () => {
     });
   });
 
-  it("should display success toast after successful creation", async () => {
+  it("[P1] 2.4-COMPONENT-029: should display success toast after successful creation", async () => {
     // GIVEN: Form is rendered
     const user = userEvent.setup();
     renderWithProviders(<StoreForm companyId={companyId} />);
@@ -320,7 +319,7 @@ describe("StoreForm Component", () => {
     });
   });
 
-  it("should display error toast on API error", async () => {
+  it("[P1] 2.4-COMPONENT-030: should display error toast on API error", async () => {
     // GIVEN: Create mutation fails
     const errorMutation = {
       mutateAsync: vi.fn().mockRejectedValue(new Error("API Error")),
@@ -349,7 +348,7 @@ describe("StoreForm Component", () => {
     });
   });
 
-  it("should disable form fields during submission", async () => {
+  it("[P1] 2.4-COMPONENT-031: should disable form fields during submission", async () => {
     // GIVEN: Mutation will take time to resolve (simulating loading)
     const user = userEvent.setup();
     let resolveMutation: (value: any) => void;

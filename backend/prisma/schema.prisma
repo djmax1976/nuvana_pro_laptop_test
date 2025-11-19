@@ -30,16 +30,36 @@ model User {
   @@map("users")
 }
 
-model Company {
-  company_id String   @id @default(uuid()) @db.Uuid
-  name       String   @db.VarChar(255)
-  status     String   @default("ACTIVE") @db.VarChar(50)
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+model Client {
+  client_id  String    @id @default(uuid()) @db.Uuid
+  name       String    @db.VarChar(255)
+  status     String    @default("ACTIVE") @db.VarChar(50) // ACTIVE | INACTIVE
+  metadata   Json?     @db.JsonB
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at DateTime? @db.Timestamptz(6)
 
+  companies Company[]
+
+  @@index([status])
+  @@index([deleted_at])
+  @@map("clients")
+}
+
+model Company {
+  company_id String    @id @default(uuid()) @db.Uuid
+  client_id  String?   @db.Uuid
+  name       String    @db.VarChar(255)
+  status     String    @default("ACTIVE") @db.VarChar(50)
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at DateTime? @db.Timestamptz(6)
+
+  client     Client?    @relation(fields: [client_id], references: [client_id], onDelete: SetNull)
   stores     Store[]
   user_roles UserRole[]
 
+  @@index([client_id])
   @@index([status])
   @@map("companies")
 }
