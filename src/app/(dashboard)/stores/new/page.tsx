@@ -10,7 +10,7 @@ import { useSearchParams } from "next/navigation";
  */
 export default function NewStorePage() {
   const searchParams = useSearchParams();
-  const companyId = searchParams.get("companyId");
+  const companyId = searchParams?.get("companyId");
 
   if (!companyId) {
     return (

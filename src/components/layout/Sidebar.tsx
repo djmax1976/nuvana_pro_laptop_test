@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Building2,
   Users,
+  UserCog,
   Store,
   Clock,
   Package,
@@ -42,6 +43,12 @@ const allNavItems: NavItemWithRole[] = [
     href: "/companies",
     icon: Building2,
     roles: ["SYSTEM_ADMIN"], // System Admin only
+  },
+  {
+    title: "Users",
+    href: "/admin/users",
+    icon: UserCog,
+    roles: ["SYSTEM_ADMIN"], // System Admin only - ADMIN_SYSTEM_CONFIG permission
   },
   {
     title: "Stores",

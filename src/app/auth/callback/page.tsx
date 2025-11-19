@@ -55,8 +55,8 @@ function AuthCallbackContent() {
   );
 
   useEffect(() => {
-    const code = searchParams.get("code");
-    const errorParam = searchParams.get("error");
+    const code = searchParams?.get("code");
+    const errorParam = searchParams?.get("error");
 
     if (errorParam) {
       setError("Authentication failed. Please try again.");

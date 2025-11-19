@@ -16,7 +16,7 @@ interface EditStorePageProps {
  */
 export default function EditStorePage({ params }: EditStorePageProps) {
   const searchParams = useSearchParams();
-  const companyId = searchParams.get("companyId");
+  const companyId = searchParams?.get("companyId");
   const { data: store, isLoading } = useStore(params.storeId);
 
   if (isLoading) {

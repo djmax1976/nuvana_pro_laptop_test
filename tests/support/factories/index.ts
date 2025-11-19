@@ -120,3 +120,19 @@ export {
   type ClientData,
   type ClientStatus,
 } from "./client.factory";
+
+// User Admin factories (Story 2.8)
+export {
+  createAdminUser,
+  createAdminUsers,
+  createUserRequest,
+  createSystemScopeAssignment,
+  createCompanyScopeAssignment,
+  createStoreScopeAssignment,
+  createInvalidScopeAssignment,
+  type AdminUserData,
+  type AssignRoleRequest,
+  type CreateUserRequest,
+  type UserStatus,
+  type ScopeType,
+} from "./user-admin.factory";

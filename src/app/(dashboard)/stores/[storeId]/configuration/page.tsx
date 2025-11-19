@@ -24,11 +24,13 @@ export default function StoreConfigurationPage({
 }: StoreConfigurationPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const companyId = searchParams.get("companyId");
+  const companyId = searchParams?.get("companyId");
   const { data: store, isLoading, error } = useStore(params.storeId);
 
   const handleSuccess = () => {
-    router.push(`/stores/${params.storeId}${companyId ? `?companyId=${companyId}` : ""}`);
+    router.push(
+      `/stores/${params.storeId}${companyId ? `?companyId=${companyId}` : ""}`,
+    );
   };
 
   if (isLoading) {
@@ -43,7 +45,9 @@ export default function StoreConfigurationPage({
   if (error) {
     return (
       <div className="space-y-4">
-        <Link href={`/stores/${params.storeId}${companyId ? `?companyId=${companyId}` : ""}`}>
+        <Link
+          href={`/stores/${params.storeId}${companyId ? `?companyId=${companyId}` : ""}`}
+        >
           <Button variant="ghost">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Store
@@ -88,7 +92,9 @@ export default function StoreConfigurationPage({
             Configure timezone, location, and operating hours for {store.name}
           </p>
         </div>
-        <Link href={`/stores/${params.storeId}${companyId ? `?companyId=${companyId}` : ""}`}>
+        <Link
+          href={`/stores/${params.storeId}${companyId ? `?companyId=${companyId}` : ""}`}
+        >
           <Button variant="ghost">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Store
@@ -99,4 +105,3 @@ export default function StoreConfigurationPage({
     </div>
   );
 }
-

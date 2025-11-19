@@ -33,7 +33,7 @@ interface StoreDetailPageProps {
 export default function StoreDetailPage({ params }: StoreDetailPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const companyId = searchParams.get("companyId") || "";
+  const companyId = searchParams?.get("companyId") || "";
   const { toast } = useToast();
   const [isDeleting, setIsDeleting] = useState(false);
   const deleteMutation = useDeleteStore();

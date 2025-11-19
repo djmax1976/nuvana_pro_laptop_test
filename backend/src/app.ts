@@ -16,6 +16,7 @@ import { clientRoutes } from "./routes/clients";
 import { storeRoutes } from "./routes/store";
 import { transactionRoutes } from "./routes/transactions";
 import { contactRoutes } from "./routes/contact";
+import { adminUserRoutes } from "./routes/admin-users";
 
 // Load environment variables
 dotenv.config();
@@ -116,6 +117,9 @@ app.register(contactRoutes);
 
 // Register admin routes (with permission middleware examples)
 app.register(adminRoutes);
+
+// Register admin user management routes
+app.register(adminUserRoutes);
 
 // Root endpoint - API information and status
 app.get("/", async () => {
