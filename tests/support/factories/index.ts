@@ -95,7 +95,7 @@ export {
   type RolePermissionData,
 } from "./rbac.factory";
 
-// Transaction factories (Story 3.1)
+// Transaction factories (Story 3.1 & 3.2)
 export {
   createTransaction,
   createTransactionLineItem,
@@ -104,7 +104,9 @@ export {
   createTransactionLineItems,
   createTransactionPayments,
   createFullTransaction,
+  createTransactionPayload,
   type TransactionData,
   type TransactionLineItemData,
   type TransactionPaymentData,
+  type TransactionPayloadData,
 } from "./transaction.factory";

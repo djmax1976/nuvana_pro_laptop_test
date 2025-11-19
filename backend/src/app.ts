@@ -12,6 +12,7 @@ import { adminRoutes } from "./routes/admin";
 import { userRoutes } from "./routes/users";
 import { companyRoutes } from "./routes/companies";
 import { storeRoutes } from "./routes/store";
+import { transactionRoutes } from "./routes/transactions";
 import { contactRoutes } from "./routes/contact";
 
 // Load environment variables
@@ -72,6 +73,9 @@ app.register(companyRoutes);
 // Register store routes
 app.register(storeRoutes);
 
+// Register transaction routes
+app.register(transactionRoutes);
+
 // Register contact routes (public - no auth required)
 app.register(contactRoutes);
 
@@ -92,6 +96,7 @@ app.get("/", async () => {
       users: "/api/users/*",
       companies: "/api/companies/*",
       stores: "/api/stores/*",
+      transactions: "/api/transactions",
       admin: "/api/admin/*",
       contact: "/api/contact",
     },

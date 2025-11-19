@@ -160,6 +160,88 @@ export const createTransactionPayments = (
  * Creates a complete transaction with line items and payment
  * Useful for integration tests
  */
+/**
+ * Transaction API Payload type for POST /api/transactions
+ * Story 3.2: Transaction Import API
+ */
+export type TransactionPayloadData = {
+  store_id: string;
+  shift_id: string;
+  cashier_id?: string;
+  pos_terminal_id?: string;
+  timestamp?: string;
+  subtotal: number;
+  tax: number;
+  discount: number;
+  total?: number;
+  line_items: {
+    product_id?: string;
+    sku: string;
+    name: string;
+    quantity: number;
+    unit_price: number;
+    discount?: number;
+  }[];
+  payments: {
+    method: "CASH" | "CREDIT" | "DEBIT" | "EBT" | "OTHER";
+    amount: number;
+    reference?: string;
+  }[];
+};
+
+/**
+ * Creates a Transaction API payload for POST /api/transactions
+ * Story 3.2: Transaction Import API
+ */
+export const createTransactionPayload = (
+  overrides: Partial<TransactionPayloadData> = {},
+): TransactionPayloadData => {
+  // Generate line items
+  const lineItemCount = 2;
+  const line_items =
+    overrides.line_items ??
+    Array.from({ length: lineItemCount }, () => {
+      const quantity = faker.number.int({ min: 1, max: 5 });
+      const unit_price = Number(faker.commerce.price({ min: 5, max: 50 }));
+      return {
+        sku: faker.string.alphanumeric(10).toUpperCase(),
+        name: faker.commerce.productName(),
+        quantity,
+        unit_price,
+        discount: 0,
+      };
+    });
+
+  // Calculate totals
+  const subtotal =
+    overrides.subtotal ??
+    line_items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
+  const tax = overrides.tax ?? Number((subtotal * 0.08).toFixed(2));
+  const discount = overrides.discount ?? 0;
+  const total =
+    overrides.total ?? Number((subtotal + tax - discount).toFixed(2));
+
+  // Generate payment to cover total
+  const payments = overrides.payments ?? [
+    {
+      method: "CASH" as const,
+      amount: total,
+    },
+  ];
+
+  return {
+    store_id: faker.string.uuid(),
+    shift_id: faker.string.uuid(),
+    subtotal,
+    tax,
+    discount,
+    total,
+    line_items,
+    payments,
+    ...overrides,
+  };
+};
+
 export const createFullTransaction = (
   overrides: {
     transaction?: Partial<TransactionData>;

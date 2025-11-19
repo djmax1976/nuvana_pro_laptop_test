@@ -9,6 +9,19 @@ let connection: Connection | null = null;
 let channels: Set<Channel> = new Set();
 
 /**
+ * Queue configuration constants
+ */
+export const QUEUES = {
+  TRANSACTIONS_PROCESSING: "transactions.processing",
+} as const;
+
+/**
+ * Dead letter exchange configuration
+ */
+export const DEAD_LETTER_EXCHANGE = "dlx.transactions";
+export const DEAD_LETTER_QUEUE = "transactions.dead-letter";
+
+/**
  * Initialize RabbitMQ connection with retry logic
  * @returns RabbitMQ connection instance
  */
@@ -145,19 +158,121 @@ export async function closeRabbitMQ(): Promise<void> {
 }
 
 /**
+ * Setup transactions queue with dead letter exchange
+ * @returns Channel configured with the queue
+ */
+export async function setupTransactionsQueue(): Promise<Channel> {
+  const channel = await createChannel();
+
+  try {
+    // Create dead letter exchange and queue
+    await channel.assertExchange(DEAD_LETTER_EXCHANGE, "direct", {
+      durable: true,
+    });
+
+    await channel.assertQueue(DEAD_LETTER_QUEUE, {
+      durable: true,
+    });
+
+    await channel.bindQueue(
+      DEAD_LETTER_QUEUE,
+      DEAD_LETTER_EXCHANGE,
+      QUEUES.TRANSACTIONS_PROCESSING,
+    );
+
+    // Create main transactions processing queue with dead letter config
+    await channel.assertQueue(QUEUES.TRANSACTIONS_PROCESSING, {
+      durable: true,
+      arguments: {
+        "x-dead-letter-exchange": DEAD_LETTER_EXCHANGE,
+        "x-dead-letter-routing-key": QUEUES.TRANSACTIONS_PROCESSING,
+      },
+    });
+
+    console.log(
+      `RabbitMQ: Queue ${QUEUES.TRANSACTIONS_PROCESSING} setup complete`,
+    );
+    return channel;
+  } catch (error) {
+    console.error("RabbitMQ: Failed to setup transactions queue:", error);
+    await closeChannel(channel);
+    throw error;
+  }
+}
+
+/**
+ * Publish message to transactions processing queue
+ * @param message - Message content to publish
+ * @param correlationId - Correlation ID for tracking
+ * @returns true if message was published successfully
+ */
+export async function publishToTransactionsQueue(
+  message: object,
+  correlationId: string,
+): Promise<boolean> {
+  const channel = await setupTransactionsQueue();
+
+  try {
+    const messageBuffer = Buffer.from(JSON.stringify(message));
+
+    const published = channel.publish(
+      "", // default exchange
+      QUEUES.TRANSACTIONS_PROCESSING,
+      messageBuffer,
+      {
+        persistent: true, // Message persistence
+        correlationId,
+        contentType: "application/json",
+        timestamp: Date.now(),
+      },
+    );
+
+    if (!published) {
+      console.warn("RabbitMQ: Channel buffer is full, message queued");
+    }
+
+    return published;
+  } catch (error) {
+    console.error("RabbitMQ: Failed to publish message:", error);
+    throw error;
+  }
+}
+
+/**
  * Health check: Verify RabbitMQ connection and channel creation
  * @returns Health status object
  */
 export async function checkRabbitMQHealth(): Promise<{
   healthy: boolean;
   error?: string;
+  queues?: { name: string; messageCount: number; consumerCount: number }[];
 }> {
   try {
     await getRabbitMQConnection();
     // Try to create and immediately close a test channel
     const testChannel = await createChannel();
+
+    // Check transactions queue status
+    let queues: {
+      name: string;
+      messageCount: number;
+      consumerCount: number;
+    }[] = [];
+    try {
+      const queueInfo = await testChannel.checkQueue(
+        QUEUES.TRANSACTIONS_PROCESSING,
+      );
+      queues.push({
+        name: QUEUES.TRANSACTIONS_PROCESSING,
+        messageCount: queueInfo.messageCount,
+        consumerCount: queueInfo.consumerCount,
+      });
+    } catch {
+      // Queue may not exist yet, that's okay
+    }
+
     await closeChannel(testChannel);
-    return { healthy: true };
+    return { healthy: true, queues };
   } catch (error) {
     return {
       healthy: false,

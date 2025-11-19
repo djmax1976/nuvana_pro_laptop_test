@@ -32,6 +32,10 @@ export const SHIFT_OPEN = "SHIFT_OPEN";
 export const SHIFT_CLOSE = "SHIFT_CLOSE";
 export const SHIFT_READ = "SHIFT_READ";
 
+// Transaction Permissions
+export const TRANSACTION_CREATE = "TRANSACTION_CREATE";
+export const TRANSACTION_READ = "TRANSACTION_READ";
+
 // Inventory Permissions
 export const INVENTORY_READ = "INVENTORY_READ";
 export const INVENTORY_ADJUST = "INVENTORY_ADJUST";
@@ -80,6 +84,10 @@ export const PERMISSIONS = {
   SHIFT_OPEN,
   SHIFT_CLOSE,
   SHIFT_READ,
+
+  // Transactions
+  TRANSACTION_CREATE,
+  TRANSACTION_READ,
 
   // Inventory
   INVENTORY_READ,
@@ -141,6 +149,10 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [SHIFT_OPEN]: "Open shifts",
   [SHIFT_CLOSE]: "Close shifts",
   [SHIFT_READ]: "View shift information",
+
+  // Transactions
+  [TRANSACTION_CREATE]: "Create transactions",
+  [TRANSACTION_READ]: "View transactions",
 
   // Inventory
   [INVENTORY_READ]: "View inventory levels",
