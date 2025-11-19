@@ -33,6 +33,7 @@ vi.mock("@/hooks/use-toast", () => ({
 describe("2.4-COMPONENT: CompanyForm Component", () => {
   const mockCompany: Company = {
     company_id: "123e4567-e89b-12d3-a456-426614174000",
+    client_id: "223e4567-e89b-12d3-a456-426614174001",
     name: "Existing Company",
     status: "ACTIVE",
     created_at: "2024-01-01T00:00:00Z",

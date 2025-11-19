@@ -4,6 +4,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import cookie from "@fastify/cookie";
 import dotenv from "dotenv";
+import addFormats from "ajv-formats";
 import { initializeRedis, closeRedis } from "./utils/redis";
 import { initializeRabbitMQ, closeRabbitMQ } from "./utils/rabbitmq";
 import { healthRoutes } from "./routes/health";
@@ -22,9 +23,39 @@ dotenv.config();
 const PORT = parseInt(process.env.PORT || "3001", 10);
 const SERVER_START_TIME = Date.now();
 
-// Create Fastify instance
+// Create Fastify instance with ajv-formats for UUID validation
 const app = Fastify({
   logger: true,
+  ajv: {
+    customOptions: {
+      removeAdditional: false,
+      coerceTypes: "array", // Coerce types for query strings while keeping strict validation for body
+      allErrors: true,
+    },
+    plugins: [addFormats],
+  },
+});
+
+// Global error handler for validation and other errors
+app.setErrorHandler((error: any, _request, reply) => {
+  app.log.error({ error }, "Request error");
+
+  // Handle Fastify validation errors (schema validation failures)
+  if (error.validation) {
+    reply.status(400).send({
+      error: "Validation error",
+      message: error.message,
+      details: error.validation,
+    });
+    return;
+  }
+
+  // Handle other errors with appropriate status codes
+  const statusCode = error.statusCode || 500;
+  reply.status(statusCode).send({
+    error: error.name || "Error",
+    message: error.message || "An unexpected error occurred",
+  });
 });
 
 // Register cookie parser (required for httpOnly cookie support)

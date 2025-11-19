@@ -38,6 +38,7 @@ describe("2.4-COMPONENT: CompanyList Component", () => {
   const mockCompanies: Company[] = [
     {
       company_id: "123e4567-e89b-12d3-a456-426614174000",
+      client_id: "323e4567-e89b-12d3-a456-426614174002",
       name: "Test Company 1",
       status: "ACTIVE",
       created_at: "2024-01-01T00:00:00Z",
@@ -45,6 +46,7 @@ describe("2.4-COMPONENT: CompanyList Component", () => {
     },
     {
       company_id: "223e4567-e89b-12d3-a456-426614174001",
+      client_id: "323e4567-e89b-12d3-a456-426614174002",
       name: "Test Company 2",
       status: "INACTIVE",
       created_at: "2024-01-02T00:00:00Z",

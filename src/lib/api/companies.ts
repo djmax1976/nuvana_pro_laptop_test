@@ -18,6 +18,8 @@ export type CompanyStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
  */
 export interface Company {
   company_id: string;
+  client_id: string | null;
+  client_name?: string;
   name: string;
   status: CompanyStatus;
   created_at: string;
@@ -28,6 +30,7 @@ export interface Company {
  * Create company input
  */
 export interface CreateCompanyInput {
+  client_id: string;
   name: string;
   status?: CompanyStatus;
 }
@@ -36,6 +39,7 @@ export interface CreateCompanyInput {
  * Update company input
  */
 export interface UpdateCompanyInput {
+  client_id?: string;
   name?: string;
   status?: CompanyStatus;
 }
@@ -80,6 +84,7 @@ export interface ListCompaniesParams {
   page?: number;
   limit?: number;
   status?: CompanyStatus;
+  clientId?: string;
 }
 
 /**
@@ -132,6 +137,9 @@ export async function getCompanies(
   if (params?.status) {
     queryParams.append("status", params.status);
   }
+  if (params?.clientId) {
+    queryParams.append("clientId", params.clientId);
+  }
 
   const queryString = queryParams.toString();
   const endpoint = `/api/companies${queryString ? `?${queryString}` : ""}`;
@@ -164,6 +172,10 @@ export async function getCompanyById(companyId: string): Promise<Company> {
 export async function createCompany(
   data: CreateCompanyInput,
 ): Promise<Company> {
+  if (!data.client_id) {
+    throw new Error("Client is required");
+  }
+
   if (!data.name || data.name.trim().length === 0) {
     throw new Error("Company name is required");
   }

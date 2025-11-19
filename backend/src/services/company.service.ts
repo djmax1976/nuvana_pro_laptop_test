@@ -1,27 +1,14 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
+import {
+  CreateCompanyInput,
+  UpdateCompanyInput,
+  CompanyListOptions,
+  PaginatedCompanyResult,
+  CompanyWithClient,
+  AuditContext,
+} from "../types/company.types";
 
 const prisma = new PrismaClient();
-
-/**
- * Company status enum values
- */
-export type CompanyStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
-
-/**
- * Company creation input
- */
-export interface CreateCompanyInput {
-  name: string;
-  status?: CompanyStatus;
-}
-
-/**
- * Company update input
- */
-export interface UpdateCompanyInput {
-  name?: string;
-  status?: CompanyStatus;
-}
 
 /**
  * Company service for managing company CRUD operations
@@ -29,13 +16,44 @@ export interface UpdateCompanyInput {
  */
 export class CompanyService {
   /**
+   * Validate that a client exists
+   * @param clientId - Client UUID to validate
+   * @throws Error if client does not exist or is deleted
+   */
+  private async validateClientExists(clientId: string): Promise<void> {
+    const client = await prisma.client.findUnique({
+      where: { client_id: clientId },
+    });
+
+    if (!client) {
+      throw new Error(`Client with ID ${clientId} not found`);
+    }
+
+    if (client.deleted_at) {
+      throw new Error(`Client with ID ${clientId} has been deleted`);
+    }
+  }
+
+  /**
    * Create a new company
    * @param data - Company creation data
-   * @returns Created company record
+   * @param auditContext - Audit context for logging
+   * @returns Created company record with client information
    * @throws Error if validation fails or database error occurs
    */
-  async createCompany(data: CreateCompanyInput) {
-    // Validate input
+  async createCompany(
+    data: CreateCompanyInput,
+    auditContext: AuditContext,
+  ): Promise<CompanyWithClient> {
+    // Validate client_id is provided
+    if (!data.client_id) {
+      throw new Error("Client ID is required for company creation");
+    }
+
+    // Validate client exists
+    await this.validateClientExists(data.client_id);
+
+    // Validate name
     if (!data.name || data.name.trim().length === 0) {
       throw new Error(
         "Company name is required and cannot be empty or whitespace",
@@ -64,13 +82,49 @@ export class CompanyService {
     try {
       const company = await prisma.company.create({
         data: {
+          client_id: data.client_id,
           name: data.name.trim(),
           status: data.status || "ACTIVE",
         },
+        include: {
+          client: {
+            select: {
+              client_id: true,
+              name: true,
+            },
+          },
+        },
       });
 
-      return company;
-    } catch (error: any) {
+      // Create audit log entry
+      await prisma.auditLog.create({
+        data: {
+          user_id: auditContext.userId,
+          action: "CREATE",
+          table_name: "companies",
+          record_id: company.company_id,
+          new_values: company as unknown as Prisma.JsonObject,
+          ip_address: auditContext.ipAddress,
+          user_agent: auditContext.userAgent,
+          reason: `Company created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+        },
+      });
+
+      return {
+        company_id: company.company_id,
+        client_id: company.client_id,
+        client_name: company.client?.name,
+        name: company.name,
+        status: company.status,
+        created_at: company.created_at,
+        updated_at: company.updated_at,
+        deleted_at: company.deleted_at,
+        client: company.client,
+      };
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes("not found")) {
+        throw error;
+      }
       console.error("Error creating company:", error);
       throw error;
     }
@@ -79,14 +133,22 @@ export class CompanyService {
   /**
    * Get company by ID
    * @param companyId - Company UUID
-   * @returns Company record
+   * @returns Company record with client information
    * @throws Error if company not found
    */
-  async getCompanyById(companyId: string) {
+  async getCompanyById(companyId: string): Promise<CompanyWithClient> {
     try {
       const company = await prisma.company.findUnique({
         where: {
           company_id: companyId,
+        },
+        include: {
+          client: {
+            select: {
+              client_id: true,
+              name: true,
+            },
+          },
         },
       });
 
@@ -94,9 +156,19 @@ export class CompanyService {
         throw new Error(`Company with ID ${companyId} not found`);
       }
 
-      return company;
-    } catch (error: any) {
-      if (error.message.includes("not found")) {
+      return {
+        company_id: company.company_id,
+        client_id: company.client_id,
+        client_name: company.client?.name,
+        name: company.name,
+        status: company.status,
+        created_at: company.created_at,
+        updated_at: company.updated_at,
+        deleted_at: company.deleted_at,
+        client: company.client,
+      };
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes("not found")) {
         throw error;
       }
       console.error("Error retrieving company:", error);
@@ -105,19 +177,73 @@ export class CompanyService {
   }
 
   /**
-   * Get all companies (System Admin only)
-   * @returns Array of all companies
+   * Get companies with pagination and filtering
+   * @param options - List options (page, limit, status, clientId)
+   * @returns Paginated company results with client information
    */
-  async getAllCompanies() {
-    try {
-      const companies = await prisma.company.findMany({
-        orderBy: {
-          created_at: "desc",
-        },
-      });
+  async getCompanies(
+    options: CompanyListOptions = {},
+  ): Promise<PaginatedCompanyResult> {
+    const { page = 1, limit = 20, status, clientId } = options;
 
-      return companies;
-    } catch (error: any) {
+    const skip = (page - 1) * limit;
+
+    // Build where clause
+    const where: Prisma.CompanyWhereInput = {};
+
+    // Filter by status
+    if (status) {
+      where.status = status;
+    }
+
+    // Filter by client_id
+    if (clientId) {
+      where.client_id = clientId;
+    }
+
+    try {
+      const [companies, total] = await Promise.all([
+        prisma.company.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy: { created_at: "desc" },
+          include: {
+            client: {
+              select: {
+                client_id: true,
+                name: true,
+              },
+            },
+          },
+        }),
+        prisma.company.count({ where }),
+      ]);
+
+      const companiesWithClient: CompanyWithClient[] = companies.map(
+        (company) => ({
+          company_id: company.company_id,
+          client_id: company.client_id,
+          client_name: company.client?.name,
+          name: company.name,
+          status: company.status,
+          created_at: company.created_at,
+          updated_at: company.updated_at,
+          deleted_at: company.deleted_at,
+          client: company.client,
+        }),
+      );
+
+      return {
+        data: companiesWithClient,
+        meta: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } catch (error) {
       console.error("Error retrieving companies:", error);
       throw error;
     }
@@ -127,11 +253,16 @@ export class CompanyService {
    * Update company
    * @param companyId - Company UUID
    * @param data - Company update data
-   * @returns Updated company record
+   * @param auditContext - Audit context for logging
+   * @returns Updated company record with client information
    * @throws Error if company not found or validation fails
    */
-  async updateCompany(companyId: string, data: UpdateCompanyInput) {
-    // Validate input
+  async updateCompany(
+    companyId: string,
+    data: UpdateCompanyInput,
+    auditContext: AuditContext,
+  ): Promise<CompanyWithClient> {
+    // Validate name if provided
     if (data.name !== undefined && data.name.trim().length === 0) {
       throw new Error("Company name cannot be empty or whitespace");
     }
@@ -150,11 +281,24 @@ export class CompanyService {
       );
     }
 
+    // Validate client_id if provided
+    if (data.client_id) {
+      await this.validateClientExists(data.client_id);
+    }
+
     try {
       // Check if company exists
       const existingCompany = await prisma.company.findUnique({
         where: {
           company_id: companyId,
+        },
+        include: {
+          client: {
+            select: {
+              client_id: true,
+              name: true,
+            },
+          },
         },
       });
 
@@ -163,12 +307,17 @@ export class CompanyService {
       }
 
       // Prepare update data
-      const updateData: any = {};
+      const updateData: Prisma.CompanyUpdateInput = {};
       if (data.name !== undefined) {
         updateData.name = data.name.trim();
       }
       if (data.status !== undefined) {
         updateData.status = data.status;
+      }
+      if (data.client_id !== undefined) {
+        updateData.client = {
+          connect: { client_id: data.client_id },
+        };
       }
 
       const company = await prisma.company.update({
@@ -176,11 +325,44 @@ export class CompanyService {
           company_id: companyId,
         },
         data: updateData,
+        include: {
+          client: {
+            select: {
+              client_id: true,
+              name: true,
+            },
+          },
+        },
       });
 
-      return company;
-    } catch (error: any) {
-      if (error.message.includes("not found")) {
+      // Create audit log entry with old and new client_id
+      await prisma.auditLog.create({
+        data: {
+          user_id: auditContext.userId,
+          action: "UPDATE",
+          table_name: "companies",
+          record_id: company.company_id,
+          old_values: existingCompany as unknown as Prisma.JsonObject,
+          new_values: company as unknown as Prisma.JsonObject,
+          ip_address: auditContext.ipAddress,
+          user_agent: auditContext.userAgent,
+          reason: `Company updated by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+        },
+      });
+
+      return {
+        company_id: company.company_id,
+        client_id: company.client_id,
+        client_name: company.client?.name,
+        name: company.name,
+        status: company.status,
+        created_at: company.created_at,
+        updated_at: company.updated_at,
+        deleted_at: company.deleted_at,
+        client: company.client,
+      };
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes("not found")) {
         throw error;
       }
       console.error("Error updating company:", error);
@@ -191,15 +373,27 @@ export class CompanyService {
   /**
    * Soft delete company (set status to INACTIVE)
    * @param companyId - Company UUID
+   * @param auditContext - Audit context for logging
    * @returns Updated company record with INACTIVE status
    * @throws Error if company not found or if company is ACTIVE
    */
-  async deleteCompany(companyId: string) {
+  async deleteCompany(
+    companyId: string,
+    auditContext: AuditContext,
+  ): Promise<CompanyWithClient> {
     try {
       // Check if company exists
       const existingCompany = await prisma.company.findUnique({
         where: {
           company_id: companyId,
+        },
+        include: {
+          client: {
+            select: {
+              client_id: true,
+              name: true,
+            },
+          },
         },
       });
 
@@ -222,13 +416,47 @@ export class CompanyService {
         data: {
           status: "INACTIVE",
         },
+        include: {
+          client: {
+            select: {
+              client_id: true,
+              name: true,
+            },
+          },
+        },
       });
 
-      return company;
-    } catch (error: any) {
+      // Create audit log entry
+      await prisma.auditLog.create({
+        data: {
+          user_id: auditContext.userId,
+          action: "DELETE",
+          table_name: "companies",
+          record_id: company.company_id,
+          old_values: existingCompany as unknown as Prisma.JsonObject,
+          new_values: company as unknown as Prisma.JsonObject,
+          ip_address: auditContext.ipAddress,
+          user_agent: auditContext.userAgent,
+          reason: `Company soft deleted by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+        },
+      });
+
+      return {
+        company_id: company.company_id,
+        client_id: company.client_id,
+        client_name: company.client?.name,
+        name: company.name,
+        status: company.status,
+        created_at: company.created_at,
+        updated_at: company.updated_at,
+        deleted_at: company.deleted_at,
+        client: company.client,
+      };
+    } catch (error: unknown) {
       if (
-        error.message.includes("not found") ||
-        error.message.includes("ACTIVE company")
+        error instanceof Error &&
+        (error.message.includes("not found") ||
+          error.message.includes("ACTIVE company"))
       ) {
         throw error;
       }

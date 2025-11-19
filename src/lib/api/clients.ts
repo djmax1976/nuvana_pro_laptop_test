@@ -170,6 +170,33 @@ export async function deleteClient(clientId: string): Promise<ClientResponse> {
 // ============ TanStack Query Hooks ============
 
 /**
+ * Client dropdown item type
+ */
+export interface ClientDropdownItem {
+  client_id: string;
+  name: string;
+}
+
+/**
+ * Client dropdown response
+ */
+export interface ClientDropdownResponse {
+  success: true;
+  data: ClientDropdownItem[];
+}
+
+/**
+ * Get clients for dropdown selection (System Admin only)
+ * Returns only active, non-deleted clients with minimal data
+ * @returns List of clients for dropdown
+ */
+export async function getClientsDropdown(): Promise<ClientDropdownResponse> {
+  return apiRequest<ClientDropdownResponse>("/api/clients/dropdown", {
+    method: "GET",
+  });
+}
+
+/**
  * Query key factory for client queries
  */
 export const clientKeys = {
@@ -179,6 +206,7 @@ export const clientKeys = {
     [...clientKeys.lists(), params] as const,
   details: () => [...clientKeys.all, "detail"] as const,
   detail: (id: string) => [...clientKeys.details(), id] as const,
+  dropdown: () => [...clientKeys.all, "dropdown"] as const,
 };
 
 /**
@@ -190,6 +218,18 @@ export function useClients(params?: ListClientsParams) {
   return useQuery({
     queryKey: clientKeys.list(params),
     queryFn: () => getClients(params),
+  });
+}
+
+/**
+ * Hook to fetch clients for dropdown selection
+ * @returns TanStack Query result with dropdown data
+ */
+export function useClientsDropdown() {
+  return useQuery({
+    queryKey: clientKeys.dropdown(),
+    queryFn: () => getClientsDropdown(),
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes as dropdown data changes less frequently
   });
 }
 

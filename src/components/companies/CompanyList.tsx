@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { useCompanies } from "@/lib/api/companies";
+import { useClientsDropdown } from "@/lib/api/clients";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -10,6 +12,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Plus, Eye, Pencil } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -17,11 +26,19 @@ import { format } from "date-fns";
 /**
  * CompanyList component
  * Displays a list of companies in a table format (System Admin only)
- * Shows company_id, name, status, created_at, updated_at columns
- * Includes "Create Company" button and "Edit"/"View Details" actions
+ * Shows company_id, client, name, status, created_at, updated_at columns
+ * Includes "Create Company" button, client filter, and "Edit"/"View Details" actions
  */
 export function CompanyList() {
-  const { data, isLoading, error } = useCompanies();
+  const [clientFilter, setClientFilter] = useState<string | undefined>(
+    undefined,
+  );
+
+  const { data, isLoading, error } = useCompanies({
+    clientId: clientFilter,
+  });
+
+  const { data: clientsData, isLoading: clientsLoading } = useClientsDropdown();
 
   if (isLoading) {
     return <CompanyListSkeleton />;
@@ -41,6 +58,7 @@ export function CompanyList() {
   }
 
   const companies = data?.data || [];
+  const clients = clientsData?.data || [];
 
   return (
     <div className="space-y-4">
@@ -54,10 +72,37 @@ export function CompanyList() {
         </Link>
       </div>
 
+      {/* Filter controls */}
+      <div className="flex items-center gap-4">
+        <div className="w-[250px]">
+          <Select
+            value={clientFilter || "all"}
+            onValueChange={(value) =>
+              setClientFilter(value === "all" ? undefined : value)
+            }
+            disabled={clientsLoading}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Filter by client" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Clients</SelectItem>
+              {clients.map((client) => (
+                <SelectItem key={client.client_id} value={client.client_id}>
+                  {client.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       {companies.length === 0 ? (
         <div className="rounded-lg border p-8 text-center">
           <p className="text-sm text-muted-foreground">
-            No companies found. Create your first company to get started.
+            {clientFilter
+              ? "No companies found for this client."
+              : "No companies found. Create your first company to get started."}
           </p>
         </div>
       ) : (
@@ -66,6 +111,7 @@ export function CompanyList() {
             <TableHeader>
               <TableRow>
                 <TableHead>ID</TableHead>
+                <TableHead>Client</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created At</TableHead>
@@ -78,6 +124,9 @@ export function CompanyList() {
                 <TableRow key={company.company_id}>
                   <TableCell className="font-mono text-xs">
                     {company.company_id.slice(0, 8)}...
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {company.client_name || "-"}
                   </TableCell>
                   <TableCell className="font-medium">{company.name}</TableCell>
                   <TableCell>
@@ -150,11 +199,15 @@ function CompanyListSkeleton() {
         <div className="h-8 w-32 animate-pulse rounded bg-muted" />
         <div className="h-10 w-40 animate-pulse rounded bg-muted" />
       </div>
+      <div className="flex items-center gap-4">
+        <div className="h-10 w-[250px] animate-pulse rounded bg-muted" />
+      </div>
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>ID</TableHead>
+              <TableHead>Client</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Created At</TableHead>
@@ -167,6 +220,9 @@ function CompanyListSkeleton() {
               <TableRow key={i}>
                 <TableCell>
                   <div className="h-4 w-20 animate-pulse rounded bg-muted" />
+                </TableCell>
+                <TableCell>
+                  <div className="h-4 w-24 animate-pulse rounded bg-muted" />
                 </TableCell>
                 <TableCell>
                   <div className="h-4 w-32 animate-pulse rounded bg-muted" />

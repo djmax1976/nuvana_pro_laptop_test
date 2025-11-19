@@ -25,8 +25,8 @@ import {
   useCreateCompany,
   useUpdateCompany,
   type Company,
-  type CompanyStatus,
 } from "@/lib/api/companies";
+import { useClientsDropdown } from "@/lib/api/clients";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -35,6 +35,7 @@ import { useToast } from "@/hooks/use-toast";
  * Company form validation schema
  */
 const companyFormSchema = z.object({
+  client_id: z.string().min(1, "Please select a client"),
   name: z
     .string()
     .min(1, "Company name is required")
@@ -64,9 +65,13 @@ export function CompanyForm({ company, onSuccess }: CompanyFormProps) {
   const createMutation = useCreateCompany();
   const updateMutation = useUpdateCompany();
 
+  // Fetch clients for dropdown
+  const { data: clientsData, isLoading: clientsLoading } = useClientsDropdown();
+
   const form = useForm<CompanyFormValues>({
     resolver: zodResolver(companyFormSchema),
     defaultValues: {
+      client_id: company?.client_id || "",
       name: company?.name || "",
       status: company?.status || "ACTIVE",
     },
@@ -120,9 +125,49 @@ export function CompanyForm({ company, onSuccess }: CompanyFormProps) {
     }
   };
 
+  const clients = clientsData?.data || [];
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <FormField
+          control={form.control}
+          name="client_id"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Client</FormLabel>
+              <Select
+                onValueChange={field.onChange}
+                value={field.value}
+                disabled={isSubmitting || clientsLoading}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        clientsLoading
+                          ? "Loading clients..."
+                          : "Select a client"
+                      }
+                    />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {clients.map((client) => (
+                    <SelectItem key={client.client_id} value={client.client_id}>
+                      {client.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                The client this company belongs to (required)
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
         <FormField
           control={form.control}
           name="name"

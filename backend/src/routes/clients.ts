@@ -1,10 +1,13 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
+import { PrismaClient } from "@prisma/client";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
 import { clientService, AuditContext } from "../services/client.service";
 import { ClientStatus } from "../types/client.types";
+
+const prisma = new PrismaClient();
 
 // UUID validation helper - accepts standard UUIDs including nil UUID
 const UUID_REGEX =
@@ -415,6 +418,52 @@ export async function clientRoutes(fastify: FastifyInstance) {
           success: false,
           error: "Internal server error",
           message: "Failed to delete client",
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/clients/dropdown
+   * Get minimal client data for dropdown selection
+   * Returns only active, non-deleted clients with id and name
+   */
+  fastify.get(
+    "/api/clients/dropdown",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
+      ],
+    },
+    async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const clients = await prisma.client.findMany({
+          where: {
+            status: "ACTIVE",
+            deleted_at: null,
+          },
+          select: {
+            client_id: true,
+            name: true,
+          },
+          orderBy: {
+            name: "asc",
+          },
+        });
+
+        reply.code(200);
+        return {
+          success: true,
+          data: clients,
+        };
+      } catch (error) {
+        fastify.log.error({ error }, "Error fetching clients for dropdown");
+        reply.code(500);
+        return {
+          success: false,
+          error: "Internal server error",
+          message: "Failed to fetch clients",
         };
       }
     },

@@ -3,9 +3,7 @@ import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
 import { companyService } from "../services/company.service";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { AuditContext } from "../types/company.types";
 
 /**
  * Company management routes
@@ -30,8 +28,13 @@ export async function companyRoutes(fastify: FastifyInstance) {
         tags: ["companies"],
         body: {
           type: "object",
-          required: ["name"],
+          required: ["name", "client_id"],
           properties: {
+            client_id: {
+              type: "string",
+              format: "uuid",
+              description: "Client UUID (required)",
+            },
             name: {
               type: "string",
               minLength: 1,
@@ -50,6 +53,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               company_id: { type: "string", format: "uuid" },
+              client_id: { type: "string", format: "uuid" },
+              client_name: { type: "string" },
               name: { type: "string" },
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
@@ -76,45 +81,34 @@ export async function companyRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const body = request.body as {
+          client_id: string;
           name: string;
           status?: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
         };
         const user = (request as any).user as UserIdentity;
 
+        // Build audit context
+        const auditContext: AuditContext = {
+          userId: user.id,
+          userEmail: user.email,
+          userRoles: user.roles,
+          ipAddress:
+            (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+            request.ip ||
+            request.socket.remoteAddress ||
+            null,
+          userAgent: request.headers["user-agent"] || null,
+        };
+
         // Create company (with validation from service)
-        const company = await companyService.createCompany({
-          name: body.name,
-          status: body.status,
-        });
-
-        // Log company creation to AuditLog (BLOCKING - if this fails, we should handle it)
-        const ipAddress =
-          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
-          request.ip ||
-          request.socket.remoteAddress ||
-          null;
-        const userAgent = request.headers["user-agent"] || null;
-
-        try {
-          await prisma.auditLog.create({
-            data: {
-              user_id: user.id,
-              action: "CREATE",
-              table_name: "companies",
-              record_id: company.company_id,
-              new_values: company as any,
-              ip_address: ipAddress,
-              user_agent: userAgent,
-              reason: `Company created by ${user.email} (roles: ${user.roles.join(", ")})`,
-            },
-          });
-        } catch (auditError) {
-          // If audit log fails, delete the company and fail the request
-          await prisma.company.delete({
-            where: { company_id: company.company_id },
-          });
-          throw new Error("Failed to create audit log - operation rolled back");
-        }
+        const company = await companyService.createCompany(
+          {
+            client_id: body.client_id,
+            name: body.name,
+            status: body.status,
+          },
+          auditContext,
+        );
 
         reply.code(201);
         return {
@@ -128,7 +122,11 @@ export async function companyRoutes(fastify: FastifyInstance) {
         fastify.log.error({ error }, "Error creating company");
         if (
           error.message.includes("required") ||
-          error.message.includes("Invalid")
+          error.message.includes("Invalid") ||
+          error.message.includes("not found") ||
+          error.message.includes("deleted") ||
+          error.message.includes("cannot") ||
+          error.message.includes("exceed")
         ) {
           reply.code(400);
           return {
@@ -149,7 +147,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
    * GET /api/companies
    * List all companies with pagination (System Admin only)
    * Protected route - requires ADMIN_SYSTEM_CONFIG permission
-   * Query params: page (default 1), limit (default 20, max 100), status (optional filter)
+   * Query params: page (default 1), limit (default 20, max 100), status (optional filter), clientId (optional filter)
    */
   fastify.get(
     "/api/companies",
@@ -182,6 +180,11 @@ export async function companyRoutes(fastify: FastifyInstance) {
               enum: ["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"],
               description: "Filter by status",
             },
+            clientId: {
+              type: "string",
+              format: "uuid",
+              description: "Filter by client UUID",
+            },
           },
         },
         response: {
@@ -194,6 +197,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
                   type: "object",
                   properties: {
                     company_id: { type: "string", format: "uuid" },
+                    client_id: { type: "string", format: "uuid" },
+                    client_name: { type: "string" },
                     name: { type: "string" },
                     status: { type: "string" },
                     created_at: { type: "string", format: "date-time" },
@@ -206,10 +211,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
                 properties: {
                   page: { type: "integer" },
                   limit: { type: "integer" },
-                  total_items: { type: "integer" },
-                  total_pages: { type: "integer" },
-                  has_next_page: { type: "boolean" },
-                  has_previous_page: { type: "boolean" },
+                  total: { type: "integer" },
+                  totalPages: { type: "integer" },
                 },
               },
               request_metadata: {
@@ -239,45 +242,26 @@ export async function companyRoutes(fastify: FastifyInstance) {
           page?: number;
           limit?: number;
           status?: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
+          clientId?: string;
         };
 
         const page = query.page || 1;
         const limit = Math.min(query.limit || 20, 100);
-        const skip = (page - 1) * limit;
 
-        // Build filter
-        const where: any = {};
-        if (query.status) {
-          where.status = query.status;
-        }
-
-        // Get total count
-        const totalItems = await prisma.company.count({ where });
-
-        // Get paginated data
-        const companies = await prisma.company.findMany({
-          where,
-          skip,
-          take: limit,
-          orderBy: {
-            created_at: "desc",
-          },
+        // Get paginated data using service
+        const result = await companyService.getCompanies({
+          page,
+          limit,
+          status: query.status,
+          clientId: query.clientId,
         });
 
-        const totalPages = Math.ceil(totalItems / limit);
         const responseTime = Date.now() - startTime;
 
         reply.code(200);
         return {
-          data: companies,
-          meta: {
-            page,
-            limit,
-            total_items: totalItems,
-            total_pages: totalPages,
-            has_next_page: page < totalPages,
-            has_previous_page: page > 1,
-          },
+          data: result.data,
+          meta: result.meta,
           request_metadata: {
             timestamp: new Date().toISOString(),
             request_id: request.id,
@@ -326,6 +310,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               company_id: { type: "string", format: "uuid" },
+              client_id: { type: "string", format: "uuid" },
+              client_name: { type: "string" },
               name: { type: "string" },
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
@@ -409,6 +395,11 @@ export async function companyRoutes(fastify: FastifyInstance) {
         body: {
           type: "object",
           properties: {
+            client_id: {
+              type: "string",
+              format: "uuid",
+              description: "Client UUID",
+            },
             name: {
               type: "string",
               minLength: 1,
@@ -427,6 +418,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               company_id: { type: "string", format: "uuid" },
+              client_id: { type: "string", format: "uuid" },
+              client_name: { type: "string" },
               name: { type: "string" },
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
@@ -461,101 +454,34 @@ export async function companyRoutes(fastify: FastifyInstance) {
       try {
         const params = request.params as { companyId: string };
         const body = request.body as {
+          client_id?: string;
           name?: string;
           status?: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
-          last_updated_at?: string;
         };
         const user = (request as any).user as UserIdentity;
 
-        // Get old values before update
-        const oldCompany = await companyService.getCompanyById(
+        // Build audit context
+        const auditContext: AuditContext = {
+          userId: user.id,
+          userEmail: user.email,
+          userRoles: user.roles,
+          ipAddress:
+            (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+            request.ip ||
+            request.socket.remoteAddress ||
+            null,
+          userAgent: request.headers["user-agent"] || null,
+        };
+
+        const company = await companyService.updateCompany(
           params.companyId,
+          {
+            client_id: body.client_id,
+            name: body.name,
+            status: body.status,
+          },
+          auditContext,
         );
-
-        // Check for concurrent modification if last_updated_at is provided
-        if (body.last_updated_at) {
-          const clientLastUpdated = new Date(body.last_updated_at);
-          const serverLastUpdated = new Date(oldCompany.updated_at);
-
-          if (serverLastUpdated > clientLastUpdated) {
-            // Check recent audit logs for concurrent updates
-            const recentUpdates = await prisma.auditLog.findMany({
-              where: {
-                table_name: "companies",
-                record_id: params.companyId,
-                action: "UPDATE",
-                timestamp: {
-                  gt: clientLastUpdated,
-                },
-              },
-              include: {
-                user: {
-                  select: {
-                    email: true,
-                    user_id: true,
-                  },
-                },
-              },
-              orderBy: {
-                timestamp: "desc",
-              },
-              take: 5,
-            });
-
-            reply.code(409);
-            return {
-              error: "Concurrent modification detected",
-              message:
-                "This company was modified by another user after you loaded it. Please review the changes and try again.",
-              conflict_details: {
-                your_last_fetch: body.last_updated_at,
-                current_server_version: oldCompany.updated_at,
-                current_data: oldCompany,
-                recent_modifications: recentUpdates.map((log) => ({
-                  modified_by: log.user?.email || "Unknown",
-                  modified_at: log.timestamp,
-                  changes: log.new_values,
-                })),
-              },
-            };
-          }
-        }
-
-        const company = await companyService.updateCompany(params.companyId, {
-          name: body.name,
-          status: body.status,
-        });
-
-        // Log company update to AuditLog (BLOCKING)
-        const ipAddress =
-          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
-          request.ip ||
-          request.socket.remoteAddress ||
-          null;
-        const userAgent = request.headers["user-agent"] || null;
-
-        try {
-          await prisma.auditLog.create({
-            data: {
-              user_id: user.id,
-              action: "UPDATE",
-              table_name: "companies",
-              record_id: company.company_id,
-              old_values: oldCompany as any,
-              new_values: company as any,
-              ip_address: ipAddress,
-              user_agent: userAgent,
-              reason: `Company updated by ${user.email} (roles: ${user.roles.join(", ")})`,
-            },
-          });
-        } catch (auditError) {
-          // If audit log fails, revert the update and fail the request
-          await companyService.updateCompany(params.companyId, {
-            name: oldCompany.name,
-            status: oldCompany.status as any,
-          });
-          throw new Error("Failed to create audit log - operation rolled back");
-        }
 
         reply.code(200);
         return {
@@ -624,6 +550,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               company_id: { type: "string", format: "uuid" },
+              client_id: { type: "string", format: "uuid" },
+              client_name: { type: "string" },
               name: { type: "string" },
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
@@ -652,42 +580,23 @@ export async function companyRoutes(fastify: FastifyInstance) {
         const params = request.params as { companyId: string };
         const user = (request as any).user as UserIdentity;
 
-        // Get old values before soft delete
-        const oldCompany = await companyService.getCompanyById(
+        // Build audit context
+        const auditContext: AuditContext = {
+          userId: user.id,
+          userEmail: user.email,
+          userRoles: user.roles,
+          ipAddress:
+            (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+            request.ip ||
+            request.socket.remoteAddress ||
+            null,
+          userAgent: request.headers["user-agent"] || null,
+        };
+
+        const company = await companyService.deleteCompany(
           params.companyId,
+          auditContext,
         );
-
-        const company = await companyService.deleteCompany(params.companyId);
-
-        // Log company deletion to AuditLog (BLOCKING)
-        const ipAddress =
-          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
-          request.ip ||
-          request.socket.remoteAddress ||
-          null;
-        const userAgent = request.headers["user-agent"] || null;
-
-        try {
-          await prisma.auditLog.create({
-            data: {
-              user_id: user.id,
-              action: "DELETE",
-              table_name: "companies",
-              record_id: company.company_id,
-              old_values: oldCompany as any,
-              new_values: company as any,
-              ip_address: ipAddress,
-              user_agent: userAgent,
-              reason: `Company deleted by ${user.email} (roles: ${user.roles.join(", ")})`,
-            },
-          });
-        } catch (auditError) {
-          // If audit log fails, revert the soft delete and fail the request
-          await companyService.updateCompany(params.companyId, {
-            status: oldCompany.status as any,
-          });
-          throw new Error("Failed to create audit log - operation rolled back");
-        }
 
         reply.code(200);
         return {
