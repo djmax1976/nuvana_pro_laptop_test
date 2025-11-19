@@ -1,5 +1,5 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createCompany } from "../support/factories";
+import { createCompany, createClient } from "../support/factories";
 
 /**
  * Company Management API Tests
@@ -20,6 +20,11 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin with valid company data
+    // First create a client (required for company creation)
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Company" }),
+    });
+
     const companyData = createCompany({
       name: "Test Company Inc",
       status: "ACTIVE",
@@ -27,6 +32,7 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
 
     // WHEN: Creating a company via API
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: companyData.name,
       status: companyData.status,
     });
@@ -37,6 +43,7 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
     expect(body).toHaveProperty("company_id");
     expect(body).toHaveProperty("name", companyData.name);
     expect(body).toHaveProperty("status", companyData.status);
+    expect(body).toHaveProperty("client_id", client.client_id);
     expect(body).toHaveProperty("created_at");
     expect(body).toHaveProperty("updated_at");
 
@@ -46,6 +53,7 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
     });
     expect(company).not.toBeNull();
     expect(company?.name).toBe(companyData.name);
+    expect(company?.client_id).toBe(client.client_id);
 
     // AND: Audit log entry is created
     const auditLog = await prismaClient.auditLog.findFirst({
@@ -61,10 +69,17 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
 
   test("[P0] 2.1-API-002: POST /api/companies - should reject invalid data (AC #1)", async ({
     superadminApiRequest,
+    prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin with invalid company data (missing name)
-    // WHEN: Creating a company with missing required field
+    // First create a client
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Validation" }),
+    });
+
+    // WHEN: Creating a company with missing required field (name)
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       status: "ACTIVE",
       // name is missing
     });
@@ -80,9 +95,13 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and a company exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Get" }),
+    });
     const companyData = createCompany();
     const company = await prismaClient.company.create({
       data: {
+        client_id: client.client_id,
         name: companyData.name,
         status: companyData.status,
       },
@@ -108,11 +127,20 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and multiple companies exist
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Pagination" }),
+    });
     const company1 = await prismaClient.company.create({
-      data: createCompany({ name: "Company 1" }),
+      data: {
+        ...createCompany({ name: "Company 1" }),
+        client_id: client.client_id,
+      },
     });
     const company2 = await prismaClient.company.create({
-      data: createCompany({ name: "Company 2" }),
+      data: {
+        ...createCompany({ name: "Company 2" }),
+        client_id: client.client_id,
+      },
     });
 
     // WHEN: Retrieving all companies (default pagination)
@@ -147,8 +175,14 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and a company exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Update" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany({ name: "Original Name" }),
+      data: {
+        ...createCompany({ name: "Original Name" }),
+        client_id: client.client_id,
+      },
     });
     const originalUpdatedAt = company.updated_at;
 
@@ -194,8 +228,14 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and a SUSPENDED company exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Delete" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany({ name: "Company to Delete", status: "SUSPENDED" }),
+      data: {
+        ...createCompany({ name: "Company to Delete", status: "SUSPENDED" }),
+        client_id: client.client_id,
+      },
     });
 
     // WHEN: Deleting company (soft delete)
@@ -231,12 +271,19 @@ test.describe("2.1-API: Company Management API - Permission Enforcement", () => 
   test("[P0] 2.1-API-007: should deny access to non-System Admin users (AC #1, #2, #3, #4)", async ({
     corporateAdminApiRequest,
     storeManagerApiRequest,
+    prismaClient,
   }) => {
     // GIVEN: I am authenticated as Corporate Admin (not System Admin)
+    // First create a client for valid request body
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Permission" }),
+    });
+
     // WHEN: Attempting to create a company
     const createResponse = await corporateAdminApiRequest.post(
       "/api/companies",
       {
+        client_id: client.client_id,
         name: "Unauthorized Company",
       },
     );
@@ -257,10 +304,17 @@ test.describe("2.1-API: Company Management API - Permission Enforcement", () => 
 
   test("[P0] 2.1-API-008: should deny access without authentication (AC #1, #2, #3, #4)", async ({
     apiRequest,
+    prismaClient,
   }) => {
     // GIVEN: I am not authenticated
+    // First create a client for valid request body
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Auth" }),
+    });
+
     // WHEN: Attempting to create a company
     const response = await apiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: "Unauthorized Company",
     });
 
@@ -319,8 +373,14 @@ test.describe("2.1-API: Company Management API - Error Handling", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and an ACTIVE company exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Active Delete" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany({ name: "Active Company", status: "ACTIVE" }),
+      data: {
+        ...createCompany({ name: "Active Company", status: "ACTIVE" }),
+        client_id: client.client_id,
+      },
     });
 
     // WHEN: Attempting to delete ACTIVE company
@@ -345,10 +405,16 @@ test.describe("2.1-API: Company Management API - Error Handling", () => {
 test.describe("2.1-API: Company Management API - Validation Edge Cases", () => {
   test("[P0] 2.1-API-013: POST /api/companies - should reject whitespace-only company name", async ({
     superadminApiRequest,
+    prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Whitespace" }),
+    });
+
     // WHEN: Creating company with whitespace-only name
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: "   ",
       status: "ACTIVE",
     });
@@ -361,10 +427,16 @@ test.describe("2.1-API: Company Management API - Validation Edge Cases", () => {
 
   test("[P0] 2.1-API-014: POST /api/companies - should reject empty company name", async ({
     superadminApiRequest,
+    prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Empty" }),
+    });
+
     // WHEN: Creating company with empty name
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: "",
       status: "ACTIVE",
     });
@@ -381,10 +453,14 @@ test.describe("2.1-API: Company Management API - Validation Edge Cases", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for 255" }),
+    });
     const longName = "A".repeat(255);
 
     // WHEN: Creating company with 255-char name
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: longName,
       status: "ACTIVE",
     });
@@ -397,12 +473,17 @@ test.describe("2.1-API: Company Management API - Validation Edge Cases", () => {
 
   test("[P0] 2.1-API-016: POST /api/companies - should reject company name exceeding 255 characters", async ({
     superadminApiRequest,
+    prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for 256" }),
+    });
     const tooLongName = "A".repeat(256);
 
     // WHEN: Creating company with 256-char name
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: tooLongName,
       status: "ACTIVE",
     });
@@ -415,10 +496,16 @@ test.describe("2.1-API: Company Management API - Validation Edge Cases", () => {
 
   test("[P0] 2.1-API-017: POST /api/companies - should reject invalid status", async ({
     superadminApiRequest,
+    prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Invalid Status" }),
+    });
+
     // WHEN: Creating company with invalid status
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: "Test Company",
       status: "ARCHIVED" as any,
     });
@@ -432,8 +519,13 @@ test.describe("2.1-API: Company Management API - Validation Edge Cases", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Pending" }),
+    });
+
     // WHEN: Creating company with PENDING status
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: "Pending Company",
       status: "PENDING",
     });
@@ -449,8 +541,14 @@ test.describe("2.1-API: Company Management API - Validation Edge Cases", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and a PENDING company exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Status Transitions" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany({ name: "Status Test Company", status: "PENDING" }),
+      data: {
+        ...createCompany({ name: "Status Test Company", status: "PENDING" }),
+        client_id: client.client_id,
+      },
     });
 
     // WHEN: Updating status from PENDING to ACTIVE
@@ -472,8 +570,14 @@ test.describe("2.1-API: Company Management API - Validation Edge Cases", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and a company exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Whitespace Update" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany({ name: "Original Name" }),
+      data: {
+        ...createCompany({ name: "Original Name" }),
+        client_id: client.client_id,
+      },
     });
 
     // WHEN: Updating company with whitespace-only name
@@ -495,12 +599,19 @@ test.describe("2.1-API: Company Management API - Validation Edge Cases", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and a company exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Duplicates" }),
+    });
     await prismaClient.company.create({
-      data: createCompany({ name: "Starbucks" }),
+      data: {
+        ...createCompany({ name: "Starbucks" }),
+        client_id: client.client_id,
+      },
     });
 
     // WHEN: Creating another company with the same name
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: "Starbucks",
       status: "ACTIVE",
     });
@@ -519,8 +630,13 @@ test.describe("2.1-API: Company Management API - Audit Log Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Audit" }),
+    });
+
     // WHEN: Creating a company
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: "Audit Test Company",
       status: "ACTIVE",
     });
@@ -547,12 +663,16 @@ test.describe("2.1-API: Company Management API - Audit Log Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and request comes through proxy
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Proxy IP" }),
+    });
     const realClientIP = "203.45.67.89";
 
     // WHEN: Creating a company with x-forwarded-for header
     const response = await superadminApiRequest.post(
       "/api/companies",
       {
+        client_id: client.client_id,
         name: "Proxy IP Test Company",
         status: "ACTIVE",
       },
@@ -586,10 +706,14 @@ test.describe("2.1-API: Company Management API - Security Tests", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for SQL Injection" }),
+    });
     const sqlInjectionAttempt = "'; DROP TABLE companies; --";
 
     // WHEN: Attempting to create company with SQL injection in name
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: sqlInjectionAttempt,
       status: "ACTIVE",
     });
@@ -612,12 +736,17 @@ test.describe("2.1-API: Company Management API - Security Tests", () => {
 
   test("[P0] 2.1-API-025: should reject XSS attempts in company name", async ({
     superadminApiRequest,
+    prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for XSS" }),
+    });
     const xssAttempt = "<script>alert('xss')</script>";
 
     // WHEN: Attempting to create company with XSS payload in name
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: xssAttempt,
       status: "ACTIVE",
     });
@@ -633,12 +762,17 @@ test.describe("2.1-API: Company Management API - Security Tests", () => {
 
   test("[P0] 2.1-API-026: should reject excessively long company names (buffer overflow protection)", async ({
     superadminApiRequest,
+    prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Buffer Overflow" }),
+    });
     const veryLongName = "A".repeat(10000); // 10KB string
 
     // WHEN: Attempting to create company with extremely long name
     const response = await superadminApiRequest.post("/api/companies", {
+      client_id: client.client_id,
       name: veryLongName,
       status: "ACTIVE",
     });
@@ -656,8 +790,14 @@ test.describe("2.1-API: Company Management API - Concurrent Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and a company exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Concurrent" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany({ name: "Concurrent Test Company" }),
+      data: {
+        ...createCompany({ name: "Concurrent Test Company" }),
+        client_id: client.client_id,
+      },
     });
 
     // WHEN: Two admins attempt to update the same company simultaneously
@@ -713,8 +853,14 @@ test.describe("2.1-API: Company Management API - Concurrent Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and a company exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Conflict Detection" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany({ name: "Conflict Test Company" }),
+      data: {
+        ...createCompany({ name: "Conflict Test Company" }),
+        client_id: client.client_id,
+      },
     });
 
     const initialUpdatedAt = company.updated_at.toISOString();
