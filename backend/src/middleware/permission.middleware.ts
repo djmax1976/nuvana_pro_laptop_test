@@ -117,6 +117,12 @@ export function permissionMiddleware(requiredPermission: PermissionCode) {
       const userId = request.user.id;
       const resource = `${request.method} ${request.url}`;
 
+      // Check if user has wildcard permission in JWT token (bypasses DB check)
+      if (request.user.permissions && request.user.permissions.includes("*")) {
+        // User has wildcard permission, grant access
+        return;
+      }
+
       // Extract scope from request
       const scope = extractScope(request);
 
@@ -181,6 +187,13 @@ export function requireAllPermissions(requiredPermissions: PermissionCode[]) {
 
       const userId = request.user.id;
       const resource = `${request.method} ${request.url}`;
+
+      // Check if user has wildcard permission in JWT token (bypasses DB check)
+      if (request.user.permissions && request.user.permissions.includes("*")) {
+        // User has wildcard permission, grant access
+        return;
+      }
+
       const scope = extractScope(request);
 
       // Check all permissions
@@ -243,6 +256,13 @@ export function requireAnyPermission(requiredPermissions: PermissionCode[]) {
 
       const userId = request.user.id;
       const resource = `${request.method} ${request.url}`;
+
+      // Check if user has wildcard permission in JWT token (bypasses DB check)
+      if (request.user.permissions && request.user.permissions.includes("*")) {
+        // User has wildcard permission, grant access
+        return;
+      }
+
       const scope = extractScope(request);
 
       // Check if user has any of the required permissions

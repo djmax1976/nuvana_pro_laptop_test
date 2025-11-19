@@ -45,6 +45,11 @@ type RBACFixture = {
       path: string,
       options?: { headers?: Record<string, string> },
     ) => Promise<import("@playwright/test").APIResponse>;
+    patch: (
+      path: string,
+      data?: unknown,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
   };
   superadminApiRequest: {
     get: (
@@ -63,6 +68,11 @@ type RBACFixture = {
     ) => Promise<import("@playwright/test").APIResponse>;
     delete: (
       path: string,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+    patch: (
+      path: string,
+      data?: unknown,
       options?: { headers?: Record<string, string> },
     ) => Promise<import("@playwright/test").APIResponse>;
   };
@@ -85,6 +95,11 @@ type RBACFixture = {
       path: string,
       options?: { headers?: Record<string, string> },
     ) => Promise<import("@playwright/test").APIResponse>;
+    patch: (
+      path: string,
+      data?: unknown,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
   };
   storeManagerApiRequest: {
     get: (
@@ -103,6 +118,11 @@ type RBACFixture = {
     ) => Promise<import("@playwright/test").APIResponse>;
     delete: (
       path: string,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+    patch: (
+      path: string,
+      data?: unknown,
       options?: { headers?: Record<string, string> },
     ) => Promise<import("@playwright/test").APIResponse>;
   };
@@ -186,6 +206,20 @@ export const test = base.extend<RBACFixture>({
       ) => {
         return request.delete(`${backendUrl}${path}`, {
           headers: options?.headers,
+        });
+      },
+      patch: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.fetch(`${backendUrl}${path}`, {
+          method: "PATCH",
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            ...options?.headers,
+          },
         });
       },
     };
@@ -463,6 +497,21 @@ export const test = base.extend<RBACFixture>({
           },
         });
       },
+      patch: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.fetch(`${backendUrl}${path}`, {
+          method: "PATCH",
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${superadminUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
     };
 
     await use(superadminApiRequest);
@@ -523,6 +572,21 @@ export const test = base.extend<RBACFixture>({
           },
         });
       },
+      patch: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.fetch(`${backendUrl}${path}`, {
+          method: "PATCH",
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${corporateAdminUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
     };
 
     await use(corporateAdminApiRequest);
@@ -578,6 +642,21 @@ export const test = base.extend<RBACFixture>({
       ) => {
         return request.delete(`${backendUrl}${path}`, {
           headers: {
+            Cookie: `access_token=${storeManagerUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      patch: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.fetch(`${backendUrl}${path}`, {
+          method: "PATCH",
+          data,
+          headers: {
+            "Content-Type": "application/json",
             Cookie: `access_token=${storeManagerUser.token}`,
             ...options?.headers,
           },
