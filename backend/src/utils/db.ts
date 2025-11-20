@@ -23,28 +23,39 @@ function createRLSPrismaClient() {
       async $allOperations({ args, query }) {
         const userId = rlsContext.getStore();
 
-        // Only set RLS context if userId is provided
+        // Only set RLS context if userId is provided (from withRLSContext)
         // Use SET instead of SET LOCAL because SET LOCAL only works in transactions
         // SET sets the variable for the current session (connection)
-        // We clear it after the query to prevent leakage between requests
+        // We only reset if WE set it (to avoid interfering with test-set contexts)
         if (userId) {
-          let variableSet = false;
+          let variableSetByUs = false;
           try {
-            // Set session variable for RLS policies
-            // Use parameterized query to prevent SQL injection
-            try {
-              await baseClient.$executeRaw`SET app.current_user_id = ${userId}`;
-              variableSet = true;
-            } catch (setError: any) {
-              // If SET fails, log but continue - RLS policies will use NULL/default
-              console.warn(
-                `Failed to set RLS context: ${setError?.message || setError}`,
-              );
+            // Check if variable is already set (e.g., by tests)
+            const existing = await baseClient.$queryRaw<
+              Array<{ current_setting: string | null }>
+            >`
+              SELECT current_setting('app.current_user_id', true) as current_setting
+            `;
+            const alreadySet = existing[0]?.current_setting !== null;
+
+            // Only set if not already set
+            if (!alreadySet) {
+              try {
+                await baseClient.$executeRaw`SET app.current_user_id = ${userId}`;
+                variableSetByUs = true;
+              } catch (setError: any) {
+                // If SET fails, log but continue - RLS policies will use NULL/default
+                console.warn(
+                  `Failed to set RLS context: ${setError?.message || setError}`,
+                );
+              }
             }
+
             // Execute the query
             const result = await query(args);
-            // Clear the session variable after query completes (if it was set)
-            if (variableSet) {
+
+            // Only clear if WE set it (don't interfere with test-set contexts)
+            if (variableSetByUs) {
               try {
                 await baseClient.$executeRaw`RESET app.current_user_id`;
               } catch (resetError) {
@@ -56,8 +67,8 @@ function createRLSPrismaClient() {
             }
             return result;
           } catch (error) {
-            // Ensure we clear the variable even if query fails
-            if (variableSet) {
+            // Ensure we clear the variable even if query fails (only if WE set it)
+            if (variableSetByUs) {
               try {
                 await baseClient.$executeRaw`RESET app.current_user_id`;
               } catch (resetError) {
@@ -68,7 +79,8 @@ function createRLSPrismaClient() {
           }
         }
 
-        // No RLS context needed - execute query normally
+        // No RLS context from withRLSContext - execute query normally
+        // (but respect any session variable already set, e.g., by tests)
         return query(args);
       },
     },
