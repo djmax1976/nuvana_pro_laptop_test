@@ -44,14 +44,14 @@ describe("ConfirmDialog - Simple Confirmation", () => {
       <ConfirmDialog
         open={true}
         onOpenChange={() => {}}
-        title="Confirm"
+        title="Confirm Action"
         description="Test"
         onConfirm={onConfirm}
       />,
     );
 
-    expect(screen.getByText("Confirm")).toBeInTheDocument();
-    expect(screen.getByText("Cancel")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
   test("[P0] Should show custom button text when specified", () => {
@@ -81,14 +81,14 @@ describe("ConfirmDialog - Simple Confirmation", () => {
       <ConfirmDialog
         open={true}
         onOpenChange={onOpenChange}
-        title="Confirm"
+        title="Confirm Action"
         description="Test"
         confirmText="Confirm"
         onConfirm={onConfirm}
       />,
     );
 
-    const confirmButton = screen.getByText("Confirm");
+    const confirmButton = screen.getByRole("button", { name: "Confirm" });
     await userEvent.click(confirmButton);
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
@@ -103,13 +103,13 @@ describe("ConfirmDialog - Simple Confirmation", () => {
       <ConfirmDialog
         open={true}
         onOpenChange={onOpenChange}
-        title="Confirm"
+        title="Confirm Action"
         description="Test"
         onConfirm={onConfirm}
       />,
     );
 
-    const cancelButton = screen.getByText("Cancel");
+    const cancelButton = screen.getByRole("button", { name: "Cancel" });
     await userEvent.click(cancelButton);
 
     expect(onConfirm).not.toHaveBeenCalled();
@@ -123,14 +123,16 @@ describe("ConfirmDialog - Simple Confirmation", () => {
       <ConfirmDialog
         open={false}
         onOpenChange={() => {}}
-        title="Confirm"
+        title="Confirm Action"
         description="Test"
         onConfirm={onConfirm}
       />,
     );
 
     // Dialog should not be visible
-    expect(screen.queryByText("Confirm")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Confirm" }),
+    ).not.toBeInTheDocument();
   });
 });
 

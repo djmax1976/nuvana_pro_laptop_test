@@ -59,6 +59,14 @@ describe("AuthContext Theme Restoration", () => {
       const userThemeKey = `nuvana-theme-${user.id}`;
       localStorage.setItem(userThemeKey, "dark");
 
+      // Mock the /api/auth/me endpoint to validate session
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          user: user,
+        }),
+      });
+
       // WHEN: AuthProvider mounts
       renderWithProviders(
         <AuthProvider>
@@ -90,6 +98,14 @@ describe("AuthContext Theme Restoration", () => {
 
       const userThemeKey = `nuvana-theme-${user.id}`;
       localStorage.setItem(userThemeKey, "light");
+
+      // Mock the /api/auth/me endpoint to validate session
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          user: user,
+        }),
+      });
 
       // WHEN: AuthProvider mounts
       renderWithProviders(
