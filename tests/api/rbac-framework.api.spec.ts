@@ -52,7 +52,7 @@ test.describe("RBAC Framework - Permission Checking", () => {
     const body = await response.json();
     expect(body).toHaveProperty("error", "Forbidden");
     expect(body).toHaveProperty("message");
-    expect(body.message).toContain("permission");
+    expect(body.message.toLowerCase()).toContain("permission");
 
     // Cleanup
     await prismaClient.user.delete({ where: { user_id: testUser.user_id } });

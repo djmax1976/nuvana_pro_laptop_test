@@ -494,7 +494,12 @@ export const test = base.extend<RBACFixture>({
       user_id: user.user_id,
       email: user.email,
       roles: ["STORE_MANAGER"],
-      permissions: ["SHIFT_OPEN", "SHIFT_CLOSE", "INVENTORY_READ"],
+      permissions: [
+        "STORE_READ",
+        "SHIFT_OPEN",
+        "SHIFT_CLOSE",
+        "INVENTORY_READ",
+      ],
     });
 
     const storeManagerUser = {
@@ -504,7 +509,12 @@ export const test = base.extend<RBACFixture>({
       company_id: company.company_id,
       store_id: store.store_id,
       roles: ["STORE_MANAGER"],
-      permissions: ["SHIFT_OPEN", "SHIFT_CLOSE", "INVENTORY_READ"],
+      permissions: [
+        "STORE_READ",
+        "SHIFT_OPEN",
+        "SHIFT_CLOSE",
+        "INVENTORY_READ",
+      ],
       token,
     };
 
