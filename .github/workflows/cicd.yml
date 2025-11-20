@@ -1,5 +1,6 @@
 # Stage 0 + Stage 1 + Stage 2 + Stage 3 + Stage 4 + Stage 5 + Stage 6 (Foundation + Component + API + E2E + Stability + Security + Artifacts)
 # Progressive CI pipeline following progression plan
+# SECURITY HARDENED: All secrets in GitHub Secrets, actions pinned to SHAs, artifact signing, log scrubbing
 
 name: Lean CI
 
@@ -8,6 +9,10 @@ on:
     branches: [main, development]
   pull_request:
     branches: [main, development]
+
+# Default permissions (least privilege)
+permissions:
+  contents: read
 
 env:
   NODE_VERSION: "20"
@@ -19,9 +24,11 @@ env:
 jobs:
   lint_typecheck:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -39,13 +46,15 @@ jobs:
     name: Selective Tests
     needs: lint_typecheck
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     services:
       postgres:
         image: postgres:15.14
         env:
           POSTGRES_DB: nuvana_test
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
         ports:
           - 5432:5432
         options: >-
@@ -73,10 +82,10 @@ jobs:
           --health-timeout=5s
           --health-retries=5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -88,11 +97,11 @@ jobs:
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
       - name: Seed test database
         run: npx tsx tests/support/seed-roles.ts
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
       - name: Build backend
@@ -107,34 +116,52 @@ jobs:
           echo $! > ../backend.pid
         env:
           NODE_ENV: test
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          JWT_SECRET: test_jwt_secret_for_ci_only_12345678
-          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
-          COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
+          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
+          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
       - name: Wait for backend health (if started)
         run: |
+          echo "Waiting for backend to be healthy..."
           for i in {1..30}; do
-            if curl -sf ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
+            if curl -sf --max-time 5 --retry 2 ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
               echo "Backend is ready"
               exit 0
             fi
             echo "Waiting for backend... ($i/30)"
-            sleep 2
+            sleep $((i > 10 ? 5 : 2))
           done
           echo "Backend health check timeout - may not be needed for this test run"
         continue-on-error: true
       - name: Run selective tests
         env:
           NODE_ENV: test
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          JWT_SECRET: test_jwt_secret_for_ci_only_12345678
-          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
-          COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
+          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
+          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/test-changed.sh
+      - name: Scrub secrets from logs
+        if: failure()
+        run: |
+          if [ -f backend.log ]; then
+            sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' backend.log
+            sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' backend.log
+            sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' backend.log
+            sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' backend.log
+            sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' backend.log
+          fi
+      - name: Upload backend logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: backend-logs-selective-tests
+          path: backend.log
+          retention-days: 7
       - name: Stop backend
         if: always()
         run: |
@@ -150,13 +177,15 @@ jobs:
     needs: selective_tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
     services:
       postgres:
         image: postgres:15.14
         env:
           POSTGRES_DB: nuvana_test
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
         ports:
           - 5432:5432
         options: >-
@@ -184,10 +213,10 @@ jobs:
           --health-timeout=5s
           --health-retries=5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -199,7 +228,7 @@ jobs:
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
       - name: Build backend
@@ -213,34 +242,52 @@ jobs:
           cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          JWT_SECRET: test_jwt_secret_for_ci_only_12345678
-          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
-          COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
+          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
+          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
       - name: Wait for backend health (if started)
         run: |
+          echo "Waiting for backend to be healthy..."
           for i in {1..30}; do
-            if curl -sf ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
+            if curl -sf --max-time 5 --retry 2 ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
               echo "Backend is ready"
               exit 0
             fi
             echo "Waiting for backend... ($i/30)"
-            sleep 2
+            sleep $((i > 10 ? 5 : 2))
           done
           echo "Backend health check timeout - may not be needed for this test run"
         continue-on-error: true
       - name: Run burn-in loop
         env:
           BURN_IN_ITERATIONS: ${{ env.BURN_IN_ITERATIONS }}
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          JWT_SECRET: test_jwt_secret_for_ci_only_12345678
-          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
-          COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
+          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
+          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/burn-in.sh
+      - name: Scrub secrets from logs
+        if: failure()
+        run: |
+          if [ -f backend.log ]; then
+            sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' backend.log
+            sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' backend.log
+            sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' backend.log
+            sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' backend.log
+            sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' backend.log
+          fi
+      - name: Upload backend logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: backend-logs-burn-in
+          path: backend.log
+          retention-days: 7
       - name: Stop backend
         if: always()
         run: |
@@ -255,9 +302,11 @@ jobs:
     name: Component Smoke
     needs: lint_typecheck
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -269,9 +318,11 @@ jobs:
     name: Unit Tests
     needs: lint_typecheck
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -283,13 +334,15 @@ jobs:
     name: API Smoke
     needs: lint_typecheck
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     services:
       postgres:
         image: postgres:15.14
         env:
           POSTGRES_DB: nuvana_test
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
         ports:
           - 5432:5432
         options: >-
@@ -317,8 +370,8 @@ jobs:
           --health-timeout=5s
           --health-retries=5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -330,15 +383,15 @@ jobs:
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
       - name: Seed roles for auth
         run: npx tsx tests/support/seed-roles.ts
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
       - name: Bootstrap admin user
         run: npx tsx backend/scripts/bootstrap-admin.ts
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
       - name: Build backend
         run: cd backend && npm run build
       - name: Make scripts executable
@@ -351,24 +404,24 @@ jobs:
           echo $! > ../backend.pid
         env:
           NODE_ENV: test
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          JWT_SECRET: test_jwt_secret_for_ci_only_12345678
-          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
-          COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
+          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
+          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
       - name: Wait for backend health
         id: wait_backend_api_smoke
         run: |
           echo "Waiting for backend to be healthy (checking /api/health)..."
           for i in {1..60}; do
-            if curl -sf ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
+            if curl -sf --max-time 5 --retry 2 ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
               echo "Backend is healthy and ready"
               echo "health_check_passed=true" >> $GITHUB_OUTPUT
               exit 0
             fi
             echo "Waiting for backend health check... ($i/60)"
-            sleep 3
+            sleep $((i > 20 ? 5 : 3))
           done
           echo "Backend health check failed after 3 minutes"
           echo "health_check_passed=false" >> $GITHUB_OUTPUT
@@ -380,9 +433,19 @@ jobs:
         env:
           BACKEND_URL: ${{ env.BACKEND_URL }}
         run: npm run test:api:health
+      - name: Scrub secrets from logs
+        if: failure()
+        run: |
+          if [ -f backend.log ]; then
+            sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' backend.log
+            sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' backend.log
+            sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' backend.log
+            sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' backend.log
+            sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' backend.log
+          fi
       - name: Upload backend logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: backend-logs-api-smoke
           path: backend.log
@@ -400,9 +463,11 @@ jobs:
   build_app:
     needs: lint_typecheck
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -414,13 +479,15 @@ jobs:
     needs: build_app
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     services:
       postgres:
         image: postgres:15.14
         env:
           POSTGRES_DB: nuvana_test
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
         ports:
           - 5432:5432
         options: >-
@@ -448,8 +515,8 @@ jobs:
           --health-timeout=5s
           --health-retries=5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -461,7 +528,7 @@ jobs:
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
       - name: Build backend
@@ -480,33 +547,33 @@ jobs:
           echo $! > ../backend.pid
         env:
           NODE_ENV: test
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
           BACKEND_URL: ${{ env.BACKEND_URL }}
           FRONTEND_URL: ${{ env.FRONTEND_URL }}
-          JWT_SECRET: test_jwt_secret_for_ci_only_12345678
-          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
-          COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
+          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
+          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
       - name: Wait for frontend and backend
         run: |
           echo "Waiting for frontend..."
           for i in {1..30}; do
-            if curl -sf ${{ env.FRONTEND_URL }} > /dev/null 2>&1; then
+            if curl -sf --max-time 5 --retry 2 ${{ env.FRONTEND_URL }} > /dev/null 2>&1; then
               echo "Frontend is ready"
               break
             fi
             echo "Waiting for frontend... ($i/30)"
-            sleep 2
+            sleep $((i > 10 ? 5 : 2))
           done
           echo "Waiting for backend..."
           for i in {1..30}; do
-            if curl -sf ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
+            if curl -sf --max-time 5 --retry 2 ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
               echo "Backend is ready"
               exit 0
             fi
             echo "Waiting for backend... ($i/30)"
-            sleep 2
+            sleep $((i > 10 ? 5 : 2))
           done
           echo "Services failed to start"
           cat frontend.log backend.log || true
@@ -515,16 +582,30 @@ jobs:
         env:
           BACKEND_URL: ${{ env.BACKEND_URL }}
           FRONTEND_URL: ${{ env.FRONTEND_URL }}
-          JWT_SECRET: test_jwt_secret_for_ci_only_12345678
-          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
-          COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
+          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
+          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
         run: npm run test:e2e:health
+      - name: Scrub secrets from logs
+        if: failure()
+        run: |
+          for log_file in frontend.log backend.log; do
+            if [ -f "$log_file" ]; then
+              sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' "$log_file"
+              sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' "$log_file"
+              sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' "$log_file"
+              sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' "$log_file"
+              sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' "$log_file"
+            fi
+          done
       - name: Upload full stack logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: full-stack-logs-e2e-smoke
-          path: full.log
+          path: |
+            frontend.log
+            backend.log
           retention-days: 7
       - name: Stop full stack
         if: always()
@@ -545,19 +626,67 @@ jobs:
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000 || true
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
+  container_scan:
+    name: Container Image Security Scan
+    needs: lint_typecheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Scan PostgreSQL image
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8  # v0.24.0
+        with:
+          image-ref: 'postgres:15.14'
+          format: 'sarif'
+          output: 'postgres-scan.sarif'
+          severity: 'CRITICAL,HIGH'
+      - name: Upload PostgreSQL scan results
+        uses: github/codeql-action/upload-sarif@f779452ac5af1c261dce0346a8b332469033a9dd  # v3.26.6
+        with:
+          sarif_file: 'postgres-scan.sarif'
+          category: 'container-postgres'
+      - name: Scan Redis image
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8  # v0.24.0
+        with:
+          image-ref: 'redis:7'
+          format: 'sarif'
+          output: 'redis-scan.sarif'
+          severity: 'CRITICAL,HIGH'
+      - name: Upload Redis scan results
+        uses: github/codeql-action/upload-sarif@f779452ac5af1c261dce0346a8b332469033a9dd  # v3.26.6
+        with:
+          sarif_file: 'redis-scan.sarif'
+          category: 'container-redis'
+      - name: Scan RabbitMQ image
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8  # v0.24.0
+        with:
+          image-ref: 'rabbitmq:3.13-management'
+          format: 'sarif'
+          output: 'rabbitmq-scan.sarif'
+          severity: 'CRITICAL,HIGH'
+      - name: Upload RabbitMQ scan results
+        uses: github/codeql-action/upload-sarif@f779452ac5af1c261dce0346a8b332469033a9dd  # v3.26.6
+        with:
+          sarif_file: 'rabbitmq-scan.sarif'
+          category: 'container-rabbitmq'
+
   security_static:
     name: Static Security & Dependencies
     needs: lint_typecheck
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
       - name: Semgrep OWASP
-        uses: returntocorp/semgrep-action@v1
+        uses: returntocorp/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
         with:
           config: p/owasp-top-ten
       - name: npm audit high+
@@ -565,15 +694,15 @@ jobs:
       - name: npm audit high+ (backend)
         run: cd backend && npm audit --production --audit-level=high
       - name: Secret scan (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Generate SBOM (CycloneDX)
-        uses: CycloneDX/gh-node-module-generatebom@v1
+        uses: CycloneDX/gh-node-module-generatebom@27e13c2bf0fae78d66387b35ca9749d8cc853060  # v1.0.3
         with:
           output: sbom.xml
       - name: Upload SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: sbom-node
           path: sbom.xml
@@ -596,7 +725,7 @@ jobs:
         env:
           POSTGRES_DB: nuvana_test
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
         ports:
           - 5432:5432
         options: >-
@@ -624,8 +753,8 @@ jobs:
           --health-timeout=5s
           --health-retries=5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -637,15 +766,15 @@ jobs:
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
       - name: Seed roles for auth
         run: npx tsx tests/support/seed-roles.ts
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
       - name: Bootstrap admin user
         run: npx tsx backend/scripts/bootstrap-admin.ts
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
       - name: Build backend
         run: cd backend && npm run build
       - name: Make scripts executable
@@ -658,24 +787,24 @@ jobs:
           echo $! > ../backend.pid
         env:
           NODE_ENV: test
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+          DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          JWT_SECRET: test_jwt_secret_for_ci_only_12345678
-          JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
-          COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
+          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
+          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
       - name: Wait for backend
         id: wait_backend
         run: |
           echo "Waiting for backend to be healthy (checking /api/health)..."
           for i in {1..60}; do
-            if curl -sf ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
+            if curl -sf --max-time 5 --retry 2 ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
               echo "Backend is healthy and ready"
               echo "health_check_passed=true" >> $GITHUB_OUTPUT
               exit 0
             fi
             echo "Waiting for backend health check... ($i/60)"
-            sleep 3
+            sleep $((i > 20 ? 5 : 3))
           done
           echo "Backend health check failed after 3 minutes"
           echo "health_check_passed=false" >> $GITHUB_OUTPUT
@@ -697,15 +826,25 @@ jobs:
           echo "cookie_header=$COOKIES" >> $GITHUB_OUTPUT
       - name: OWASP ZAP baseline (authenticated)
         if: steps.wait_backend.outputs.health_check_passed == 'true' && steps.zap_auth.outputs.cookie_header
-        uses: zaproxy/action-baseline@v0.10.0
+        uses: zaproxy/action-baseline@1e1871e84428617b969d4a1f981a8255630d54b0  # v0.10.0
         with:
           target: ${{ env.BACKEND_URL }}
           fail_action: false
-          artifact_name: zap-scan-report
+          artifact_name: zap_scan_report
           cmd_options: "-I -z \"-config replacer.full_list(0).description=auth-cookies -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Cookie -config replacer.full_list(0).replacement=${{ steps.zap_auth.outputs.cookie_header }}\""
+      - name: Scrub secrets from logs
+        if: failure()
+        run: |
+          if [ -f backend.log ]; then
+            sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' backend.log
+            sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' backend.log
+            sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' backend.log
+            sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' backend.log
+            sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' backend.log
+          fi
       - name: Upload backend logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: backend-logs-security-dynamic
           path: backend.log
@@ -724,9 +863,13 @@ jobs:
     name: Build & Upload Artifacts
     needs: build_app
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for artifact attestation
+      attestations: write  # Required for artifact attestation
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -736,8 +879,14 @@ jobs:
       - name: Generate Prisma Client (backend)
         run: cd backend && npm run prisma:generate
       - run: npm run build
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@1c608d11d69870c2092266b3f9a6f3abbf17002c  # v1.4.3
+        with:
+          subject-path: |
+            .next/**
+            backend/dist/**
       - name: Upload bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: build-output
           path: |
@@ -745,3 +894,22 @@ jobs:
             backend/dist
             package-lock.json
           retention-days: 30
+
+  deployment_gate:
+    name: Production Deployment Gate
+    needs: [security_static, security_dynamic, e2e_smoke, artifact_build, container_scan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    environment:
+      name: production
+      url: https://your-app.com
+    steps:
+      - name: All checks passed
+        run: |
+          echo "✅ All security and quality checks passed"
+          echo "✅ Artifacts signed and attested"
+          echo "✅ Ready for production deployment"
+          echo ""
+          echo "Manual approval required for production deployment"
