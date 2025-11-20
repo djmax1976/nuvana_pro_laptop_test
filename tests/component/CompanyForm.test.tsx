@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderWithProviders, screen, waitFor } from "../support/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  waitFor,
+  fireEvent,
+} from "../support/test-utils";
 import userEvent from "@testing-library/user-event";
 import { CompanyForm } from "@/components/companies/CompanyForm";
 import * as companiesApi from "@/lib/api/companies";
@@ -141,11 +146,11 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     renderWithProviders(<CompanyForm />);
 
     // WHEN: User fills name and selects client but doesn't change status
-    // Select client first
+    // Select client first (using fireEvent for Radix Select due to pointer capture limitations in JSDOM)
     const clientSelect = screen.getByRole("combobox", { name: /Client/i });
-    await user.click(clientSelect);
-    const clientOption = screen.getByText("Test Client");
-    await user.click(clientOption);
+    fireEvent.click(clientSelect);
+    const clientOption = await screen.findByText("Test Client");
+    fireEvent.click(clientOption);
 
     const nameInput = screen.getByLabelText(/Company Name/i);
     await user.type(nameInput, "Test Company");
@@ -168,11 +173,11 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     renderWithProviders(<CompanyForm />);
 
     // WHEN: User fills form with valid data
-    // Select client first
+    // Select client first (using fireEvent for Radix Select due to pointer capture limitations in JSDOM)
     const clientSelect = screen.getByRole("combobox", { name: /Client/i });
-    await user.click(clientSelect);
-    const clientOption = screen.getByText("Test Client");
-    await user.click(clientOption);
+    fireEvent.click(clientSelect);
+    const clientOption = await screen.findByText("Test Client");
+    fireEvent.click(clientOption);
 
     const nameInput = screen.getByLabelText(/Company Name/i);
     await user.type(nameInput, "Test Company");
@@ -213,11 +218,11 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     renderWithProviders(<CompanyForm />);
 
     // WHEN: User fills and submits form
-    // Select client first
+    // Select client first (using fireEvent for Radix Select due to pointer capture limitations in JSDOM)
     const clientSelect = screen.getByRole("combobox", { name: /Client/i });
-    await user.click(clientSelect);
-    const clientOption = screen.getByText("Test Client");
-    await user.click(clientOption);
+    fireEvent.click(clientSelect);
+    const clientOption = await screen.findByText("Test Client");
+    fireEvent.click(clientOption);
 
     const nameInput = screen.getByLabelText(/Company Name/i);
     await user.type(nameInput, "New Company");
@@ -268,11 +273,11 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     renderWithProviders(<CompanyForm />);
 
     // WHEN: User successfully creates company
-    // Select client first
+    // Select client first (using fireEvent for Radix Select due to pointer capture limitations in JSDOM)
     const clientSelect = screen.getByRole("combobox", { name: /Client/i });
-    await user.click(clientSelect);
-    const clientOption = screen.getByText("Test Client");
-    await user.click(clientOption);
+    fireEvent.click(clientSelect);
+    const clientOption = await screen.findByText("Test Client");
+    fireEvent.click(clientOption);
 
     const nameInput = screen.getByLabelText(/Company Name/i);
     await user.type(nameInput, "New Company");
@@ -306,11 +311,11 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     renderWithProviders(<CompanyForm />);
 
     // WHEN: User submits form
-    // Select client first
+    // Select client first (using fireEvent for Radix Select due to pointer capture limitations in JSDOM)
     const clientSelect = screen.getByRole("combobox", { name: /Client/i });
-    await user.click(clientSelect);
-    const clientOption = screen.getByText("Test Client");
-    await user.click(clientOption);
+    fireEvent.click(clientSelect);
+    const clientOption = await screen.findByText("Test Client");
+    fireEvent.click(clientOption);
 
     const nameInput = screen.getByLabelText(/Company Name/i);
     await user.type(nameInput, "New Company");
@@ -351,11 +356,11 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     renderWithProviders(<CompanyForm />);
 
     // WHEN: User submits form
-    // Select client first
+    // Select client first (using fireEvent for Radix Select due to pointer capture limitations in JSDOM)
     const clientSelect = screen.getByRole("combobox", { name: /Client/i });
-    await user.click(clientSelect);
-    const clientOption = screen.getByText("Test Client");
-    await user.click(clientOption);
+    fireEvent.click(clientSelect);
+    const clientOption = await screen.findByText("Test Client");
+    fireEvent.click(clientOption);
 
     const nameInput = screen.getByLabelText(/Company Name/i);
     await user.type(nameInput, "Test Company");

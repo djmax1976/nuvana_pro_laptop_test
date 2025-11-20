@@ -550,6 +550,7 @@ describe("ConfirmDialog - Accessibility", () => {
   test("[P0] Should support keyboard navigation", async () => {
     const onConfirm = vi.fn();
     const onOpenChange = vi.fn();
+    const user = userEvent.setup();
 
     render(
       <ConfirmDialog
@@ -566,7 +567,7 @@ describe("ConfirmDialog - Accessibility", () => {
     expect(screen.getByRole("button", { name: /confirm/i })).toHaveFocus();
 
     // Tab to cancel button
-    await userEvent.tab();
+    await user.tab();
     expect(screen.getByText("Cancel")).toHaveFocus();
   });
 });
