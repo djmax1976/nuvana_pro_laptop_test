@@ -17,6 +17,7 @@ import { storeRoutes } from "./routes/store";
 import { transactionRoutes } from "./routes/transactions";
 import { contactRoutes } from "./routes/contact";
 import { adminUserRoutes } from "./routes/admin-users";
+import { rlsPlugin } from "./middleware/rls.middleware";
 
 // Load environment variables
 dotenv.config();
@@ -99,6 +100,10 @@ app.register(rateLimit, {
   // Note: Per-company rate limiting (500/min) would require custom implementation
   // based on company context from authentication middleware
 });
+
+// Register RLS (Row-Level Security) plugin
+// This automatically wraps ALL route handlers with RLS context for tenant isolation
+app.register(rlsPlugin);
 
 // Register health check routes
 app.register(healthRoutes);

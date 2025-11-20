@@ -39,13 +39,31 @@ export function rlsHandler(
 
 /**
  * Fastify plugin to register RLS middleware
- * Adds rlsHandler decorator to Fastify instance for convenience
+ * Automatically wraps ALL route handlers with RLS context via onRoute hook
+ * This ensures tenant isolation is enforced globally across all routes
  *
  * @param fastify - Fastify instance
  */
 export async function rlsPlugin(fastify: FastifyInstance) {
-  // Add rlsHandler as a decorator for convenience
+  // Add rlsHandler as a decorator for convenience (for manual wrapping if needed)
   fastify.decorate("rlsHandler", rlsHandler);
+
+  // Use onRoute hook to wrap all route handlers with RLS context
+  // This runs when routes are registered, allowing us to wrap the handler
+  fastify.addHook("onRoute", (routeOptions) => {
+    const originalHandler = routeOptions.handler;
+
+    // Wrap the handler with RLS context
+    routeOptions.handler = async function (request, reply) {
+      const user = (request as any).user as UserIdentity | undefined;
+      const userId = user?.id || null;
+
+      // Execute original handler within RLS context
+      return withRLSContext(userId, async () => {
+        return originalHandler.call(this, request, reply);
+      });
+    };
+  });
 }
 
 // Extend Fastify types to include rlsHandler decorator
