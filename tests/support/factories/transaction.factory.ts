@@ -10,10 +10,15 @@
 
 import { faker } from "@faker-js/faker";
 import { Decimal } from "@prisma/client/runtime/library";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../../backend/src/utils/public-id";
 
 // Type definitions for transaction data
 
 export type TransactionData = {
+  public_id: string;
   store_id: string;
   shift_id: string;
   cashier_id: string;
@@ -57,6 +62,7 @@ export const createTransaction = (
     overrides.total ?? Number((subtotal + tax - discount).toFixed(2));
 
   return {
+    public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
     store_id: faker.string.uuid(),
     shift_id: faker.string.uuid(),
     cashier_id: faker.string.uuid(),

@@ -8,6 +8,10 @@
  */
 
 import { faker } from "@faker-js/faker";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../../backend/src/utils/public-id";
 
 /**
  * Client status enum values
@@ -18,6 +22,7 @@ export type ClientStatus = "ACTIVE" | "INACTIVE";
  * Client data structure for test creation
  */
 export interface ClientData {
+  public_id: string;
   name: string;
   status: ClientStatus;
   metadata?: Record<string, any>;
@@ -42,6 +47,7 @@ export interface ClientData {
 export const createClient = (
   overrides: Partial<ClientData> = {},
 ): ClientData => ({
+  public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
   name: faker.company.name(),
   status: "ACTIVE",
   metadata: {
@@ -79,6 +85,7 @@ export const createClientWithStatus = (status: ClientStatus): ClientData =>
  * @returns ClientData object without metadata
  */
 export const createClientNoMetadata = (): ClientData => ({
+  public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
   name: faker.company.name(),
   status: "ACTIVE",
 });
