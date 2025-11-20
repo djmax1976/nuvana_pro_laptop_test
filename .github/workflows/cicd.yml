@@ -584,6 +584,10 @@ jobs:
     needs: security_static
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      security-events: write
     services:
       postgres:
         image: postgres:15.14

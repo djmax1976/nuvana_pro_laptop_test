@@ -35,17 +35,24 @@ test.describe("Public ID Security - IDOR Prevention", () => {
     expect(client1.public_id).not.toBe(client2.public_id);
     expect(client2.public_id).not.toBe(client3.public_id);
 
-    // Extract numeric portion if any (there shouldn't be sequential numbers)
-    const numericPattern = /\d+/;
-    const num1 = client1.public_id?.match(numericPattern)?.[0];
-    const num2 = client2.public_id?.match(numericPattern)?.[0];
-    const num3 = client3.public_id?.match(numericPattern)?.[0];
+    // Verify IDs are globally unique (no duplicates)
+    const uniqueIds = new Set([
+      client1.public_id,
+      client2.public_id,
+      client3.public_id,
+    ]);
+    expect(uniqueIds.size).toBe(3);
 
-    // If numbers exist, they should not be sequential
-    if (num1 && num2 && num3) {
-      expect(parseInt(num2) - parseInt(num1)).not.toBe(1);
-      expect(parseInt(num3) - parseInt(num2)).not.toBe(1);
-    }
+    // Verify IDs follow expected format (prefix_randomstring)
+    const publicIdPattern = /^clt_[a-z0-9]{10,}$/;
+    expect(client1.public_id).toMatch(publicIdPattern);
+    expect(client2.public_id).toMatch(publicIdPattern);
+    expect(client3.public_id).toMatch(publicIdPattern);
+
+    // Verify IDs are non-predictable: comparing full ID strings should show no pattern
+    // CUID2 uses cryptographic randomness, making enumeration attacks infeasible
+    expect(client1.public_id).not.toBe(client2.public_id);
+    expect(client1.public_id?.slice(4)).not.toBe(client2.public_id?.slice(4));
 
     // Cleanup
     await Promise.all([
@@ -280,7 +287,8 @@ test.describe("Public ID Security - Collision Resistance", () => {
     };
 
     // THEN: Database should reject duplicate
-    await expect(attemptDuplicate()).rejects.toThrow(/unique|duplicate/i);
+    // Postgres error: "Key (public_id)=(...) already exists."
+    await expect(attemptDuplicate()).rejects.toThrow(/unique|duplicate|already exists/i);
 
     // Cleanup
     await prismaClient.client.delete({

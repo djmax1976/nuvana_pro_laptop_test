@@ -213,8 +213,11 @@ const start = async () => {
 
     // Start server even if dependencies are temporarily unavailable
     // The health check endpoint will report service health accurately
-    await app.listen({ port: PORT, host: "0.0.0.0" });
-    app.log.info(`Server listening on port ${PORT}`);
+    // Use '::' to listen on all IPv6 and IPv4 addresses (dual-stack)
+    // This ensures compatibility with both IPv4 (127.0.0.1) and IPv6 (::1) localhost requests
+    const host = process.env.LISTEN_HOST || "::";
+    await app.listen({ port: PORT, host });
+    app.log.info(`Server listening on ${host}:${PORT}`);
     app.log.info("Health endpoint available at /api/health");
   } catch (err) {
     app.log.error(err);
