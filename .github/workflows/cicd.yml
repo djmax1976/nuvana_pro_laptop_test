@@ -781,7 +781,7 @@ jobs:
           echo "cookie_header=$COOKIES" >> $GITHUB_OUTPUT
       - name: OWASP ZAP baseline (authenticated)
         if: steps.wait_backend.outputs.health_check_passed == 'true' && steps.zap_auth.outputs.cookie_header
-        uses: zaproxy/action-baseline@1e1871e84428617b969d4a1f981a8255630d54b0  # v0.10.0
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25  # v0.15.0
         with:
           target: ${{ env.BACKEND_URL }}
           fail_action: false
