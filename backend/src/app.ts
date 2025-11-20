@@ -74,6 +74,8 @@ app.register(cors, {
   credentials: true, // Required for cookies to work with CORS
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
+  exposedHeaders: ["Content-Type", "Authorization"],
+  preflightContinue: false, // Ensure Fastify handles OPTIONS requests
 });
 
 // Register Helmet for security headers
