@@ -1,8 +1,13 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useClients } from "@/lib/api/clients";
-import { ClientStatus } from "@/types/client";
+import { useState, useEffect } from "react";
+import {
+  useClients,
+  useUpdateClient,
+  useDeleteClient,
+  getClientById,
+} from "@/lib/api/clients";
+import { Client, ClientStatus } from "@/types/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,15 +27,18 @@ import {
 } from "@/components/ui/table";
 import {
   Plus,
-  Eye,
   Pencil,
   Search,
   ChevronLeft,
   ChevronRight,
+  Power,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useToast } from "@/hooks/use-toast";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 /**
  * ClientList component
@@ -41,9 +49,17 @@ export function ClientList() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+
+  // Confirmation dialog states
+  const [showStatusDialog, setShowStatusDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [pendingStatus, setPendingStatus] = useState<ClientStatus | null>(null);
 
   // Debounce search to avoid excessive API calls
   const debouncedSearch = useDebounce(search, 300);
+  const { toast } = useToast();
 
   const { data, isLoading, error } = useClients({
     page,
@@ -52,10 +68,106 @@ export function ClientList() {
     status: statusFilter !== "all" ? (statusFilter as ClientStatus) : undefined,
   });
 
+  const updateMutation = useUpdateClient();
+  const deleteMutation = useDeleteClient();
+
   // Reset to page 1 when filters change
-  useMemo(() => {
+  useEffect(() => {
     setPage(1);
   }, [debouncedSearch, statusFilter]);
+
+  // Handle status toggle request
+  const handleStatusToggle = (client: Client) => {
+    setSelectedClient(client);
+    const newStatus =
+      client.status === ClientStatus.ACTIVE
+        ? ClientStatus.INACTIVE
+        : ClientStatus.ACTIVE;
+    setPendingStatus(newStatus);
+    setShowStatusDialog(true);
+  };
+
+  // Confirm and execute status change
+  const confirmStatusChange = async () => {
+    if (!selectedClient || !pendingStatus) return;
+
+    setActionInProgress(selectedClient.client_id);
+    try {
+      await updateMutation.mutateAsync({
+        clientId: selectedClient.public_id,
+        data: { status: pendingStatus },
+      });
+
+      toast({
+        title: "Success",
+        description: `Client ${pendingStatus === ClientStatus.ACTIVE ? "activated" : "deactivated"} successfully`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to update client status",
+        variant: "destructive",
+      });
+    } finally {
+      setActionInProgress(null);
+      setShowStatusDialog(false);
+      setSelectedClient(null);
+      setPendingStatus(null);
+    }
+  };
+
+  // Handle delete request
+  const handleDeleteRequest = (client: Client) => {
+    setSelectedClient(client);
+    setShowDeleteDialog(true);
+  };
+
+  // Confirm and execute delete
+  const confirmDelete = async () => {
+    if (!selectedClient) return;
+
+    setActionInProgress(selectedClient.client_id);
+    try {
+      // Refetch the latest client data to ensure we have the current status
+      const freshClientData = await getClientById(selectedClient.public_id);
+      const freshClient = freshClientData.data;
+
+      // Check if the client is still ACTIVE
+      if (freshClient.status === ClientStatus.ACTIVE) {
+        toast({
+          title: "Cannot Delete Active Client",
+          description:
+            "The client is currently ACTIVE. Please deactivate it first before deleting.",
+          variant: "destructive",
+        });
+        setActionInProgress(null);
+        setShowDeleteDialog(false);
+        setSelectedClient(null);
+        return;
+      }
+
+      await deleteMutation.mutateAsync(selectedClient.public_id);
+
+      toast({
+        title: "Success",
+        description: "Client deleted successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error ? error.message : "Failed to delete client",
+        variant: "destructive",
+      });
+    } finally {
+      setActionInProgress(null);
+      setShowDeleteDialog(false);
+      setSelectedClient(null);
+    }
+  };
 
   if (isLoading) {
     return <ClientListSkeleton />;
@@ -167,18 +279,48 @@ export function ClientList() {
                       data-testid={`client-actions-${client.client_id}`}
                     >
                       <div className="flex justify-end gap-2">
-                        <Link href={`/clients/${client.client_id}`}>
-                          <Button variant="ghost" size="icon">
-                            <Eye className="h-4 w-4" />
-                            <span className="sr-only">View details</span>
-                          </Button>
-                        </Link>
-                        <Link href={`/clients/${client.client_id}`}>
-                          <Button variant="ghost" size="icon">
+                        <Link href={`/clients/${client.public_id}`}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            data-testid={`client-edit-${client.client_id}`}
+                          >
                             <Pencil className="h-4 w-4" />
                             <span className="sr-only">Edit</span>
                           </Button>
                         </Link>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleStatusToggle(client)}
+                          disabled={actionInProgress === client.client_id}
+                          data-testid={`client-toggle-status-${client.client_id}`}
+                          className={
+                            client.status === ClientStatus.ACTIVE
+                              ? "text-green-600 hover:text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950"
+                              : "text-gray-400 hover:text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-900"
+                          }
+                        >
+                          <Power className="h-4 w-4" />
+                          <span className="sr-only">
+                            {client.status === ClientStatus.ACTIVE
+                              ? "Deactivate"
+                              : "Activate"}
+                          </span>
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteRequest(client)}
+                          disabled={actionInProgress === client.client_id}
+                          data-testid={`client-delete-${client.client_id}`}
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          <span className="sr-only">Delete</span>
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -226,6 +368,49 @@ export function ClientList() {
             </div>
           )}
         </>
+      )}
+
+      {/* Status Change Confirmation Dialog */}
+      {selectedClient && (
+        <ConfirmDialog
+          open={showStatusDialog}
+          onOpenChange={setShowStatusDialog}
+          title={`${pendingStatus === ClientStatus.ACTIVE ? "Activate" : "Deactivate"} Client?`}
+          description={`Are you sure you want to ${pendingStatus === ClientStatus.ACTIVE ? "activate" : "deactivate"} "${selectedClient.name}"? ${
+            pendingStatus === ClientStatus.INACTIVE
+              ? "This will disable their access immediately."
+              : "This will enable their access."
+          }`}
+          confirmText={
+            pendingStatus === ClientStatus.ACTIVE ? "Activate" : "Deactivate"
+          }
+          cancelText="Cancel"
+          onConfirm={confirmStatusChange}
+          destructive={pendingStatus === ClientStatus.INACTIVE}
+          isLoading={actionInProgress === selectedClient.client_id}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog with Text Input */}
+      {selectedClient && (
+        <ConfirmDialog
+          open={showDeleteDialog}
+          onOpenChange={setShowDeleteDialog}
+          title="Delete Client?"
+          description={`This will permanently delete "${selectedClient.name}". This action cannot be undone. All data will be permanently removed.${
+            selectedClient.status === ClientStatus.ACTIVE
+              ? "\n\nNote: This client is currently ACTIVE. You must deactivate it first before deleting."
+              : ""
+          }`}
+          confirmText="Delete Permanently"
+          cancelText="Cancel"
+          requiresTextConfirmation={true}
+          confirmationText="DELETE"
+          confirmationLabel='Type "DELETE" to confirm'
+          onConfirm={confirmDelete}
+          destructive={true}
+          isLoading={actionInProgress === selectedClient.client_id}
+        />
       )}
     </div>
   );

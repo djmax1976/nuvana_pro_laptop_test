@@ -27,22 +27,76 @@ export interface ApiError {
 }
 
 /**
- * Make authenticated API request
+ * Make authenticated API request with automatic token refresh on 401
  * Uses credentials: "include" to send httpOnly cookies
+ *
+ * Security features:
+ * - Automatically attempts token refresh on 401 (unauthorized)
+ * - Prevents infinite retry loops with X-Retry-Attempted header
+ * - Redirects to login if refresh fails or token is permanently invalid
+ * - Clears stale localStorage auth_session on auth failure
  */
 async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
-  const response = await fetch(url, {
+
+  // Only set Content-Type header if there's a body
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string>),
+  };
+  if (options.body) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  let response = await fetch(url, {
     ...options,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    credentials: "include", // Send httpOnly cookies with JWT tokens
+    headers,
   });
+
+  // Handle 401 Unauthorized with automatic token refresh
+  if (response.status === 401) {
+    // Check if this is already a retry attempt to prevent infinite loops
+    const isRetryAttempt = headers["X-Retry-Attempted"] === "true";
+
+    if (!isRetryAttempt) {
+      try {
+        // Attempt to refresh the access token
+        const refreshResponse = await fetch(
+          `${API_BASE_URL}/api/auth/refresh`,
+          {
+            method: "POST",
+            credentials: "include", // Send refresh token cookie
+          },
+        );
+
+        if (refreshResponse.ok) {
+          // Token refresh succeeded - retry the original request with new token
+          response = await fetch(url, {
+            ...options,
+            credentials: "include",
+            headers: {
+              ...headers,
+              "X-Retry-Attempted": "true", // Mark as retry to prevent loops
+            },
+          });
+        } else {
+          // Refresh failed - session is truly expired
+          handleAuthFailure();
+          throw new Error("Session expired. Please log in again.");
+        }
+      } catch (refreshError) {
+        handleAuthFailure();
+        throw new Error("Session expired. Please log in again.");
+      }
+    } else {
+      // This was already a retry and still got 401 - session is invalid
+      handleAuthFailure();
+      throw new Error("Session expired. Please log in again.");
+    }
+  }
 
   const data = await response.json();
 
@@ -55,6 +109,21 @@ async function apiRequest<T>(
   }
 
   return data;
+}
+
+/**
+ * Handle authentication failure by clearing local state and redirecting to login
+ * Called when token refresh fails or user is permanently unauthorized
+ */
+function handleAuthFailure(): void {
+  // Clear localStorage auth session (stale data)
+  localStorage.removeItem("auth_session");
+
+  // Redirect to login page
+  // Using window.location instead of router to ensure clean state reset
+  if (typeof window !== "undefined") {
+    window.location.href = "/login";
+  }
 }
 
 /**
@@ -174,6 +243,7 @@ export async function deleteClient(clientId: string): Promise<ClientResponse> {
  */
 export interface ClientDropdownItem {
   client_id: string;
+  public_id: string;
   name: string;
 }
 

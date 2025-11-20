@@ -26,22 +26,13 @@ import {
   useCreateClient,
   useUpdateClient,
   useDeleteClient,
+  getClientById,
 } from "@/lib/api/clients";
 import { Client, ClientStatus } from "@/types/client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Trash2 } from "lucide-react";
 
 /**
@@ -89,6 +80,9 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState<ClientStatus | null>(null);
 
   const createMutation = useCreateClient();
   const updateMutation = useUpdateClient();
@@ -114,9 +108,9 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
           : undefined;
 
       if (client) {
-        // Update existing client
+        // Update existing client (using public_id for cleaner URLs)
         await updateMutation.mutateAsync({
-          clientId: client.client_id,
+          clientId: client.public_id,
           data: {
             name: values.name,
             status: values.status,
@@ -145,13 +139,11 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
         form.reset();
       }
 
-      // Call onSuccess callback if provided
+      // Call onSuccess callback if provided, otherwise do nothing (stay on page)
       if (onSuccess) {
         onSuccess();
-      } else {
-        // Default: navigate to clients list
-        router.push("/clients");
       }
+      // Don't redirect - stay on the same page after update
     } catch (error) {
       toast({
         title: "Error",
@@ -166,12 +158,47 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
     }
   };
 
+  const handleStatusChange = (newStatus: ClientStatus) => {
+    // Only show confirmation for editing existing clients
+    if (client && client.status !== newStatus) {
+      setPendingStatus(newStatus);
+      setShowStatusChangeDialog(true);
+    } else {
+      // For new clients, just set the value
+      form.setValue("status", newStatus);
+    }
+  };
+
+  const confirmStatusChange = () => {
+    if (pendingStatus) {
+      form.setValue("status", pendingStatus);
+    }
+    setShowStatusChangeDialog(false);
+    setPendingStatus(null);
+  };
+
   const handleDelete = async () => {
     if (!client) return;
 
     setIsDeleting(true);
     try {
-      await deleteMutation.mutateAsync(client.client_id);
+      // Refetch the latest client data to ensure we have the current status (using public_id)
+      const freshClientData = await getClientById(client.public_id);
+      const freshClient = freshClientData.data;
+
+      // Check if the client is still ACTIVE
+      if (freshClient.status === "ACTIVE") {
+        toast({
+          title: "Cannot Delete Active Client",
+          description:
+            "Please set the client status to INACTIVE and save before deleting.",
+          variant: "destructive",
+        });
+        setIsDeleting(false);
+        return;
+      }
+
+      await deleteMutation.mutateAsync(client.public_id);
       toast({
         title: "Success",
         description: "Client deleted successfully",
@@ -224,8 +251,8 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
             <FormItem>
               <FormLabel>Status</FormLabel>
               <Select
-                onValueChange={field.onChange}
-                defaultValue={field.value}
+                onValueChange={handleStatusChange}
+                value={field.value}
                 disabled={isSubmitting}
               >
                 <FormControl>
@@ -293,50 +320,58 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
           </Button>
 
           {client && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={
-                    isSubmitting || isDeleting || client.status === "ACTIVE"
-                  }
-                  className="ml-auto"
-                  data-testid="client-delete-button"
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  {isDeleting ? "Deleting..." : "Delete"}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will soft delete the client &quot;{client.name}&quot;.
-                    The client will be marked as deleted but can be recovered if
-                    needed.
-                    {client.status === "ACTIVE" && (
-                      <span className="mt-2 block font-medium text-destructive">
-                        Note: You must set the client status to INACTIVE before
-                        deleting.
-                      </span>
-                    )}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={handleDelete}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isSubmitting || isDeleting || client.status === "ACTIVE"}
+              className="ml-auto"
+              data-testid="client-delete-button"
+              onClick={() => setShowDeleteDialog(true)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {isDeleting ? "Deleting..." : "Delete"}
+            </Button>
           )}
         </div>
       </form>
+
+      {/* Status Change Confirmation Dialog */}
+      <ConfirmDialog
+        open={showStatusChangeDialog}
+        onOpenChange={setShowStatusChangeDialog}
+        title={`Change status to ${pendingStatus}?`}
+        description={`Are you sure you want to change this client's status to ${pendingStatus}? ${
+          pendingStatus === "INACTIVE"
+            ? "This will disable their access."
+            : "This will enable their access."
+        }`}
+        confirmText={`Change to ${pendingStatus}`}
+        cancelText="Cancel"
+        onConfirm={confirmStatusChange}
+        destructive={pendingStatus === "INACTIVE"}
+      />
+
+      {/* Delete Confirmation Dialog with Text Input */}
+      {client && (
+        <ConfirmDialog
+          open={showDeleteDialog}
+          onOpenChange={setShowDeleteDialog}
+          title="Delete Client?"
+          description={`This will permanently delete "${client.name}". This action cannot be undone. All data will be permanently removed.${
+            client.status === "ACTIVE"
+              ? "\n\nNote: You must set the client status to INACTIVE and save before deleting."
+              : ""
+          }`}
+          confirmText="Delete Permanently"
+          cancelText="Cancel"
+          requiresTextConfirmation={true}
+          confirmationText="DELETE"
+          confirmationLabel='Type "DELETE" to confirm'
+          onConfirm={handleDelete}
+          destructive={true}
+          isLoading={isDeleting}
+        />
+      )}
     </Form>
   );
 }
