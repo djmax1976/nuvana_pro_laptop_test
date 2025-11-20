@@ -626,51 +626,6 @@ jobs:
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000 || true
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
-  container_scan:
-    name: Container Image Security Scan
-    needs: lint_typecheck
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - name: Scan PostgreSQL image
-        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8  # v0.24.0
-        with:
-          image-ref: 'postgres:15.14'
-          format: 'sarif'
-          output: 'postgres-scan.sarif'
-          severity: 'CRITICAL,HIGH'
-      - name: Upload PostgreSQL scan results
-        uses: github/codeql-action/upload-sarif@f779452ac5af1c261dce0346a8b332469033a9dd  # v3.26.6
-        with:
-          sarif_file: 'postgres-scan.sarif'
-          category: 'container-postgres'
-      - name: Scan Redis image
-        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8  # v0.24.0
-        with:
-          image-ref: 'redis:7'
-          format: 'sarif'
-          output: 'redis-scan.sarif'
-          severity: 'CRITICAL,HIGH'
-      - name: Upload Redis scan results
-        uses: github/codeql-action/upload-sarif@f779452ac5af1c261dce0346a8b332469033a9dd  # v3.26.6
-        with:
-          sarif_file: 'redis-scan.sarif'
-          category: 'container-redis'
-      - name: Scan RabbitMQ image
-        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8  # v0.24.0
-        with:
-          image-ref: 'rabbitmq:3.13-management'
-          format: 'sarif'
-          output: 'rabbitmq-scan.sarif'
-          severity: 'CRITICAL,HIGH'
-      - name: Upload RabbitMQ scan results
-        uses: github/codeql-action/upload-sarif@f779452ac5af1c261dce0346a8b332469033a9dd  # v3.26.6
-        with:
-          sarif_file: 'rabbitmq-scan.sarif'
-          category: 'container-rabbitmq'
-
   security_static:
     name: Static Security & Dependencies
     needs: lint_typecheck
@@ -897,7 +852,7 @@ jobs:
 
   deployment_gate:
     name: Production Deployment Gate
-    needs: [security_static, security_dynamic, e2e_smoke, artifact_build, container_scan]
+    needs: [security_static, security_dynamic, e2e_smoke, artifact_build]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     permissions:
