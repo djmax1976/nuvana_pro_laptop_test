@@ -10,12 +10,7 @@
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
 import { createUser } from "../support/factories";
-
-// Use require for bcrypt since @types/bcrypt is not installed
-const bcrypt: {
-  hash: (password: string, rounds: number) => Promise<string>;
-  compare: (password: string, hash: string) => Promise<boolean>;
-} = require("bcrypt");
+import bcrypt from "bcrypt";
 
 test.describe("Local Authentication API", () => {
   test.describe("POST /api/auth/login", () => {
