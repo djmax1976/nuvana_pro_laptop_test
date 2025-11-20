@@ -330,6 +330,8 @@ test.describe("RBAC Framework - Permission Middleware", () => {
 });
 
 test.describe("RBAC Framework - Audit Logging", () => {
+  // SKIPPED: AuditLog model and audit_logs table not yet implemented
+  // Remove .skip() when implementing Story: Audit Logging System
   test.skip("[P0] should log permission denial to AuditLog", async ({
     storeManagerUser,
     prismaClient,
