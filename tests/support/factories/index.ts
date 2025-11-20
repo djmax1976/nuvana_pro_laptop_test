@@ -45,14 +45,6 @@ export {
   type RabbitMQConnectionConfig,
 } from "./rabbitmq.factory";
 
-// Supabase factories
-export {
-  createSupabaseToken,
-  createOAuthCallbackParams,
-  createSupabaseUserIdentity,
-  type SupabaseTokenData,
-} from "./supabase.factory";
-
 // JWT factories
 export {
   createJWTAccessToken,

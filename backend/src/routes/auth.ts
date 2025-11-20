@@ -1,11 +1,15 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import bcrypt from "bcrypt";
 import { getUserById } from "../services/user.service";
 import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { stateService } from "../services/state.service";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 // NOTE: OAuth and signup are disabled in this application
-// Unused imports removed: getSupabaseClient, getUserOrCreate
+// Using local email/password authentication with bcrypt
 
 /**
  * OAuth callback endpoint - DISABLED
@@ -22,6 +26,138 @@ export async function authRoutes(fastify: FastifyInstance) {
         error: "OAuth disabled",
         message:
           "OAuth authentication is not supported. Please use email/password login.",
+      };
+    },
+  );
+
+  /**
+   * Login endpoint - Local email/password authentication
+   * POST /api/auth/login
+   * Validates credentials, generates JWT tokens with RBAC
+   */
+  fastify.post(
+    "/api/auth/login",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { email, password } = request.body as {
+          email: string;
+          password: string;
+        };
+
+        // Validate input
+        if (!email || !password) {
+          reply.code(400);
+          return {
+            error: "Bad Request",
+            message: "Email and password are required",
+          };
+        }
+
+        // Find user by email
+        const user = await prisma.user.findUnique({
+          where: { email: email.toLowerCase().trim() },
+        });
+
+        if (!user) {
+          reply.code(401);
+          return {
+            error: "Unauthorized",
+            message: "Invalid email or password",
+          };
+        }
+
+        // Check if user is active
+        if (user.status !== "ACTIVE") {
+          reply.code(401);
+          return {
+            error: "Unauthorized",
+            message: "Account is inactive",
+          };
+        }
+
+        // Check if user has a password set
+        if (!user.password_hash) {
+          reply.code(401);
+          return {
+            error: "Unauthorized",
+            message: "Password not set for this account",
+          };
+        }
+
+        // Verify password
+        const isValidPassword = await bcrypt.compare(
+          password,
+          user.password_hash,
+        );
+
+        if (!isValidPassword) {
+          reply.code(401);
+          return {
+            error: "Unauthorized",
+            message: "Invalid email or password",
+          };
+        }
+
+        // Generate JWT tokens with RBAC
+        const authService = new AuthService();
+        const { accessToken, refreshToken } =
+          await authService.generateTokenPairWithRBAC(user.user_id, user.email);
+
+        // Set httpOnly cookies
+        // Access token cookie (15 min expiry)
+        (reply as any).setCookie("access_token", accessToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 15 * 60, // 15 minutes in seconds
+        });
+
+        // Refresh token cookie (7 days expiry)
+        (reply as any).setCookie("refresh_token", refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
+        });
+
+        // Return success response with user data
+        reply.code(200);
+        return {
+          message: "Login successful",
+          user: {
+            id: user.user_id,
+            email: user.email,
+            name: user.name,
+          },
+        };
+      } catch (error) {
+        fastify.log.error({ error }, "Login error");
+        reply.code(500);
+        return {
+          error: "Internal Server Error",
+          message: "An error occurred during login",
+        };
+      }
+    },
+  );
+
+  /**
+   * Logout endpoint - Clear auth cookies
+   * POST /api/auth/logout
+   * Clears httpOnly cookies to end session
+   */
+  fastify.post(
+    "/api/auth/logout",
+    async (_request: FastifyRequest, reply: FastifyReply) => {
+      // Clear both auth cookies
+      (reply as any).clearCookie("access_token", { path: "/" });
+      (reply as any).clearCookie("refresh_token", { path: "/" });
+
+      reply.code(200);
+      return {
+        message: "Logout successful",
       };
     },
   );

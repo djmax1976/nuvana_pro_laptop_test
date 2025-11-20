@@ -1,8 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Disable static export - this is a dynamic app with authentication
-  output: 'standalone',
   // Skip build-time static generation - this is a fully dynamic app
   experimental: {
     missingSuspenseWithCSRBailout: false,
@@ -11,8 +9,7 @@ const nextConfig = {
   // This prevents prerendering errors for auth-protected pages
   skipTrailingSlashRedirect: false,
   skipMiddlewareUrlNormalize: false,
-  // Suppress build errors for default error pages (404/500)
-  // These pages will be handled dynamically at runtime
+  // Control build behavior
   onDemandEntries: {
     maxInactiveAge: 25 * 1000,
     pagesBufferLength: 2,

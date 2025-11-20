@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/lib/auth/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,23 +22,38 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
     setError(null);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const backendUrl =
+        process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+
+      const response = await fetch(`${backendUrl}/api/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include", // Important for httpOnly cookies
+        body: JSON.stringify({ email, password }),
       });
 
-      if (error) throw error;
+      const data = await response.json();
 
-      if (data.session) {
-        // Store session in localStorage for the backend to use
-        localStorage.setItem("supabase_session", JSON.stringify(data.session));
+      if (!response.ok) {
+        throw new Error(data.message || "Login failed");
+      }
 
-        // Call success callback or redirect
-        if (onSuccess) {
-          onSuccess();
-        } else {
-          window.location.href = "/dashboard";
-        }
+      // Store basic user info for UI (not for auth - that's in httpOnly cookies)
+      localStorage.setItem(
+        "auth_session",
+        JSON.stringify({
+          user: data.user,
+          authenticated: true,
+        }),
+      );
+
+      // Call success callback or redirect
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        window.location.href = "/dashboard";
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
@@ -94,7 +108,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         </div>
 
         <Button type="submit" className="w-full" disabled={isLoading}>
-          {isLoading ? "Loading..." : "Sign In"}
+          {isLoading ? "Signing in..." : "Sign In"}
         </Button>
       </form>
     </div>

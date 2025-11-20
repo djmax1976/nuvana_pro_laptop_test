@@ -13,6 +13,7 @@ export type UserData = {
   id?: string;
   email: string;
   name: string;
+  password_hash?: string | null;
   auth_provider_id?: string | null;
   status: "ACTIVE" | "INACTIVE" | "SUSPENDED";
 };

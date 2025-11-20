@@ -1,9 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import {
-  authMiddleware,
-  supabaseAuthMiddleware,
-  UserIdentity,
-} from "../middleware/auth.middleware";
+import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
 import { USER_CREATE, USER_READ, USER_DELETE } from "../constants/permissions";
 import { PrismaClient } from "@prisma/client";
@@ -18,11 +14,11 @@ export async function userRoutes(fastify: FastifyInstance) {
   /**
    * GET /api/user/profile
    * Get current authenticated user's profile
-   * Protected route - requires valid Supabase Bearer token
+   * Protected route - requires valid JWT access token
    */
   fastify.get(
     "/api/user/profile",
-    { preHandler: supabaseAuthMiddleware },
+    { preHandler: authMiddleware },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const user = (request as any).user as UserIdentity;

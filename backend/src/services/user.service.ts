@@ -17,12 +17,12 @@ export interface UserIdentity {
  * RACE-CONDITION SAFE:
  * - Single atomic database operation (no check-then-create gap)
  * - Unique constraint on auth_provider_id prevents duplicates at DB level
- * - Handles concurrent OAuth callbacks for same user correctly
+ * - Handles concurrent requests for same user correctly
  * - Retries on unique constraint violations (concurrent race resolution)
  *
- * @param authProviderId - Supabase user ID (from token sub field)
- * @param email - User email from Supabase token
- * @param name - User name from Supabase token (optional)
+ * @param authProviderId - External auth provider user ID
+ * @param email - User email
+ * @param name - User name (optional)
  * @returns User record from database
  */
 export async function getUserOrCreate(

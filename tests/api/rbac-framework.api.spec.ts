@@ -1,4 +1,4 @@
-import { test, expect } from "../support/fixtures/auth.fixture";
+import { test, expect } from "../support/fixtures/rbac.fixture";
 import { createUser, createCompany, createStore } from "../support/factories";
 
 /**

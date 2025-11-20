@@ -24,33 +24,36 @@ config({ path: ".env.local" });
  * Follows fixture architecture pattern: pure functions wrapped in fixtures
  */
 
+type ApiRequestHelper = {
+  get: (
+    path: string,
+    options?: { headers?: Record<string, string> },
+  ) => Promise<import("@playwright/test").APIResponse>;
+  post: (
+    path: string,
+    data?: unknown,
+    options?: { headers?: Record<string, string> },
+  ) => Promise<import("@playwright/test").APIResponse>;
+  put: (
+    path: string,
+    data?: unknown,
+    options?: { headers?: Record<string, string> },
+  ) => Promise<import("@playwright/test").APIResponse>;
+  delete: (
+    path: string,
+    options?: { headers?: Record<string, string> },
+  ) => Promise<import("@playwright/test").APIResponse>;
+  patch: (
+    path: string,
+    data?: unknown,
+    options?: { headers?: Record<string, string> },
+  ) => Promise<import("@playwright/test").APIResponse>;
+};
+
 type RBACFixture = {
   backendUrl: string;
-  apiRequest: {
-    get: (
-      path: string,
-      options?: { headers?: Record<string, string> },
-    ) => Promise<import("@playwright/test").APIResponse>;
-    post: (
-      path: string,
-      data?: unknown,
-      options?: { headers?: Record<string, string> },
-    ) => Promise<import("@playwright/test").APIResponse>;
-    put: (
-      path: string,
-      data?: unknown,
-      options?: { headers?: Record<string, string> },
-    ) => Promise<import("@playwright/test").APIResponse>;
-    delete: (
-      path: string,
-      options?: { headers?: Record<string, string> },
-    ) => Promise<import("@playwright/test").APIResponse>;
-    patch: (
-      path: string,
-      data?: unknown,
-      options?: { headers?: Record<string, string> },
-    ) => Promise<import("@playwright/test").APIResponse>;
-  };
+  apiRequest: ApiRequestHelper;
+  authenticatedApiRequest: ApiRequestHelper;
   superadminApiRequest: {
     get: (
       path: string,
@@ -225,6 +228,82 @@ export const test = base.extend<RBACFixture>({
     };
 
     await use(apiRequest);
+  },
+
+  // Alias for superadminApiRequest for backward compatibility
+  authenticatedApiRequest: async (
+    { request, superadminUser, backendUrl },
+    use,
+  ) => {
+    const authenticatedApiRequest = {
+      get: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.get(`${backendUrl}${path}`, {
+          headers: {
+            Cookie: `access_token=${superadminUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      post: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.post(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${superadminUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      put: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.put(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${superadminUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      delete: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.delete(`${backendUrl}${path}`, {
+          headers: {
+            Cookie: `access_token=${superadminUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      patch: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.fetch(`${backendUrl}${path}`, {
+          method: "PATCH",
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${superadminUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+    };
+
+    await use(authenticatedApiRequest);
   },
 
   prismaClient: async ({}, use: (prisma: PrismaClient) => Promise<void>) => {
