@@ -323,7 +323,9 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
             <Button
               type="button"
               variant="destructive"
-              disabled={isSubmitting || isDeleting || client.status === "ACTIVE"}
+              disabled={
+                isSubmitting || isDeleting || client.status === "ACTIVE"
+              }
               className="ml-auto"
               data-testid="client-delete-button"
               onClick={() => setShowDeleteDialog(true)}

@@ -9,6 +9,7 @@ export enum ClientStatus {
 
 export interface Client {
   client_id: string;
+  public_id: string; // External-facing ID (clt_xxxxx)
   name: string;
   status: ClientStatus;
   metadata?: Record<string, unknown> | null;

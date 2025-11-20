@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -175,6 +176,7 @@ export class StoreService {
     try {
       const store = await prisma.store.create({
         data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
           company_id: data.company_id,
           name: data.name.trim(),
           location_json: data.location_json || undefined,
@@ -456,9 +458,7 @@ export class StoreService {
           const openMinutes = openHour * 60 + openMin;
           const closeMinutes = closeHour * 60 + closeMin;
           if (closeMinutes <= openMinutes) {
-            throw new Error(
-              `${day} close time must be after open time`,
-            );
+            throw new Error(`${day} close time must be after open time`);
           }
         }
       }

@@ -1147,4 +1147,48 @@ test.describe("2.7-API: Company-Client Linking - Client Dropdown Endpoint (AC #1
       where: { client_id: deletedClient.client_id },
     });
   });
+
+  test("[P0] 2.7-API-015: GET /api/clients/dropdown - should return public_id for frontend usage", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An active client exists
+    const client = await prismaClient.client.create({
+      data: createClient({
+        name: "Public ID Dropdown Test",
+        status: "ACTIVE",
+      }),
+    });
+
+    // WHEN: Retrieving clients for dropdown
+    const response = await superadminApiRequest.get("/api/clients/dropdown");
+
+    // THEN: Response includes public_id, client_id, and name
+    expect(response.status(), "Should return 200 OK").toBe(200);
+    const body = await response.json();
+
+    const clientItem = body.data.find(
+      (c: any) => c.client_id === client.client_id,
+    );
+    expect(clientItem, "Client should be in dropdown").toBeDefined();
+    expect(clientItem, "Should have client_id").toHaveProperty("client_id");
+    expect(clientItem, "Should have public_id").toHaveProperty("public_id");
+    expect(clientItem, "Should have name").toHaveProperty("name");
+
+    // AND: public_id has correct format
+    expect(
+      clientItem.public_id,
+      "Public ID should match clt_xxxxx format",
+    ).toMatch(/^clt_[a-z0-9]{10,}$/);
+
+    // AND: public_id matches database record
+    expect(clientItem.public_id, "Public ID should match database").toBe(
+      client.public_id,
+    );
+
+    // Cleanup
+    await prismaClient.client.delete({
+      where: { client_id: client.client_id },
+    });
+  });
 });

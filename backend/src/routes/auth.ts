@@ -3,33 +3,14 @@ import bcrypt from "bcrypt";
 import { getUserById } from "../services/user.service";
 import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
-import { stateService } from "../services/state.service";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-// NOTE: OAuth and signup are disabled in this application
+// NOTE: OAuth has been removed from this application
 // Using local email/password authentication with bcrypt
 
-/**
- * OAuth callback endpoint - DISABLED
- * OAuth authentication is not supported in this application.
- * GET /api/auth/callback
- */
 export async function authRoutes(fastify: FastifyInstance) {
-  fastify.get(
-    "/api/auth/callback",
-    async (_request: FastifyRequest, reply: FastifyReply) => {
-      // OAuth is disabled - return 403 Forbidden
-      reply.code(403);
-      return {
-        error: "OAuth disabled",
-        message:
-          "OAuth authentication is not supported. Please use email/password login.",
-      };
-    },
-  );
-
   /**
    * Login endpoint - Local email/password authentication
    * POST /api/auth/login
@@ -265,49 +246,4 @@ export async function authRoutes(fastify: FastifyInstance) {
       };
     },
   );
-
-  /**
-   * Test helper endpoint to store OAuth state for CSRF testing
-   * POST /api/auth/test/store-state
-   * Only available in test environment
-   */
-  if (process.env.NODE_ENV === "test") {
-    fastify.post(
-      "/api/auth/test/store-state",
-      async (request: FastifyRequest, reply: FastifyReply) => {
-        let body = request.body as any;
-
-        // Handle Playwright's data wrapping format
-        if (body && typeof body === "object" && "data" in body) {
-          // If data is a string, parse it
-          if (typeof body.data === "string") {
-            try {
-              body = JSON.parse(body.data);
-            } catch (e) {
-              // If parsing fails, use as-is
-            }
-          } else {
-            // If data is already an object, use it directly
-            body = body.data;
-          }
-        }
-
-        if (!body || !body.state) {
-          fastify.log.error({ body }, "Missing state parameter in request");
-          reply.code(400);
-          return {
-            error: "Missing required parameter: state",
-          };
-        }
-
-        stateService.storeState(body.state, body.ttl);
-
-        reply.code(200);
-        return {
-          message: "State stored successfully",
-          state: body.state,
-        };
-      },
-    );
-  }
 }

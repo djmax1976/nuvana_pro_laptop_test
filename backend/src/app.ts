@@ -21,7 +21,10 @@ import { adminUserRoutes } from "./routes/admin-users";
 // Load environment variables
 dotenv.config();
 
-const PORT = parseInt(process.env.PORT || "3001", 10);
+const PORT = parseInt(
+  process.env.BACKEND_PORT || process.env.PORT || "3001",
+  10,
+);
 const SERVER_START_TIME = Date.now();
 
 // Create Fastify instance with ajv-formats for UUID validation
@@ -69,6 +72,8 @@ app.register(cookie, {
 app.register(cors, {
   origin: process.env.CORS_ORIGIN?.split(",") || ["http://localhost:3000"],
   credentials: true, // Required for cookies to work with CORS
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 });
 
 // Register Helmet for security headers
@@ -84,8 +89,10 @@ app.register(helmet, {
 });
 
 // Register rate limiting
+// In development, use higher limits to accommodate Fast Refresh and hot reloading
+const isDevelopment = process.env.NODE_ENV !== "production";
 app.register(rateLimit, {
-  max: 100, // 100 requests per minute per user (default)
+  max: isDevelopment ? 1000 : 100, // Higher limit in development for Fast Refresh
   timeWindow: "1 minute",
   // Note: Per-company rate limiting (500/min) would require custom implementation
   // based on company context from authentication middleware

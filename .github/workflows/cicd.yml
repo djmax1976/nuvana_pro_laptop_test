@@ -263,6 +263,20 @@ jobs:
       - name: Run component tests
         run: npm run test:component -- --reporter=dot
 
+  unit_tests:
+    name: Unit Tests
+    needs: lint_typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Run unit tests
+        run: npm run test:unit
+
   api_smoke:
     name: API Smoke
     needs: lint_typecheck
@@ -313,6 +327,14 @@ jobs:
         run: cd backend && npm run prisma:generate
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+      - name: Seed roles for auth
+        run: npx tsx tests/support/seed-roles.ts
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+      - name: Bootstrap admin user
+        run: npx tsx backend/scripts/bootstrap-admin.ts
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
       - name: Build backend
@@ -537,7 +559,23 @@ jobs:
         with:
           config: p/owasp-top-ten
       - name: npm audit high+
-        run: npm audit --production --audit-level=high || true
+        run: npm audit --production --audit-level=high
+      - name: npm audit high+ (backend)
+        run: cd backend && npm audit --production --audit-level=high
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate SBOM (CycloneDX)
+        uses: CycloneDX/gh-node-module-generatebom@v1
+        with:
+          output: sbom.xml
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-node
+          path: sbom.xml
+          retention-days: 30
       - name: License check
         run: node nuvana_control/workflows/11-ci_pipeline/scripts/license-check.js
 
@@ -630,13 +668,31 @@ jobs:
           echo "Backend logs:"
           cat backend.log || true
           exit 1
-      - name: OWASP ZAP baseline
+      - name: Obtain auth cookies
         if: steps.wait_backend.outputs.health_check_passed == 'true'
-        continue-on-error: true
+        id: zap_auth
+        run: |
+          RESPONSE_HEADERS=$(curl -i -s -X POST "$BACKEND_URL/api/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@nuvana.com","password":"Admin123!"}')
+          COOKIES=$(echo "$RESPONSE_HEADERS" | grep -i '^set-cookie:' | cut -d' ' -f2- | cut -d';' -f1 | tr '\n' '; ' | sed 's/; $//')
+          if [ -z "$COOKIES" ]; then
+            echo "Failed to retrieve auth cookies"
+            exit 1
+          fi
+          echo "cookie_header=$COOKIES" >> $GITHUB_OUTPUT
+      - name: OWASP ZAP baseline (authenticated)
+        if: steps.wait_backend.outputs.health_check_passed == 'true' && steps.zap_auth.outputs.cookie_header
         uses: zaproxy/action-baseline@v0.10.0
         with:
           target: ${{ env.BACKEND_URL }}
-          cmd_options: "-I"
+          cmd_options: |
+            -I
+            -z "-config replacer.full_list(0).description=auth-cookies
+                -config replacer.full_list(0).enabled=true
+                -config replacer.full_list(0).matchtype=REQ_HEADER
+                -config replacer.full_list(0).matchstr=Cookie
+                -config replacer.full_list(0).replacement=${{ steps.zap_auth.outputs.cookie_header }}"
       - name: Upload backend logs
         if: failure()
         uses: actions/upload-artifact@v4

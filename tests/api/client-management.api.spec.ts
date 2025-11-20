@@ -898,3 +898,360 @@ test.describe("Client Management API - Security", () => {
     }
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PUBLIC ID TESTS - Dual Format Support (UUID + public_id)
+// ═══════════════════════════════════════════════════════════════════════════
+
+test.describe("Client Management API - Public ID Support", () => {
+  test("[P0] POST /api/clients - should auto-generate valid public_id", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // WHEN: Creating a new client
+    const response = await superadminApiRequest.post("/api/clients", {
+      name: "Auto Public ID Test",
+      status: "ACTIVE",
+    });
+
+    // THEN: Response includes valid public_id
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+
+    expect(body.data).toHaveProperty("public_id");
+    expect(body.data.public_id).toMatch(/^clt_[a-z0-9]{10,}$/);
+    expect(body.data.public_id).not.toBe(body.data.client_id);
+
+    // Verify uniqueness in database
+    const dbClient = await prismaClient.client.findUnique({
+      where: { public_id: body.data.public_id },
+    });
+    expect(dbClient).not.toBeNull();
+    expect(dbClient?.client_id).toBe(body.data.client_id);
+
+    // Cleanup
+    await prismaClient.client.delete({
+      where: { client_id: body.data.client_id },
+    });
+  });
+
+  test("[P0] POST /api/clients - should generate unique public_ids for multiple clients", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Creating multiple clients
+    const responses = await Promise.all([
+      superadminApiRequest.post("/api/clients", {
+        name: "Client 1",
+        status: "ACTIVE",
+      }),
+      superadminApiRequest.post("/api/clients", {
+        name: "Client 2",
+        status: "ACTIVE",
+      }),
+      superadminApiRequest.post("/api/clients", {
+        name: "Client 3",
+        status: "ACTIVE",
+      }),
+    ]);
+
+    // THEN: All public_ids are unique
+    const bodies = await Promise.all(responses.map((r) => r.json()));
+    const publicIds = bodies.map((b) => b.data.public_id);
+    const uniqueIds = new Set(publicIds);
+
+    expect(uniqueIds.size).toBe(3);
+
+    // Cleanup
+    await Promise.all(
+      bodies.map((b) =>
+        prismaClient.client.delete({ where: { client_id: b.data.client_id } }),
+      ),
+    );
+  });
+});
+
+test.describe("Client Management API - Dual ID Format Support (GET)", () => {
+  test("[P0] GET /api/clients/:id - should accept UUID format (backward compatibility)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client exists with both UUID and public_id
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "UUID Test Client" }),
+    });
+
+    // WHEN: Fetching by UUID (old format)
+    const response = await superadminApiRequest.get(
+      `/api/clients/${client.client_id}`,
+    );
+
+    // THEN: Client is retrieved successfully
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.client_id).toBe(client.client_id);
+    expect(body.data.public_id).toMatch(/^clt_[a-z0-9]{10,}$/);
+    expect(body.data.name).toBe(client.name);
+
+    // Cleanup
+    await prismaClient.client.delete({
+      where: { client_id: client.client_id },
+    });
+  });
+
+  test("[P0] GET /api/clients/:id - should accept public_id format (new standard)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client exists with public_id
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Public ID Test Client" }),
+    });
+
+    // WHEN: Fetching by public_id (new format)
+    const response = await superadminApiRequest.get(
+      `/api/clients/${client.public_id}`,
+    );
+
+    // THEN: Client is retrieved successfully
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.client_id).toBe(client.client_id);
+    expect(body.data.public_id).toBe(client.public_id);
+    expect(body.data.name).toBe(client.name);
+
+    // Cleanup
+    await prismaClient.client.delete({
+      where: { client_id: client.client_id },
+    });
+  });
+
+  test("[P0] GET /api/clients/:id - should reject invalid public_id format", async ({
+    superadminApiRequest,
+  }) => {
+    // WHEN: Fetching with invalid public_id formats
+    const invalidFormats = [
+      "invalid-id",
+      "clt_",
+      "clt_abc",
+      "usr_1234567890abcdef", // Wrong prefix
+      "CLT_1234567890abcdef", // Uppercase (invalid)
+      "clt-1234567890abcdef", // Wrong separator
+    ];
+
+    for (const invalidId of invalidFormats) {
+      const response = await superadminApiRequest.get(
+        `/api/clients/${invalidId}`,
+      );
+
+      // THEN: Request is rejected with 404
+      expect(
+        response.status(),
+        `Should reject invalid format: ${invalidId}`,
+      ).toBe(404);
+      const body = await response.json();
+      expect(body.success).toBe(false);
+      expect(body).toHaveProperty("error");
+    }
+  });
+
+  test("[P0] GET /api/clients/:id - should prevent IDOR with non-existent public_id", async ({
+    superadminApiRequest,
+  }) => {
+    // GIVEN: A valid-format but non-existent public_id
+    const nonExistentId = "clt_nonexistent123";
+
+    // WHEN: Attempting to fetch non-existent client
+    const response = await superadminApiRequest.get(
+      `/api/clients/${nonExistentId}`,
+    );
+
+    // THEN: Request is rejected with 404 (not 500)
+    expect(response.status()).toBe(404);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.message.toLowerCase()).toContain("not found");
+  });
+});
+
+test.describe("Client Management API - Dual ID Format Support (PUT)", () => {
+  test("[P0] PUT /api/clients/:id - should update via UUID (backward compatibility)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Original Name" }),
+    });
+
+    // WHEN: Updating via UUID
+    const response = await superadminApiRequest.put(
+      `/api/clients/${client.client_id}`,
+      { name: "Updated via UUID" },
+    );
+
+    // THEN: Update succeeds
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.name).toBe("Updated via UUID");
+    expect(body.data.client_id).toBe(client.client_id);
+
+    // Cleanup
+    await prismaClient.client.delete({
+      where: { client_id: client.client_id },
+    });
+  });
+
+  test("[P0] PUT /api/clients/:id - should update via public_id (new standard)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Original Name" }),
+    });
+
+    // WHEN: Updating via public_id
+    const response = await superadminApiRequest.put(
+      `/api/clients/${client.public_id}`,
+      { name: "Updated via Public ID" },
+    );
+
+    // THEN: Update succeeds
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.name).toBe("Updated via Public ID");
+    expect(body.data.public_id).toBe(client.public_id);
+
+    // Cleanup
+    await prismaClient.client.delete({
+      where: { client_id: client.client_id },
+    });
+  });
+
+  test("[P0] PUT /api/clients/:id - should prevent IDOR via invalid public_id", async ({
+    superadminApiRequest,
+  }) => {
+    // WHEN: Attempting to update with fabricated public_id
+    const response = await superadminApiRequest.put(
+      "/api/clients/clt_fabricated123",
+      { name: "Hacked Name" },
+    );
+
+    // THEN: Request is rejected with 404
+    expect(response.status()).toBe(404);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+  });
+});
+
+test.describe("Client Management API - Dual ID Format Support (DELETE)", () => {
+  test("[P0] DELETE /api/clients/:id - should delete via UUID (backward compatibility)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An INACTIVE client exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "To Delete via UUID", status: "INACTIVE" }),
+    });
+
+    // WHEN: Deleting via UUID
+    const response = await superadminApiRequest.delete(
+      `/api/clients/${client.client_id}`,
+    );
+
+    // THEN: Deletion succeeds
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    // Verify soft delete
+    const deleted = await prismaClient.client.findUnique({
+      where: { client_id: client.client_id },
+    });
+    expect(deleted?.deleted_at).not.toBeNull();
+  });
+
+  test("[P0] DELETE /api/clients/:id - should delete via public_id (new standard)", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An INACTIVE client exists
+    const client = await prismaClient.client.create({
+      data: createClient({
+        name: "To Delete via Public ID",
+        status: "INACTIVE",
+      }),
+    });
+
+    // WHEN: Deleting via public_id
+    const response = await superadminApiRequest.delete(
+      `/api/clients/${client.public_id}`,
+    );
+
+    // THEN: Deletion succeeds
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    // Verify soft delete
+    const deleted = await prismaClient.client.findUnique({
+      where: { client_id: client.client_id },
+    });
+    expect(deleted?.deleted_at).not.toBeNull();
+  });
+
+  test("[P0] DELETE /api/clients/:id - should prevent IDOR via fabricated public_id", async ({
+    superadminApiRequest,
+  }) => {
+    // WHEN: Attempting to delete with fabricated public_id
+    const response = await superadminApiRequest.delete(
+      "/api/clients/clt_fabricated999",
+    );
+
+    // THEN: Request is rejected with 404
+    expect(response.status()).toBe(404);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+  });
+});
+
+test.describe("Client Management API - Dropdown Public ID Support", () => {
+  test("[P0] GET /api/clients/dropdown - should return public_id for each client", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Active clients exist
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Dropdown Public ID Test", status: "ACTIVE" }),
+    });
+
+    // WHEN: Fetching dropdown data
+    const response = await superadminApiRequest.get("/api/clients/dropdown");
+
+    // THEN: Response includes public_id for each client
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    const foundClient = body.data.find(
+      (c: any) => c.client_id === client.client_id,
+    );
+    expect(foundClient).toBeDefined();
+    expect(foundClient).toHaveProperty("client_id");
+    expect(foundClient).toHaveProperty("public_id");
+    expect(foundClient).toHaveProperty("name");
+
+    // Verify public_id format
+    expect(foundClient.public_id).toMatch(/^clt_[a-z0-9]{10,}$/);
+
+    // Cleanup
+    await prismaClient.client.delete({
+      where: { client_id: client.client_id },
+    });
+  });
+});

@@ -6,6 +6,11 @@ import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
 import { clientService, AuditContext } from "../services/client.service";
 import { ClientStatus } from "../types/client.types";
+import {
+  isValidPublicId,
+  validatePrefix,
+  PUBLIC_ID_PREFIXES,
+} from "../utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -14,6 +19,42 @@ const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isValidUUID(id: string): boolean {
   return UUID_REGEX.test(id);
+}
+
+/**
+ * Resolve client identifier to internal UUID
+ * Accepts both UUID (backward compatibility) and public_id (new standard)
+ * @param identifier - Either UUID or public_id (clt_xxxxx)
+ * @returns Internal client_id (UUID)
+ * @throws Error if identifier is invalid or client not found
+ */
+async function resolveClientId(identifier: string): Promise<string> {
+  // Check if it's a UUID (backward compatibility)
+  if (isValidUUID(identifier)) {
+    return identifier;
+  }
+
+  // Check if it's a valid public_id format
+  if (
+    isValidPublicId(identifier) &&
+    validatePrefix(identifier, PUBLIC_ID_PREFIXES.CLIENT)
+  ) {
+    // Look up the client by public_id
+    const client = await prisma.client.findUnique({
+      where: { public_id: identifier },
+      select: { client_id: true },
+    });
+
+    if (!client) {
+      throw new Error(`Client with public ID ${identifier} not found`);
+    }
+
+    return client.client_id;
+  }
+
+  throw new Error(
+    "Invalid client identifier format. Must be UUID or public ID (clt_xxxxx)",
+  );
 }
 
 // Zod validation schemas
@@ -204,6 +245,7 @@ export async function clientRoutes(fastify: FastifyInstance) {
   /**
    * GET /api/clients/:clientId
    * Get client by ID with company count
+   * Accepts both UUID (backward compatibility) and public_id (clt_xxxxx)
    */
   fastify.get(
     "/api/clients/:clientId",
@@ -215,17 +257,10 @@ export async function clientRoutes(fastify: FastifyInstance) {
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const { clientId } = request.params as { clientId: string };
+        const { clientId: identifier } = request.params as { clientId: string };
 
-        // Validate UUID format
-        if (!isValidUUID(clientId)) {
-          reply.code(400);
-          return {
-            success: false,
-            error: "Invalid client ID",
-            message: "Client ID must be a valid UUID",
-          };
-        }
+        // Resolve identifier to internal UUID (supports both UUID and public_id)
+        const clientId = await resolveClientId(identifier);
 
         const client = await clientService.getClientById(clientId);
 
@@ -239,12 +274,15 @@ export async function clientRoutes(fastify: FastifyInstance) {
           error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error fetching client");
 
-        if (message.includes("not found")) {
+        if (
+          message.includes("not found") ||
+          message.includes("Invalid client identifier")
+        ) {
           reply.code(404);
           return {
             success: false,
             error: "Not found",
-            message: `Client not found`,
+            message: message.includes("Invalid") ? message : "Client not found",
           };
         }
 
@@ -261,6 +299,7 @@ export async function clientRoutes(fastify: FastifyInstance) {
   /**
    * PUT /api/clients/:clientId
    * Update client
+   * Accepts both UUID (backward compatibility) and public_id (clt_xxxxx)
    */
   fastify.put(
     "/api/clients/:clientId",
@@ -272,18 +311,11 @@ export async function clientRoutes(fastify: FastifyInstance) {
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const { clientId } = request.params as { clientId: string };
+        const { clientId: identifier } = request.params as { clientId: string };
         const user = (request as unknown as { user: UserIdentity }).user;
 
-        // Validate UUID format
-        if (!isValidUUID(clientId)) {
-          reply.code(400);
-          return {
-            success: false,
-            error: "Invalid client ID",
-            message: "Client ID must be a valid UUID",
-          };
-        }
+        // Resolve identifier to internal UUID (supports both UUID and public_id)
+        const clientId = await resolveClientId(identifier);
 
         // Validate request body
         const parseResult = updateClientSchema.safeParse(request.body);
@@ -319,12 +351,15 @@ export async function clientRoutes(fastify: FastifyInstance) {
           error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error updating client");
 
-        if (message.includes("not found")) {
+        if (
+          message.includes("not found") ||
+          message.includes("Invalid client identifier")
+        ) {
           reply.code(404);
           return {
             success: false,
             error: "Not found",
-            message: "Client not found",
+            message: message.includes("Invalid") ? message : "Client not found",
           };
         }
 
@@ -354,6 +389,7 @@ export async function clientRoutes(fastify: FastifyInstance) {
   /**
    * DELETE /api/clients/:clientId
    * Soft delete client (requires client to be INACTIVE first)
+   * Accepts both UUID (backward compatibility) and public_id (clt_xxxxx)
    */
   fastify.delete(
     "/api/clients/:clientId",
@@ -365,18 +401,11 @@ export async function clientRoutes(fastify: FastifyInstance) {
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const { clientId } = request.params as { clientId: string };
+        const { clientId: identifier } = request.params as { clientId: string };
         const user = (request as unknown as { user: UserIdentity }).user;
 
-        // Validate UUID format
-        if (!isValidUUID(clientId)) {
-          reply.code(400);
-          return {
-            success: false,
-            error: "Invalid client ID",
-            message: "Client ID must be a valid UUID",
-          };
-        }
+        // Resolve identifier to internal UUID (supports both UUID and public_id)
+        const clientId = await resolveClientId(identifier);
 
         const auditContext = getAuditContext(request, user);
 
@@ -395,12 +424,15 @@ export async function clientRoutes(fastify: FastifyInstance) {
           error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error deleting client");
 
-        if (message.includes("not found")) {
+        if (
+          message.includes("not found") ||
+          message.includes("Invalid client identifier")
+        ) {
           reply.code(404);
           return {
             success: false,
             error: "Not found",
-            message: "Client not found",
+            message: message.includes("Invalid") ? message : "Client not found",
           };
         }
 
@@ -426,7 +458,7 @@ export async function clientRoutes(fastify: FastifyInstance) {
   /**
    * GET /api/clients/dropdown
    * Get minimal client data for dropdown selection
-   * Returns only active, non-deleted clients with id and name
+   * Returns only active, non-deleted clients with public_id and name
    */
   fastify.get(
     "/api/clients/dropdown",
@@ -445,6 +477,7 @@ export async function clientRoutes(fastify: FastifyInstance) {
           },
           select: {
             client_id: true,
+            public_id: true,
             name: true,
           },
           orderBy: {

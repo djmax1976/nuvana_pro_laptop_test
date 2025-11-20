@@ -28,12 +28,12 @@ describe("ConfirmDialog - Simple Confirmation", () => {
         title="Confirm Action"
         description="Are you sure you want to proceed?"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     expect(screen.getByText("Confirm Action")).toBeInTheDocument();
     expect(
-      screen.getByText("Are you sure you want to proceed?")
+      screen.getByText("Are you sure you want to proceed?"),
     ).toBeInTheDocument();
   });
 
@@ -47,7 +47,7 @@ describe("ConfirmDialog - Simple Confirmation", () => {
         title="Confirm"
         description="Test"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     expect(screen.getByText("Confirm")).toBeInTheDocument();
@@ -66,7 +66,7 @@ describe("ConfirmDialog - Simple Confirmation", () => {
         confirmText="Delete Permanently"
         cancelText="No, Keep It"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     expect(screen.getByText("Delete Permanently")).toBeInTheDocument();
@@ -85,7 +85,7 @@ describe("ConfirmDialog - Simple Confirmation", () => {
         description="Test"
         confirmText="Confirm"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const confirmButton = screen.getByText("Confirm");
@@ -106,7 +106,7 @@ describe("ConfirmDialog - Simple Confirmation", () => {
         title="Confirm"
         description="Test"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const cancelButton = screen.getByText("Cancel");
@@ -126,7 +126,7 @@ describe("ConfirmDialog - Simple Confirmation", () => {
         title="Confirm"
         description="Test"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     // Dialog should not be visible
@@ -147,7 +147,7 @@ describe("ConfirmDialog - Text Input Confirmation", () => {
         requiresTextConfirmation={true}
         confirmationText="DELETE"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const input = screen.getByPlaceholderText("DELETE");
@@ -168,7 +168,7 @@ describe("ConfirmDialog - Text Input Confirmation", () => {
         confirmationText="DELETE"
         confirmText="Delete Permanently"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const confirmButton = screen.getByText("Delete Permanently");
@@ -188,7 +188,7 @@ describe("ConfirmDialog - Text Input Confirmation", () => {
         confirmationText="DELETE"
         confirmText="Delete Permanently"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const input = screen.getByPlaceholderText("DELETE");
@@ -211,7 +211,7 @@ describe("ConfirmDialog - Text Input Confirmation", () => {
         confirmationText="DELETE"
         confirmText="Delete Permanently"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const input = screen.getByPlaceholderText("DELETE");
@@ -235,7 +235,7 @@ describe("ConfirmDialog - Text Input Confirmation", () => {
         confirmationText="DELETE"
         confirmText="Delete Permanently"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const input = screen.getByPlaceholderText("DELETE");
@@ -261,7 +261,7 @@ describe("ConfirmDialog - Text Input Confirmation", () => {
         requiresTextConfirmation={true}
         confirmationText="DELETE"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const input = screen.getByPlaceholderText("DELETE");
@@ -281,7 +281,7 @@ describe("ConfirmDialog - Text Input Confirmation", () => {
         requiresTextConfirmation={true}
         confirmationText="DELETE"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const inputAfterReopen = screen.getByPlaceholderText("DELETE");
@@ -301,7 +301,7 @@ describe("ConfirmDialog - Text Input Confirmation", () => {
         confirmationText="DESTROY"
         confirmationLabel='Type "DESTROY" to confirm'
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     expect(screen.getByText('Type "DESTROY" to confirm')).toBeInTheDocument();
@@ -327,7 +327,7 @@ describe("ConfirmDialog - Keyboard Interactions", () => {
         requiresTextConfirmation={true}
         confirmationText="DELETE"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const input = screen.getByPlaceholderText("DELETE");
@@ -350,7 +350,7 @@ describe("ConfirmDialog - Keyboard Interactions", () => {
         requiresTextConfirmation={true}
         confirmationText="DELETE"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const input = screen.getByPlaceholderText("DELETE");
@@ -369,7 +369,7 @@ describe("ConfirmDialog - Keyboard Interactions", () => {
         requiresTextConfirmation={true}
         confirmationText="DELETE"
         onConfirm={() => {}}
-      />
+      />,
     );
 
     const input = screen.getByPlaceholderText("DELETE");
@@ -388,7 +388,7 @@ describe("ConfirmDialog - Loading States", () => {
         confirmText="Confirm"
         onConfirm={() => {}}
         isLoading={true}
-      />
+      />,
     );
 
     const confirmButton = screen.getByText("Processing...");
@@ -408,7 +408,7 @@ describe("ConfirmDialog - Loading States", () => {
         confirmText="Delete Permanently"
         onConfirm={() => {}}
         isLoading={true}
-      />
+      />,
     );
 
     expect(screen.getByText("Processing...")).toBeInTheDocument();
@@ -426,7 +426,7 @@ describe("ConfirmDialog - Loading States", () => {
         confirmationText="DELETE"
         onConfirm={() => {}}
         isLoading={true}
-      />
+      />,
     );
 
     const input = screen.getByPlaceholderText("DELETE");
@@ -445,7 +445,7 @@ describe("ConfirmDialog - Destructive Styling", () => {
         confirmText="Delete"
         onConfirm={() => {}}
         destructive={true}
-      />
+      />,
     );
 
     const confirmButton = screen.getByText("Delete");
@@ -462,7 +462,7 @@ describe("ConfirmDialog - Destructive Styling", () => {
         confirmText="Activate"
         onConfirm={() => {}}
         destructive={false}
-      />
+      />,
     );
 
     const confirmButton = screen.getByText("Activate");
@@ -482,7 +482,7 @@ describe("ConfirmDialog - Async onConfirm Handler", () => {
         title="Confirm"
         description="Test"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const confirmButton = screen.getByRole("button", { name: /confirm/i });
@@ -495,7 +495,9 @@ describe("ConfirmDialog - Async onConfirm Handler", () => {
   });
 
   test("[P0] Should handle rejected async onConfirm gracefully", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     const onConfirm = vi.fn().mockRejectedValue(new Error("Test error"));
 
     render(
@@ -505,7 +507,7 @@ describe("ConfirmDialog - Async onConfirm Handler", () => {
         title="Confirm"
         description="Test"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     const confirmButton = screen.getByRole("button", { name: /confirm/i });
@@ -528,7 +530,7 @@ describe("ConfirmDialog - Accessibility", () => {
         title="Confirm Action"
         description="Are you sure?"
         onConfirm={() => {}}
-      />
+      />,
     );
 
     expect(screen.getByText("Confirm Action")).toBeInTheDocument();
@@ -546,7 +548,7 @@ describe("ConfirmDialog - Accessibility", () => {
         title="Confirm"
         description="Test"
         onConfirm={onConfirm}
-      />
+      />,
     );
 
     // Tab to cancel button

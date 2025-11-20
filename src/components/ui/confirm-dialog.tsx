@@ -62,8 +62,7 @@ export function ConfirmDialog({
   };
 
   const isConfirmDisabled =
-    isLoading ||
-    (requiresTextConfirmation && inputValue !== confirmationText);
+    isLoading || (requiresTextConfirmation && inputValue !== confirmationText);
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>

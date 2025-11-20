@@ -7,6 +7,7 @@ import {
   PaginatedClientResult,
   ClientWithCompanyCount,
 } from "../types/client.types";
+import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -55,6 +56,7 @@ export class ClientService {
     try {
       const client = await prisma.client.create({
         data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
           name: data.name.trim(),
           status: data.status || ClientStatus.ACTIVE,
           metadata: data.metadata
@@ -68,22 +70,31 @@ export class ClientService {
         },
       });
 
-      // Create audit log entry
-      await prisma.auditLog.create({
-        data: {
-          user_id: auditContext.userId,
-          action: "CREATE",
-          table_name: "clients",
-          record_id: client.client_id,
-          new_values: client as unknown as Prisma.JsonObject,
-          ip_address: auditContext.ipAddress,
-          user_agent: auditContext.userAgent,
-          reason: `Client created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
-        },
-      });
+      // Create audit log entry (non-blocking - don't fail the creation if audit fails)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "CREATE",
+            table_name: "clients",
+            record_id: client.client_id,
+            new_values: client as unknown as Prisma.JsonObject,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Client created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the creation operation
+        console.error(
+          "Failed to create audit log for client creation:",
+          auditError,
+        );
+      }
 
       return {
         client_id: client.client_id,
+        public_id: client.public_id,
         name: client.name,
         status: client.status as ClientStatus,
         metadata: client.metadata as Record<string, unknown> | null,
@@ -156,6 +167,7 @@ export class ClientService {
       const clientsWithCount: ClientWithCompanyCount[] = clients.map(
         (client) => ({
           client_id: client.client_id,
+          public_id: client.public_id,
           name: client.name,
           status: client.status as ClientStatus,
           metadata: client.metadata as Record<string, unknown> | null,
@@ -211,6 +223,7 @@ export class ClientService {
 
       return {
         client_id: client.client_id,
+        public_id: client.public_id,
         name: client.name,
         status: client.status as ClientStatus,
         metadata: client.metadata as Record<string, unknown> | null,
@@ -292,23 +305,32 @@ export class ClientService {
         },
       });
 
-      // Create audit log entry
-      await prisma.auditLog.create({
-        data: {
-          user_id: auditContext.userId,
-          action: "UPDATE",
-          table_name: "clients",
-          record_id: client.client_id,
-          old_values: existingClient as unknown as Prisma.JsonObject,
-          new_values: client as unknown as Prisma.JsonObject,
-          ip_address: auditContext.ipAddress,
-          user_agent: auditContext.userAgent,
-          reason: `Client updated by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
-        },
-      });
+      // Create audit log entry (non-blocking - don't fail the update if audit fails)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "UPDATE",
+            table_name: "clients",
+            record_id: client.client_id,
+            old_values: existingClient as unknown as Prisma.JsonObject,
+            new_values: client as unknown as Prisma.JsonObject,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Client updated by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the update operation
+        console.error(
+          "Failed to create audit log for client update:",
+          auditError,
+        );
+      }
 
       return {
         client_id: client.client_id,
+        public_id: client.public_id,
         name: client.name,
         status: client.status as ClientStatus,
         metadata: client.metadata as Record<string, unknown> | null,
@@ -386,23 +408,32 @@ export class ClientService {
         },
       });
 
-      // Create audit log entry
-      await prisma.auditLog.create({
-        data: {
-          user_id: auditContext.userId,
-          action: "DELETE",
-          table_name: "clients",
-          record_id: client.client_id,
-          old_values: existingClient as unknown as Prisma.JsonObject,
-          new_values: client as unknown as Prisma.JsonObject,
-          ip_address: auditContext.ipAddress,
-          user_agent: auditContext.userAgent,
-          reason: `Client soft deleted by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
-        },
-      });
+      // Create audit log entry (non-blocking - don't fail the deletion if audit fails)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "DELETE",
+            table_name: "clients",
+            record_id: client.client_id,
+            old_values: existingClient as unknown as Prisma.JsonObject,
+            new_values: client as unknown as Prisma.JsonObject,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Client soft deleted by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the deletion operation
+        console.error(
+          "Failed to create audit log for client deletion:",
+          auditError,
+        );
+      }
 
       return {
         client_id: client.client_id,
+        public_id: client.public_id,
         name: client.name,
         status: client.status as ClientStatus,
         metadata: client.metadata as Record<string, unknown> | null,

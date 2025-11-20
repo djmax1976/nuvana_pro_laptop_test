@@ -3,6 +3,7 @@ import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
 import { USER_CREATE, USER_READ, USER_DELETE } from "../constants/permissions";
 import { PrismaClient } from "@prisma/client";
+import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -177,6 +178,7 @@ export async function userRoutes(fastify: FastifyInstance) {
         // Create user
         const user = await prisma.user.create({
           data: {
+            public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
             email: body.email,
             name: body.name || body.email.split("@")[0], // Default to email prefix if name not provided
             auth_provider_id: body.auth_provider_id ?? null,

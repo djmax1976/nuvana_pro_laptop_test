@@ -1,4 +1,5 @@
 import { PrismaClient, Prisma } from "@prisma/client";
+import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -148,30 +149,39 @@ export class UserAdminService {
       // Create user
       const user = await prisma.user.create({
         data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
           email: data.email.toLowerCase().trim(),
           name: data.name.trim(),
           status: "ACTIVE",
         },
       });
 
-      // Create audit log for user creation
-      await prisma.auditLog.create({
-        data: {
-          user_id: auditContext.userId,
-          action: "CREATE",
-          table_name: "users",
-          record_id: user.user_id,
-          new_values: {
-            user_id: user.user_id,
-            email: user.email,
-            name: user.name,
-            status: user.status,
-          } as unknown as Prisma.JsonObject,
-          ip_address: auditContext.ipAddress,
-          user_agent: auditContext.userAgent,
-          reason: `User created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
-        },
-      });
+      // Create audit log for user creation (non-blocking)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "CREATE",
+            table_name: "users",
+            record_id: user.user_id,
+            new_values: {
+              user_id: user.user_id,
+              email: user.email,
+              name: user.name,
+              status: user.status,
+            } as unknown as Prisma.JsonObject,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `User created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the user creation
+        console.error(
+          "Failed to create audit log for user creation:",
+          auditError,
+        );
+      }
 
       // Assign initial roles if provided
       if (data.roles && data.roles.length > 0) {
@@ -377,24 +387,32 @@ export class UserAdminService {
         data: { status },
       });
 
-      // Create audit log
-      await prisma.auditLog.create({
-        data: {
-          user_id: auditContext.userId,
-          action: "UPDATE",
-          table_name: "users",
-          record_id: user.user_id,
-          old_values: {
-            status: existingUser.status,
-          } as unknown as Prisma.JsonObject,
-          new_values: {
-            status: user.status,
-          } as unknown as Prisma.JsonObject,
-          ip_address: auditContext.ipAddress,
-          user_agent: auditContext.userAgent,
-          reason: `User ${status === "INACTIVE" ? "deactivated" : "activated"} by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
-        },
-      });
+      // Create audit log (non-blocking)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "UPDATE",
+            table_name: "users",
+            record_id: user.user_id,
+            old_values: {
+              status: existingUser.status,
+            } as unknown as Prisma.JsonObject,
+            new_values: {
+              status: user.status,
+            } as unknown as Prisma.JsonObject,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `User ${status === "INACTIVE" ? "deactivated" : "activated"} by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the status update
+        console.error(
+          "Failed to create audit log for user status update:",
+          auditError,
+        );
+      }
 
       return this.getUserById(userId);
     } catch (error: unknown) {
@@ -520,27 +538,35 @@ export class UserAdminService {
         },
       });
 
-      // Create audit log
-      await prisma.auditLog.create({
-        data: {
-          user_id: auditContext.userId,
-          action: "CREATE",
-          table_name: "user_roles",
-          record_id: userRole.user_role_id,
-          new_values: {
-            user_role_id: userRole.user_role_id,
-            user_id: userRole.user_id,
-            role_id: userRole.role_id,
-            role_code: role.code,
-            scope_type,
-            company_id: userRole.company_id,
-            store_id: userRole.store_id,
-          } as unknown as Prisma.JsonObject,
-          ip_address: auditContext.ipAddress,
-          user_agent: auditContext.userAgent,
-          reason: `Role ${role.code} assigned to user ${user.email} by ${auditContext.userEmail}`,
-        },
-      });
+      // Create audit log (non-blocking)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "CREATE",
+            table_name: "user_roles",
+            record_id: userRole.user_role_id,
+            new_values: {
+              user_role_id: userRole.user_role_id,
+              user_id: userRole.user_id,
+              role_id: userRole.role_id,
+              role_code: role.code,
+              scope_type,
+              company_id: userRole.company_id,
+              store_id: userRole.store_id,
+            } as unknown as Prisma.JsonObject,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Role ${role.code} assigned to user ${user.email} by ${auditContext.userEmail}`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the role assignment
+        console.error(
+          "Failed to create audit log for role assignment:",
+          auditError,
+        );
+      }
 
       return {
         user_role_id: userRole.user_role_id,
@@ -617,26 +643,34 @@ export class UserAdminService {
         where: { user_role_id: userRoleId },
       });
 
-      // Create audit log
-      await prisma.auditLog.create({
-        data: {
-          user_id: auditContext.userId,
-          action: "DELETE",
-          table_name: "user_roles",
-          record_id: userRoleId,
-          old_values: {
-            user_role_id: userRole.user_role_id,
-            user_id: userRole.user_id,
-            role_id: userRole.role_id,
-            role_code: userRole.role.code,
-            company_id: userRole.company_id,
-            store_id: userRole.store_id,
-          } as unknown as Prisma.JsonObject,
-          ip_address: auditContext.ipAddress,
-          user_agent: auditContext.userAgent,
-          reason: `Role ${userRole.role.code} revoked from user ${user.email} by ${auditContext.userEmail}`,
-        },
-      });
+      // Create audit log (non-blocking)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "DELETE",
+            table_name: "user_roles",
+            record_id: userRoleId,
+            old_values: {
+              user_role_id: userRole.user_role_id,
+              user_id: userRole.user_id,
+              role_id: userRole.role_id,
+              role_code: userRole.role.code,
+              company_id: userRole.company_id,
+              store_id: userRole.store_id,
+            } as unknown as Prisma.JsonObject,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Role ${userRole.role.code} revoked from user ${user.email} by ${auditContext.userEmail}`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the role removal
+        console.error(
+          "Failed to create audit log for role removal:",
+          auditError,
+        );
+      }
     } catch (error) {
       console.error("Error revoking role:", error);
       throw error;

@@ -1,4 +1,5 @@
 import { prisma } from "../utils/db";
+import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 
 /**
  * User service for managing user creation and retrieval
@@ -120,6 +121,7 @@ export async function getUserOrCreate(
         name: normalizedName,
       },
       create: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         email,
         name: normalizedName,
         auth_provider_id: authProviderId,

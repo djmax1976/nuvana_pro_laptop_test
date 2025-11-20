@@ -6,12 +6,11 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
-import { use } from "react";
 
 interface ClientDetailPageProps {
-  params: Promise<{
+  params: {
     clientId: string;
-  }>;
+  };
 }
 
 /**
@@ -19,7 +18,7 @@ interface ClientDetailPageProps {
  * Displays client details and provides edit form
  */
 export default function ClientDetailPage({ params }: ClientDetailPageProps) {
-  const { clientId } = use(params);
+  const { clientId } = params;
   const { data, isLoading, error } = useClient(clientId);
 
   if (isLoading) {
@@ -95,13 +94,6 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
           <h2 className="mb-4 text-lg font-semibold">Client Details</h2>
 
           <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">
-                Client ID
-              </label>
-              <p className="mt-1 font-mono text-sm">{client.client_id}</p>
-            </div>
-
             <div>
               <label className="text-sm font-medium text-muted-foreground">
                 Companies

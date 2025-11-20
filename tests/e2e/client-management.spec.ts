@@ -101,7 +101,9 @@ test.describe("Client Management E2E", () => {
 
     // THEN: Clients page loads successfully
     await expect(page).toHaveURL(/\/clients$/);
-    await expect(page.locator("h1, h2").filter({ hasText: /clients/i })).toBeVisible();
+    await expect(
+      page.locator("h1, h2").filter({ hasText: /clients/i }),
+    ).toBeVisible();
   });
 
   test("[P0] Should navigate to client detail page from clients list", async ({
@@ -118,8 +120,12 @@ test.describe("Client Management E2E", () => {
     await clientRow.click();
 
     // THEN: I am redirected to the client detail page using public_id
-    await expect(page).toHaveURL(new RegExp(`/clients/${testClient.public_id}`));
-    await expect(page.locator("h2").filter({ hasText: /edit client/i })).toBeVisible();
+    await expect(page).toHaveURL(
+      new RegExp(`/clients/${testClient.public_id}`),
+    );
+    await expect(
+      page.locator("h2").filter({ hasText: /edit client/i }),
+    ).toBeVisible();
   });
 
   test("[P0] Should successfully edit client name and status with confirmation", async ({
@@ -137,7 +143,9 @@ test.describe("Client Management E2E", () => {
     await nameInput.fill(newName);
 
     // AND: I change the status (which triggers confirmation dialog)
-    const statusSelect = page.locator('button[data-testid="client-status-select"]');
+    const statusSelect = page.locator(
+      'button[data-testid="client-status-select"]',
+    );
     await statusSelect.click();
     await page.locator('div[role="option"]:has-text("Inactive")').click();
 
@@ -145,17 +153,23 @@ test.describe("Client Management E2E", () => {
     await expect(page.getByText(/change status to inactive/i)).toBeVisible();
 
     // WHEN: I confirm the status change
-    await page.getByRole("button", { name: /deactivate|change to inactive/i }).click();
+    await page
+      .getByRole("button", { name: /deactivate|change to inactive/i })
+      .click();
 
     // AND: I submit the form
-    const submitButton = page.locator('button[data-testid="client-submit-button"]');
+    const submitButton = page.locator(
+      'button[data-testid="client-submit-button"]',
+    );
     await submitButton.click();
 
     // THEN: Success toast appears and I stay on the same page
     await expect(page.getByText(/success|updated successfully/i)).toBeVisible({
       timeout: 5000,
     });
-    await expect(page).toHaveURL(new RegExp(`/clients/${testClient.public_id}`));
+    await expect(page).toHaveURL(
+      new RegExp(`/clients/${testClient.public_id}`),
+    );
 
     // AND: The database is updated
     const updatedClient = await prisma.client.findUnique({
@@ -174,12 +188,16 @@ test.describe("Client Management E2E", () => {
     });
   });
 
-  test("[P0] Should successfully edit client metadata and stay on page", async ({ page }) => {
+  test("[P0] Should successfully edit client metadata and stay on page", async ({
+    page,
+  }) => {
     // GIVEN: I am on the client edit page
     await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
 
     // WHEN: I update the client metadata
-    const metadataTextarea = page.locator('textarea[data-testid="client-metadata-textarea"]');
+    const metadataTextarea = page.locator(
+      'textarea[data-testid="client-metadata-textarea"]',
+    );
     await expect(metadataTextarea).toBeVisible({ timeout: 10000 });
 
     const newMetadata = JSON.stringify({ test: true, updated: true }, null, 2);
@@ -187,20 +205,27 @@ test.describe("Client Management E2E", () => {
     await metadataTextarea.fill(newMetadata);
 
     // AND: I submit the form
-    const submitButton = page.locator('button[data-testid="client-submit-button"]');
+    const submitButton = page.locator(
+      'button[data-testid="client-submit-button"]',
+    );
     await submitButton.click();
 
     // THEN: Success toast appears and I stay on the same page (no redirect)
     await expect(page.getByText(/success|updated successfully/i)).toBeVisible({
       timeout: 5000,
     });
-    await expect(page).toHaveURL(new RegExp(`/clients/${testClient.public_id}`));
+    await expect(page).toHaveURL(
+      new RegExp(`/clients/${testClient.public_id}`),
+    );
 
     // AND: The metadata is updated in the database
     const updatedClient = await prisma.client.findUnique({
       where: { client_id: testClient.client_id },
     });
-    expect(updatedClient?.metadata).toMatchObject({ test: true, updated: true });
+    expect(updatedClient?.metadata).toMatchObject({
+      test: true,
+      updated: true,
+    });
 
     // Clean up: Restore original metadata
     await prisma.client.update({
@@ -220,7 +245,9 @@ test.describe("Client Management E2E", () => {
     await expect(nameInput).toBeVisible({ timeout: 10000 });
     await nameInput.clear();
 
-    const submitButton = page.locator('button[data-testid="client-submit-button"]');
+    const submitButton = page.locator(
+      'button[data-testid="client-submit-button"]',
+    );
     await submitButton.click();
 
     // THEN: I see a validation error
@@ -236,16 +263,20 @@ test.describe("Client Management E2E", () => {
     await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
 
     // WHEN: I enter invalid JSON in metadata field
-    const metadataTextarea = page.locator('textarea[data-testid="client-metadata-textarea"]');
+    const metadataTextarea = page.locator(
+      'textarea[data-testid="client-metadata-textarea"]',
+    );
     await expect(metadataTextarea).toBeVisible({ timeout: 10000 });
     await metadataTextarea.clear();
-    await metadataTextarea.fill('{ invalid json }');
+    await metadataTextarea.fill("{ invalid json }");
 
-    const submitButton = page.locator('button[data-testid="client-submit-button"]');
+    const submitButton = page.locator(
+      'button[data-testid="client-submit-button"]',
+    );
     await submitButton.click();
 
     // THEN: I see a validation error
-    const errorMessage = page.locator('text=/invalid.*json/i');
+    const errorMessage = page.locator("text=/invalid.*json/i");
     await expect(errorMessage).toBeVisible({ timeout: 5000 });
   });
 
@@ -254,15 +285,21 @@ test.describe("Client Management E2E", () => {
     await page.goto("http://localhost:3000/clients");
 
     // WHEN: I click the "Create Client" or "New Client" button
-    const createButton = page.getByRole('button', { name: /new client|create client/i });
+    const createButton = page.getByRole("button", {
+      name: /new client|create client/i,
+    });
     await createButton.click();
 
     // AND: I fill in the client form
     const newClientName = `New E2E Client ${Date.now()}`;
 
-    await page.locator('input[data-testid="client-name-input"]').fill(newClientName);
+    await page
+      .locator('input[data-testid="client-name-input"]')
+      .fill(newClientName);
 
-    const statusSelect = page.locator('button[data-testid="client-status-select"]');
+    const statusSelect = page.locator(
+      'button[data-testid="client-status-select"]',
+    );
     await statusSelect.click();
     await page.locator('div[role="option"]:has-text("Active")').click();
 
@@ -300,7 +337,9 @@ test.describe("Client Management E2E", () => {
     await nameInput.fill("This Should Not Be Saved");
 
     // AND: I click the cancel button
-    const cancelButton = page.locator('button[data-testid="client-cancel-button"]');
+    const cancelButton = page.locator(
+      'button[data-testid="client-cancel-button"]',
+    );
     await cancelButton.click();
 
     // THEN: Changes are not saved
@@ -320,7 +359,9 @@ test.describe("Client Management E2E", () => {
     await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
 
     // WHEN: I try to click the delete button
-    const deleteButton = page.locator('button[data-testid="client-delete-button"]');
+    const deleteButton = page.locator(
+      'button[data-testid="client-delete-button"]',
+    );
 
     // THEN: The delete button is disabled
     await expect(deleteButton).toBeDisabled();
@@ -339,7 +380,9 @@ test.describe("Client Management E2E", () => {
     await page.waitForLoadState("networkidle");
 
     // THEN: The page should be visible and not overflow
-    const clientEditSection = page.locator('[data-testid="client-edit-button"]');
+    const clientEditSection = page.locator(
+      '[data-testid="client-edit-button"]',
+    );
     await expect(clientEditSection).toBeVisible();
 
     // AND: If we trigger the delete dialog (even if disabled), it should fit on screen
@@ -348,7 +391,9 @@ test.describe("Client Management E2E", () => {
     expect(viewport?.width).toBe(375); // Verify mobile viewport is set
   });
 
-  test("[P1] Should successfully delete INACTIVE client with text confirmation", async ({ page }) => {
+  test("[P1] Should successfully delete INACTIVE client with text confirmation", async ({
+    page,
+  }) => {
     // GIVEN: I create a new client and set it to INACTIVE
     const clientToDelete = await prisma.client.create({
       data: {
@@ -357,10 +402,14 @@ test.describe("Client Management E2E", () => {
       },
     });
 
-    await page.goto(`http://localhost:3000/clients/${clientToDelete.public_id}`);
+    await page.goto(
+      `http://localhost:3000/clients/${clientToDelete.public_id}`,
+    );
 
     // WHEN: I click the delete button
-    const deleteButton = page.locator('button[data-testid="client-delete-button"]');
+    const deleteButton = page.locator(
+      'button[data-testid="client-delete-button"]',
+    );
     await expect(deleteButton).toBeEnabled();
     await deleteButton.click();
 
@@ -369,7 +418,9 @@ test.describe("Client Management E2E", () => {
     await expect(page.getByText(/this action cannot be undone/i)).toBeVisible();
 
     // AND: Confirm button is disabled initially
-    const confirmButton = page.getByRole('button', { name: /delete permanently/i });
+    const confirmButton = page.getByRole("button", {
+      name: /delete permanently/i,
+    });
     await expect(confirmButton).toBeDisabled();
 
     // WHEN: I type "DELETE" in the confirmation input
@@ -407,7 +458,9 @@ test.describe("Client Management E2E", () => {
     await clientRow.click();
 
     // THEN: URL contains public_id (not UUID)
-    await expect(page).toHaveURL(new RegExp(`/clients/${testClient.public_id}`));
+    await expect(page).toHaveURL(
+      new RegExp(`/clients/${testClient.public_id}`),
+    );
 
     // AND: URL does NOT contain UUID
     const currentUrl = page.url();
@@ -509,9 +562,15 @@ test.describe("Client Management E2E", () => {
     await expect(clientRow).toBeVisible({ timeout: 10000 });
 
     // AND: Edit, Status Toggle, and Delete buttons are visible
-    const editButton = clientRow.getByTestId(`client-edit-${testClient.client_id}`);
-    const statusButton = clientRow.getByTestId(`client-toggle-status-${testClient.client_id}`);
-    const deleteButton = clientRow.getByTestId(`client-delete-${testClient.client_id}`);
+    const editButton = clientRow.getByTestId(
+      `client-edit-${testClient.client_id}`,
+    );
+    const statusButton = clientRow.getByTestId(
+      `client-toggle-status-${testClient.client_id}`,
+    );
+    const deleteButton = clientRow.getByTestId(
+      `client-delete-${testClient.client_id}`,
+    );
 
     await expect(editButton).toBeVisible();
     await expect(statusButton).toBeVisible();
@@ -532,11 +591,13 @@ test.describe("Client Management E2E", () => {
     await page.goto("http://localhost:3000/clients");
 
     // WHEN: I click the status toggle button for an INACTIVE client
-    const clientRow = page.locator(`tr:has-text("${inactiveClient.name}")`).first();
+    const clientRow = page
+      .locator(`tr:has-text("${inactiveClient.name}")`)
+      .first();
     await expect(clientRow).toBeVisible({ timeout: 10000 });
 
     const statusButton = clientRow.getByTestId(
-      `client-toggle-status-${inactiveClient.client_id}`
+      `client-toggle-status-${inactiveClient.client_id}`,
     );
     await statusButton.click();
 
@@ -579,11 +640,13 @@ test.describe("Client Management E2E", () => {
     await page.goto("http://localhost:3000/clients");
 
     // WHEN: I click the status toggle button for an ACTIVE client
-    const clientRow = page.locator(`tr:has-text("${activeClient.name}")`).first();
+    const clientRow = page
+      .locator(`tr:has-text("${activeClient.name}")`)
+      .first();
     await expect(clientRow).toBeVisible({ timeout: 10000 });
 
     const statusButton = clientRow.getByTestId(
-      `client-toggle-status-${activeClient.client_id}`
+      `client-toggle-status-${activeClient.client_id}`,
     );
     await statusButton.click();
 
@@ -626,11 +689,13 @@ test.describe("Client Management E2E", () => {
     await page.goto("http://localhost:3000/clients");
 
     // WHEN: I click the delete button
-    const clientRow = page.locator(`tr:has-text("${clientToDelete.name}")`).first();
+    const clientRow = page
+      .locator(`tr:has-text("${clientToDelete.name}")`)
+      .first();
     await expect(clientRow).toBeVisible({ timeout: 10000 });
 
     const deleteButton = clientRow.getByTestId(
-      `client-delete-${clientToDelete.client_id}`
+      `client-delete-${clientToDelete.client_id}`,
     );
     await deleteButton.click();
 
@@ -639,7 +704,9 @@ test.describe("Client Management E2E", () => {
     await expect(page.getByText(/cannot be undone/i)).toBeVisible();
 
     // AND: Confirm button is disabled initially
-    const confirmButton = page.getByRole("button", { name: /delete permanently/i });
+    const confirmButton = page.getByRole("button", {
+      name: /delete permanently/i,
+    });
     await expect(confirmButton).toBeDisabled();
 
     // WHEN: I type "DELETE" in the confirmation input
@@ -678,11 +745,13 @@ test.describe("Client Management E2E", () => {
     await page.goto("http://localhost:3000/clients");
 
     // WHEN: I try to delete an ACTIVE client
-    const clientRow = page.locator(`tr:has-text("${activeClient.name}")`).first();
+    const clientRow = page
+      .locator(`tr:has-text("${activeClient.name}")`)
+      .first();
     await expect(clientRow).toBeVisible({ timeout: 10000 });
 
     const deleteButton = clientRow.getByTestId(
-      `client-delete-${activeClient.client_id}`
+      `client-delete-${activeClient.client_id}`,
     );
     await deleteButton.click();
 
@@ -690,12 +759,14 @@ test.describe("Client Management E2E", () => {
     const confirmInput = page.getByPlaceholder("DELETE");
     await confirmInput.fill("DELETE");
 
-    const confirmButton = page.getByRole("button", { name: /delete permanently/i });
+    const confirmButton = page.getByRole("button", {
+      name: /delete permanently/i,
+    });
     await confirmButton.click();
 
     // THEN: Error message appears
     await expect(
-      page.getByText(/cannot delete active client|must deactivate/i)
+      page.getByText(/cannot delete active client|must deactivate/i),
     ).toBeVisible({ timeout: 5000 });
 
     // AND: Client is NOT deleted
@@ -720,7 +791,9 @@ test.describe("Client Management E2E", () => {
     const originalStatus = testClient.status;
 
     // WHEN: I try to change the status
-    const statusSelect = page.locator('button[data-testid="client-status-select"]');
+    const statusSelect = page.locator(
+      'button[data-testid="client-status-select"]',
+    );
     await statusSelect.click();
     await page.locator('div[role="option"]:has-text("Inactive")').click();
 
@@ -750,14 +823,18 @@ test.describe("Client Management E2E", () => {
     await nameInput.clear();
     await nameInput.fill("First Update");
 
-    const submitButton = page.locator('button[data-testid="client-submit-button"]');
+    const submitButton = page.locator(
+      'button[data-testid="client-submit-button"]',
+    );
     await submitButton.click();
 
     // THEN: I stay on the same page
     await expect(page.getByText(/success|updated successfully/i)).toBeVisible({
       timeout: 5000,
     });
-    await expect(page).toHaveURL(new RegExp(`/clients/${testClient.public_id}`));
+    await expect(page).toHaveURL(
+      new RegExp(`/clients/${testClient.public_id}`),
+    );
 
     // WHEN: I update the client name again
     await nameInput.clear();
@@ -768,7 +845,9 @@ test.describe("Client Management E2E", () => {
     await expect(page.getByText(/success|updated successfully/i)).toBeVisible({
       timeout: 5000,
     });
-    await expect(page).toHaveURL(new RegExp(`/clients/${testClient.public_id}`));
+    await expect(page).toHaveURL(
+      new RegExp(`/clients/${testClient.public_id}`),
+    );
 
     // Cleanup: Restore original name
     await prisma.client.update({
@@ -791,7 +870,9 @@ test.describe("Client Management E2E", () => {
     await page.goto(`http://localhost:3000/clients/${client.public_id}`);
 
     // WHEN: I click delete button
-    const deleteButton = page.locator('button[data-testid="client-delete-button"]');
+    const deleteButton = page.locator(
+      'button[data-testid="client-delete-button"]',
+    );
     await deleteButton.click();
 
     // AND: I type wrong text (lowercase instead of uppercase)
@@ -799,7 +880,9 @@ test.describe("Client Management E2E", () => {
     await confirmInput.fill("delete"); // Wrong case
 
     // THEN: Confirm button remains disabled
-    const confirmButton = page.getByRole("button", { name: /delete permanently/i });
+    const confirmButton = page.getByRole("button", {
+      name: /delete permanently/i,
+    });
     await expect(confirmButton).toBeDisabled();
 
     // WHEN: I clear and type partially correct text

@@ -7,6 +7,7 @@ import {
   CompanyWithClient,
   AuditContext,
 } from "../types/company.types";
+import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -82,6 +83,7 @@ export class CompanyService {
     try {
       const company = await prisma.company.create({
         data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
           client_id: data.client_id,
           name: data.name.trim(),
           status: data.status || "ACTIVE",
@@ -96,19 +98,27 @@ export class CompanyService {
         },
       });
 
-      // Create audit log entry
-      await prisma.auditLog.create({
-        data: {
-          user_id: auditContext.userId,
-          action: "CREATE",
-          table_name: "companies",
-          record_id: company.company_id,
-          new_values: company as unknown as Prisma.JsonObject,
-          ip_address: auditContext.ipAddress,
-          user_agent: auditContext.userAgent,
-          reason: `Company created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
-        },
-      });
+      // Create audit log entry (non-blocking - don't fail the creation if audit fails)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "CREATE",
+            table_name: "companies",
+            record_id: company.company_id,
+            new_values: company as unknown as Prisma.JsonObject,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Company created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the creation operation
+        console.error(
+          "Failed to create audit log for company creation:",
+          auditError,
+        );
+      }
 
       return {
         company_id: company.company_id,
@@ -335,20 +345,28 @@ export class CompanyService {
         },
       });
 
-      // Create audit log entry with old and new client_id
-      await prisma.auditLog.create({
-        data: {
-          user_id: auditContext.userId,
-          action: "UPDATE",
-          table_name: "companies",
-          record_id: company.company_id,
-          old_values: existingCompany as unknown as Prisma.JsonObject,
-          new_values: company as unknown as Prisma.JsonObject,
-          ip_address: auditContext.ipAddress,
-          user_agent: auditContext.userAgent,
-          reason: `Company updated by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
-        },
-      });
+      // Create audit log entry with old and new client_id (non-blocking)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "UPDATE",
+            table_name: "companies",
+            record_id: company.company_id,
+            old_values: existingCompany as unknown as Prisma.JsonObject,
+            new_values: company as unknown as Prisma.JsonObject,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Company updated by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the update operation
+        console.error(
+          "Failed to create audit log for company update:",
+          auditError,
+        );
+      }
 
       return {
         company_id: company.company_id,
@@ -426,20 +444,28 @@ export class CompanyService {
         },
       });
 
-      // Create audit log entry
-      await prisma.auditLog.create({
-        data: {
-          user_id: auditContext.userId,
-          action: "DELETE",
-          table_name: "companies",
-          record_id: company.company_id,
-          old_values: existingCompany as unknown as Prisma.JsonObject,
-          new_values: company as unknown as Prisma.JsonObject,
-          ip_address: auditContext.ipAddress,
-          user_agent: auditContext.userAgent,
-          reason: `Company soft deleted by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
-        },
-      });
+      // Create audit log entry (non-blocking - don't fail the deletion if audit fails)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "DELETE",
+            table_name: "companies",
+            record_id: company.company_id,
+            old_values: existingCompany as unknown as Prisma.JsonObject,
+            new_values: company as unknown as Prisma.JsonObject,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Company soft deleted by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the deletion operation
+        console.error(
+          "Failed to create audit log for company deletion:",
+          auditError,
+        );
+      }
 
       return {
         company_id: company.company_id,

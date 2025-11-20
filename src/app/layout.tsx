@@ -1,6 +1,7 @@
 import "./globals.css";
 import { QueryProvider } from "@/lib/providers/query-provider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import { ThemeSync } from "@/components/providers/ThemeSync";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Toaster } from "@/components/ui/toaster";
 
@@ -25,6 +26,7 @@ export default function RootLayout({
         <ThemeProvider>
           <AuthProvider>
             <QueryProvider>
+              <ThemeSync />
               {children}
               <Toaster />
             </QueryProvider>
