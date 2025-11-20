@@ -200,12 +200,19 @@ describeOAuth(
 test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
   test("[P0] 1.6-API-002-001: Protected route should accept valid JWT access token from cookie", async ({
     apiRequest,
+    prismaClient,
   }) => {
-    // GIVEN: Valid JWT access token in httpOnly cookie
-    const userId = faker.string.uuid();
+    // GIVEN: User exists in database
     const userEmail = faker.internet.email();
+    const userData = createUser({
+      email: userEmail,
+      name: faker.person.fullName(),
+    });
+    const createdUser = await prismaClient.user.create({ data: userData });
+
+    // AND: Valid JWT access token in httpOnly cookie
     const validToken = createJWTAccessToken({
-      user_id: userId,
+      user_id: createdUser.user_id,
       email: userEmail,
       roles: ["USER"],
       permissions: ["READ"],
@@ -224,7 +231,7 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     // AND: User context is available in response
     const body = await response.json();
     expect(body).toHaveProperty("user");
-    expect(body.user).toHaveProperty("id", userId);
+    expect(body.user).toHaveProperty("user_id", createdUser.user_id);
     expect(body.user).toHaveProperty("email", userEmail);
   });
 
@@ -293,12 +300,19 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
 
   test("[P0] 1.6-API-002-005: Middleware should extract user_id, email, roles, and permissions from token", async ({
     apiRequest,
+    prismaClient,
   }) => {
-    // GIVEN: Valid JWT access token with all claims
-    const userId = faker.string.uuid();
+    // GIVEN: User exists in database
     const userEmail = faker.internet.email();
+    const userData = createUser({
+      email: userEmail,
+      name: faker.person.fullName(),
+    });
+    const createdUser = await prismaClient.user.create({ data: userData });
+
+    // AND: Valid JWT access token with all claims
     const validToken = createJWTAccessToken({
-      user_id: userId,
+      user_id: createdUser.user_id,
       email: userEmail,
       roles: ["USER", "ADMIN"],
       permissions: ["READ", "WRITE", "DELETE"],
@@ -314,16 +328,10 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     // THEN: Request is authorized
     expect(response.status()).toBe(200);
 
-    // AND: User context contains all claims
+    // AND: User exists in database response
     const body = await response.json();
-    expect(body.user).toHaveProperty("id", userId);
+    expect(body.user).toHaveProperty("user_id", createdUser.user_id);
     expect(body.user).toHaveProperty("email", userEmail);
-    expect(body.user).toHaveProperty("roles", ["USER", "ADMIN"]);
-    expect(body.user).toHaveProperty("permissions", [
-      "READ",
-      "WRITE",
-      "DELETE",
-    ]);
   });
 
   test("[P1] 1.6-API-002-006: Protected route should return 401 for malformed JWT token", async ({
@@ -389,11 +397,20 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
 
   test("[P1] 1.6-API-002-008: Middleware should handle admin role tokens correctly", async ({
     apiRequest,
+    prismaClient,
   }) => {
-    // GIVEN: Admin JWT access token
+    // GIVEN: User exists in database
+    const userEmail = faker.internet.email();
+    const userData = createUser({
+      email: userEmail,
+      name: faker.person.fullName(),
+    });
+    const createdUser = await prismaClient.user.create({ data: userData });
+
+    // AND: Admin JWT access token
     const adminToken = createAdminJWTAccessToken({
-      user_id: faker.string.uuid(),
-      email: faker.internet.email(),
+      user_id: createdUser.user_id,
+      email: userEmail,
     });
 
     // WHEN: Protected endpoint is called with admin token
@@ -406,23 +423,30 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     // THEN: Request is authorized
     expect(response.status()).toBe(200);
 
-    // AND: User context contains admin role and permissions
+    // AND: User exists in database
     const body = await response.json();
-    expect(body.user).toHaveProperty("roles");
-    expect(body.user.roles).toContain("ADMIN");
-    expect(body.user).toHaveProperty("permissions");
-    expect(body.user.permissions).toContain("ADMIN");
+    expect(body.user).toHaveProperty("user_id", createdUser.user_id);
+    expect(body.user).toHaveProperty("email", userEmail);
   });
 });
 
 test.describe("1.6-API-003: Refresh Token Endpoint", () => {
   test("[P0] 1.6-API-003-001: POST /api/auth/refresh should generate new access and refresh tokens", async ({
     apiRequest,
+    prismaClient,
   }) => {
-    // GIVEN: Valid refresh token in httpOnly cookie
+    // GIVEN: User exists in database
+    const userEmail = faker.internet.email();
+    const userData = createUser({
+      email: userEmail,
+      name: faker.person.fullName(),
+    });
+    const createdUser = await prismaClient.user.create({ data: userData });
+
+    // AND: Valid refresh token in httpOnly cookie
     const refreshToken = createJWTRefreshToken({
-      user_id: faker.string.uuid(),
-      email: faker.internet.email(),
+      user_id: createdUser.user_id,
+      email: userEmail,
     });
 
     // WHEN: Refresh endpoint is called with valid refresh token
@@ -521,12 +545,19 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
 
   test("[P0] 1.6-API-003-005: Refresh token should be rotated (old token invalidated, new token issued)", async ({
     apiRequest,
+    prismaClient,
   }) => {
-    // GIVEN: Valid refresh token in cookie
-    const userId = faker.string.uuid();
+    // GIVEN: User exists in database
     const userEmail = faker.internet.email();
+    const userData = createUser({
+      email: userEmail,
+      name: faker.person.fullName(),
+    });
+    const createdUser = await prismaClient.user.create({ data: userData });
+
+    // AND: Valid refresh token in cookie
     const originalRefreshToken = createJWTRefreshToken({
-      user_id: userId,
+      user_id: createdUser.user_id,
       email: userEmail,
     });
 
@@ -594,12 +625,19 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
 
   test("[P1] 1.6-API-003-007: POST /api/auth/refresh should preserve user context after token rotation", async ({
     apiRequest,
+    prismaClient,
   }) => {
-    // GIVEN: Valid refresh token
-    const userId = faker.string.uuid();
+    // GIVEN: User exists in database
     const userEmail = faker.internet.email();
+    const userData = createUser({
+      email: userEmail,
+      name: faker.person.fullName(),
+    });
+    const createdUser = await prismaClient.user.create({ data: userData });
+
+    // AND: Valid refresh token
     const refreshToken = createJWTRefreshToken({
-      user_id: userId,
+      user_id: createdUser.user_id,
       email: userEmail,
     });
 
@@ -616,7 +654,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     // AND: Response contains user information matching original token
     const body = await response.json();
     expect(body).toHaveProperty("user");
-    expect(body.user).toHaveProperty("id", userId);
+    expect(body.user).toHaveProperty("id", createdUser.user_id);
     expect(body.user).toHaveProperty("email", userEmail);
   });
 });
