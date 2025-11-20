@@ -74,30 +74,28 @@ export function ConfirmDialog({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription className="space-y-3">
-            <span className="block">{description}</span>
-            {requiresTextConfirmation && (
-              <div className="space-y-2">
-                <Label htmlFor="confirm-input" className="text-sm font-medium">
-                  {confirmationLabel}
-                </Label>
-                <Input
-                  id="confirm-input"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  placeholder={confirmationText}
-                  disabled={isLoading}
-                  className="font-mono"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !isConfirmDisabled) {
-                      handleConfirm();
-                    }
-                  }}
-                />
-              </div>
-            )}
-          </AlertDialogDescription>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+          {requiresTextConfirmation && (
+            <div className="space-y-2 pt-2">
+              <Label htmlFor="confirm-input" className="text-sm font-medium">
+                {confirmationLabel}
+              </Label>
+              <Input
+                id="confirm-input"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder={confirmationText}
+                disabled={isLoading}
+                className="font-mono"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !isConfirmDisabled) {
+                    handleConfirm();
+                  }
+                }}
+              />
+            </div>
+          )}
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel onClick={handleCancel} disabled={isLoading}>

@@ -81,10 +81,11 @@ export function CompanyForm({ company, onSuccess }: CompanyFormProps) {
     setIsSubmitting(true);
     try {
       if (company) {
-        // Update existing company
+        // Update existing company - exclude client_id from update payload
+        const { client_id, ...updateData } = values;
         await updateMutation.mutateAsync({
           companyId: company.company_id,
-          data: values,
+          data: updateData,
         });
         toast({
           title: "Success",
