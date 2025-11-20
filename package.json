@@ -12,7 +12,7 @@
     "lint": "next lint",
     "prisma:generate": "prisma generate --schema=backend/prisma/schema.prisma",
     "prepare": "npm run prisma:generate",
-    "test:unit": "vitest run --passWithNoTests tests/unit",
+    "test:unit": "vitest run --passWithNoTests tests/unit tests/component",
     "test:component": "vitest run tests/component/",
     "test:component:layout": "vitest run tests/component/DashboardLayout.test.tsx",
     "test:api:health": "playwright test --project=api tests/api/backend-setup.api.spec.ts --grep \"Health Check\"",

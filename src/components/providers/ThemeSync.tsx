@@ -35,15 +35,18 @@ export function ThemeSync() {
       const savedTheme = localStorage.getItem(userThemeKey);
 
       if (savedTheme && (savedTheme === "dark" || savedTheme === "light")) {
+        // CRITICAL FIX: Always restore user's saved theme preference on login
+        // This ensures theme is applied even if next-themes initialized before AuthContext set it
+
         // Ensure the theme is set in the key that next-themes reads
-        // This is already done in AuthContext, but we do it here too for safety
         localStorage.setItem("nuvana-theme", savedTheme);
 
         // Force next-themes to update by calling setTheme
-        // Call immediately - setTheme should work even if next-themes is still initializing
+        // This updates next-themes internal state regardless of current theme value
         setTheme(savedTheme);
 
-        // Also manually apply to DOM as a fallback
+        // Always apply to DOM immediately to prevent any flash of wrong theme
+        // This provides immediate visual feedback even before next-themes processes the change
         const html = document.documentElement;
         if (savedTheme === "dark") {
           html.classList.add("dark");
@@ -66,7 +69,7 @@ export function ThemeSync() {
 
     // Update ref for next comparison
     previousUserIdRef.current = currentUserId;
-  }, [user, setTheme]);
+  }, [user, setTheme, theme]); // theme needed to detect current state for comparison
 
   return null;
 }
