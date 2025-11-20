@@ -157,7 +157,7 @@ jobs:
           fi
       - name: Upload backend logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5.0.0
         with:
           name: backend-logs-selective-tests
           path: backend.log
@@ -283,7 +283,7 @@ jobs:
           fi
       - name: Upload backend logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5.0.0
         with:
           name: backend-logs-burn-in
           path: backend.log
@@ -445,7 +445,7 @@ jobs:
           fi
       - name: Upload backend logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5.0.0
         with:
           name: backend-logs-api-smoke
           path: backend.log
@@ -600,7 +600,7 @@ jobs:
           done
       - name: Upload full stack logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5.0.0
         with:
           name: full-stack-logs-e2e-smoke
           path: |
@@ -657,7 +657,7 @@ jobs:
         with:
           output: sbom.xml
       - name: Upload SBOM
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5.0.0
         with:
           name: sbom-node
           path: sbom.xml
@@ -799,7 +799,7 @@ jobs:
           fi
       - name: Upload backend logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5.0.0
         with:
           name: backend-logs-security-dynamic
           path: backend.log
@@ -841,7 +841,7 @@ jobs:
             .next/**
             backend/dist/**
       - name: Upload bundle
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5.0.0
         with:
           name: build-output
           path: |
