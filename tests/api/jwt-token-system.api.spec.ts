@@ -450,7 +450,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     });
 
     // WHEN: Refresh endpoint is called with valid refresh token
-    const response = await apiRequest.post("/api/auth/refresh", undefined, {
+    const response = await apiRequest.post("/api/auth/refresh", {}, {
       headers: {
         Cookie: `refresh_token=${refreshToken}`,
       },
@@ -490,7 +490,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     });
 
     // WHEN: Refresh endpoint is called with expired refresh token
-    const response = await apiRequest.post("/api/auth/refresh", undefined, {
+    const response = await apiRequest.post("/api/auth/refresh", {}, {
       headers: {
         Cookie: `refresh_token=${expiredRefreshToken}`,
       },
@@ -512,7 +512,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     const invalidToken = "invalid.refresh.token";
 
     // WHEN: Refresh endpoint is called with invalid token
-    const response = await apiRequest.post("/api/auth/refresh", undefined, {
+    const response = await apiRequest.post("/api/auth/refresh", {}, {
       headers: {
         Cookie: `refresh_token=${invalidToken}`,
       },
@@ -562,7 +562,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     });
 
     // WHEN: Refresh endpoint is called first time
-    const response1 = await apiRequest.post("/api/auth/refresh", undefined, {
+    const response1 = await apiRequest.post("/api/auth/refresh", {}, {
       headers: {
         Cookie: `refresh_token=${originalRefreshToken}`,
       },
@@ -581,7 +581,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
       ?.match(/refresh_token=([^;]+)/)?.[1];
 
     // WHEN: Same original refresh token is used again (should be invalidated)
-    const response2 = await apiRequest.post("/api/auth/refresh", undefined, {
+    const response2 = await apiRequest.post("/api/auth/refresh", {}, {
       headers: {
         Cookie: `refresh_token=${originalRefreshToken}`,
       },
@@ -591,7 +591,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     expect(response2.status()).toBe(401);
 
     // AND: New refresh token from first call works
-    const response3 = await apiRequest.post("/api/auth/refresh", undefined, {
+    const response3 = await apiRequest.post("/api/auth/refresh", {}, {
       headers: {
         Cookie: `refresh_token=${newRefreshToken1}`,
       },
@@ -608,7 +608,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     const malformedToken = "not.a.valid.refresh.token";
 
     // WHEN: Refresh endpoint is called with malformed token
-    const response = await apiRequest.post("/api/auth/refresh", undefined, {
+    const response = await apiRequest.post("/api/auth/refresh", {}, {
       headers: {
         Cookie: `refresh_token=${malformedToken}`,
       },
@@ -642,7 +642,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     });
 
     // WHEN: Refresh endpoint is called
-    const response = await apiRequest.post("/api/auth/refresh", undefined, {
+    const response = await apiRequest.post("/api/auth/refresh", {}, {
       headers: {
         Cookie: `refresh_token=${refreshToken}`,
       },
