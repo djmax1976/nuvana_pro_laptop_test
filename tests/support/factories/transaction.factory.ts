@@ -18,7 +18,7 @@ import {
 // Type definitions for transaction data
 
 export type TransactionData = {
-  public_id: string;
+  public_id?: string;
   store_id: string;
   shift_id: string;
   cashier_id: string;

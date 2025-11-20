@@ -22,7 +22,7 @@ export type ClientStatus = "ACTIVE" | "INACTIVE";
  * Client data structure for test creation
  */
 export interface ClientData {
-  public_id: string;
+  public_id?: string;
   name: string;
   status: ClientStatus;
   metadata?: Record<string, any>;

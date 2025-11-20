@@ -15,7 +15,7 @@ import {
 
 export type UserData = {
   id?: string;
-  public_id: string;
+  public_id?: string;
   email: string;
   name: string;
   password_hash?: string | null;
@@ -24,13 +24,13 @@ export type UserData = {
 };
 
 export type CompanyData = {
-  public_id: string;
+  public_id?: string;
   name: string;
   status: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
 };
 
 export type StoreData = {
-  public_id: string;
+  public_id?: string;
   company_id: string;
   name: string;
   location_json?: Prisma.InputJsonValue;
