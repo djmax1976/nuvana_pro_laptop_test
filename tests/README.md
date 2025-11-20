@@ -16,8 +16,7 @@ tests/
 │   │   └── indexes.api.spec.ts            # Index validation tests
 │   ├── error-handling.api.spec.ts      # Error scenarios and negative paths
 │   ├── edge-cases.api.spec.ts         # Edge cases and boundary conditions
-│   ├── redis-rabbitmq-configuration.api.spec.ts  # Redis and RabbitMQ integration tests
-│   └── supabase-oauth-integration.api.spec.ts    # Supabase OAuth authentication tests
+│   └── redis-rabbitmq-configuration.api.spec.ts  # Redis and RabbitMQ integration tests
 ├── support/
 │   ├── fixtures/          # Test fixtures (setup/teardown)
 │   │   ├── index.ts                  # Central export for all fixtures
@@ -286,28 +285,13 @@ Tests run automatically in CI with:
    - Concurrent requests (P2)
    - Response format validation (P2)
 
-5. **supabase-oauth-integration.api.spec.ts** (496 lines)
-   - OAuth callback endpoint (P0, P1)
-   - Token validation middleware (P0, P1)
-   - User service - getUserOrCreate (P0, P1)
-   - CSRF protection (state parameter validation) (P1)
-   - Edge cases: malformed tokens, concurrent requests, missing claims (P1)
-
-6. **e2e/supabase-oauth-login.spec.ts** (203 lines)
-   - OAuth login flow (P0, P1)
-   - Session management (P0, P1)
-   - Error handling (P0)
-   - Network timeout scenarios (P1)
-   - Multiple login attempts prevention (P1)
-   - Session persistence (P1)
-
 ### Priority Breakdown
 
-- **P0 (Critical)**: 22 tests - Health checks, security, database connection, OAuth authentication
-- **P1 (High)**: 38 tests - Error handling, CORS, rate limiting, schema validation, OAuth edge cases
+- **P0 (Critical)**: 15 tests - Health checks, security, database connection
+- **P1 (High)**: 30 tests - Error handling, CORS, rate limiting, schema validation
 - **P2 (Medium)**: 18 tests - Edge cases, boundary conditions, concurrent requests
 
-**Total**: 78 tests across 6 test files (API: 70 tests, E2E: 8 tests)
+**Total**: 63 tests across 4 test files (API: 63 tests)
 
 ### Homepage Tests (NEW)
 

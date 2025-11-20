@@ -9,6 +9,11 @@ import {
 } from "../support/factories";
 import { faker } from "@faker-js/faker";
 
+// Story 1.6 (OAuth callback) is intentionally disabled in this application.
+// Keep these tests behind an env flag so they never run in CI unless explicitly enabled.
+const oauthCallbackEnabled = process.env.ENABLE_OAUTH_CALLBACK_TESTS === "true";
+const describeOAuth = oauthCallbackEnabled ? test.describe : test.describe.skip;
+
 /**
  * JWT Token System API Tests
  *
@@ -27,7 +32,7 @@ import { faker } from "@faker-js/faker";
  * Tests that depend on OAuth callback are skipped.
  */
 
-test.describe.skip(
+describeOAuth(
   "1.6-API-001: JWT Token Generation in OAuth Callback [DISABLED - OAuth not supported]",
   () => {
     test("[P0] 1.6-API-001-001: GET /api/auth/callback should generate access and refresh tokens after successful OAuth", async ({

@@ -47,6 +47,12 @@ while IFS= read -r file; do
       RUN_API=true
       RUN_E2E=true
       ;;
+    # Test support/infrastructure changes - run ALL tests
+    tests/support/*)
+      RUN_COMPONENT=true
+      RUN_API=true
+      RUN_E2E=true
+      ;;
     # Test changes
     tests/component/*)
       RUN_COMPONENT=true
@@ -55,6 +61,22 @@ while IFS= read -r file; do
       RUN_API=true
       ;;
     tests/e2e/*)
+      RUN_E2E=true
+      ;;
+    # CI/CD and workflow changes - run ALL tests
+    .github/*|nuvana_control/workflows/11-ci_pipeline/*)
+      RUN_COMPONENT=true
+      RUN_API=true
+      RUN_E2E=true
+      ;;
+    # Styles and public assets - run component and E2E
+    styles/*|public/*|*.css)
+      RUN_COMPONENT=true
+      RUN_E2E=true
+      ;;
+    # Next.js and frontend configs
+    next.config.*|tailwind.config.*|postcss.config.*)
+      RUN_COMPONENT=true
       RUN_E2E=true
       ;;
     # Config changes - run everything

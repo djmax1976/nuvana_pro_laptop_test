@@ -105,15 +105,12 @@ jobs:
           echo $! > ../backend.pid
         env:
           NODE_ENV: test
-          USE_SUPABASE_MOCK: "true"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
           JWT_SECRET: test_jwt_secret_for_ci_only_12345678
           JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
           COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       - name: Wait for backend health (if started)
         run: |
           for i in {1..30}; do
@@ -129,15 +126,12 @@ jobs:
       - name: Run selective tests
         env:
           NODE_ENV: test
-          USE_SUPABASE_MOCK: "true"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
           JWT_SECRET: test_jwt_secret_for_ci_only_12345678
           JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
           COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/test-changed.sh
       - name: Stop backend
         if: always()
@@ -223,8 +217,6 @@ jobs:
           JWT_SECRET: test_jwt_secret_for_ci_only_12345678
           JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
           COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       - name: Wait for backend health (if started)
         run: |
           for i in {1..30}; do
@@ -246,8 +238,6 @@ jobs:
           JWT_SECRET: test_jwt_secret_for_ci_only_12345678
           JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
           COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/burn-in.sh
       - name: Stop backend
         if: always()
@@ -337,12 +327,9 @@ jobs:
           echo $! > ../backend.pid
         env:
           NODE_ENV: test
-          USE_SUPABASE_MOCK: "true"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           JWT_SECRET: test_jwt_secret_for_ci_only_12345678
           JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
           COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
@@ -469,7 +456,6 @@ jobs:
           echo $! > ../backend.pid
         env:
           NODE_ENV: test
-          USE_SUPABASE_MOCK: "true"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
@@ -478,8 +464,6 @@ jobs:
           JWT_SECRET: test_jwt_secret_for_ci_only_12345678
           JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
           COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       - name: Wait for frontend and backend
         run: |
           echo "Waiting for frontend..."
@@ -622,12 +606,9 @@ jobs:
           echo $! > ../backend.pid
         env:
           NODE_ENV: test
-          USE_SUPABASE_MOCK: "true"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           JWT_SECRET: test_jwt_secret_for_ci_only_12345678
           JWT_REFRESH_SECRET: test_refresh_secret_for_ci_only_87654321
           COOKIE_SECRET: test_cookie_secret_for_ci_only_12345678
