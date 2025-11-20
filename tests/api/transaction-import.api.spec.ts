@@ -1,5 +1,9 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createTransactionPayload } from "../support/factories";
+import {
+  createTransactionPayload,
+  createCompany,
+  createStore,
+} from "../support/factories";
 
 /**
  * Transaction Import API Tests - Story 3.2
@@ -43,12 +47,12 @@ async function createTestStoreAndShift(
   storeName?: string,
 ): Promise<TestStoreAndShift> {
   const store = await prismaClient.store.create({
-    data: {
+    data: createStore({
       company_id: companyId,
       name: storeName || `Test Store ${Date.now()}`,
       timezone: "America/New_York",
       status: "ACTIVE",
-    },
+    }),
   });
 
   const shift = await prismaClient.shift.create({
@@ -153,10 +157,10 @@ test.describe("Transaction Import API - Authentication", () => {
   }) => {
     // GIVEN: A store belonging to a different company
     const otherCompany = await prismaClient.company.create({
-      data: {
+      data: createCompany({
         name: `Other Company ${Date.now()}`,
         status: "ACTIVE",
-      },
+      }),
     });
 
     const otherUser = await prismaClient.user.create({

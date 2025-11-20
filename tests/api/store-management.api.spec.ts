@@ -190,13 +190,14 @@ test.describe("Store Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Store exists
+    const storeData = createStore({
+      company_id: corporateAdminUser.company_id,
+      name: "Test Store",
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
     const store = await prismaClient.store.create({
-      data: {
-        company_id: corporateAdminUser.company_id,
-        name: "Test Store",
-        timezone: "America/New_York",
-        status: "ACTIVE",
-      },
+      data: storeData,
     });
 
     // WHEN: Retrieving by ID
@@ -225,13 +226,14 @@ test.describe("Store Management API - CRUD Operations", () => {
     const otherCompany = await prismaClient.company.create({
       data: createCompany({ name: "Other Company" }),
     });
+    const otherStoreData = createStore({
+      company_id: otherCompany.company_id,
+      name: "Other Store",
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
     const otherStore = await prismaClient.store.create({
-      data: {
-        company_id: otherCompany.company_id,
-        name: "Other Store",
-        timezone: "America/New_York",
-        status: "ACTIVE",
-      },
+      data: otherStoreData,
     });
 
     // WHEN: Trying to access
@@ -251,21 +253,23 @@ test.describe("Store Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Multiple stores exist
+    const store1Data = createStore({
+      company_id: corporateAdminUser.company_id,
+      name: "Store 1",
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
     const store1 = await prismaClient.store.create({
-      data: {
-        company_id: corporateAdminUser.company_id,
-        name: "Store 1",
-        timezone: "America/New_York",
-        status: "ACTIVE",
-      },
+      data: store1Data,
+    });
+    const store2Data = createStore({
+      company_id: corporateAdminUser.company_id,
+      name: "Store 2",
+      timezone: "America/Los_Angeles",
+      status: "ACTIVE",
     });
     const store2 = await prismaClient.store.create({
-      data: {
-        company_id: corporateAdminUser.company_id,
-        name: "Store 2",
-        timezone: "America/Los_Angeles",
-        status: "ACTIVE",
-      },
+      data: store2Data,
     });
 
     // WHEN: Listing stores
@@ -292,13 +296,14 @@ test.describe("Store Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Store exists
+    const storeData = createStore({
+      company_id: corporateAdminUser.company_id,
+      name: "Original Name",
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
     const store = await prismaClient.store.create({
-      data: {
-        company_id: corporateAdminUser.company_id,
-        name: "Original Name",
-        timezone: "America/New_York",
-        status: "ACTIVE",
-      },
+      data: storeData,
     });
 
     // WHEN: Updating
@@ -337,13 +342,14 @@ test.describe("Store Management API - CRUD Operations", () => {
     const otherCompany = await prismaClient.company.create({
       data: createCompany({ name: "Other Company" }),
     });
+    const otherStoreData = createStore({
+      company_id: otherCompany.company_id,
+      name: "Other Store",
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
     const otherStore = await prismaClient.store.create({
-      data: {
-        company_id: otherCompany.company_id,
-        name: "Other Store",
-        timezone: "America/New_York",
-        status: "ACTIVE",
-      },
+      data: otherStoreData,
     });
 
     // WHEN: Trying to update
@@ -364,13 +370,14 @@ test.describe("Store Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Active store
+    const storeData = createStore({
+      company_id: corporateAdminUser.company_id,
+      name: "Store to Delete",
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
     const store = await prismaClient.store.create({
-      data: {
-        company_id: corporateAdminUser.company_id,
-        name: "Store to Delete",
-        timezone: "America/New_York",
-        status: "ACTIVE",
-      },
+      data: storeData,
     });
 
     // WHEN: Deleting
@@ -407,13 +414,14 @@ test.describe("Store Management API - CRUD Operations", () => {
     const otherCompany = await prismaClient.company.create({
       data: createCompany({ name: "Other Company" }),
     });
+    const otherStoreData = createStore({
+      company_id: otherCompany.company_id,
+      name: "Other Store",
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
     const otherStore = await prismaClient.store.create({
-      data: {
-        company_id: otherCompany.company_id,
-        name: "Other Store",
-        timezone: "America/New_York",
-        status: "ACTIVE",
-      },
+      data: otherStoreData,
     });
 
     // WHEN: Trying to delete
@@ -453,13 +461,14 @@ test.describe("Store Management API - Permissions", () => {
     storeManagerUser,
   }) => {
     // GIVEN: Store exists, user lacks STORE_READ
+    const storeData = createStore({
+      company_id: storeManagerUser.company_id,
+      name: "Test Store",
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
     const store = await prismaClient.store.create({
-      data: {
-        company_id: storeManagerUser.company_id,
-        name: "Test Store",
-        timezone: "America/New_York",
-        status: "ACTIVE",
-      },
+      data: storeData,
     });
 
     // WHEN: Trying to read
@@ -632,13 +641,14 @@ test.describe("Store Management API - Resilience", () => {
     prismaClient,
   }) => {
     // GIVEN: Store exists
+    const storeData = createStore({
+      company_id: corporateAdminUser.company_id,
+      name: "Race Test Store",
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
     const store = await prismaClient.store.create({
-      data: {
-        company_id: corporateAdminUser.company_id,
-        name: "Race Test Store",
-        timezone: "America/New_York",
-        status: "ACTIVE",
-      },
+      data: storeData,
     });
 
     // WHEN: Two concurrent updates
@@ -771,13 +781,14 @@ test.describe("Store Management API - Validation (P1)", () => {
     prismaClient,
   }) => {
     // GIVEN: Store exists
+    const storeData = createStore({
+      company_id: corporateAdminUser.company_id,
+      name: "Original",
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
     const store = await prismaClient.store.create({
-      data: {
-        company_id: corporateAdminUser.company_id,
-        name: "Original",
-        timezone: "America/New_York",
-        status: "ACTIVE",
-      },
+      data: storeData,
     });
 
     // WHEN: Updating only name
@@ -1640,13 +1651,14 @@ test.describe("Store Configuration API", () => {
     const company = await prismaClient.company.create({
       data: createCompany({ name: "Test Company" }),
     });
+    const storeData = createStore({
+      company_id: company.company_id,
+      name: "Test Store",
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
     const store = await prismaClient.store.create({
-      data: {
-        company_id: company.company_id,
-        name: "Test Store",
-        timezone: "America/New_York",
-        status: "ACTIVE",
-      },
+      data: storeData,
     });
 
     // WHEN: Accessing configuration endpoint without authentication

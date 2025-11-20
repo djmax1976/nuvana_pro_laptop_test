@@ -3,6 +3,8 @@ import {
   createTransaction,
   createTransactionLineItem,
   createTransactionPayment,
+  createCompany,
+  createStore,
 } from "../support/factories";
 
 /**
@@ -50,12 +52,12 @@ async function createTestStoreAndShift(
   storeName?: string,
 ): Promise<TestStoreAndShift> {
   const store = await prismaClient.store.create({
-    data: {
+    data: createStore({
       company_id: companyId,
       name: storeName || `Test Store ${Date.now()}`,
       timezone: "America/New_York",
       status: "ACTIVE",
-    },
+    }),
   });
 
   const shift = await prismaClient.shift.create({
@@ -1091,19 +1093,19 @@ test.describe("Transaction Data Models - Security", () => {
     // GIVEN: A transaction in a different company's store
     // Create another company
     const otherCompany = await prismaClient.company.create({
-      data: {
+      data: createCompany({
         name: `Other Company ${Date.now()}`,
         status: "ACTIVE",
-      },
+      }),
     });
 
     const otherStore = await prismaClient.store.create({
-      data: {
+      data: createStore({
         company_id: otherCompany.company_id,
         name: "Other Store",
         timezone: "America/New_York",
         status: "ACTIVE",
-      },
+      }),
     });
 
     // Create a user for the other company
@@ -1162,19 +1164,19 @@ test.describe("Transaction Data Models - Security", () => {
   }) => {
     // GIVEN: A store belonging to a different company
     const otherCompany = await prismaClient.company.create({
-      data: {
+      data: createCompany({
         name: `Unauthorized Company ${Date.now()}`,
         status: "ACTIVE",
-      },
+      }),
     });
 
     const unauthorizedStore = await prismaClient.store.create({
-      data: {
+      data: createStore({
         company_id: otherCompany.company_id,
         name: "Unauthorized Store",
         timezone: "America/New_York",
         status: "ACTIVE",
-      },
+      }),
     });
 
     const otherUser = await prismaClient.user.create({
@@ -1408,12 +1410,12 @@ test.describe("Transaction Data Models - Shift Rules", () => {
   }) => {
     // GIVEN: A store exists
     const store = await prismaClient.store.create({
-      data: {
+      data: createStore({
         company_id: corporateAdminUser.company_id,
         name: `Test Store ${Date.now()}`,
         timezone: "America/New_York",
         status: "ACTIVE",
-      },
+      }),
     });
 
     // WHEN: Creating shift without opening amount (if schema allows)

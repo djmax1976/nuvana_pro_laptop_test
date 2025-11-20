@@ -1,5 +1,5 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createClient } from "../support/factories";
+import { createClient, createCompany } from "../support/factories";
 
 /**
  * Client Management API Tests
@@ -470,11 +470,14 @@ test.describe("Client Management API - Business Logic", () => {
         metadata: clientData.metadata,
       },
     });
+    const companyData = createCompany({
+      name: "Associated Company",
+      status: "ACTIVE",
+    });
     const company = await prismaClient.company.create({
       data: {
-        name: "Associated Company",
+        ...companyData,
         client_id: client.client_id,
-        status: "ACTIVE",
       },
     });
 

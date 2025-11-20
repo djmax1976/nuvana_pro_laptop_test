@@ -7,7 +7,7 @@ import {
   createStoreScopeAssignment,
   createInvalidScopeAssignment,
 } from "../support/factories/user-admin.factory";
-import { createClient } from "../support/factories";
+import { createClient, createCompany, createStore } from "../support/factories";
 
 /**
  * User and Role Management API Tests
@@ -452,11 +452,14 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       data: createClient(),
     });
 
+    const companyData = createCompany({
+      name: "Test Company",
+      status: "ACTIVE",
+    });
     const company = await prismaClient.company.create({
       data: {
-        name: "Test Company",
+        ...companyData,
         client_id: client.client_id,
-        status: "ACTIVE",
       },
     });
 
@@ -537,19 +540,26 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       data: createClient(),
     });
 
+    const companyData = createCompany({
+      name: "Test Company",
+      status: "ACTIVE",
+    });
     const company = await prismaClient.company.create({
       data: {
-        name: "Test Company",
+        ...companyData,
         client_id: client.client_id,
-        status: "ACTIVE",
       },
     });
 
+    const storeData = createStore({
+      name: "Test Store",
+      status: "ACTIVE",
+      timezone: "America/New_York",
+    });
     const store = await prismaClient.store.create({
       data: {
-        name: "Test Store",
+        ...storeData,
         company_id: company.company_id,
-        status: "ACTIVE",
       },
     });
 
@@ -602,11 +612,14 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       data: createClient(),
     });
 
+    const companyData = createCompany({
+      name: "Test Company",
+      status: "ACTIVE",
+    });
     const company = await prismaClient.company.create({
       data: {
-        name: "Test Company",
+        ...companyData,
         client_id: client.client_id,
-        status: "ACTIVE",
       },
     });
 
@@ -653,11 +666,14 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       data: createClient({ name: "Client Two" }),
     });
 
+    const companyData = createCompany({
+      name: "Company for Client One",
+      status: "ACTIVE",
+    });
     const company = await prismaClient.company.create({
       data: {
-        name: "Company for Client One",
+        ...companyData,
         client_id: client1.client_id,
-        status: "ACTIVE",
       },
     });
 
@@ -697,27 +713,37 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       data: createClient(),
     });
 
+    const companyData1 = createCompany({
+      name: "Company One",
+      status: "ACTIVE",
+    });
     const company1 = await prismaClient.company.create({
       data: {
-        name: "Company One",
+        ...companyData1,
         client_id: client.client_id,
-        status: "ACTIVE",
       },
     });
 
+    const companyData2 = createCompany({
+      name: "Company Two",
+      status: "ACTIVE",
+    });
     const company2 = await prismaClient.company.create({
       data: {
-        name: "Company Two",
+        ...companyData2,
         client_id: client.client_id,
-        status: "ACTIVE",
       },
     });
 
+    const storeData = createStore({
+      name: "Store for Company One",
+      status: "ACTIVE",
+      timezone: "America/New_York",
+    });
     const store = await prismaClient.store.create({
       data: {
-        name: "Store for Company One",
+        ...storeData,
         company_id: company1.company_id,
-        status: "ACTIVE",
       },
     });
 
@@ -1294,27 +1320,38 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
       data: createClient(),
     });
 
+    const companyData = createCompany({
+      name: "Test Company",
+      status: "ACTIVE",
+    });
     const company = await prismaClient.company.create({
       data: {
-        name: "Test Company",
+        ...companyData,
         client_id: client.client_id,
-        status: "ACTIVE",
       },
     });
 
+    const storeData1 = createStore({
+      name: "Store One",
+      status: "ACTIVE",
+      timezone: "America/New_York",
+    });
     const store1 = await prismaClient.store.create({
       data: {
-        name: "Store One",
+        ...storeData1,
         company_id: company.company_id,
-        status: "ACTIVE",
       },
     });
 
+    const storeData2 = createStore({
+      name: "Store Two",
+      status: "ACTIVE",
+      timezone: "America/New_York",
+    });
     const store2 = await prismaClient.store.create({
       data: {
-        name: "Store Two",
+        ...storeData2,
         company_id: company.company_id,
-        status: "ACTIVE",
       },
     });
 
