@@ -101,9 +101,8 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
     const companyData = createCompany();
     const company = await prismaClient.company.create({
       data: {
+        ...companyData,
         client_id: client.client_id,
-        name: companyData.name,
-        status: companyData.status,
       },
     });
 

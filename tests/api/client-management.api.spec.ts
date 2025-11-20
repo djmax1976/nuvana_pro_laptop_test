@@ -207,6 +207,7 @@ test.describe("Client Management API - CRUD Operations", () => {
     const clientData = createClient();
     const client = await prismaClient.client.create({
       data: {
+        public_id: clientData.public_id,
         name: clientData.name,
         status: clientData.status,
         metadata: clientData.metadata,
@@ -457,8 +458,17 @@ test.describe("Client Management API - Business Logic", () => {
     prismaClient,
   }) => {
     // GIVEN: A client exists with associated companies
+    const clientData = createClient({
+      name: "Client With Companies",
+      status: "INACTIVE",
+    });
     const client = await prismaClient.client.create({
-      data: createClient({ name: "Client With Companies", status: "INACTIVE" }),
+      data: {
+        public_id: clientData.public_id,
+        name: clientData.name,
+        status: clientData.status,
+        metadata: clientData.metadata,
+      },
     });
     const company = await prismaClient.company.create({
       data: {
