@@ -12,7 +12,7 @@
     "lint": "next lint",
     "prisma:generate": "prisma generate --schema=backend/prisma/schema.prisma",
     "prepare": "npm run prisma:generate",
-    "test:unit": "vitest run --runInBand --passWithNoTests tests/unit",
+    "test:unit": "vitest run --passWithNoTests tests/unit",
     "test:component": "vitest run tests/component/",
     "test:component:layout": "vitest run tests/component/DashboardLayout.test.tsx",
     "test:api:health": "playwright test --project=api tests/api/backend-setup.api.spec.ts --grep \"Health Check\"",
@@ -63,6 +63,7 @@
   },
   "devDependencies": {
     "@faker-js/faker": "^10.1.0",
+    "@paralleldrive/cuid2": "^3.0.4",
     "@playwright/test": "^1.56.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
