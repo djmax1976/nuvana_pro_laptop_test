@@ -106,8 +106,14 @@ describe("DashboardLayout Mobile Behavior", () => {
     fireEvent.click(hamburger);
 
     await waitFor(() => {
-      const sidebar = screen.getByTestId("sidebar-navigation");
-      expect(sidebar).toBeInTheDocument();
+      // Both desktop and mobile sidebars use the same Sidebar component with same testid
+      // Check that the mobile sidebar within the dialog is visible
+      const dialog = screen.getByRole("dialog");
+      expect(dialog).toBeInTheDocument();
+
+      const sidebars = screen.getAllByTestId("sidebar-navigation");
+      // Should have both desktop (hidden) and mobile (visible in dialog) sidebars
+      expect(sidebars.length).toBe(2);
     });
   });
 

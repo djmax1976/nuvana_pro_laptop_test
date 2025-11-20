@@ -694,13 +694,7 @@ jobs:
         uses: zaproxy/action-baseline@v0.10.0
         with:
           target: ${{ env.BACKEND_URL }}
-          cmd_options: |
-            -I
-            -z "-config replacer.full_list(0).description=auth-cookies
-                -config replacer.full_list(0).enabled=true
-                -config replacer.full_list(0).matchtype=REQ_HEADER
-                -config replacer.full_list(0).matchstr=Cookie
-                -config replacer.full_list(0).replacement=${{ steps.zap_auth.outputs.cookie_header }}"
+          cmd_options: "-I -z \"-config replacer.full_list(0).description=auth-cookies -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Cookie -config replacer.full_list(0).replacement=${{ steps.zap_auth.outputs.cookie_header }}\""
       - name: Upload backend logs
         if: failure()
         uses: actions/upload-artifact@v4

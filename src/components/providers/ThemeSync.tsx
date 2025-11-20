@@ -69,7 +69,7 @@ export function ThemeSync() {
 
     // Update ref for next comparison
     previousUserIdRef.current = currentUserId;
-  }, [user, setTheme]); // Only depend on user and setTheme, not theme to avoid extra re-renders
+  }, [user, setTheme, theme]);
 
   return null;
 }

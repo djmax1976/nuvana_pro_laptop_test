@@ -3,6 +3,7 @@ import { renderWithProviders, screen, waitFor } from "../support/test-utils";
 import userEvent from "@testing-library/user-event";
 import { CompanyForm } from "@/components/companies/CompanyForm";
 import * as companiesApi from "@/lib/api/companies";
+import * as clientsApi from "@/lib/api/clients";
 import type { Company } from "@/lib/api/companies";
 
 // Mock Next.js router
@@ -22,6 +23,11 @@ vi.mock("@/lib/api/companies", () => ({
   useUpdateCompany: vi.fn(),
 }));
 
+// Mock clients API hook
+vi.mock("@/lib/api/clients", () => ({
+  useClientsDropdown: vi.fn(),
+}));
+
 // Mock toast hook
 const mockToast = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
@@ -38,6 +44,15 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     status: "ACTIVE",
     created_at: "2024-01-01T00:00:00Z",
     updated_at: "2024-01-01T00:00:00Z",
+  };
+
+  const mockClients = {
+    data: [
+      {
+        client_id: "223e4567-e89b-12d3-a456-426614174001",
+        name: "Test Client",
+      },
+    ],
   };
 
   const mockCreateMutation = {
@@ -62,6 +77,12 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     vi.mocked(companiesApi.useUpdateCompany).mockReturnValue(
       mockUpdateMutation as any,
     );
+    vi.mocked(clientsApi.useClientsDropdown).mockReturnValue({
+      data: mockClients,
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as any);
   });
 
   it("[P1] 2.4-COMPONENT-001: should render all form fields", () => {
@@ -119,7 +140,13 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     const user = userEvent.setup();
     renderWithProviders(<CompanyForm />);
 
-    // WHEN: User fills name but doesn't select status
+    // WHEN: User fills name and selects client but doesn't change status
+    // Select client first
+    const clientSelect = screen.getByRole("combobox", { name: /Client/i });
+    await user.click(clientSelect);
+    const clientOption = screen.getByText("Test Client");
+    await user.click(clientOption);
+
     const nameInput = screen.getByLabelText(/Company Name/i);
     await user.type(nameInput, "Test Company");
     // Status defaults to ACTIVE, so we need to clear it first
@@ -141,6 +168,12 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     renderWithProviders(<CompanyForm />);
 
     // WHEN: User fills form with valid data
+    // Select client first
+    const clientSelect = screen.getByRole("combobox", { name: /Client/i });
+    await user.click(clientSelect);
+    const clientOption = screen.getByText("Test Client");
+    await user.click(clientOption);
+
     const nameInput = screen.getByLabelText(/Company Name/i);
     await user.type(nameInput, "Test Company");
 
@@ -153,6 +186,7 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     // THEN: Form should submit successfully
     await waitFor(() => {
       expect(mockCreateMutation.mutateAsync).toHaveBeenCalledWith({
+        client_id: "223e4567-e89b-12d3-a456-426614174001",
         name: "Test Company",
         status: "ACTIVE", // Default value
       });
@@ -179,6 +213,12 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     renderWithProviders(<CompanyForm />);
 
     // WHEN: User fills and submits form
+    // Select client first
+    const clientSelect = screen.getByRole("combobox", { name: /Client/i });
+    await user.click(clientSelect);
+    const clientOption = screen.getByText("Test Client");
+    await user.click(clientOption);
+
     const nameInput = screen.getByLabelText(/Company Name/i);
     await user.type(nameInput, "New Company");
     const submitButton = screen.getByRole("button", {
@@ -189,6 +229,7 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     // THEN: Create mutation should be called
     await waitFor(() => {
       expect(mockCreateMutation.mutateAsync).toHaveBeenCalledWith({
+        client_id: "223e4567-e89b-12d3-a456-426614174001",
         name: "New Company",
         status: "ACTIVE",
       });
@@ -227,6 +268,12 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     renderWithProviders(<CompanyForm />);
 
     // WHEN: User successfully creates company
+    // Select client first
+    const clientSelect = screen.getByRole("combobox", { name: /Client/i });
+    await user.click(clientSelect);
+    const clientOption = screen.getByText("Test Client");
+    await user.click(clientOption);
+
     const nameInput = screen.getByLabelText(/Company Name/i);
     await user.type(nameInput, "New Company");
     const submitButton = screen.getByRole("button", {
@@ -259,6 +306,12 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     renderWithProviders(<CompanyForm />);
 
     // WHEN: User submits form
+    // Select client first
+    const clientSelect = screen.getByRole("combobox", { name: /Client/i });
+    await user.click(clientSelect);
+    const clientOption = screen.getByText("Test Client");
+    await user.click(clientOption);
+
     const nameInput = screen.getByLabelText(/Company Name/i);
     await user.type(nameInput, "New Company");
     const submitButton = screen.getByRole("button", {
@@ -298,6 +351,12 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
     renderWithProviders(<CompanyForm />);
 
     // WHEN: User submits form
+    // Select client first
+    const clientSelect = screen.getByRole("combobox", { name: /Client/i });
+    await user.click(clientSelect);
+    const clientOption = screen.getByText("Test Client");
+    await user.click(clientOption);
+
     const nameInput = screen.getByLabelText(/Company Name/i);
     await user.type(nameInput, "Test Company");
     const submitButton = screen.getByRole("button", {

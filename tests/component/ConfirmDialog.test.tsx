@@ -561,12 +561,12 @@ describe("ConfirmDialog - Accessibility", () => {
       />,
     );
 
+    // Radix UI AlertDialog automatically focuses the action (Confirm) button by default
+    // Check initial focus is on confirm button
+    expect(screen.getByRole("button", { name: /confirm/i })).toHaveFocus();
+
     // Tab to cancel button
     await userEvent.tab();
     expect(screen.getByText("Cancel")).toHaveFocus();
-
-    // Tab to confirm button
-    await userEvent.tab();
-    expect(screen.getByRole("button", { name: /confirm/i })).toHaveFocus();
   });
 });

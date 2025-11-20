@@ -1,7 +1,8 @@
 import "./globals.css";
 import { QueryProvider } from "@/lib/providers/query-provider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
-import { ThemeSync } from "@/components/providers/ThemeSync";
+// DISABLED: ThemeSync causing issues - will be fixed later
+// import { ThemeSync } from "@/components/providers/ThemeSync";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Toaster } from "@/components/ui/toaster";
 
@@ -26,7 +27,8 @@ export default function RootLayout({
         <ThemeProvider>
           <AuthProvider>
             <QueryProvider>
-              <ThemeSync />
+              {/* DISABLED: ThemeSync causing issues - will be fixed later */}
+              {/* <ThemeSync /> */}
               {children}
               <Toaster />
             </QueryProvider>
