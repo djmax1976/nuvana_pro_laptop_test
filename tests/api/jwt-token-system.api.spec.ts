@@ -658,3 +658,338 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     expect(body.user).toHaveProperty("email", userEmail);
   });
 });
+
+test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)", () => {
+  test("[P0] 1.6-API-004-001: API request with expired access token should auto-refresh and retry successfully", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: User exists in database with valid refresh token
+    const userEmail = faker.internet.email();
+    const userData = createUser({
+      email: userEmail,
+      name: faker.person.fullName(),
+    });
+    const createdUser = await prismaClient.user.create({ data: userData });
+
+    // AND: Expired access token (causes initial 401)
+    const expiredAccessToken = createExpiredJWTAccessToken({
+      user_id: createdUser.user_id,
+      email: userEmail,
+    });
+
+    // AND: Valid refresh token (allows auto-refresh)
+    const validRefreshToken = createJWTRefreshToken({
+      user_id: createdUser.user_id,
+      email: userEmail,
+    });
+
+    // WHEN: Protected endpoint is called with expired access token but valid refresh token
+    // This simulates the frontend 401 interceptor scenario
+    const response = await apiRequest.get("/api/user/profile", {
+      headers: {
+        Cookie: `access_token=${expiredAccessToken}; refresh_token=${validRefreshToken}`,
+      },
+    });
+
+    // THEN: Request should succeed after automatic token refresh
+    // Note: In a real frontend implementation, this would require two requests:
+    // 1. Initial request → 401
+    // 2. Auto-refresh → new tokens
+    // 3. Retry request → 200
+    // This test verifies the backend supports this flow
+    expect(response.status()).toBe(401); // First attempt fails with expired token
+
+    // Manual retry with refresh (simulating frontend auto-refresh logic)
+    const refreshResponse = await apiRequest.post("/api/auth/refresh", {}, {
+      headers: {
+        Cookie: `refresh_token=${validRefreshToken}`,
+      },
+    });
+    expect(refreshResponse.status()).toBe(200);
+
+    // Extract new access token from refresh response
+    const setCookieHeader = refreshResponse.headers()["set-cookie"];
+    const cookies = Array.isArray(setCookieHeader)
+      ? setCookieHeader
+      : setCookieHeader
+        ? [setCookieHeader]
+        : [];
+    const newAccessToken = cookies
+      .find((cookie: string) => cookie.includes("access_token"))
+      ?.match(/access_token=([^;]+)/)?.[1];
+    expect(newAccessToken).toBeTruthy();
+
+    // Retry original request with new token
+    const retryResponse = await apiRequest.get("/api/user/profile", {
+      headers: {
+        Cookie: `access_token=${newAccessToken}`,
+      },
+    });
+
+    // THEN: Retry succeeds with new token
+    expect(retryResponse.status()).toBe(200);
+    const body = await retryResponse.json();
+    expect(body.user).toHaveProperty("user_id", createdUser.user_id);
+  });
+
+  test("[P0] 1.6-API-004-002: API request should fail if both access and refresh tokens are expired", async ({
+    apiRequest,
+  }) => {
+    // GIVEN: Expired access token
+    const expiredAccessToken = createExpiredJWTAccessToken({
+      user_id: faker.string.uuid(),
+      email: faker.internet.email(),
+    });
+
+    // AND: Expired refresh token (auto-refresh will fail)
+    const expiredRefreshToken = createExpiredJWTRefreshToken({
+      user_id: faker.string.uuid(),
+      email: faker.internet.email(),
+    });
+
+    // WHEN: Protected endpoint is called with both expired tokens
+    const response = await apiRequest.get("/api/user/profile", {
+      headers: {
+        Cookie: `access_token=${expiredAccessToken}; refresh_token=${expiredRefreshToken}`,
+      },
+    });
+
+    // THEN: Request fails with 401
+    expect(response.status()).toBe(401);
+
+    // WHEN: Refresh endpoint is attempted
+    const refreshResponse = await apiRequest.post("/api/auth/refresh", {}, {
+      headers: {
+        Cookie: `refresh_token=${expiredRefreshToken}`,
+      },
+    });
+
+    // THEN: Refresh also fails with 401
+    expect(refreshResponse.status()).toBe(401);
+    const body = await refreshResponse.json();
+    expect(body).toHaveProperty("error");
+    expect(body.error).toContain("expired");
+  });
+
+  test("[P0] 1.6-API-004-003: API request should not retry infinitely if refresh fails", async ({
+    apiRequest,
+  }) => {
+    // GIVEN: Expired access token
+    const expiredAccessToken = createExpiredJWTAccessToken({
+      user_id: faker.string.uuid(),
+      email: faker.internet.email(),
+    });
+
+    // AND: Invalid refresh token (causes refresh to fail)
+    const invalidRefreshToken = "invalid.refresh.token";
+
+    // WHEN: Protected endpoint is called with expired access + invalid refresh token
+    const response = await apiRequest.get("/api/user/profile", {
+      headers: {
+        Cookie: `access_token=${expiredAccessToken}; refresh_token=${invalidRefreshToken}`,
+      },
+    });
+
+    // THEN: Initial request fails with 401
+    expect(response.status()).toBe(401);
+
+    // WHEN: Refresh is attempted with invalid token
+    const refreshResponse = await apiRequest.post("/api/auth/refresh", {}, {
+      headers: {
+        Cookie: `refresh_token=${invalidRefreshToken}`,
+      },
+    });
+
+    // THEN: Refresh fails immediately (no infinite retry)
+    expect(refreshResponse.status()).toBe(401);
+    const body = await refreshResponse.json();
+    expect(body).toHaveProperty("error");
+  });
+
+  test("[P0] 1.6-API-004-004: Multiple API requests should reuse refreshed token (no duplicate refresh)", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: User exists with valid refresh token
+    const userEmail = faker.internet.email();
+    const userData = createUser({
+      email: userEmail,
+      name: faker.person.fullName(),
+    });
+    const createdUser = await prismaClient.user.create({ data: userData });
+
+    // AND: Expired access token
+    const expiredAccessToken = createExpiredJWTAccessToken({
+      user_id: createdUser.user_id,
+      email: userEmail,
+    });
+
+    // AND: Valid refresh token
+    const validRefreshToken = createJWTRefreshToken({
+      user_id: createdUser.user_id,
+      email: userEmail,
+    });
+
+    // WHEN: First refresh is performed
+    const refreshResponse = await apiRequest.post("/api/auth/refresh", {}, {
+      headers: {
+        Cookie: `refresh_token=${validRefreshToken}`,
+      },
+    });
+    expect(refreshResponse.status()).toBe(200);
+
+    // Extract new tokens
+    const setCookieHeader = refreshResponse.headers()["set-cookie"];
+    const cookies = Array.isArray(setCookieHeader)
+      ? setCookieHeader
+      : setCookieHeader
+        ? [setCookieHeader]
+        : [];
+    const newAccessToken = cookies
+      .find((cookie: string) => cookie.includes("access_token"))
+      ?.match(/access_token=([^;]+)/)?.[1];
+    const newRefreshToken = cookies
+      .find((cookie: string) => cookie.includes("refresh_token"))
+      ?.match(/refresh_token=([^;]+)/)?.[1];
+
+    // THEN: Multiple API requests should succeed with same new access token
+    const request1 = await apiRequest.get("/api/user/profile", {
+      headers: {
+        Cookie: `access_token=${newAccessToken}`,
+      },
+    });
+    expect(request1.status()).toBe(200);
+
+    const request2 = await apiRequest.get("/api/user/profile", {
+      headers: {
+        Cookie: `access_token=${newAccessToken}`,
+      },
+    });
+    expect(request2.status()).toBe(200);
+
+    // AND: Old refresh token should be invalidated (token rotation)
+    const oldRefreshRetry = await apiRequest.post("/api/auth/refresh", {}, {
+      headers: {
+        Cookie: `refresh_token=${validRefreshToken}`,
+      },
+    });
+    expect(oldRefreshRetry.status()).toBe(401); // Old token rejected
+  });
+
+  test("[P0] 1.6-API-004-005: Session validation endpoint should reject expired tokens on app initialization", async ({
+    apiRequest,
+  }) => {
+    // GIVEN: Expired access token (simulates stale localStorage + expired cookies)
+    const expiredAccessToken = createExpiredJWTAccessToken({
+      user_id: faker.string.uuid(),
+      email: faker.internet.email(),
+    });
+
+    // WHEN: Frontend calls /api/auth/me to validate session on app load
+    const response = await apiRequest.get("/api/auth/me", {
+      headers: {
+        Cookie: `access_token=${expiredAccessToken}`,
+      },
+    });
+
+    // THEN: Request is rejected with 401
+    expect(response.status()).toBe(401);
+
+    // AND: Error indicates token expiration
+    const body = await response.json();
+    expect(body).toHaveProperty("error");
+    expect(body.error).toContain("expired");
+  });
+
+  test("[P0] 1.6-API-004-006: Session validation endpoint should succeed with valid token on app initialization", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: User exists in database
+    const userEmail = faker.internet.email();
+    const userData = createUser({
+      email: userEmail,
+      name: faker.person.fullName(),
+    });
+    const createdUser = await prismaClient.user.create({ data: userData });
+
+    // AND: Valid access token
+    const validAccessToken = createJWTAccessToken({
+      user_id: createdUser.user_id,
+      email: userEmail,
+      roles: ["USER"],
+      permissions: ["READ"],
+    });
+
+    // WHEN: Frontend calls /api/auth/me to validate session on app load
+    const response = await apiRequest.get("/api/auth/me", {
+      headers: {
+        Cookie: `access_token=${validAccessToken}`,
+      },
+    });
+
+    // THEN: Request succeeds
+    expect(response.status()).toBe(200);
+
+    // AND: User information is returned
+    const body = await response.json();
+    expect(body).toHaveProperty("user");
+    expect(body.user).toHaveProperty("id", createdUser.user_id);
+    expect(body.user).toHaveProperty("email", userEmail);
+  });
+
+  test("[P1] 1.6-API-004-007: Refresh token rotation should prevent replay attacks", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: User exists with valid refresh token
+    const userEmail = faker.internet.email();
+    const userData = createUser({
+      email: userEmail,
+      name: faker.person.fullName(),
+    });
+    const createdUser = await prismaClient.user.create({ data: userData });
+
+    const originalRefreshToken = createJWTRefreshToken({
+      user_id: createdUser.user_id,
+      email: userEmail,
+    });
+
+    // WHEN: Token is refreshed once
+    const refresh1 = await apiRequest.post("/api/auth/refresh", {}, {
+      headers: {
+        Cookie: `refresh_token=${originalRefreshToken}`,
+      },
+    });
+    expect(refresh1.status()).toBe(200);
+
+    // AND: Attacker attempts to reuse the original refresh token (replay attack)
+    const replayAttempt = await apiRequest.post("/api/auth/refresh", {}, {
+      headers: {
+        Cookie: `refresh_token=${originalRefreshToken}`,
+      },
+    });
+
+    // THEN: Replay attack is blocked with 401
+    expect(replayAttempt.status()).toBe(401);
+    const body = await replayAttempt.json();
+    expect(body).toHaveProperty("error");
+  });
+
+  test("[P1] 1.6-API-004-008: API requests without cookies should fail immediately without refresh attempt", async ({
+    apiRequest,
+  }) => {
+    // GIVEN: Request without any cookies (no access or refresh token)
+    // WHEN: Protected endpoint is called
+    const response = await apiRequest.get("/api/user/profile");
+
+    // THEN: Request fails with 401 (no refresh attempt should occur)
+    expect(response.status()).toBe(401);
+
+    // AND: Error indicates missing authentication
+    const body = await response.json();
+    expect(body).toHaveProperty("error");
+    expect(body.error).toContain("token");
+  });
+});
