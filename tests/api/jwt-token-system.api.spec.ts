@@ -532,7 +532,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
   }) => {
     // GIVEN: Request without refresh token cookie
     // WHEN: Refresh endpoint is called without token
-    const response = await apiRequest.post("/api/auth/refresh");
+    const response = await apiRequest.post("/api/auth/refresh", {});
 
     // THEN: Response is 401 Unauthorized
     expect(response.status()).toBe(401);
