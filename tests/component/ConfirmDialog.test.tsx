@@ -517,6 +517,11 @@ describe("ConfirmDialog - Async onConfirm Handler", () => {
       expect(onConfirm).toHaveBeenCalledTimes(1);
     });
 
+    // Wait for the promise rejection to be handled
+    await waitFor(() => {
+      expect(consoleError).toHaveBeenCalled();
+    });
+
     consoleError.mockRestore();
   });
 });

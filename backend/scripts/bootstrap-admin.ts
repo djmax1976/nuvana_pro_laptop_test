@@ -13,6 +13,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import { generatePublicId, PUBLIC_ID_PREFIXES } from "../src/utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -101,6 +102,7 @@ async function main() {
     // 4. Create admin user
     const adminUser = await prisma.user.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         email: ADMIN_CONFIG.email,
         name: ADMIN_CONFIG.name,
         password_hash: passwordHash,

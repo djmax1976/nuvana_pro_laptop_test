@@ -51,9 +51,14 @@ export function ConfirmDialog({
   const [inputValue, setInputValue] = useState("");
 
   const handleConfirm = async () => {
-    await onConfirm();
-    setInputValue("");
-    onOpenChange(false);
+    try {
+      await onConfirm();
+      setInputValue("");
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error in onConfirm:", error);
+      // Don't close dialog on error - let user retry or cancel
+    }
   };
 
   const handleCancel = () => {
