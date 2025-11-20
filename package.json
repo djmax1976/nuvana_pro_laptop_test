@@ -79,7 +79,7 @@
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "eslint": "^8",
-    "eslint-config-next": "14.2.18",
+    "eslint-config-next": "16.0.3",
     "jsdom": "^27.2.0",
     "postcss": "^8",
     "prisma": "^6.19.0",
