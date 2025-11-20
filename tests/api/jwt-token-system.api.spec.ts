@@ -9,16 +9,10 @@ import {
 } from "../support/factories";
 import { faker } from "@faker-js/faker";
 
-// Story 1.6 (OAuth callback) is intentionally disabled in this application.
-// Keep these tests behind an env flag so they never run in CI unless explicitly enabled.
-const oauthCallbackEnabled = process.env.ENABLE_OAUTH_CALLBACK_TESTS === "true";
-const describeOAuth = oauthCallbackEnabled ? test.describe : test.describe.skip;
-
 /**
  * JWT Token System API Tests
  *
  * These tests verify the JWT token generation and validation system:
- * - Token generation after OAuth authentication
  * - Token storage in httpOnly cookies
  * - Token validation middleware
  * - Refresh token flow
@@ -27,175 +21,7 @@ const describeOAuth = oauthCallbackEnabled ? test.describe : test.describe.skip;
  * Story: 1-6-jwt-token-system
  * Status: ready-for-dev
  * Priority: P0 (Critical - Authentication)
- *
- * NOTE: OAuth authentication is DISABLED in this application.
- * Tests that depend on OAuth callback are skipped.
  */
-
-describeOAuth(
-  "1.6-API-001: JWT Token Generation in OAuth Callback [DISABLED - OAuth not supported]",
-  () => {
-    test("[P0] 1.6-API-001-001: GET /api/auth/callback should generate access and refresh tokens after successful OAuth", async ({
-      apiRequest,
-      prismaClient,
-    }) => {
-      // GIVEN: User has authenticated via Supabase OAuth
-      const oauthCode = faker.string.alphanumeric(32);
-      const state = faker.string.alphanumeric(16);
-
-      // WHEN: OAuth callback endpoint is called (after successful OAuth)
-      const response = await apiRequest.get(
-        `/api/auth/callback?code=${oauthCode}&state=${state}`,
-      );
-
-      // THEN: Response is 200 OK
-      expect(response.status()).toBe(200);
-
-      // AND: Access token is set in httpOnly cookie
-      const setCookieHeader = response.headers()["set-cookie"];
-      const cookies = Array.isArray(setCookieHeader)
-        ? setCookieHeader
-        : setCookieHeader
-          ? [setCookieHeader]
-          : [];
-      const accessTokenCookie = cookies.find((cookie: string) =>
-        cookie.includes("access_token"),
-      );
-      expect(accessTokenCookie).toBeTruthy();
-      expect(accessTokenCookie).toContain("HttpOnly");
-      expect(accessTokenCookie).toContain("Secure");
-      expect(accessTokenCookie).toContain("SameSite=Strict");
-
-      // AND: Refresh token is set in httpOnly cookie
-      const refreshTokenCookie = cookies.find((cookie: string) =>
-        cookie.includes("refresh_token"),
-      );
-      expect(refreshTokenCookie).toBeTruthy();
-      expect(refreshTokenCookie).toContain("HttpOnly");
-      expect(refreshTokenCookie).toContain("Secure");
-      expect(refreshTokenCookie).toContain("SameSite=Strict");
-
-      // AND: Response contains user information
-      const body = await response.json();
-      expect(body).toHaveProperty("user");
-      expect(body.user).toHaveProperty("id");
-      expect(body.user).toHaveProperty("email");
-    });
-
-    test("[P0] 1.6-API-001-002: Access token should have 15 minute expiry", async ({
-      apiRequest,
-    }) => {
-      // GIVEN: User has authenticated via Supabase OAuth
-      const oauthCode = faker.string.alphanumeric(32);
-      const state = faker.string.alphanumeric(16);
-
-      // WHEN: OAuth callback endpoint is called
-      const response = await apiRequest.get(
-        `/api/auth/callback?code=${oauthCode}&state=${state}`,
-      );
-
-      // THEN: Response is 200 OK
-      expect(response.status()).toBe(200);
-
-      // AND: Access token cookie has Max-Age of 900 seconds (15 minutes)
-      const setCookieHeader = response.headers()["set-cookie"];
-      const cookies = Array.isArray(setCookieHeader)
-        ? setCookieHeader
-        : setCookieHeader
-          ? [setCookieHeader]
-          : [];
-      const accessTokenCookie = cookies.find((cookie: string) =>
-        cookie.includes("access_token"),
-      );
-      expect(accessTokenCookie).toContain("Max-Age=900");
-    });
-
-    test("[P0] 1.6-API-001-003: Refresh token should have 7 day expiry", async ({
-      apiRequest,
-    }) => {
-      // GIVEN: User has authenticated via Supabase OAuth
-      const oauthCode = faker.string.alphanumeric(32);
-      const state = faker.string.alphanumeric(16);
-
-      // WHEN: OAuth callback endpoint is called
-      const response = await apiRequest.get(
-        `/api/auth/callback?code=${oauthCode}&state=${state}`,
-      );
-
-      // THEN: Response is 200 OK
-      expect(response.status()).toBe(200);
-
-      // AND: Refresh token cookie has Max-Age of 604800 seconds (7 days)
-      const setCookieHeader = response.headers()["set-cookie"];
-      const cookies = Array.isArray(setCookieHeader)
-        ? setCookieHeader
-        : setCookieHeader
-          ? [setCookieHeader]
-          : [];
-      const refreshTokenCookie = cookies.find((cookie: string) =>
-        cookie.includes("refresh_token"),
-      );
-      expect(refreshTokenCookie).toContain("Max-Age=604800");
-    });
-
-    test("[P0] 1.6-API-001-004: JWT access token should contain user_id, email, roles, and permissions", async ({
-      apiRequest,
-      prismaClient,
-    }) => {
-      // GIVEN: User exists in database
-      const user = createUser({
-        email: faker.internet.email(),
-        name: faker.person.fullName(),
-        auth_provider_id: faker.string.uuid(),
-      });
-      const createdUser = await prismaClient.user.create({
-        data: user,
-      });
-
-      const oauthCode = faker.string.alphanumeric(32);
-      const state = faker.string.alphanumeric(16);
-
-      // WHEN: OAuth callback endpoint is called
-      const response = await apiRequest.get(
-        `/api/auth/callback?code=${oauthCode}&state=${state}`,
-      );
-
-      // THEN: Response is 200 OK
-      expect(response.status()).toBe(200);
-
-      // AND: Access token cookie contains JWT with required claims
-      const setCookieHeader = response.headers()["set-cookie"];
-      const cookies = Array.isArray(setCookieHeader)
-        ? setCookieHeader
-        : setCookieHeader
-          ? [setCookieHeader]
-          : [];
-      const accessTokenCookie = cookies.find((cookie: string) =>
-        cookie.includes("access_token"),
-      );
-      expect(accessTokenCookie).toBeTruthy();
-
-      // Extract token from cookie (format: access_token=TOKEN; ...)
-      const tokenMatch = accessTokenCookie?.match(/access_token=([^;]+)/);
-      expect(tokenMatch).toBeTruthy();
-      const token = tokenMatch![1];
-
-      // Decode JWT payload (base64 decode second part)
-      const payload = JSON.parse(
-        Buffer.from(token.split(".")[1], "base64").toString(),
-      );
-      expect(payload).toHaveProperty("user_id");
-      expect(payload).toHaveProperty("email", user.email);
-      expect(payload).toHaveProperty("roles");
-      expect(payload).toHaveProperty("permissions");
-
-      // Cleanup
-      await prismaClient.user.delete({
-        where: { user_id: createdUser.user_id },
-      });
-    });
-  },
-);
 
 test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
   test("[P0] 1.6-API-002-001: Protected route should accept valid JWT access token from cookie", async ({
@@ -450,11 +276,15 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     });
 
     // WHEN: Refresh endpoint is called with valid refresh token
-    const response = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${refreshToken}`,
+    const response = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${refreshToken}`,
+        },
       },
-    });
+    );
 
     // THEN: Response is 200 OK
     expect(response.status()).toBe(200);
@@ -490,11 +320,15 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     });
 
     // WHEN: Refresh endpoint is called with expired refresh token
-    const response = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${expiredRefreshToken}`,
+    const response = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${expiredRefreshToken}`,
+        },
       },
-    });
+    );
 
     // THEN: Response is 401 Unauthorized
     expect(response.status()).toBe(401);
@@ -512,11 +346,15 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     const invalidToken = "invalid.refresh.token";
 
     // WHEN: Refresh endpoint is called with invalid token
-    const response = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${invalidToken}`,
+    const response = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${invalidToken}`,
+        },
       },
-    });
+    );
 
     // THEN: Response is 401 Unauthorized
     expect(response.status()).toBe(401);
@@ -562,11 +400,15 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     });
 
     // WHEN: Refresh endpoint is called first time
-    const response1 = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${originalRefreshToken}`,
+    const response1 = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${originalRefreshToken}`,
+        },
       },
-    });
+    );
 
     // THEN: New tokens are issued
     expect(response1.status()).toBe(200);
@@ -581,21 +423,29 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
       ?.match(/refresh_token=([^;]+)/)?.[1];
 
     // WHEN: Same original refresh token is used again (should be invalidated)
-    const response2 = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${originalRefreshToken}`,
+    const response2 = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${originalRefreshToken}`,
+        },
       },
-    });
+    );
 
     // THEN: Original token is rejected (401)
     expect(response2.status()).toBe(401);
 
     // AND: New refresh token from first call works
-    const response3 = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${newRefreshToken1}`,
+    const response3 = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${newRefreshToken1}`,
+        },
       },
-    });
+    );
 
     // THEN: New token is accepted
     expect(response3.status()).toBe(200);
@@ -608,11 +458,15 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     const malformedToken = "not.a.valid.refresh.token";
 
     // WHEN: Refresh endpoint is called with malformed token
-    const response = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${malformedToken}`,
+    const response = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${malformedToken}`,
+        },
       },
-    });
+    );
 
     // THEN: Response is 401 Unauthorized
     expect(response.status()).toBe(401);
@@ -642,11 +496,15 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     });
 
     // WHEN: Refresh endpoint is called
-    const response = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${refreshToken}`,
+    const response = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${refreshToken}`,
+        },
       },
-    });
+    );
 
     // THEN: Response is 200 OK
     expect(response.status()).toBe(200);
@@ -701,11 +559,15 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     expect(response.status()).toBe(401); // First attempt fails with expired token
 
     // Manual retry with refresh (simulating frontend auto-refresh logic)
-    const refreshResponse = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${validRefreshToken}`,
+    const refreshResponse = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${validRefreshToken}`,
+        },
       },
-    });
+    );
     expect(refreshResponse.status()).toBe(200);
 
     // Extract new access token from refresh response
@@ -759,11 +621,15 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     expect(response.status()).toBe(401);
 
     // WHEN: Refresh endpoint is attempted
-    const refreshResponse = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${expiredRefreshToken}`,
+    const refreshResponse = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${expiredRefreshToken}`,
+        },
       },
-    });
+    );
 
     // THEN: Refresh also fails with 401
     expect(refreshResponse.status()).toBe(401);
@@ -795,11 +661,15 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     expect(response.status()).toBe(401);
 
     // WHEN: Refresh is attempted with invalid token
-    const refreshResponse = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${invalidRefreshToken}`,
+    const refreshResponse = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${invalidRefreshToken}`,
+        },
       },
-    });
+    );
 
     // THEN: Refresh fails immediately (no infinite retry)
     expect(refreshResponse.status()).toBe(401);
@@ -832,11 +702,15 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     });
 
     // WHEN: First refresh is performed
-    const refreshResponse = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${validRefreshToken}`,
+    const refreshResponse = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${validRefreshToken}`,
+        },
       },
-    });
+    );
     expect(refreshResponse.status()).toBe(200);
 
     // Extract new tokens
@@ -869,11 +743,15 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     expect(request2.status()).toBe(200);
 
     // AND: Old refresh token should be invalidated (token rotation)
-    const oldRefreshRetry = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${validRefreshToken}`,
+    const oldRefreshRetry = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${validRefreshToken}`,
+        },
       },
-    });
+    );
     expect(oldRefreshRetry.status()).toBe(401); // Old token rejected
   });
 
@@ -957,19 +835,27 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     });
 
     // WHEN: Token is refreshed once
-    const refresh1 = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${originalRefreshToken}`,
+    const refresh1 = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${originalRefreshToken}`,
+        },
       },
-    });
+    );
     expect(refresh1.status()).toBe(200);
 
     // AND: Attacker attempts to reuse the original refresh token (replay attack)
-    const replayAttempt = await apiRequest.post("/api/auth/refresh", {}, {
-      headers: {
-        Cookie: `refresh_token=${originalRefreshToken}`,
+    const replayAttempt = await apiRequest.post(
+      "/api/auth/refresh",
+      {},
+      {
+        headers: {
+          Cookie: `refresh_token=${originalRefreshToken}`,
+        },
       },
-    });
+    );
 
     // THEN: Replay attack is blocked with 401
     expect(replayAttempt.status()).toBe(401);

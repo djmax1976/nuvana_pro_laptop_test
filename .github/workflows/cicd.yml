@@ -93,6 +93,8 @@ jobs:
         run: npx tsx tests/support/seed-roles.ts
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
       - name: Build backend
         run: cd backend && npm run build
       - name: Make scripts executable
@@ -699,6 +701,7 @@ jobs:
         with:
           target: ${{ env.BACKEND_URL }}
           fail_action: false
+          artifact_name: zap-scan-report
           cmd_options: "-I -z \"-config replacer.full_list(0).description=auth-cookies -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Cookie -config replacer.full_list(0).replacement=${{ steps.zap_auth.outputs.cookie_header }}\""
       - name: Upload backend logs
         if: failure()
