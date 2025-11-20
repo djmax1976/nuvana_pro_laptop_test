@@ -315,6 +315,17 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         }
 
         const { status } = parseResult.data;
+
+        // Prevent self-deactivation: users cannot deactivate their own account
+        if (userId === user.id && status === "INACTIVE") {
+          reply.code(400);
+          return {
+            success: false,
+            error: "Validation error",
+            message: "You cannot deactivate your own account",
+          };
+        }
+
         const auditContext = getAuditContext(request, user);
 
         const updatedUser = await userAdminService.updateUserStatus(
