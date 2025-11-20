@@ -632,6 +632,14 @@ jobs:
         run: cd backend && npx prisma migrate deploy
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+      - name: Seed roles for auth
+        run: npx tsx tests/support/seed-roles.ts
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
+      - name: Bootstrap admin user
+        run: npx tsx backend/scripts/bootstrap-admin.ts
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nuvana_test
       - name: Build backend
         run: cd backend && npm run build
       - name: Make scripts executable
