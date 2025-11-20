@@ -12,6 +12,7 @@ datasource db {
 
 model User {
   user_id          String   @id @default(uuid()) @db.Uuid
+  public_id        String?  @unique @db.VarChar(30) // usr_xxxxx (external-facing ID)
   email            String   @unique @db.VarChar(255)
   name             String   @db.VarChar(255)
   password_hash    String?  @db.VarChar(255)
@@ -28,11 +29,13 @@ model User {
 
   @@index([email])
   @@index([status])
+  @@index([public_id])
   @@map("users")
 }
 
 model Client {
   client_id  String    @id @default(uuid()) @db.Uuid
+  public_id  String?   @unique @db.VarChar(30) // clt_xxxxx (external-facing ID)
   name       String    @db.VarChar(255)
   status     String    @default("ACTIVE") @db.VarChar(50) // ACTIVE | INACTIVE
   metadata   Json?     @db.JsonB
@@ -45,11 +48,13 @@ model Client {
 
   @@index([status])
   @@index([deleted_at])
+  @@index([public_id])
   @@map("clients")
 }
 
 model Company {
   company_id String    @id @default(uuid()) @db.Uuid
+  public_id  String?   @unique @db.VarChar(30) // cmp_xxxxx (external-facing ID)
   client_id  String?   @db.Uuid
   name       String    @db.VarChar(255)
   status     String    @default("ACTIVE") @db.VarChar(50)
@@ -63,11 +68,13 @@ model Company {
 
   @@index([client_id])
   @@index([status])
+  @@index([public_id])
   @@map("companies")
 }
 
 model Store {
   store_id      String   @id @default(uuid()) @db.Uuid
+  public_id     String?  @unique @db.VarChar(30) // str_xxxxx (external-facing ID)
   company_id    String   @db.Uuid
   name          String   @db.VarChar(255)
   location_json Json?    @db.JsonB
@@ -85,6 +92,7 @@ model Store {
 
   @@index([company_id])
   @@index([status])
+  @@index([public_id])
   @@map("stores")
 }
 
@@ -221,6 +229,7 @@ model POSTerminal {
 
 model Transaction {
   transaction_id  String   @id @default(uuid()) @db.Uuid
+  public_id       String?  @unique @db.VarChar(30) // txn_xxxxx (external-facing ID)
   store_id        String   @db.Uuid
   shift_id        String   @db.Uuid
   cashier_id      String   @db.Uuid
@@ -244,6 +253,7 @@ model Transaction {
   @@index([cashier_id])
   @@index([pos_terminal_id])
   @@index([timestamp])
+  @@index([public_id])
   @@map("transactions")
 }
 
