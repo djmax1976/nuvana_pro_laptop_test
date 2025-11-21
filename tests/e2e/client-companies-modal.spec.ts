@@ -23,6 +23,8 @@ const prisma = new PrismaClient();
  * Related Story: Client Management Enhancement - Company List Modal
  */
 
+test.describe.configure({ mode: "serial" });
+
 test.describe("Client Companies Modal E2E", () => {
   let superadminUser: any;
   let testClientWithCompanies: any;
@@ -32,9 +34,43 @@ test.describe("Client Companies Modal E2E", () => {
 
   test.beforeAll(async () => {
     // Clean up any existing test data first
-    await prisma.user.deleteMany({
+    const existingUser = await prisma.user.findUnique({
       where: { email: "superadmin-companies-modal@test.com" },
     });
+
+    if (existingUser) {
+      // Clean up user roles first due to foreign key constraint
+      await prisma.userRole.deleteMany({
+        where: { user_id: existingUser.user_id },
+      });
+      // Then delete the user
+      await prisma.user.delete({
+        where: { user_id: existingUser.user_id },
+      });
+    }
+
+    // Clean up any existing test clients and their related data
+    const existingClients = await prisma.client.findMany({
+      where: {
+        email: {
+          in: [
+            "client-with-companies@test.com",
+            "client-no-companies@test.com",
+          ],
+        },
+      },
+    });
+
+    for (const client of existingClients) {
+      // Delete companies first due to foreign key constraint
+      await prisma.company.deleteMany({
+        where: { client_id: client.client_id },
+      });
+      // Then delete the client
+      await prisma.client.delete({
+        where: { client_id: client.client_id },
+      });
+    }
 
     // Create superadmin user for testing
     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
@@ -279,5 +315,198 @@ test.describe("Client Companies Modal E2E", () => {
     await expect(page.locator('[role="dialog"]')).toBeVisible();
     await expect(page.locator("text=Alpha Company")).toBeVisible();
     await expect(page.locator("text=Beta Company")).toBeVisible();
+  });
+
+  test.describe("Modal Responsiveness", () => {
+    test("[P0] Should not overflow on mobile viewport (375px)", async ({
+      page,
+    }) => {
+      // GIVEN: Mobile viewport
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector("table");
+
+      // WHEN: Open company modal
+      const companyCountButton = page.locator(
+        `[data-testid="client-company-count-button-${testClientWithCompanies.client_id}"]`,
+      );
+      await companyCountButton.click();
+
+      // THEN: Modal should be visible
+      const dialog = page.locator('[role="dialog"]');
+      await expect(dialog).toBeVisible();
+
+      // AND: Modal should not overflow viewport
+      const dialogBox = await dialog.boundingBox();
+      expect(dialogBox).not.toBeNull();
+      if (dialogBox) {
+        // Modal should have margins (not touching edges)
+        expect(dialogBox.x).toBeGreaterThan(0);
+        expect(dialogBox.x + dialogBox.width).toBeLessThan(375);
+        // Modal should be within viewport height
+        expect(dialogBox.height).toBeLessThanOrEqual(667);
+      }
+    });
+
+    test("[P0] Should not overflow on small mobile (320px)", async ({
+      page,
+    }) => {
+      // GIVEN: Very small mobile viewport (iPhone SE)
+      await page.setViewportSize({ width: 320, height: 568 });
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector("table");
+
+      // WHEN: Open company modal
+      const companyCountButton = page.locator(
+        `[data-testid="client-company-count-button-${testClientWithCompanies.client_id}"]`,
+      );
+      await companyCountButton.click();
+
+      // THEN: Modal should be visible without horizontal overflow
+      const dialog = page.locator('[role="dialog"]');
+      await expect(dialog).toBeVisible();
+
+      const dialogBox = await dialog.boundingBox();
+      expect(dialogBox).not.toBeNull();
+      if (dialogBox) {
+        // Modal should fit within viewport width with margins
+        expect(dialogBox.x).toBeGreaterThanOrEqual(0);
+        expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(320);
+      }
+    });
+
+    test("[P0] Should be scrollable when content exceeds viewport height", async ({
+      page,
+    }) => {
+      // GIVEN: Short viewport
+      await page.setViewportSize({ width: 375, height: 500 });
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector("table");
+
+      // WHEN: Open company modal
+      const companyCountButton = page.locator(
+        `[data-testid="client-company-count-button-${testClientWithCompanies.client_id}"]`,
+      );
+      await companyCountButton.click();
+
+      // THEN: Modal should have scrollable content
+      const dialog = page.locator('[role="dialog"]');
+      await expect(dialog).toBeVisible();
+
+      // Modal should respect max-height
+      const dialogBox = await dialog.boundingBox();
+      if (dialogBox) {
+        // Height should not exceed 90% of viewport (90vh)
+        const maxHeight = 500 * 0.9; // 90% of 500px
+        expect(dialogBox.height).toBeLessThanOrEqual(maxHeight);
+      }
+
+      // Content should still be accessible (check if company names are visible)
+      await expect(page.locator("text=Alpha Company")).toBeVisible();
+      await expect(page.locator("text=Beta Company")).toBeVisible();
+    });
+
+    test("[P0] Should be properly centered on tablet (768px)", async ({
+      page,
+    }) => {
+      // GIVEN: Tablet viewport
+      await page.setViewportSize({ width: 768, height: 1024 });
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector("table");
+
+      // WHEN: Open company modal
+      const companyCountButton = page.locator(
+        `[data-testid="client-company-count-button-${testClientWithCompanies.client_id}"]`,
+      );
+      await companyCountButton.click();
+
+      // THEN: Modal should be centered
+      const dialog = page.locator('[role="dialog"]');
+      await expect(dialog).toBeVisible();
+
+      const dialogBox = await dialog.boundingBox();
+      if (dialogBox) {
+        // Modal should be roughly centered horizontally
+        const centerX = dialogBox.x + dialogBox.width / 2;
+        const viewportCenterX = 768 / 2;
+        // Allow 10px tolerance for centering
+        expect(Math.abs(centerX - viewportCenterX)).toBeLessThan(10);
+      }
+    });
+
+    test("[P0] Should wrap long company names without overflow", async ({
+      page,
+    }) => {
+      // GIVEN: Create a company with a very long name
+      const longNameCompany = await prisma.company.create({
+        data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+          name: "This Is A Very Long Company Name That Should Wrap Properly Without Causing Horizontal Overflow On Small Screens",
+          client_id: testClientWithCompanies.client_id,
+          status: "ACTIVE",
+        },
+      });
+
+      try {
+        // WHEN: Open modal on mobile viewport
+        await page.setViewportSize({ width: 375, height: 667 });
+        await page.goto("http://localhost:3000/clients");
+        await page.waitForSelector("table");
+
+        const companyCountButton = page.locator(
+          `[data-testid="client-company-count-button-${testClientWithCompanies.client_id}"]`,
+        );
+        await companyCountButton.click();
+
+        // THEN: Long company name should be visible
+        await expect(
+          page.locator("text=This Is A Very Long Company Name"),
+        ).toBeVisible();
+
+        // AND: Modal should not overflow
+        const dialog = page.locator('[role="dialog"]');
+        const dialogBox = await dialog.boundingBox();
+        if (dialogBox) {
+          expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(375);
+        }
+      } finally {
+        // Cleanup
+        await prisma.company.delete({
+          where: { company_id: longNameCompany.company_id },
+        });
+      }
+    });
+
+    test("[P0] Should maintain responsiveness across viewport changes", async ({
+      page,
+    }) => {
+      // GIVEN: Start with desktop viewport
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector("table");
+
+      const companyCountButton = page.locator(
+        `[data-testid="client-company-count-button-${testClientWithCompanies.client_id}"]`,
+      );
+      await companyCountButton.click();
+
+      // Modal opens on desktop
+      await expect(page.locator('[role="dialog"]')).toBeVisible();
+
+      // WHEN: Resize to mobile while modal is open
+      await page.setViewportSize({ width: 375, height: 667 });
+
+      // THEN: Modal should still be visible and not overflow
+      const dialog = page.locator('[role="dialog"]');
+      await expect(dialog).toBeVisible();
+
+      const dialogBox = await dialog.boundingBox();
+      if (dialogBox) {
+        expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(375);
+      }
+
+      // Content should still be accessible
+      await expect(page.locator("text=Alpha Company")).toBeVisible();
+    });
   });
 });
