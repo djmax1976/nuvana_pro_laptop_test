@@ -96,7 +96,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Seed test database
-        run: npx tsx tests/support/seed-roles.ts
+        run: npx tsx backend/src/db/seeds/rbac.seed.ts
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Bootstrap admin user
@@ -383,7 +383,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Seed roles for auth
-        run: npx tsx tests/support/seed-roles.ts
+        run: npx tsx backend/src/db/seeds/rbac.seed.ts
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Bootstrap admin user
@@ -718,7 +718,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Seed roles for auth
-        run: npx tsx tests/support/seed-roles.ts
+        run: npx tsx backend/src/db/seeds/rbac.seed.ts
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Bootstrap admin user
