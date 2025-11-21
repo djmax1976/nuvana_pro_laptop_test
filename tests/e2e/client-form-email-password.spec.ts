@@ -5,6 +5,7 @@ import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
+import { cleanupTestData } from "../support/cleanup-helper";
 
 const prisma = new PrismaClient();
 
@@ -26,12 +27,25 @@ const prisma = new PrismaClient();
  * Related Story: Client Management Enhancement - Email & Password Fields
  */
 
+test.describe.configure({ mode: "serial" });
+
 test.describe("Client Form Email and Password E2E", () => {
   let superadminUser: any;
   let testClient: any;
 
   test.beforeAll(async () => {
-    // Clean up any existing test data first
+    // Clean up any existing test data first (delete userRoles before users to avoid FK violations)
+    const existingUsers = await prisma.user.findMany({
+      where: { email: "superadmin-client-form@test.com" },
+      select: { user_id: true },
+    });
+
+    for (const user of existingUsers) {
+      await prisma.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+    }
+
     await prisma.user.deleteMany({
       where: { email: "superadmin-client-form@test.com" },
     });
@@ -66,17 +80,9 @@ test.describe("Client Form Email and Password E2E", () => {
   });
 
   test.afterAll(async () => {
-    // Cleanup: Delete test data
-    if (testClient) {
-      await prisma.client
-        .delete({
-          where: { client_id: testClient.client_id },
-        })
-        .catch(() => {}); // Ignore if already deleted
-    }
-
+    // Cleanup: Delete test data using helper (respects FK constraints)
     // Clean up any clients created during tests
-    await prisma.client.deleteMany({
+    const clientsToClean = await prisma.client.findMany({
       where: {
         email: {
           in: [
@@ -97,16 +103,18 @@ test.describe("Client Form Email and Password E2E", () => {
           ],
         },
       },
+      select: { client_id: true },
     });
 
-    if (superadminUser) {
-      await prisma.userRole.deleteMany({
-        where: { user_id: superadminUser.user_id },
-      });
-      await prisma.user.delete({
-        where: { user_id: superadminUser.user_id },
-      });
-    }
+    const clientIds = [
+      ...(testClient ? [testClient.client_id] : []),
+      ...clientsToClean.map((c) => c.client_id),
+    ];
+
+    await cleanupTestData(prisma, {
+      clients: clientIds,
+      users: superadminUser ? [superadminUser.user_id] : [],
+    });
 
     await prisma.$disconnect();
   });

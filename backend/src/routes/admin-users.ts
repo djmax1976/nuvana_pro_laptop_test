@@ -39,7 +39,20 @@ const createUserSchema = z.object({
     .refine((val) => val.trim().length > 0, {
       message: "Name cannot be whitespace only",
     }),
-  roles: z.array(roleAssignmentSchema).optional(),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(255, "Password cannot exceed 255 characters")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+    .regex(/[0-9]/, "Password must contain at least one number")
+    .regex(
+      /[^A-Za-z0-9]/,
+      "Password must contain at least one special character",
+    ),
+  roles: z
+    .array(roleAssignmentSchema)
+    .min(1, "User must be assigned at least one role"),
 });
 
 const updateUserStatusSchema = z.object({
@@ -109,17 +122,7 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           };
         }
 
-        const { email, name, roles } = parseResult.data;
-
-        // Validate that user must have at least one role
-        if (!roles || roles.length === 0) {
-          reply.code(400);
-          return {
-            success: false,
-            error: "Validation error",
-            message: "User must be assigned at least one role",
-          };
-        }
+        const { email, name, password, roles } = parseResult.data;
 
         const auditContext = getAuditContext(request, user);
 
@@ -127,6 +130,7 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           {
             email,
             name,
+            password,
             roles: roles as Array<{
               role_id: string;
               scope_type: ScopeType;

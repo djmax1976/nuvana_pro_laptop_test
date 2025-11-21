@@ -5,6 +5,7 @@ import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
+import { cleanupTestData } from "../support/cleanup-helper";
 
 const prisma = new PrismaClient();
 
@@ -15,12 +16,25 @@ const prisma = new PrismaClient();
  * display properly on mobile screens without overflow issues.
  */
 
+test.describe.configure({ mode: "serial" });
+
 test.describe("Mobile Alert Dialog Responsiveness", () => {
   let superadminUser: any;
   let inactiveClient: any;
 
   test.beforeAll(async () => {
-    // Clean up any existing test data
+    // Clean up any existing test data (delete userRoles before users to avoid FK violations)
+    const existingUsers = await prisma.user.findMany({
+      where: { email: "mobile-dialog-test@test.com" },
+      select: { user_id: true },
+    });
+
+    for (const user of existingUsers) {
+      await prisma.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+    }
+
     await prisma.user.deleteMany({
       where: { email: "mobile-dialog-test@test.com" },
     });
@@ -64,21 +78,11 @@ test.describe("Mobile Alert Dialog Responsiveness", () => {
   });
 
   test.afterAll(async () => {
-    // Cleanup
-    if (inactiveClient) {
-      await prisma.client.deleteMany({
-        where: { client_id: inactiveClient.client_id },
-      });
-    }
-
-    if (superadminUser) {
-      await prisma.userRole.deleteMany({
-        where: { user_id: superadminUser.user_id },
-      });
-      await prisma.user.delete({
-        where: { user_id: superadminUser.user_id },
-      });
-    }
+    // Cleanup: Delete test data using helper (respects FK constraints)
+    await cleanupTestData(prisma, {
+      clients: inactiveClient ? [inactiveClient.client_id] : [],
+      users: superadminUser ? [superadminUser.user_id] : [],
+    });
 
     await prisma.$disconnect();
   });

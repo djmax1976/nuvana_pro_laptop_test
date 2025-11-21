@@ -1,0 +1,205 @@
+
+Running 15 tests using 8 workers
+
+  x   4 [e2e] › tests\e2e\admin-user-management.spec.ts:295:7 › Admin User Management E2E › [P0] Should remove role from user (1ms)
+  -   9 [e2e] › tests\e2e\admin-user-management.spec.ts:334:7 › Admin User Management E2E › [P1] Should show validation error for empty user name
+  x   2 [e2e] › tests\e2e\admin-user-management.spec.ts:128:7 › Admin User Management E2E › [P0] Should load users list page (0ms)
+  -  10 [e2e] › tests\e2e\admin-user-management.spec.ts:136:7 › Admin User Management E2E › [P0] Should navigate to user detail page from users list
+  x   3 [e2e] › tests\e2e\admin-user-management.spec.ts:203:7 › Admin User Management E2E › [P0] Should create a new user (1ms)
+  -  11 [e2e] › tests\e2e\admin-user-management.spec.ts:247:7 › Admin User Management E2E › [P0] Should assign role to user
+  x   6 [e2e] › tests\e2e\admin-user-management.spec.ts:392:7 › Admin User Management E2E › [P1] Should display properly on mobile screens (2ms)
+  -  12 [e2e] › tests\e2e\admin-user-management.spec.ts:404:7 › Admin User Management E2E › [P1] Should display users list properly on mobile
+  x   7 [e2e] › tests\e2e\admin-user-management.spec.ts:423:7 › Admin User Management E2E › [P1] Should display role assignment dialog properly on mobile (2ms)
+[31mTesting stopped early after 5 maximum allowed failures.[39m
+  x   5 [e2e] › tests\e2e\admin-user-management.spec.ts:351:7 › Admin User Management E2E › [P1] Should show validation error for invalid email format (1ms)
+  x   8 [e2e] › tests\e2e\admin-user-management.spec.ts:469:7 › Admin User Management E2E › [P1] Should filter users by status (1ms)
+  x   1 [e2e] › tests\e2e\admin-user-management.spec.ts:148:7 › Admin User Management E2E › [P0] Should successfully edit user name (5ms)
+
+
+  1) [e2e] › tests\e2e\admin-user-management.spec.ts:128:7 › Admin User Management E2E › [P0] Should load users list page 
+
+    PrismaClientKnownRequestError: 
+    Invalid `prisma.user.create()` invocation in
+    c:\bmad\tests\e2e\admin-user-management.spec.ts:56:40
+
+      53 
+      54 // Create superadmin user
+      55 const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+    → 56 superadminUser = await prisma.user.create(
+    Unique constraint failed on the fields: (`email`)
+
+      54 |     // Create superadmin user
+      55 |     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+    > 56 |     superadminUser = await prisma.user.create({
+         |                                        ^
+      57 |       data: {
+      58 |         public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+      59 |         email: "admin-e2e@test.com",
+        at c:\bmad\tests\e2e\admin-user-management.spec.ts:56:40
+        at ei.handleRequestError (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:7268)
+        at ei.handleAndLogRequestError (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:6593)
+        at ei.request (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:6300)
+        at a (c:\bmad\node_modules\.prisma\client\runtime\library.js:134:9551)
+        at c:\bmad\tests\e2e\admin-user-management.spec.ts:56:22
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\artifacts\e2e-admin-user-management--ebe68-Should-load-users-list-page-e2e\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\artifacts\e2e-admin-user-management--ebe68-Should-load-users-list-page-e2e\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [e2e] › tests\e2e\admin-user-management.spec.ts:203:7 › Admin User Management E2E › [P0] Should create a new user 
+
+    PrismaClientKnownRequestError: 
+    Invalid `prisma.user.create()` invocation in
+    c:\bmad\tests\e2e\admin-user-management.spec.ts:56:40
+
+      53 
+      54 // Create superadmin user
+      55 const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+    → 56 superadminUser = await prisma.user.create(
+    Unique constraint failed on the fields: (`email`)
+
+      54 |     // Create superadmin user
+      55 |     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+    > 56 |     superadminUser = await prisma.user.create({
+         |                                        ^
+      57 |       data: {
+      58 |         public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+      59 |         email: "admin-e2e@test.com",
+        at c:\bmad\tests\e2e\admin-user-management.spec.ts:56:40
+        at ei.handleRequestError (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:7268)
+        at ei.handleAndLogRequestError (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:6593)
+        at ei.request (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:6300)
+        at a (c:\bmad\node_modules\.prisma\client\runtime\library.js:134:9551)
+        at c:\bmad\tests\e2e\admin-user-management.spec.ts:56:22
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\artifacts\e2e-admin-user-management--0dc4c-P0-Should-create-a-new-user-e2e\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\artifacts\e2e-admin-user-management--0dc4c-P0-Should-create-a-new-user-e2e\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [e2e] › tests\e2e\admin-user-management.spec.ts:295:7 › Admin User Management E2E › [P0] Should remove role from user 
+
+    PrismaClientKnownRequestError: 
+    Invalid `prisma.user.create()` invocation in
+    c:\bmad\tests\e2e\admin-user-management.spec.ts:56:40
+
+      53 
+      54 // Create superadmin user
+      55 const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+    → 56 superadminUser = await prisma.user.create(
+    Unique constraint failed on the fields: (`email`)
+
+      54 |     // Create superadmin user
+      55 |     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+    > 56 |     superadminUser = await prisma.user.create({
+         |                                        ^
+      57 |       data: {
+      58 |         public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+      59 |         email: "admin-e2e@test.com",
+        at c:\bmad\tests\e2e\admin-user-management.spec.ts:56:40
+        at ei.handleRequestError (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:7268)
+        at ei.handleAndLogRequestError (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:6593)
+        at ei.request (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:6300)
+        at a (c:\bmad\node_modules\.prisma\client\runtime\library.js:134:9551)
+        at c:\bmad\tests\e2e\admin-user-management.spec.ts:56:22
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\artifacts\e2e-admin-user-management--8e25e-hould-remove-role-from-user-e2e\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\artifacts\e2e-admin-user-management--8e25e-hould-remove-role-from-user-e2e\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [e2e] › tests\e2e\admin-user-management.spec.ts:392:7 › Admin User Management E2E › [P1] Should display properly on mobile screens 
+
+    PrismaClientKnownRequestError: 
+    Invalid `prisma.user.create()` invocation in
+    c:\bmad\tests\e2e\admin-user-management.spec.ts:56:40
+
+      53 
+      54 // Create superadmin user
+      55 const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+    → 56 superadminUser = await prisma.user.create(
+    Unique constraint failed on the fields: (`email`)
+
+      54 |     // Create superadmin user
+      55 |     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+    > 56 |     superadminUser = await prisma.user.create({
+         |                                        ^
+      57 |       data: {
+      58 |         public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+      59 |         email: "admin-e2e@test.com",
+        at c:\bmad\tests\e2e\admin-user-management.spec.ts:56:40
+        at ei.handleRequestError (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:7268)
+        at ei.handleAndLogRequestError (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:6593)
+        at ei.request (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:6300)
+        at a (c:\bmad\node_modules\.prisma\client\runtime\library.js:134:9551)
+        at c:\bmad\tests\e2e\admin-user-management.spec.ts:56:22
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\artifacts\e2e-admin-user-management--1a56e--properly-on-mobile-screens-e2e\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\artifacts\e2e-admin-user-management--1a56e--properly-on-mobile-screens-e2e\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) [e2e] › tests\e2e\admin-user-management.spec.ts:423:7 › Admin User Management E2E › [P1] Should display role assignment dialog properly on mobile 
+
+    PrismaClientKnownRequestError: 
+    Invalid `prisma.user.create()` invocation in
+    c:\bmad\tests\e2e\admin-user-management.spec.ts:56:40
+
+      53 
+      54 // Create superadmin user
+      55 const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+    → 56 superadminUser = await prisma.user.create(
+    Unique constraint failed on the fields: (`email`)
+
+      54 |     // Create superadmin user
+      55 |     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+    > 56 |     superadminUser = await prisma.user.create({
+         |                                        ^
+      57 |       data: {
+      58 |         public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+      59 |         email: "admin-e2e@test.com",
+        at c:\bmad\tests\e2e\admin-user-management.spec.ts:56:40
+        at ei.handleRequestError (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:7268)
+        at ei.handleAndLogRequestError (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:6593)
+        at ei.request (c:\bmad\node_modules\.prisma\client\runtime\library.js:125:6300)
+        at a (c:\bmad\node_modules\.prisma\client\runtime\library.js:134:9551)
+        at c:\bmad\tests\e2e\admin-user-management.spec.ts:56:22
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\artifacts\e2e-admin-user-management--7ab51-t-dialog-properly-on-mobile-e2e\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\artifacts\e2e-admin-user-management--7ab51-t-dialog-properly-on-mobile-e2e\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5 failed
+    [e2e] › tests\e2e\admin-user-management.spec.ts:128:7 › Admin User Management E2E › [P0] Should load users list page 
+    [e2e] › tests\e2e\admin-user-management.spec.ts:203:7 › Admin User Management E2E › [P0] Should create a new user 
+    [e2e] › tests\e2e\admin-user-management.spec.ts:295:7 › Admin User Management E2E › [P0] Should remove role from user 
+    [e2e] › tests\e2e\admin-user-management.spec.ts:392:7 › Admin User Management E2E › [P1] Should display properly on mobile screens 
+    [e2e] › tests\e2e\admin-user-management.spec.ts:423:7 › Admin User Management E2E › [P1] Should display role assignment dialog properly on mobile 
+  3 interrupted
+    [e2e] › tests\e2e\admin-user-management.spec.ts:148:7 › Admin User Management E2E › [P0] Should successfully edit user name 
+    [e2e] › tests\e2e\admin-user-management.spec.ts:351:7 › Admin User Management E2E › [P1] Should show validation error for invalid email format 
+    [e2e] › tests\e2e\admin-user-management.spec.ts:469:7 › Admin User Management E2E › [P1] Should filter users by status 
+  7 did not run
+  1 error was not a part of any test, see above for details
+
+To open last HTML report run:
+[36m[39m
+[36m  npx playwright show-report[39m
+[36m[39m

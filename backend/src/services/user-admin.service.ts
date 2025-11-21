@@ -1,4 +1,5 @@
 import { PrismaClient, Prisma } from "@prisma/client";
+import bcrypt from "bcrypt";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 
 const prisma = new PrismaClient();
@@ -41,7 +42,8 @@ export interface AssignRoleRequest {
 export interface CreateUserInput {
   email: string;
   name: string;
-  roles?: AssignRoleRequest[];
+  password: string;
+  roles: AssignRoleRequest[];
 }
 
 /**
@@ -136,6 +138,11 @@ export class UserAdminService {
       throw new Error("Name cannot be whitespace only");
     }
 
+    // Validate password
+    if (!data.password || data.password.length < 8) {
+      throw new Error("Password must be at least 8 characters");
+    }
+
     // Check for duplicate email
     const existingUser = await prisma.user.findUnique({
       where: { email: data.email.toLowerCase().trim() },
@@ -145,13 +152,22 @@ export class UserAdminService {
       throw new Error("Email already exists");
     }
 
+    // Validate that at least one role is provided
+    if (!data.roles || data.roles.length === 0) {
+      throw new Error("User must be assigned at least one role");
+    }
+
     try {
+      // Hash password
+      const passwordHash = await bcrypt.hash(data.password, 10);
+
       // Create user
       const user = await prisma.user.create({
         data: {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
           email: data.email.toLowerCase().trim(),
           name: data.name.trim(),
+          password_hash: passwordHash,
           status: "ACTIVE",
         },
       });
@@ -183,11 +199,9 @@ export class UserAdminService {
         );
       }
 
-      // Assign initial roles if provided
-      if (data.roles && data.roles.length > 0) {
-        for (const roleAssignment of data.roles) {
-          await this.assignRole(user.user_id, roleAssignment, auditContext);
-        }
+      // Assign initial roles (required, already validated)
+      for (const roleAssignment of data.roles) {
+        await this.assignRole(user.user_id, roleAssignment, auditContext);
       }
 
       // Return user with roles

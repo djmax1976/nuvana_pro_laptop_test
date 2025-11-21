@@ -264,6 +264,87 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
     });
     expect(auditLog).not.toBeNull();
   });
+
+  test("[P0] DELETE /api/companies/:companyId - should cascade soft delete to stores and user roles", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A company exists with stores and user roles
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Cascade" }),
+    });
+    const company = await prismaClient.company.create({
+      data: {
+        ...createCompany({
+          name: "Company With Stores",
+          status: "SUSPENDED",
+        }),
+        client_id: client.client_id,
+      },
+    });
+
+    // Create a store under the company
+    const store = await prismaClient.store.create({
+      data: {
+        public_id: `ST_${Date.now()}`,
+        company_id: company.company_id,
+        name: "Test Store",
+        status: "ACTIVE",
+      },
+    });
+
+    // Create a user and assign role at company level
+    const testUser = await prismaClient.user.create({
+      data: {
+        public_id: `USR_${Date.now()}`,
+        email: `companyuser_${Date.now()}@example.com`,
+        name: "Company User",
+        status: "ACTIVE",
+      },
+    });
+
+    const corporateAdminRole = await prismaClient.role.findUnique({
+      where: { code: "CORPORATE_ADMIN" },
+    });
+
+    const companyUserRole = await prismaClient.userRole.create({
+      data: {
+        user_id: testUser.user_id,
+        role_id: corporateAdminRole!.role_id,
+        company_id: company.company_id,
+        status: "ACTIVE",
+      },
+    });
+
+    // WHEN: Soft deleting the company
+    const response = await superadminApiRequest.delete(
+      `/api/companies/${company.company_id}`,
+    );
+
+    // THEN: Company is soft deleted
+    expect(response.status()).toBe(200);
+
+    // AND: Company has deleted_at set
+    const deletedCompany = await prismaClient.company.findUnique({
+      where: { company_id: company.company_id },
+    });
+    expect(deletedCompany?.deleted_at).not.toBeNull();
+    expect(deletedCompany?.status).toBe("INACTIVE");
+
+    // AND: Associated stores are also soft deleted
+    const deletedStore = await prismaClient.store.findUnique({
+      where: { store_id: store.store_id },
+    });
+    expect(deletedStore?.deleted_at).not.toBeNull();
+    expect(deletedStore?.status).toBe("INACTIVE");
+
+    // AND: Associated user roles are also soft deleted
+    const deletedUserRole = await prismaClient.userRole.findUnique({
+      where: { user_role_id: companyUserRole.user_role_id },
+    });
+    expect(deletedUserRole?.deleted_at).not.toBeNull();
+    expect(deletedUserRole?.status).toBe("INACTIVE");
+  });
 });
 
 test.describe("2.1-API: Company Management API - Permission Enforcement", () => {

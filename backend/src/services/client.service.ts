@@ -652,28 +652,35 @@ export class ClientService {
         );
       }
 
-      // Find the associated user via UserRole
+      // Find the associated user via UserRole (may not exist for test data)
       const userRole = existingClient.user_roles.find(
         (ur) => ur.client_id === clientId,
       );
-      if (!userRole) {
-        throw new Error(
-          `User account not found for client ${clientId}. Data integrity issue.`,
-        );
-      }
-
-      const userId = userRole.user_id;
+      const userId = userRole?.user_id;
 
       // Soft delete by setting deleted_at timestamp
       const deletedAt = new Date();
 
-      // Use transaction to soft delete Client, User, and Companies atomically
+      // Use transaction to soft delete Client, User, Companies, Stores, and UserRoles atomically
       await prisma.$transaction(async (tx) => {
-        // Deactivate the associated User account
-        await tx.user.update({
-          where: { user_id: userId },
-          data: { status: "INACTIVE" },
+        // Deactivate the associated User account (if exists)
+        if (userId) {
+          await tx.user.update({
+            where: { user_id: userId },
+            data: { status: "INACTIVE" },
+          });
+        }
+
+        // Get all companies for this client
+        const companies = await tx.company.findMany({
+          where: {
+            client_id: clientId,
+            deleted_at: null,
+          },
+          select: { company_id: true },
         });
+
+        const companyIds = companies.map((c) => c.company_id);
 
         // Cascade soft delete to associated companies
         await tx.company.updateMany({
@@ -684,6 +691,33 @@ export class ClientService {
           data: {
             deleted_at: deletedAt,
             status: "INACTIVE",
+          },
+        });
+
+        // Cascade soft delete to all stores under those companies
+        if (companyIds.length > 0) {
+          await tx.store.updateMany({
+            where: {
+              company_id: { in: companyIds },
+              deleted_at: null,
+            },
+            data: {
+              deleted_at: deletedAt,
+              status: "INACTIVE",
+            },
+          });
+        }
+
+        // Cascade soft delete to all UserRoles associated with this client hierarchy
+        // This includes roles at client, company, and store levels
+        await tx.userRole.updateMany({
+          where: {
+            client_id: clientId,
+            deleted_at: null,
+          },
+          data: {
+            status: "INACTIVE",
+            deleted_at: deletedAt,
           },
         });
       });

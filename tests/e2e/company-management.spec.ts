@@ -5,6 +5,7 @@ import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
+import { cleanupTestData } from "../support/cleanup-helper";
 
 const prisma = new PrismaClient();
 
@@ -22,13 +23,26 @@ const prisma = new PrismaClient();
  * These tests ensure the complete user journey works end-to-end.
  */
 
+test.describe.configure({ mode: "serial" });
+
 test.describe("Company Management E2E", () => {
   let superadminUser: any;
   let testClient: any;
   let testCompany: any;
 
   test.beforeAll(async () => {
-    // Clean up existing test data
+    // Clean up existing test data (delete userRoles before users to avoid FK violations)
+    const existingUsers = await prisma.user.findMany({
+      where: { email: "company-e2e@test.com" },
+      select: { user_id: true },
+    });
+
+    for (const user of existingUsers) {
+      await prisma.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+    }
+
     await prisma.user.deleteMany({
       where: { email: "company-e2e@test.com" },
     });
@@ -82,25 +96,13 @@ test.describe("Company Management E2E", () => {
   });
 
   test.afterAll(async () => {
-    // Cleanup
-    if (testCompany) {
-      await prisma.company.deleteMany({
-        where: { company_id: testCompany.company_id },
-      });
-    }
-    if (testClient) {
-      await prisma.client.delete({
-        where: { client_id: testClient.client_id },
-      });
-    }
-    if (superadminUser) {
-      await prisma.userRole.deleteMany({
-        where: { user_id: superadminUser.user_id },
-      });
-      await prisma.user.delete({
-        where: { user_id: superadminUser.user_id },
-      });
-    }
+    // Cleanup: Delete test data using helper (respects FK constraints)
+    await cleanupTestData(prisma, {
+      companies: testCompany ? [testCompany.company_id] : [],
+      clients: testClient ? [testClient.client_id] : [],
+      users: superadminUser ? [superadminUser.user_id] : [],
+    });
+
     await prisma.$disconnect();
   });
 

@@ -5,6 +5,7 @@ import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
+import { cleanupTestData } from "../support/cleanup-helper";
 
 const prisma = new PrismaClient();
 
@@ -24,13 +25,28 @@ const prisma = new PrismaClient();
  * These tests ensure the complete user journey works end-to-end.
  */
 
+test.describe.configure({ mode: "serial" });
+
 test.describe("Admin User Management E2E", () => {
   let superadminUser: any;
   let testUser: any;
   let testRole: any;
 
   test.beforeAll(async () => {
-    // Clean up existing test data
+    // Clean up existing test data (delete userRoles before users to avoid FK violations)
+    const existingUsers = await prisma.user.findMany({
+      where: {
+        email: { in: ["admin-e2e@test.com", "test-user-e2e@test.com"] },
+      },
+      select: { user_id: true },
+    });
+
+    for (const user of existingUsers) {
+      await prisma.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+    }
+
     await prisma.user.deleteMany({
       where: { email: "admin-e2e@test.com" },
     });
@@ -83,23 +99,11 @@ test.describe("Admin User Management E2E", () => {
   });
 
   test.afterAll(async () => {
-    // Cleanup
-    if (testUser) {
-      await prisma.userRole.deleteMany({
-        where: { user_id: testUser.user_id },
-      });
-      await prisma.user.delete({
-        where: { user_id: testUser.user_id },
-      });
-    }
-    if (superadminUser) {
-      await prisma.userRole.deleteMany({
-        where: { user_id: superadminUser.user_id },
-      });
-      await prisma.user.delete({
-        where: { user_id: superadminUser.user_id },
-      });
-    }
+    // Cleanup: Delete test data using helper (respects FK constraints)
+    await cleanupTestData(prisma, {
+      users: [superadminUser?.user_id, testUser?.user_id].filter(Boolean),
+    });
+
     await prisma.$disconnect();
   });
 
@@ -197,6 +201,7 @@ test.describe("Admin User Management E2E", () => {
 
     const newUserEmail = `new-user-${Date.now()}@test.com`;
     const newUserName = `New E2E User ${Date.now()}`;
+    const newUserPassword = "TestPassword123!";
 
     await page
       .locator('input[data-testid="user-email-input"]')
@@ -204,14 +209,18 @@ test.describe("Admin User Management E2E", () => {
     await page
       .locator('input[data-testid="user-name-input"]')
       .fill(newUserName);
+    await page
+      .locator('input[data-testid="user-password-input"]')
+      .fill(newUserPassword);
 
-    const statusSelect = page.locator(
-      'button[data-testid="user-status-select"]',
-    );
-    await statusSelect.click();
-    await page.locator('div[role="option"]:has-text("Active")').click();
+    // Select a role
+    const roleSelect = page.locator('button[data-testid="user-role-select"]');
+    await roleSelect.click();
+    await page.waitForTimeout(500);
+    // Select the first available role
+    await page.locator('div[role="option"]').first().click();
 
-    await page.locator('button[data-testid="user-submit-button"]').click();
+    await page.locator('button[data-testid="user-form-submit"]').click();
     await page.waitForTimeout(1000);
 
     const createdUser = await prisma.user.findFirst({
@@ -219,6 +228,13 @@ test.describe("Admin User Management E2E", () => {
     });
     expect(createdUser).not.toBeNull();
     expect(createdUser?.name).toBe(newUserName);
+    expect(createdUser?.password_hash).not.toBeNull();
+
+    // Verify user has at least one role
+    const userRoles = await prisma.userRole.findMany({
+      where: { user_id: createdUser!.user_id },
+    });
+    expect(userRoles.length).toBeGreaterThan(0);
 
     // Cleanup
     if (createdUser) {
@@ -366,13 +382,85 @@ test.describe("Admin User Management E2E", () => {
     await page
       .locator('input[data-testid="user-name-input"]')
       .fill("Duplicate User");
+    await page
+      .locator('input[data-testid="user-password-input"]')
+      .fill("TestPassword123!");
 
-    const submitButton = page.locator(
-      'button[data-testid="user-submit-button"]',
-    );
+    // Select a role
+    const roleSelect = page.locator('button[data-testid="user-role-select"]');
+    await roleSelect.click();
+    await page.waitForTimeout(500);
+    await page.locator('div[role="option"]').first().click();
+
+    const submitButton = page.locator('button[data-testid="user-form-submit"]');
     await submitButton.click();
 
     const errorMessage = page.locator("text=/email.*already.*exists/i");
+    await expect(errorMessage).toBeVisible({ timeout: 5000 });
+  });
+
+  test("[P1] Should show validation error for missing password", async ({
+    page,
+  }) => {
+    await page.goto("http://localhost:3000/admin/users/new");
+
+    await page
+      .locator('input[data-testid="user-email-input"]')
+      .fill("test@example.com");
+    await page
+      .locator('input[data-testid="user-name-input"]')
+      .fill("Test User");
+    // Don't fill password
+
+    const submitButton = page.locator('button[data-testid="user-form-submit"]');
+    await submitButton.click();
+
+    const errorMessage = page.locator("text=/password.*required|password.*8/i");
+    await expect(errorMessage).toBeVisible({ timeout: 5000 });
+  });
+
+  test("[P1] Should show validation error for weak password", async ({
+    page,
+  }) => {
+    await page.goto("http://localhost:3000/admin/users/new");
+
+    await page
+      .locator('input[data-testid="user-email-input"]')
+      .fill("test@example.com");
+    await page
+      .locator('input[data-testid="user-name-input"]')
+      .fill("Test User");
+    await page.locator('input[data-testid="user-password-input"]').fill("weak"); // Too short and missing requirements
+
+    const submitButton = page.locator('button[data-testid="user-form-submit"]');
+    await submitButton.click();
+
+    const errorMessage = page.locator(
+      "text=/password.*8.*characters|password.*uppercase|password.*lowercase|password.*number|password.*special/i",
+    );
+    await expect(errorMessage).toBeVisible({ timeout: 5000 });
+  });
+
+  test("[P1] Should show validation error for missing role", async ({
+    page,
+  }) => {
+    await page.goto("http://localhost:3000/admin/users/new");
+
+    await page
+      .locator('input[data-testid="user-email-input"]')
+      .fill("test@example.com");
+    await page
+      .locator('input[data-testid="user-name-input"]')
+      .fill("Test User");
+    await page
+      .locator('input[data-testid="user-password-input"]')
+      .fill("TestPassword123!");
+    // Don't select a role
+
+    const submitButton = page.locator('button[data-testid="user-form-submit"]');
+    await submitButton.click();
+
+    const errorMessage = page.locator("text=/role.*required/i");
     await expect(errorMessage).toBeVisible({ timeout: 5000 });
   });
 

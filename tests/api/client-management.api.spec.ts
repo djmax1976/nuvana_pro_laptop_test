@@ -459,11 +459,11 @@ test.describe("Client Management API - Permission Enforcement", () => {
 });
 
 test.describe("Client Management API - Business Logic", () => {
-  test("[P0] DELETE /api/clients/:clientId - should cascade soft delete to associated companies (AC #5)", async ({
+  test("[P0] DELETE /api/clients/:clientId - should cascade soft delete to companies, stores, and user roles (AC #5)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A client exists with associated companies
+    // GIVEN: A client exists with companies, stores, and user roles
     const clientData = createClient({
       name: "Client With Companies",
       status: "INACTIVE",
@@ -477,6 +477,7 @@ test.describe("Client Management API - Business Logic", () => {
         metadata: clientData.metadata,
       },
     });
+
     const companyData = createCompany({
       name: "Associated Company",
       status: "ACTIVE",
@@ -485,6 +486,41 @@ test.describe("Client Management API - Business Logic", () => {
       data: {
         ...companyData,
         client_id: client.client_id,
+      },
+    });
+
+    // Create a store under the company
+    const storeData = {
+      public_id: `ST_${Date.now()}`,
+      company_id: company.company_id,
+      name: "Test Store",
+      status: "ACTIVE",
+    };
+    const store = await prismaClient.store.create({
+      data: storeData,
+    });
+
+    // Create a user and assign roles at different levels
+    const testUser = await prismaClient.user.create({
+      data: {
+        public_id: `USR_${Date.now()}`,
+        email: `testuser_${Date.now()}@example.com`,
+        name: "Test User",
+        status: "ACTIVE",
+      },
+    });
+
+    const clientOwnerRole = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
+    });
+
+    // Create UserRole at client level
+    const clientUserRole = await prismaClient.userRole.create({
+      data: {
+        user_id: testUser.user_id,
+        role_id: clientOwnerRole!.role_id,
+        client_id: client.client_id,
+        status: "ACTIVE",
       },
     });
 
@@ -501,6 +537,21 @@ test.describe("Client Management API - Business Logic", () => {
       where: { company_id: company.company_id },
     });
     expect(deletedCompany?.deleted_at).not.toBeNull();
+    expect(deletedCompany?.status).toBe("INACTIVE");
+
+    // AND: Associated stores are also soft deleted
+    const deletedStore = await prismaClient.store.findUnique({
+      where: { store_id: store.store_id },
+    });
+    expect(deletedStore?.deleted_at).not.toBeNull();
+    expect(deletedStore?.status).toBe("INACTIVE");
+
+    // AND: Associated user roles are also soft deleted
+    const deletedUserRole = await prismaClient.userRole.findUnique({
+      where: { user_role_id: clientUserRole.user_role_id },
+    });
+    expect(deletedUserRole?.deleted_at).not.toBeNull();
+    expect(deletedUserRole?.status).toBe("INACTIVE");
   });
 
   test("[P1] PUT /api/clients/:clientId - should allow reactivation from INACTIVE to ACTIVE", async ({

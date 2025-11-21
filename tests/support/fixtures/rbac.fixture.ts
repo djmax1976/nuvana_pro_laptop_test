@@ -460,13 +460,34 @@ export const test = base.extend<RBACFixture>({
       await bypassClient.shift.deleteMany({
         where: { cashier_id: user.user_id },
       });
-      // 2. Delete user roles
-      await bypassClient.userRole.deleteMany({
-        where: { user_id: user.user_id },
+
+      // 2. Get all stores for this company to delete their user roles
+      const stores = await bypassClient.store.findMany({
+        where: { company_id: company.company_id },
+        select: { store_id: true },
       });
-      // 3. Delete user
+      const storeIds = stores.map((s) => s.store_id);
+
+      // 3. Delete ALL user roles related to this company (must be before user, store, and company due to onDelete: Restrict)
+      // This includes roles for the user, company, and any stores under the company
+      await bypassClient.userRole.deleteMany({
+        where: {
+          OR: [
+            { user_id: user.user_id },
+            { company_id: company.company_id },
+            ...(storeIds.length > 0 ? [{ store_id: { in: storeIds } }] : []),
+          ],
+        },
+      });
+
+      // 4. Delete user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
-      // 4. Delete company last
+
+      // 5. Delete stores under company (required due to onDelete: Restrict)
+      await bypassClient.store.deleteMany({
+        where: { company_id: company.company_id },
+      });
+      // 5. Delete company last
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });

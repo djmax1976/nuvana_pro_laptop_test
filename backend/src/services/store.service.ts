@@ -507,10 +507,11 @@ export class StoreService {
   }
 
   /**
-   * Soft delete store (set status to INACTIVE or CLOSED) with company isolation check
+   * Soft delete store (set status to INACTIVE and deleted_at timestamp) with company isolation check
+   * Cascades to all user roles associated with this store
    * @param storeId - Store UUID
    * @param userCompanyId - User's assigned company ID (for isolation check)
-   * @returns Updated store record with INACTIVE or CLOSED status
+   * @returns Updated store record with INACTIVE status
    * @throws Error if store not found or user tries to delete store from different company
    */
   async deleteStore(storeId: string, userCompanyId: string) {
@@ -533,17 +534,31 @@ export class StoreService {
         );
       }
 
-      // Soft delete by setting status to INACTIVE (default) or CLOSED
-      // Use CLOSED if store is currently ACTIVE, otherwise use INACTIVE
-      const newStatus: StoreStatus =
-        existingStore.status === "ACTIVE" ? "CLOSED" : "INACTIVE";
+      // Soft delete by setting status to INACTIVE and deleted_at timestamp
+      const deletedAt = new Date();
+
+      // Use transaction to cascade soft delete to user roles
+      await prisma.$transaction(async (tx) => {
+        // Cascade soft delete to all UserRoles associated with this store
+        await tx.userRole.updateMany({
+          where: {
+            store_id: storeId,
+            deleted_at: null,
+          },
+          data: {
+            status: "INACTIVE",
+            deleted_at: deletedAt,
+          },
+        });
+      });
 
       const store = await prisma.store.update({
         where: {
           store_id: storeId,
         },
         data: {
-          status: newStatus,
+          status: "INACTIVE",
+          deleted_at: deletedAt,
         },
       });
 

@@ -389,7 +389,8 @@ export class CompanyService {
   }
 
   /**
-   * Soft delete company (set status to INACTIVE)
+   * Soft delete company (set status to INACTIVE and deleted_at timestamp)
+   * Cascades to all stores and user roles under this company
    * @param companyId - Company UUID
    * @param auditContext - Audit context for logging
    * @returns Updated company record with INACTIVE status
@@ -426,13 +427,44 @@ export class CompanyService {
         );
       }
 
-      // Soft delete by setting status to INACTIVE
+      // Soft delete by setting status to INACTIVE and deleted_at timestamp
+      const deletedAt = new Date();
+
+      // Use transaction to cascade soft delete to stores and user roles
+      await prisma.$transaction(async (tx) => {
+        // Cascade soft delete to all stores under this company
+        await tx.store.updateMany({
+          where: {
+            company_id: companyId,
+            deleted_at: null,
+          },
+          data: {
+            deleted_at: deletedAt,
+            status: "INACTIVE",
+          },
+        });
+
+        // Cascade soft delete to all UserRoles associated with this company
+        // This includes company-level and store-level roles
+        await tx.userRole.updateMany({
+          where: {
+            company_id: companyId,
+            deleted_at: null,
+          },
+          data: {
+            status: "INACTIVE",
+            deleted_at: deletedAt,
+          },
+        });
+      });
+
       const company = await prisma.company.update({
         where: {
           company_id: companyId,
         },
         data: {
           status: "INACTIVE",
+          deleted_at: deletedAt,
         },
         include: {
           client: {

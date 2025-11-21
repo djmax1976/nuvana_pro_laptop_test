@@ -411,6 +411,68 @@ test.describe("Store Management API - CRUD Operations", () => {
     expect(auditLog).not.toBeNull();
   });
 
+  test("[P0] DELETE /api/stores/:storeId - should cascade soft delete to user roles", async ({
+    corporateAdminApiRequest,
+    corporateAdminUser,
+    prismaClient,
+  }) => {
+    // GIVEN: A store with user roles
+    const store = await prismaClient.store.create({
+      data: {
+        public_id: `ST_${Date.now()}`,
+        company_id: corporateAdminUser.company_id,
+        name: "Store With Roles",
+        status: "ACTIVE",
+      },
+    });
+
+    // Create a user and assign role at store level
+    const testUser = await prismaClient.user.create({
+      data: {
+        public_id: `USR_${Date.now()}`,
+        email: `storeuser_${Date.now()}@example.com`,
+        name: "Store User",
+        status: "ACTIVE",
+      },
+    });
+
+    const storeManagerRole = await prismaClient.role.findUnique({
+      where: { code: "STORE_MANAGER" },
+    });
+
+    const storeUserRole = await prismaClient.userRole.create({
+      data: {
+        user_id: testUser.user_id,
+        role_id: storeManagerRole!.role_id,
+        store_id: store.store_id,
+        status: "ACTIVE",
+      },
+    });
+
+    // WHEN: Soft deleting the store
+    const response = await corporateAdminApiRequest.delete(
+      `/api/stores/${store.store_id}`,
+    );
+
+    // THEN: Store is soft deleted
+    expect(response.status()).toBe(200);
+
+    // AND: Store has deleted_at set
+    const deletedStore = await prismaClient.store.findUnique({
+      where: { store_id: store.store_id },
+    });
+    expect(deletedStore).not.toBeNull();
+    expect(deletedStore?.deleted_at).not.toBeNull();
+    expect(deletedStore?.status).toBe("INACTIVE");
+
+    // AND: Associated user roles are also soft deleted
+    const deletedUserRole = await prismaClient.userRole.findUnique({
+      where: { user_role_id: storeUserRole.user_role_id },
+    });
+    expect(deletedUserRole?.deleted_at).not.toBeNull();
+    expect(deletedUserRole?.status).toBe("INACTIVE");
+  });
+
   test("2.2-API-012: [P0] DELETE /api/stores/:storeId - should enforce company isolation", async ({
     corporateAdminApiRequest,
     prismaClient,

@@ -63,7 +63,8 @@ export interface AssignRoleRequest {
 export interface CreateUserInput {
   email: string;
   name: string;
-  roles?: AssignRoleRequest[];
+  password: string;
+  roles: AssignRoleRequest[];
 }
 
 /**

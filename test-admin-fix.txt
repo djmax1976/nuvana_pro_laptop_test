@@ -1,0 +1,11 @@
+
+Running 1 test using 1 worker
+
+  ok 1 [e2e] › tests\e2e\admin-user-management.spec.ts:119:7 › Admin User Management E2E › [P0] Should load users list page (3.6s)
+
+  1 passed (7.0s)
+
+To open last HTML report run:
+[36m[39m
+[36m  npx playwright show-report[39m
+[36m[39m

@@ -5,6 +5,7 @@ import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
+import { cleanupTestData } from "../support/cleanup-helper";
 
 const prisma = new PrismaClient();
 
@@ -26,7 +27,18 @@ test.describe("Client Management E2E", () => {
   let testClient: any;
 
   test.beforeAll(async () => {
-    // Clean up any existing test data first
+    // Clean up any existing test data first (delete userRoles before users to avoid FK violations)
+    const existingUsers = await prisma.user.findMany({
+      where: { email: "superadmin-client-e2e@test.com" },
+      select: { user_id: true },
+    });
+
+    for (const user of existingUsers) {
+      await prisma.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+    }
+
     await prisma.user.deleteMany({
       where: { email: "superadmin-client-e2e@test.com" },
     });
@@ -72,21 +84,11 @@ test.describe("Client Management E2E", () => {
   });
 
   test.afterAll(async () => {
-    // Cleanup: Delete test data
-    if (testClient) {
-      await prisma.client.delete({
-        where: { client_id: testClient.client_id },
-      });
-    }
-
-    if (superadminUser) {
-      await prisma.userRole.deleteMany({
-        where: { user_id: superadminUser.user_id },
-      });
-      await prisma.user.delete({
-        where: { user_id: superadminUser.user_id },
-      });
-    }
+    // Cleanup: Delete test data using helper (respects FK constraints)
+    await cleanupTestData(prisma, {
+      clients: testClient ? [testClient.client_id] : [],
+      users: superadminUser ? [superadminUser.user_id] : [],
+    });
 
     await prisma.$disconnect();
   });
@@ -299,16 +301,29 @@ test.describe("Client Management E2E", () => {
 
     // AND: I fill in the client form
     const newClientName = `New E2E Client ${Date.now()}`;
+    const newClientEmail = `client-${Date.now()}@example.com`;
 
     await page
       .locator('input[data-testid="client-name-input"]')
       .fill(newClientName);
 
+    await page
+      .locator('input[data-testid="client-email-input"]')
+      .fill(newClientEmail);
+
+    await page
+      .locator('input[data-testid="client-password-input"]')
+      .fill("TestPassword123!");
+
+    await page
+      .locator('input[data-testid="client-confirm-password-input"]')
+      .fill("TestPassword123!");
+
     const statusSelect = page.locator(
       'button[data-testid="client-status-select"]',
     );
     await statusSelect.click();
-    await page.locator('div[role="option"]:has-text("Active")').click();
+    await page.getByRole("option", { name: "Active", exact: true }).click();
 
     // AND: I submit the form
     await page.locator('button[data-testid="client-submit-button"]').click();

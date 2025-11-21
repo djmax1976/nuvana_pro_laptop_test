@@ -3,7 +3,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useCreateUser } from "@/lib/api/admin-users";
+import { useCreateUser, useRoles } from "@/lib/api/admin-users";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -15,9 +15,17 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { AssignRoleRequest, ScopeType } from "@/types/admin-user";
 
 // Zod validation schema for user creation
 const userFormSchema = z.object({
@@ -33,6 +41,18 @@ const userFormSchema = z.object({
     .refine((val) => val.trim().length > 0, {
       message: "Name cannot be whitespace only",
     }),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(255, "Password cannot exceed 255 characters")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+    .regex(/[0-9]/, "Password must contain at least one number")
+    .regex(
+      /[^A-Za-z0-9]/,
+      "Password must contain at least one special character",
+    ),
+  role_id: z.string().min(1, "Role is required"),
 });
 
 type UserFormValues = z.infer<typeof userFormSchema>;
@@ -46,20 +66,45 @@ export function UserForm() {
   const router = useRouter();
   const { toast } = useToast();
   const createUserMutation = useCreateUser();
+  const { data: rolesData, isLoading: rolesLoading } = useRoles();
 
   const form = useForm<UserFormValues>({
     resolver: zodResolver(userFormSchema),
     defaultValues: {
       email: "",
       name: "",
+      password: "",
+      role_id: "",
     },
   });
 
   async function onSubmit(data: UserFormValues) {
     try {
+      // Find the selected role to get its scope for the role assignment
+      const selectedRole = rolesData?.data.find(
+        (role) => role.role_id === data.role_id,
+      );
+
+      if (!selectedRole) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Selected role not found",
+        });
+        return;
+      }
+
+      // Create role assignment based on selected role
+      const roleAssignment: AssignRoleRequest = {
+        role_id: data.role_id,
+        scope_type: selectedRole.scope as ScopeType,
+      };
+
       await createUserMutation.mutateAsync({
         email: data.email.trim(),
         name: data.name.trim(),
+        password: data.password,
+        roles: [roleAssignment],
       });
 
       toast({
@@ -118,6 +163,61 @@ export function UserForm() {
                 />
               </FormControl>
               <FormDescription>The user&apos;s display name</FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="password"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Password</FormLabel>
+              <FormControl>
+                <Input
+                  type="password"
+                  placeholder="********"
+                  data-testid="user-password-input"
+                  {...field}
+                />
+              </FormControl>
+              <FormDescription>
+                Password must be at least 8 characters with uppercase,
+                lowercase, number, and special character
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="role_id"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Role</FormLabel>
+              <Select
+                onValueChange={field.onChange}
+                defaultValue={field.value}
+                disabled={rolesLoading}
+              >
+                <FormControl>
+                  <SelectTrigger data-testid="user-role-select">
+                    <SelectValue placeholder="Select a role" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {rolesData?.data.map((role) => (
+                    <SelectItem key={role.role_id} value={role.role_id}>
+                      {role.code} ({role.scope})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                Assign an initial role to the user (required)
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
