@@ -216,14 +216,8 @@ export class RBACService {
             where: { store_id: scope.storeId },
             select: { company_id: true },
           });
-          // If store doesn't exist, allow request to proceed to route handler (which will return 404)
-          // This ensures we return 404 for non-existent resources before 403 for unauthorized access
-          if (!store) {
-            await this.cachePermissionCheck(cacheKey, true);
-            return true;
-          }
-          // If store exists, check if it belongs to user's company
-          if (store.company_id === role.company_id) {
+          // If store exists AND belongs to user's company, grant permission
+          if (store && store.company_id === role.company_id) {
             await this.cachePermissionCheck(cacheKey, true);
             return true;
           }

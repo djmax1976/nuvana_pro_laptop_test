@@ -43,6 +43,15 @@ const clientFormSchema = z.object({
     .string()
     .min(1, "Client name is required")
     .max(255, "Client name must be 255 characters or less"),
+  email: z
+    .string()
+    .email("Invalid email address")
+    .max(255, "Email must be 255 characters or less"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .optional()
+    .or(z.literal("")),
   status: z.nativeEnum(ClientStatus, {
     message: "Please select a status",
   }),
@@ -92,6 +101,8 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
     resolver: zodResolver(clientFormSchema),
     defaultValues: {
       name: client?.name || "",
+      email: client?.email || "",
+      password: "",
       status: client?.status || ClientStatus.ACTIVE,
       metadata: client?.metadata
         ? JSON.stringify(client.metadata, null, 2)
@@ -109,13 +120,21 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
 
       if (client) {
         // Update existing client (using public_id for cleaner URLs)
+        const updateData: Record<string, unknown> = {
+          name: values.name,
+          email: values.email,
+          status: values.status,
+          metadata,
+        };
+
+        // Only include password if it's not empty
+        if (values.password && values.password.trim()) {
+          updateData.password = values.password;
+        }
+
         await updateMutation.mutateAsync({
           clientId: client.public_id,
-          data: {
-            name: values.name,
-            status: values.status,
-            metadata,
-          },
+          data: updateData,
         });
         toast({
           title: "Success",
@@ -125,6 +144,8 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
         // Create new client
         await createMutation.mutateAsync({
           name: values.name,
+          email: values.email,
+          password: values.password,
           status: values.status,
           metadata,
         });
@@ -240,6 +261,58 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
                 characters)
               </FormDescription>
               <FormMessage data-testid="form-error-message" />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="email"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Email</FormLabel>
+              <FormControl>
+                <Input
+                  type="email"
+                  placeholder="client@example.com"
+                  autoComplete="email"
+                  {...field}
+                  disabled={isSubmitting}
+                  data-testid="client-email-input"
+                />
+              </FormControl>
+              <FormDescription>
+                Client email address (required, max 255 characters)
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="password"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>
+                Password {client && "(leave blank to keep current)"}
+              </FormLabel>
+              <FormControl>
+                <Input
+                  type="password"
+                  placeholder={client ? "••••••••" : "Enter password"}
+                  autoComplete="new-password"
+                  {...field}
+                  disabled={isSubmitting}
+                  data-testid="client-password-input"
+                />
+              </FormControl>
+              <FormDescription>
+                {client
+                  ? "Enter a new password only if you want to change it (min 8 characters)"
+                  : "Password for the client (optional, min 8 characters if provided)"}
+              </FormDescription>
+              <FormMessage />
             </FormItem>
           )}
         />

@@ -24,8 +24,10 @@ export type ClientStatus = "ACTIVE" | "INACTIVE";
 export interface ClientData {
   public_id?: string;
   name: string;
+  email: string;
   status: ClientStatus;
   metadata?: Record<string, any>;
+  password?: string;
 }
 
 /**
@@ -49,6 +51,7 @@ export const createClient = (
 ): ClientData => ({
   public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
   name: faker.company.name(),
+  email: faker.internet.email().toLowerCase(),
   status: "ACTIVE",
   metadata: {
     industry: faker.company.buzzNoun(),
@@ -87,5 +90,6 @@ export const createClientWithStatus = (status: ClientStatus): ClientData =>
 export const createClientNoMetadata = (): ClientData => ({
   public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
   name: faker.company.name(),
+  email: faker.internet.email().toLowerCase(),
   status: "ACTIVE",
 });

@@ -63,6 +63,14 @@ const createClientSchema = z.object({
     .string()
     .min(1, "Name is required")
     .max(255, "Name cannot exceed 255 characters"),
+  email: z
+    .string()
+    .email("Invalid email address")
+    .max(255, "Email cannot exceed 255 characters"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
   metadata: z.record(z.string(), z.unknown()).optional().nullable(),
 });
@@ -72,6 +80,15 @@ const updateClientSchema = z.object({
     .string()
     .min(1, "Name cannot be empty")
     .max(255, "Name cannot exceed 255 characters")
+    .optional(),
+  email: z
+    .string()
+    .email("Invalid email address")
+    .max(255, "Email cannot exceed 255 characters")
+    .optional(),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
     .optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
   metadata: z.record(z.string(), z.unknown()).optional().nullable(),
@@ -140,12 +157,14 @@ export async function clientRoutes(fastify: FastifyInstance) {
           };
         }
 
-        const { name, status, metadata } = parseResult.data;
+        const { name, email, password, status, metadata } = parseResult.data;
         const auditContext = getAuditContext(request, user);
 
         const client = await clientService.createClient(
           {
             name,
+            email,
+            password,
             status: status as ClientStatus | undefined,
             metadata: metadata ?? undefined,
           },
@@ -328,13 +347,15 @@ export async function clientRoutes(fastify: FastifyInstance) {
           };
         }
 
-        const { name, status, metadata } = parseResult.data;
+        const { name, email, password, status, metadata } = parseResult.data;
         const auditContext = getAuditContext(request, user);
 
         const client = await clientService.updateClient(
           clientId,
           {
             name,
+            email,
+            password,
             status: status as ClientStatus | undefined,
             metadata: metadata ?? undefined,
           },

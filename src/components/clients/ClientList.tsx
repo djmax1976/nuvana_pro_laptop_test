@@ -39,6 +39,7 @@ import { format } from "date-fns";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { CompanyListDialog } from "@/components/clients/CompanyListDialog";
 
 /**
  * ClientList component
@@ -56,6 +57,11 @@ export function ClientList() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [pendingStatus, setPendingStatus] = useState<ClientStatus | null>(null);
+
+  // Company list dialog state
+  const [showCompanyDialog, setShowCompanyDialog] = useState(false);
+  const [selectedClientForCompanies, setSelectedClientForCompanies] =
+    useState<Client | null>(null);
 
   // Debounce search to avoid excessive API calls
   const debouncedSearch = useDebounce(search, 300);
@@ -169,6 +175,12 @@ export function ClientList() {
     }
   };
 
+  // Handle company count click
+  const handleCompanyCountClick = (client: Client) => {
+    setSelectedClientForCompanies(client);
+    setShowCompanyDialog(true);
+  };
+
   if (isLoading) {
     return <ClientListSkeleton />;
   }
@@ -269,7 +281,13 @@ export function ClientList() {
                     <TableCell
                       data-testid={`client-company-count-${client.client_id}`}
                     >
-                      {client.companyCount ?? client._count?.companies ?? 0}
+                      <button
+                        onClick={() => handleCompanyCountClick(client)}
+                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded px-1"
+                        data-testid={`client-company-count-button-${client.client_id}`}
+                      >
+                        {client.companyCount ?? client._count?.companies ?? 0}
+                      </button>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {format(new Date(client.created_at), "MMM d, yyyy")}
@@ -410,6 +428,16 @@ export function ClientList() {
           onConfirm={confirmDelete}
           destructive={true}
           isLoading={actionInProgress === selectedClient.client_id}
+        />
+      )}
+
+      {/* Company List Dialog */}
+      {selectedClientForCompanies && (
+        <CompanyListDialog
+          open={showCompanyDialog}
+          onOpenChange={setShowCompanyDialog}
+          companies={selectedClientForCompanies.companies || []}
+          clientName={selectedClientForCompanies.name}
         />
       )}
     </div>

@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { useClient } from "@/lib/api/clients";
 import { ClientForm } from "@/components/clients/ClientForm";
+import { CompanyListDialog } from "@/components/clients/CompanyListDialog";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -20,6 +22,7 @@ interface ClientDetailPageProps {
 export default function ClientDetailPage({ params }: ClientDetailPageProps) {
   const { clientId } = params;
   const { data, isLoading, error } = useClient(clientId);
+  const [showCompanyDialog, setShowCompanyDialog] = useState(false);
 
   if (isLoading) {
     return (
@@ -98,9 +101,16 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
               <label className="text-sm font-medium text-muted-foreground">
                 Companies
               </label>
-              <p className="mt-1 text-sm" data-testid="client-companies-list">
-                {client.companyCount ?? client._count?.companies ?? 0} companies
-              </p>
+              <button
+                onClick={() => setShowCompanyDialog(true)}
+                className="mt-1 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded px-1"
+                data-testid="client-companies-list"
+              >
+                {client.companyCount ?? client._count?.companies ?? 0}{" "}
+                {(client.companyCount ?? client._count?.companies ?? 0) === 1
+                  ? "company"
+                  : "companies"}
+              </button>
             </div>
 
             <div>
@@ -140,6 +150,14 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
           <ClientForm client={client} />
         </div>
       </div>
+
+      {/* Company List Dialog */}
+      <CompanyListDialog
+        open={showCompanyDialog}
+        onOpenChange={setShowCompanyDialog}
+        companies={client.companies || []}
+        clientName={client.name}
+      />
     </div>
   );
 }

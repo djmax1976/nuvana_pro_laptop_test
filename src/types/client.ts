@@ -11,6 +11,7 @@ export interface Client {
   client_id: string;
   public_id: string; // External-facing ID (clt_xxxxx)
   name: string;
+  email: string;
   status: ClientStatus;
   metadata?: Record<string, unknown> | null;
   created_at: string;
@@ -20,16 +21,25 @@ export interface Client {
   _count?: {
     companies: number;
   };
+  companies?: Array<{
+    company_id: string;
+    public_id: string | null;
+    name: string;
+  }>;
 }
 
 export interface CreateClientInput {
   name: string;
+  email: string;
+  password?: string;
   status?: ClientStatus;
   metadata?: Record<string, unknown>;
 }
 
 export interface UpdateClientInput {
   name?: string;
+  email?: string;
+  password?: string;
   status?: ClientStatus;
   metadata?: Record<string, unknown>;
 }

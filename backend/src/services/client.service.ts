@@ -1,4 +1,5 @@
 import { PrismaClient, Prisma } from "@prisma/client";
+import bcrypt from "bcrypt";
 import {
   ClientStatus,
   CreateClientInput,
@@ -48,16 +49,34 @@ export class ClientService {
       throw new Error("Client name cannot exceed 255 characters");
     }
 
+    // Validate email
+    if (!data.email || data.email.trim().length === 0) {
+      throw new Error("Client email is required and cannot be empty");
+    }
+
+    if (data.email.trim().length > 255) {
+      throw new Error("Client email cannot exceed 255 characters");
+    }
+
     // Validate status if provided
     if (data.status && !["ACTIVE", "INACTIVE"].includes(data.status)) {
       throw new Error("Invalid status. Must be ACTIVE or INACTIVE");
     }
 
     try {
+      // Hash password if provided
+      let passwordHash: string | null = null;
+      if (data.password) {
+        const saltRounds = 10;
+        passwordHash = await bcrypt.hash(data.password, saltRounds);
+      }
+
       const client = await prisma.client.create({
         data: {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
           name: data.name.trim(),
+          email: data.email.trim(),
+          password_hash: passwordHash,
           status: data.status || ClientStatus.ACTIVE,
           metadata: data.metadata
             ? (data.metadata as Prisma.InputJsonValue)
@@ -66,6 +85,19 @@ export class ClientService {
         include: {
           _count: {
             select: { companies: true },
+          },
+          companies: {
+            where: {
+              deleted_at: null,
+            },
+            select: {
+              company_id: true,
+              public_id: true,
+              name: true,
+            },
+            orderBy: {
+              name: "asc",
+            },
           },
         },
       });
@@ -96,12 +128,14 @@ export class ClientService {
         client_id: client.client_id,
         public_id: client.public_id,
         name: client.name,
+        email: client.email,
         status: client.status as ClientStatus,
         metadata: client.metadata as Record<string, unknown> | null,
         created_at: client.created_at,
         updated_at: client.updated_at,
         deleted_at: client.deleted_at,
         companyCount: client._count.companies,
+        companies: client.companies,
       };
     } catch (error) {
       console.error("Error creating client:", error);
@@ -159,6 +193,19 @@ export class ClientService {
             _count: {
               select: { companies: true },
             },
+            companies: {
+              where: {
+                deleted_at: null,
+              },
+              select: {
+                company_id: true,
+                public_id: true,
+                name: true,
+              },
+              orderBy: {
+                name: "asc",
+              },
+            },
           },
         }),
         prisma.client.count({ where }),
@@ -169,12 +216,14 @@ export class ClientService {
           client_id: client.client_id,
           public_id: client.public_id,
           name: client.name,
+          email: client.email,
           status: client.status as ClientStatus,
           metadata: client.metadata as Record<string, unknown> | null,
           created_at: client.created_at,
           updated_at: client.updated_at,
           deleted_at: client.deleted_at,
           companyCount: client._count.companies,
+          companies: client.companies,
         }),
       );
 
@@ -209,6 +258,19 @@ export class ClientService {
           _count: {
             select: { companies: true },
           },
+          companies: {
+            where: {
+              deleted_at: null,
+            },
+            select: {
+              company_id: true,
+              public_id: true,
+              name: true,
+            },
+            orderBy: {
+              name: "asc",
+            },
+          },
         },
       });
 
@@ -225,12 +287,14 @@ export class ClientService {
         client_id: client.client_id,
         public_id: client.public_id,
         name: client.name,
+        email: client.email,
         status: client.status as ClientStatus,
         metadata: client.metadata as Record<string, unknown> | null,
         created_at: client.created_at,
         updated_at: client.updated_at,
         deleted_at: client.deleted_at,
         companyCount: client._count.companies,
+        companies: client.companies,
       };
     } catch (error: unknown) {
       if (error instanceof Error && error.message.includes("not found")) {
@@ -263,6 +327,15 @@ export class ClientService {
       throw new Error("Client name cannot exceed 255 characters");
     }
 
+    // Validate email if provided
+    if (data.email !== undefined && data.email.trim().length === 0) {
+      throw new Error("Client email cannot be empty");
+    }
+
+    if (data.email !== undefined && data.email.trim().length > 255) {
+      throw new Error("Client email cannot exceed 255 characters");
+    }
+
     // Validate status if provided
     if (data.status && !["ACTIVE", "INACTIVE"].includes(data.status)) {
       throw new Error("Invalid status. Must be ACTIVE or INACTIVE");
@@ -276,6 +349,19 @@ export class ClientService {
           _count: {
             select: { companies: true },
           },
+          companies: {
+            where: {
+              deleted_at: null,
+            },
+            select: {
+              company_id: true,
+              public_id: true,
+              name: true,
+            },
+            orderBy: {
+              name: "asc",
+            },
+          },
         },
       });
 
@@ -287,6 +373,14 @@ export class ClientService {
       const updateData: Prisma.ClientUpdateInput = {};
       if (data.name !== undefined) {
         updateData.name = data.name.trim();
+      }
+      if (data.email !== undefined) {
+        updateData.email = data.email.trim();
+      }
+      if (data.password) {
+        // Hash password if provided
+        const saltRounds = 10;
+        updateData.password_hash = await bcrypt.hash(data.password, saltRounds);
       }
       if (data.status !== undefined) {
         updateData.status = data.status;
@@ -301,6 +395,19 @@ export class ClientService {
         include: {
           _count: {
             select: { companies: true },
+          },
+          companies: {
+            where: {
+              deleted_at: null,
+            },
+            select: {
+              company_id: true,
+              public_id: true,
+              name: true,
+            },
+            orderBy: {
+              name: "asc",
+            },
           },
         },
       });
@@ -332,12 +439,14 @@ export class ClientService {
         client_id: client.client_id,
         public_id: client.public_id,
         name: client.name,
+        email: client.email,
         status: client.status as ClientStatus,
         metadata: client.metadata as Record<string, unknown> | null,
         created_at: client.created_at,
         updated_at: client.updated_at,
         deleted_at: client.deleted_at,
         companyCount: client._count.companies,
+        companies: client.companies,
       };
     } catch (error: unknown) {
       if (error instanceof Error && error.message.includes("not found")) {
@@ -366,6 +475,19 @@ export class ClientService {
         include: {
           _count: {
             select: { companies: true },
+          },
+          companies: {
+            where: {
+              deleted_at: null,
+            },
+            select: {
+              company_id: true,
+              public_id: true,
+              name: true,
+            },
+            orderBy: {
+              name: "asc",
+            },
           },
         },
       });
@@ -405,6 +527,19 @@ export class ClientService {
           _count: {
             select: { companies: true },
           },
+          companies: {
+            where: {
+              deleted_at: null,
+            },
+            select: {
+              company_id: true,
+              public_id: true,
+              name: true,
+            },
+            orderBy: {
+              name: "asc",
+            },
+          },
         },
       });
 
@@ -435,12 +570,14 @@ export class ClientService {
         client_id: client.client_id,
         public_id: client.public_id,
         name: client.name,
+        email: client.email,
         status: client.status as ClientStatus,
         metadata: client.metadata as Record<string, unknown> | null,
         created_at: client.created_at,
         updated_at: client.updated_at,
         deleted_at: client.deleted_at,
         companyCount: client._count.companies,
+        companies: client.companies,
       };
     } catch (error: unknown) {
       if (
