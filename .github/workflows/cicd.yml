@@ -23,6 +23,7 @@ env:
 
 jobs:
   lint_typecheck:
+    name: Lint & Type Check
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -242,6 +243,7 @@ jobs:
           cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
+          NODE_ENV: test
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
@@ -461,6 +463,7 @@ jobs:
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
   build_app:
+    name: Build Application
     needs: lint_typecheck
     runs-on: ubuntu-latest
     permissions:
@@ -770,7 +773,7 @@ jobs:
         if: steps.wait_backend.outputs.health_check_passed == 'true'
         id: zap_auth
         run: |
-          RESPONSE_HEADERS=$(curl -i -s -X POST "$BACKEND_URL/api/auth/login" \
+          RESPONSE_HEADERS=$(curl -i -s -X POST "${{ env.BACKEND_URL }}/api/auth/login" \
             -H "Content-Type: application/json" \
             -d '{"email":"admin@nuvana.com","password":"Admin123!"}')
           COOKIES=$(echo "$RESPONSE_HEADERS" | grep -i '^set-cookie:' | cut -d' ' -f2- | cut -d';' -f1 | tr '\n' '; ' | sed 's/; $//')
