@@ -5,7 +5,16 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 
 // Mock the child components
 vi.mock("@/components/layout/Sidebar", () => ({
-  Sidebar: () => <div data-testid="sidebar-navigation">Sidebar</div>,
+  Sidebar: ({ onNavigate }: { onNavigate?: () => void }) => (
+    <div data-testid="sidebar-navigation">
+      <a href="/dashboard" onClick={onNavigate}>
+        Dashboard
+      </a>
+      <a href="/companies" onClick={onNavigate}>
+        Companies
+      </a>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/layout/Header", () => ({
@@ -115,6 +124,47 @@ describe("DashboardLayout Mobile Behavior", () => {
       // Should have both desktop (hidden) and mobile (visible in dialog) sidebars
       expect(sidebars.length).toBe(2);
     });
+  });
+
+  it("[P0] should automatically close mobile sidebar when navigation link is clicked", async () => {
+    render(
+      <DashboardLayout>
+        <div>Test Content</div>
+      </DashboardLayout>,
+    );
+
+    // GIVEN: Mobile sidebar is closed initially
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    // WHEN: User opens the sidebar via hamburger menu
+    const hamburger = screen.getByTestId("sidebar-toggle");
+    fireEvent.click(hamburger);
+
+    // THEN: Sidebar should be open
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    // WHEN: User clicks any navigation link in the mobile sidebar
+    // Get all sidebar instances, the second one is in the mobile Sheet dialog
+    const mobileSidebarNavs = screen.getAllByTestId("sidebar-navigation");
+    const mobileSidebar = mobileSidebarNavs[1]; // Mobile sidebar (in dialog)
+
+    // Find the first navigation link within the mobile sidebar
+    const navLinks = mobileSidebar.querySelectorAll("a[href]");
+    expect(navLinks.length).toBeGreaterThan(0);
+
+    fireEvent.click(navLinks[0]);
+
+    // THEN: Mobile sidebar should automatically close
+    await waitFor(
+      () => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      },
+      {
+        timeout: 3000,
+      },
+    );
   });
 
   it("[P1] should have hamburger menu button", () => {

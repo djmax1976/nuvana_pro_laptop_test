@@ -207,7 +207,7 @@ export function RoleAssignmentDialog({
           Manage Roles
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Manage Roles for {user.name}</DialogTitle>
           <DialogDescription>

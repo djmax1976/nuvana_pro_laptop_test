@@ -33,7 +33,7 @@ export function CompanyListDialog({
 }: CompanyListDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Companies - {clientName}</DialogTitle>
           <DialogDescription>
@@ -43,17 +43,17 @@ export function CompanyListDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="mt-4 max-h-96 overflow-y-auto">
+        <div className="mt-4">
           {companies.length > 0 ? (
-            <ul className="space-y-2">
+            <ul className="space-y-2 pr-2">
               {companies.map((company) => (
                 <li
                   key={company.company_id}
                   className="rounded-md border p-3 hover:bg-accent transition-colors"
                 >
-                  <p className="font-medium">{company.name}</p>
+                  <p className="font-medium break-words">{company.name}</p>
                   {company.public_id && (
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-muted-foreground mt-1 break-all">
                       {company.public_id}
                     </p>
                   )}

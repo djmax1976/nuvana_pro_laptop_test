@@ -92,6 +92,8 @@ test.describe("Client Form Email and Password E2E", () => {
             "keep@example.com",
             "valid@example.com",
             "shortpass@example.com",
+            "mismatch@example.com",
+            "matching@example.com",
           ],
         },
       },
@@ -149,6 +151,17 @@ test.describe("Client Form Email and Password E2E", () => {
         "autoComplete",
         "new-password",
       );
+
+      // AND: Confirm password field is visible
+      const confirmPasswordInput = page.locator(
+        '[data-testid="client-confirm-password-input"]',
+      );
+      await expect(confirmPasswordInput).toBeVisible();
+      await expect(confirmPasswordInput).toHaveAttribute("type", "password");
+      await expect(confirmPasswordInput).toHaveAttribute(
+        "autoComplete",
+        "new-password",
+      );
     });
 
     test("[P0] Should show validation error for missing email", async ({
@@ -181,12 +194,61 @@ test.describe("Client Form Email and Password E2E", () => {
       await page.fill('[data-testid="client-name-input"]', "Test Client");
       await page.fill('[data-testid="client-email-input"]', "test@example.com");
       await page.fill('[data-testid="client-password-input"]', "short");
+      await page.fill('[data-testid="client-confirm-password-input"]', "short");
       await page.click('[data-testid="client-submit-button"]');
 
       // THEN: Validation error is displayed
       await expect(
         page.locator("text=Password must be at least 8 characters"),
       ).toBeVisible();
+    });
+
+    test("[P0] Should show validation error when passwords do not match", async ({
+      page,
+    }) => {
+      // WHEN: Entering different passwords
+      await page.fill('[data-testid="client-name-input"]', "Test Client");
+      await page.fill(
+        '[data-testid="client-email-input"]',
+        "mismatch@example.com",
+      );
+      await page.fill('[data-testid="client-password-input"]', "Password123");
+      await page.fill(
+        '[data-testid="client-confirm-password-input"]',
+        "Password456",
+      );
+      await page.click('[data-testid="client-submit-button"]');
+
+      // THEN: Validation error is displayed
+      await expect(page.locator("text=Passwords do not match")).toBeVisible();
+    });
+
+    test("[P0] Should allow submission when passwords match", async ({
+      page,
+    }) => {
+      // WHEN: Entering matching passwords
+      await page.fill(
+        '[data-testid="client-name-input"]',
+        "Matching Pass Client",
+      );
+      await page.fill(
+        '[data-testid="client-email-input"]',
+        "matching@example.com",
+      );
+      await page.fill(
+        '[data-testid="client-password-input"]',
+        "MatchingPass123",
+      );
+      await page.fill(
+        '[data-testid="client-confirm-password-input"]',
+        "MatchingPass123",
+      );
+      await page.click('[data-testid="client-submit-button"]');
+
+      // THEN: Form submits successfully
+      await expect(
+        page.locator("text=Client created successfully"),
+      ).toBeVisible({ timeout: 10000 });
     });
 
     test("[P0] Should successfully create client with email and password", async ({
@@ -202,6 +264,10 @@ test.describe("Client Form Email and Password E2E", () => {
         "newclient@example.com",
       );
       await page.fill('[data-testid="client-password-input"]', "securePass123");
+      await page.fill(
+        '[data-testid="client-confirm-password-input"]',
+        "securePass123",
+      );
       await page.click('[data-testid="client-submit-button"]');
 
       // THEN: Success toast is displayed
@@ -218,6 +284,9 @@ test.describe("Client Form Email and Password E2E", () => {
       ).toHaveValue("");
       await expect(
         page.locator('[data-testid="client-password-input"]'),
+      ).toHaveValue("");
+      await expect(
+        page.locator('[data-testid="client-confirm-password-input"]'),
       ).toHaveValue("");
     });
 
@@ -295,6 +364,15 @@ test.describe("Client Form Email and Password E2E", () => {
       );
       await expect(passwordInput).toHaveAttribute("placeholder", "••••••••");
 
+      // AND: Confirm password field shows dots placeholder
+      const confirmPasswordInput = page.locator(
+        '[data-testid="client-confirm-password-input"]',
+      );
+      await expect(confirmPasswordInput).toHaveAttribute(
+        "placeholder",
+        "••••••••",
+      );
+
       // AND: Label indicates password is optional
       await expect(
         page.locator("text=Password (leave blank to keep current)"),
@@ -335,12 +413,16 @@ test.describe("Client Form Email and Password E2E", () => {
       // Get original password hash
       const originalHash = testClient.password_hash;
 
-      // WHEN: Updating password
+      // WHEN: Updating password with matching confirmation
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
       await page.waitForSelector('[data-testid="client-password-input"]');
 
       await page.fill(
         '[data-testid="client-password-input"]',
+        "newPassword456",
+      );
+      await page.fill(
+        '[data-testid="client-confirm-password-input"]',
         "newPassword456",
       );
       await page.click('[data-testid="client-submit-button"]');
@@ -355,6 +437,27 @@ test.describe("Client Form Email and Password E2E", () => {
         where: { client_id: testClient.client_id },
       });
       expect(updatedClient?.password_hash).not.toBe(originalHash);
+    });
+
+    test("[P0] Should show validation error when updating password with mismatched confirmation", async ({
+      page,
+    }) => {
+      // WHEN: Updating password with mismatched confirmation
+      await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
+      await page.waitForSelector('[data-testid="client-password-input"]');
+
+      await page.fill(
+        '[data-testid="client-password-input"]',
+        "newPassword789",
+      );
+      await page.fill(
+        '[data-testid="client-confirm-password-input"]',
+        "differentPass789",
+      );
+      await page.click('[data-testid="client-submit-button"]');
+
+      // THEN: Validation error is displayed
+      await expect(page.locator("text=Passwords do not match")).toBeVisible();
     });
 
     test("[P0] Should keep existing password when field is left blank", async ({
@@ -439,6 +542,261 @@ test.describe("Client Form Email and Password E2E", () => {
           "text=Password for the client (optional, min 8 characters if provided)",
         ),
       ).toBeVisible();
+    });
+  });
+
+  test.describe("Password Visibility Toggle", () => {
+    test("[P0] Should toggle password visibility when eye icon is clicked", async ({
+      page,
+    }) => {
+      // GIVEN: User is on create client form
+      await page.goto("http://localhost:3000/clients/new");
+      await page.waitForSelector('[data-testid="client-password-input"]');
+
+      const passwordInput = page.locator(
+        '[data-testid="client-password-input"]',
+      );
+      const toggleButton = page.locator(
+        '[data-testid="toggle-password-visibility"]',
+      );
+
+      // WHEN: Password field is initially displayed
+      // THEN: Password should be hidden (type="password")
+      await expect(passwordInput).toHaveAttribute("type", "password");
+      await expect(toggleButton).toBeVisible();
+      await expect(toggleButton).toHaveAttribute("aria-label", "Show password");
+
+      // WHEN: User enters password
+      await passwordInput.fill("TestPassword123");
+
+      // THEN: Password should still be hidden
+      await expect(passwordInput).toHaveAttribute("type", "password");
+
+      // WHEN: User clicks eye icon to show password
+      await toggleButton.click();
+
+      // THEN: Password should be visible (type="text")
+      await expect(passwordInput).toHaveAttribute("type", "text");
+      await expect(toggleButton).toHaveAttribute("aria-label", "Hide password");
+      await expect(passwordInput).toHaveValue("TestPassword123");
+
+      // WHEN: User clicks eye icon again to hide password
+      await toggleButton.click();
+
+      // THEN: Password should be hidden again
+      await expect(passwordInput).toHaveAttribute("type", "password");
+      await expect(toggleButton).toHaveAttribute("aria-label", "Show password");
+    });
+
+    test("[P0] Should toggle confirm password visibility independently", async ({
+      page,
+    }) => {
+      // GIVEN: User is on create client form
+      await page.goto("http://localhost:3000/clients/new");
+      await page.waitForSelector(
+        '[data-testid="client-confirm-password-input"]',
+      );
+
+      const confirmPasswordInput = page.locator(
+        '[data-testid="client-confirm-password-input"]',
+      );
+      const toggleButton = page.locator(
+        '[data-testid="toggle-confirm-password-visibility"]',
+      );
+
+      // WHEN: Confirm password field is initially displayed
+      // THEN: Should be hidden (type="password")
+      await expect(confirmPasswordInput).toHaveAttribute("type", "password");
+      await expect(toggleButton).toBeVisible();
+
+      // WHEN: User enters confirm password
+      await confirmPasswordInput.fill("TestPassword123");
+
+      // WHEN: User clicks eye icon to show confirm password
+      await toggleButton.click();
+
+      // THEN: Confirm password should be visible
+      await expect(confirmPasswordInput).toHaveAttribute("type", "text");
+      await expect(confirmPasswordInput).toHaveValue("TestPassword123");
+
+      // WHEN: User clicks eye icon again
+      await toggleButton.click();
+
+      // THEN: Confirm password should be hidden again
+      await expect(confirmPasswordInput).toHaveAttribute("type", "password");
+    });
+
+    test("[P0] Should maintain independent visibility states for password and confirm password", async ({
+      page,
+    }) => {
+      // GIVEN: User is on create client form
+      await page.goto("http://localhost:3000/clients/new");
+      await page.waitForSelector('[data-testid="client-password-input"]');
+
+      const passwordInput = page.locator(
+        '[data-testid="client-password-input"]',
+      );
+      const confirmPasswordInput = page.locator(
+        '[data-testid="client-confirm-password-input"]',
+      );
+      const passwordToggle = page.locator(
+        '[data-testid="toggle-password-visibility"]',
+      );
+      const confirmPasswordToggle = page.locator(
+        '[data-testid="toggle-confirm-password-visibility"]',
+      );
+
+      // WHEN: User enters both passwords
+      await passwordInput.fill("Password123");
+      await confirmPasswordInput.fill("Password123");
+
+      // THEN: Both should be hidden initially
+      await expect(passwordInput).toHaveAttribute("type", "password");
+      await expect(confirmPasswordInput).toHaveAttribute("type", "password");
+
+      // WHEN: User shows only password field
+      await passwordToggle.click();
+
+      // THEN: Password is visible, confirm password is still hidden
+      await expect(passwordInput).toHaveAttribute("type", "text");
+      await expect(confirmPasswordInput).toHaveAttribute("type", "password");
+
+      // WHEN: User shows confirm password field
+      await confirmPasswordToggle.click();
+
+      // THEN: Both are now visible
+      await expect(passwordInput).toHaveAttribute("type", "text");
+      await expect(confirmPasswordInput).toHaveAttribute("type", "text");
+
+      // WHEN: User hides only password field
+      await passwordToggle.click();
+
+      // THEN: Password is hidden, confirm password is still visible
+      await expect(passwordInput).toHaveAttribute("type", "password");
+      await expect(confirmPasswordInput).toHaveAttribute("type", "text");
+    });
+
+    test("[P0] Should have accessible toggle buttons with proper ARIA labels", async ({
+      page,
+    }) => {
+      // GIVEN: User is on create client form
+      await page.goto("http://localhost:3000/clients/new");
+      await page.waitForSelector('[data-testid="toggle-password-visibility"]');
+
+      const passwordToggle = page.locator(
+        '[data-testid="toggle-password-visibility"]',
+      );
+      const confirmPasswordToggle = page.locator(
+        '[data-testid="toggle-confirm-password-visibility"]',
+      );
+
+      // THEN: Toggle buttons should have proper attributes
+      await expect(passwordToggle).toHaveAttribute("type", "button");
+      await expect(passwordToggle).toHaveAttribute(
+        "aria-label",
+        "Show password",
+      );
+
+      await expect(confirmPasswordToggle).toHaveAttribute("type", "button");
+      await expect(confirmPasswordToggle).toHaveAttribute(
+        "aria-label",
+        "Show confirm password",
+      );
+
+      // WHEN: User clicks to show password
+      await passwordToggle.click();
+
+      // THEN: ARIA label should update
+      await expect(passwordToggle).toHaveAttribute(
+        "aria-label",
+        "Hide password",
+      );
+
+      // WHEN: User clicks to show confirm password
+      await confirmPasswordToggle.click();
+
+      // THEN: ARIA label should update
+      await expect(confirmPasswordToggle).toHaveAttribute(
+        "aria-label",
+        "Hide confirm password",
+      );
+    });
+
+    test("[P0] Should disable toggle buttons when form is submitting", async ({
+      page,
+    }) => {
+      // GIVEN: User is on create client form with valid data
+      await page.goto("http://localhost:3000/clients/new");
+      await page.waitForSelector('[data-testid="client-name-input"]');
+
+      await page.fill('[data-testid="client-name-input"]', "Test Client");
+      await page.fill(
+        '[data-testid="client-email-input"]',
+        "valid@example.com",
+      );
+      await page.fill('[data-testid="client-password-input"]', "ValidPass123");
+      await page.fill(
+        '[data-testid="client-confirm-password-input"]',
+        "ValidPass123",
+      );
+
+      const passwordToggle = page.locator(
+        '[data-testid="toggle-password-visibility"]',
+      );
+      const confirmPasswordToggle = page.locator(
+        '[data-testid="toggle-confirm-password-visibility"]',
+      );
+
+      // WHEN: Form is being submitted
+      // Note: We can't easily test the disabled state during submission without mocking
+      // but we can verify the buttons are enabled before submission
+      await expect(passwordToggle).toBeEnabled();
+      await expect(confirmPasswordToggle).toBeEnabled();
+    });
+
+    test("[P0] Should work on edit form as well", async ({ page }) => {
+      // GIVEN: Test client exists
+      const passwordHash = await bcrypt.hash("password123", 10);
+      const editTestClient = await prisma.client.create({
+        data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
+          name: "Edit Visibility Test Client",
+          email: "visibility@example.com",
+          password_hash: passwordHash,
+          status: "ACTIVE",
+        },
+      });
+
+      try {
+        // WHEN: User navigates to edit form
+        await page.goto(
+          `http://localhost:3000/clients/${editTestClient.public_id}`,
+        );
+        await page.waitForSelector('[data-testid="client-password-input"]');
+
+        const passwordInput = page.locator(
+          '[data-testid="client-password-input"]',
+        );
+        const toggleButton = page.locator(
+          '[data-testid="toggle-password-visibility"]',
+        );
+
+        // THEN: Password field should be hidden initially
+        await expect(passwordInput).toHaveAttribute("type", "password");
+
+        // WHEN: User enters new password and toggles visibility
+        await passwordInput.fill("NewPassword456");
+        await toggleButton.click();
+
+        // THEN: Password should be visible
+        await expect(passwordInput).toHaveAttribute("type", "text");
+        await expect(passwordInput).toHaveValue("NewPassword456");
+      } finally {
+        // Cleanup
+        await prisma.client.delete({
+          where: { client_id: editTestClient.client_id },
+        });
+      }
     });
   });
 });

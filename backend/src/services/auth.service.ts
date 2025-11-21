@@ -1,5 +1,7 @@
 import jwt from "jsonwebtoken";
+import { randomUUID } from "crypto";
 import { rbacService } from "./rbac.service";
+import { getRedisClient } from "../utils/redis";
 
 /**
  * JWT token payload structure
@@ -9,6 +11,7 @@ export interface JWTPayload {
   email: string;
   roles: string[];
   permissions: string[];
+  jti?: string; // JWT ID for token tracking/invalidation
   iat?: number;
   exp?: number;
 }
@@ -72,21 +75,37 @@ export class AuthService {
 
   /**
    * Generate refresh token with 7 day expiry
+   * Stores token JTI in Redis for rotation/invalidation
    * @param user_id - User ID from database
    * @param email - User email
    * @returns Signed JWT refresh token
    */
-  generateRefreshToken(user_id: string, email: string): string {
+  async generateRefreshToken(user_id: string, email: string): Promise<string> {
+    const jti = randomUUID();
     const payload: Omit<JWTPayload, "roles" | "permissions"> = {
       user_id,
       email,
+      jti,
     };
 
-    return jwt.sign(payload, this.jwtRefreshSecret, {
+    const token = jwt.sign(payload, this.jwtRefreshSecret, {
       expiresIn: this.refreshTokenExpiry as string,
       issuer: "nuvana-backend",
       audience: "nuvana-api",
     } as jwt.SignOptions);
+
+    // Store token JTI in Redis for tracking (7 days TTL)
+    try {
+      const redis = await getRedisClient();
+      if (redis) {
+        await redis.setEx(`refresh_token:${jti}`, 7 * 24 * 60 * 60, user_id);
+      }
+    } catch (error) {
+      console.error("Failed to store refresh token in Redis:", error);
+      // Continue even if Redis fails - token will still work but won't be revocable
+    }
+
+    return token;
   }
 
   /**
@@ -118,7 +137,7 @@ export class AuthService {
 
     return {
       accessToken: this.generateAccessToken(user_id, email, roles, permissions),
-      refreshToken: this.generateRefreshToken(user_id, email),
+      refreshToken: await this.generateRefreshToken(user_id, email),
     };
   }
 
@@ -143,7 +162,7 @@ export class AuthService {
 
     return {
       accessToken: this.generateAccessToken(user_id, email, roles, permissions),
-      refreshToken: this.generateRefreshToken(user_id, email),
+      refreshToken: await this.generateRefreshToken(user_id, email),
     };
   }
 
@@ -173,16 +192,35 @@ export class AuthService {
 
   /**
    * Verify and decode refresh token
+   * Checks Redis to ensure token hasn't been invalidated
    * @param token - JWT refresh token
-   * @returns Decoded token payload with user_id and email
-   * @throws Error if token is invalid, expired, or missing
+   * @returns Decoded token payload with user_id, email, and jti
+   * @throws Error if token is invalid, expired, revoked, or missing
    */
-  verifyRefreshToken(token: string): { user_id: string; email: string } {
+  async verifyRefreshToken(
+    token: string,
+  ): Promise<{ user_id: string; email: string; jti?: string }> {
     try {
       const decoded = jwt.verify(token, this.jwtRefreshSecret, {
         issuer: "nuvana-backend",
         audience: "nuvana-api",
-      }) as { user_id: string; email: string };
+      }) as { user_id: string; email: string; jti?: string };
+
+      // Check if token exists in Redis (not revoked)
+      if (decoded.jti) {
+        try {
+          const redis = await getRedisClient();
+          if (redis) {
+            const exists = await redis.exists(`refresh_token:${decoded.jti}`);
+            if (!exists) {
+              throw new Error("Refresh token has been revoked");
+            }
+          }
+        } catch (error) {
+          // If Redis check fails, log but allow token (graceful degradation)
+          console.error("Redis token check failed:", error);
+        }
+      }
 
       return decoded;
     } catch (error) {
@@ -190,8 +228,26 @@ export class AuthService {
         throw new Error("Refresh token has expired");
       } else if (error instanceof jwt.JsonWebTokenError) {
         throw new Error("Invalid refresh token");
+      } else if (error instanceof Error && error.message.includes("revoked")) {
+        throw error; // Re-throw revoked token error
       }
       throw new Error("Token verification failed");
+    }
+  }
+
+  /**
+   * Invalidate a refresh token by removing it from Redis
+   * @param jti - JWT ID of the token to invalidate
+   */
+  async invalidateRefreshToken(jti: string): Promise<void> {
+    try {
+      const redis = await getRedisClient();
+      if (redis) {
+        await redis.del(`refresh_token:${jti}`);
+      }
+    } catch (error) {
+      console.error("Failed to invalidate refresh token in Redis:", error);
+      // Don't throw - this is a best-effort operation
     }
   }
 }

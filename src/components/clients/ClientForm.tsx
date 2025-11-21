@@ -33,44 +33,59 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Trash2 } from "lucide-react";
+import { Trash2, Eye, EyeOff } from "lucide-react";
 
 /**
  * Client form validation schema
  */
-const clientFormSchema = z.object({
-  name: z
-    .string()
-    .min(1, "Client name is required")
-    .max(255, "Client name must be 255 characters or less"),
-  email: z
-    .string()
-    .email("Invalid email address")
-    .max(255, "Email must be 255 characters or less"),
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .optional()
-    .or(z.literal("")),
-  status: z.nativeEnum(ClientStatus, {
-    message: "Please select a status",
-  }),
-  metadata: z
-    .string()
-    .optional()
-    .refine(
-      (val) => {
-        if (!val || val.trim() === "") return true;
-        try {
-          JSON.parse(val);
-          return true;
-        } catch {
-          return false;
-        }
-      },
-      { message: "Invalid JSON format" },
-    ),
-});
+const clientFormSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1, "Client name is required")
+      .max(255, "Client name must be 255 characters or less"),
+    email: z
+      .string()
+      .email("Invalid email address")
+      .max(255, "Email must be 255 characters or less"),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .optional()
+      .or(z.literal("")),
+    confirmPassword: z.string().optional().or(z.literal("")),
+    status: z.nativeEnum(ClientStatus, {
+      message: "Please select a status",
+    }),
+    metadata: z
+      .string()
+      .optional()
+      .refine(
+        (val) => {
+          if (!val || val.trim() === "") return true;
+          try {
+            JSON.parse(val);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        { message: "Invalid JSON format" },
+      ),
+  })
+  .refine(
+    (data) => {
+      // If password is provided, confirmPassword must match
+      if (data.password && data.password.trim() !== "") {
+        return data.password === data.confirmPassword;
+      }
+      return true;
+    },
+    {
+      message: "Passwords do not match",
+      path: ["confirmPassword"],
+    },
+  );
 
 type ClientFormValues = z.infer<typeof clientFormSchema>;
 
@@ -92,6 +107,8 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<ClientStatus | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const createMutation = useCreateClient();
   const updateMutation = useUpdateClient();
@@ -103,6 +120,7 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
       name: client?.name || "",
       email: client?.email || "",
       password: "",
+      confirmPassword: "",
       status: client?.status || ClientStatus.ACTIVE,
       metadata: client?.metadata
         ? JSON.stringify(client.metadata, null, 2)
@@ -298,19 +316,89 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
                 Password {client && "(leave blank to keep current)"}
               </FormLabel>
               <FormControl>
-                <Input
-                  type="password"
-                  placeholder={client ? "••••••••" : "Enter password"}
-                  autoComplete="new-password"
-                  {...field}
-                  disabled={isSubmitting}
-                  data-testid="client-password-input"
-                />
+                <div className="relative">
+                  <Input
+                    type={showPassword ? "text" : "password"}
+                    placeholder={client ? "••••••••" : "Enter password"}
+                    autoComplete="new-password"
+                    {...field}
+                    disabled={isSubmitting}
+                    data-testid="client-password-input"
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                    onClick={() => setShowPassword(!showPassword)}
+                    disabled={isSubmitting}
+                    data-testid="toggle-password-visibility"
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
               </FormControl>
               <FormDescription>
                 {client
                   ? "Enter a new password only if you want to change it (min 8 characters)"
                   : "Password for the client (optional, min 8 characters if provided)"}
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="confirmPassword"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>
+                Confirm Password {client && "(leave blank to keep current)"}
+              </FormLabel>
+              <FormControl>
+                <div className="relative">
+                  <Input
+                    type={showConfirmPassword ? "text" : "password"}
+                    placeholder={client ? "••••••••" : "Confirm password"}
+                    autoComplete="new-password"
+                    {...field}
+                    disabled={isSubmitting}
+                    data-testid="client-confirm-password-input"
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    disabled={isSubmitting}
+                    data-testid="toggle-confirm-password-visibility"
+                    aria-label={
+                      showConfirmPassword
+                        ? "Hide confirm password"
+                        : "Show confirm password"
+                    }
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
+              </FormControl>
+              <FormDescription>
+                Re-enter the password to confirm
               </FormDescription>
               <FormMessage />
             </FormItem>

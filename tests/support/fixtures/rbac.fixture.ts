@@ -503,11 +503,13 @@ export const test = base.extend<RBACFixture>({
       );
     }
 
-    // Assign STORE_MANAGER role to user
+    // Assign STORE_MANAGER role to user with store_id (STORE scope)
     await prismaClient.userRole.create({
       data: {
         user_id: user.user_id,
         role_id: role.role_id,
+        company_id: company.company_id,
+        store_id: store.store_id,
       },
     });
 

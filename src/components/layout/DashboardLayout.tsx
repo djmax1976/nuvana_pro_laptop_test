@@ -40,7 +40,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <SheetDescription className="sr-only">
             Main navigation menu for the application
           </SheetDescription>
-          <Sidebar />
+          <Sidebar onNavigate={() => setSidebarOpen(false)} />
         </SheetContent>
       </Sheet>
 

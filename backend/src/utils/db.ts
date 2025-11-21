@@ -46,6 +46,12 @@ function createRLSPrismaClient() {
             // Only set if not already set
             if (!alreadySet) {
               try {
+                // Validate UUID format before setting (SQL injection prevention)
+                if (!isValidUUID(userId)) {
+                  throw new Error(
+                    `Invalid user ID format for RLS context: ${userId}. Expected valid UUID.`,
+                  );
+                }
                 await baseClient.$executeRaw`SET app.current_user_id = ${userId}`;
                 variableSetByUs = true;
               } catch (setError: any) {
@@ -99,11 +105,29 @@ function createRLSPrismaClient() {
 export const prisma = createRLSPrismaClient();
 
 /**
+ * UUID validation regex (RFC 4122)
+ */
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Validate UUID format to prevent SQL injection
+ * @param userId - User ID to validate
+ * @returns true if valid UUID, false otherwise
+ * @exported for testing SQL injection prevention
+ */
+export function isValidUUID(userId: string): boolean {
+  return UUID_REGEX.test(userId);
+}
+
+/**
  * Run a function with RLS context
  * Sets user ID in AsyncLocalStorage for the duration of the function
- * @param userId - User ID from authenticated request
+ * Validates user ID format to prevent SQL injection
+ * @param userId - User ID from authenticated request (must be valid UUID)
  * @param fn - Function to execute with RLS context
  * @returns Result of function
+ * @throws Error if userId is not a valid UUID format
  * @example
  * ```typescript
  * const user = (request as any).user as UserIdentity;
@@ -116,6 +140,12 @@ export async function withRLSContext<T>(
   userId: string | null,
   fn: () => Promise<T>,
 ): Promise<T> {
+  // Validate UUID format if userId is provided
+  if (userId !== null && !isValidUUID(userId)) {
+    throw new Error(
+      `Invalid user ID format for RLS context: ${userId}. Expected valid UUID.`,
+    );
+  }
   return rlsContext.run(userId, fn);
 }
 

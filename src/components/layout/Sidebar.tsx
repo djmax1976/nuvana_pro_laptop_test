@@ -85,9 +85,10 @@ const allNavItems: NavItemWithRole[] = [
 
 interface SidebarProps {
   className?: string;
+  onNavigate?: () => void; // Optional callback when navigation occurs (for mobile collapse)
 }
 
-export function Sidebar({ className }: SidebarProps) {
+export function Sidebar({ className, onNavigate }: SidebarProps) {
   const pathname = usePathname();
 
   // TODO: Get user roles from authentication context
@@ -125,6 +126,7 @@ export function Sidebar({ className }: SidebarProps) {
               key={item.href}
               href={item.href}
               data-testid={`nav-link-${item.title.toLowerCase()}`}
+              onClick={() => onNavigate?.()}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 isActive

@@ -99,3 +99,53 @@ describe("Sidebar Component - Security Tests", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("Sidebar Component - Mobile Behavior", () => {
+  it("should call onNavigate callback when navigation link is clicked", () => {
+    // GIVEN: Sidebar component with onNavigate callback
+    const mockOnNavigate = vi.fn();
+    renderWithProviders(<Sidebar onNavigate={mockOnNavigate} />);
+
+    // WHEN: User clicks a navigation link
+    const dashboardLink = screen.getByTestId("nav-link-dashboard");
+    dashboardLink.click();
+
+    // THEN: onNavigate callback should be invoked
+    expect(
+      mockOnNavigate,
+      "onNavigate should be called when navigation link is clicked",
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it("should not throw error when onNavigate is not provided", () => {
+    // GIVEN: Sidebar component without onNavigate callback (desktop mode)
+    renderWithProviders(<Sidebar />);
+
+    // WHEN: User clicks a navigation link
+    const dashboardLink = screen.getByTestId("nav-link-dashboard");
+
+    // THEN: Should not throw error (optional callback)
+    expect(() => dashboardLink.click()).not.toThrow();
+  });
+
+  it("should call onNavigate for each navigation link clicked", () => {
+    // GIVEN: Sidebar component with onNavigate callback
+    const mockOnNavigate = vi.fn();
+    renderWithProviders(<Sidebar onNavigate={mockOnNavigate} />);
+
+    // WHEN: User clicks multiple navigation links
+    const dashboardLink = screen.getByTestId("nav-link-dashboard");
+    const companiesLink = screen.getByTestId("nav-link-companies");
+    const storesLink = screen.getByTestId("nav-link-stores");
+
+    dashboardLink.click();
+    companiesLink.click();
+    storesLink.click();
+
+    // THEN: onNavigate should be called for each click
+    expect(
+      mockOnNavigate,
+      "onNavigate should be called three times",
+    ).toHaveBeenCalledTimes(3);
+  });
+});

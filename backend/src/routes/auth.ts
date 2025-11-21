@@ -125,21 +125,55 @@ export async function authRoutes(fastify: FastifyInstance) {
   );
 
   /**
-   * Logout endpoint - Clear auth cookies
+   * Logout endpoint - Clear auth cookies and invalidate refresh token
    * POST /api/auth/logout
-   * Clears httpOnly cookies to end session
+   * Clears httpOnly cookies and invalidates refresh token in Redis
    */
   fastify.post(
     "/api/auth/logout",
-    async (_request: FastifyRequest, reply: FastifyReply) => {
-      // Clear both auth cookies
-      (reply as any).clearCookie("access_token", { path: "/" });
-      (reply as any).clearCookie("refresh_token", { path: "/" });
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // Extract refresh token from cookie to invalidate it
+        const refreshToken = (request as any).cookies?.refresh_token;
 
-      reply.code(200);
-      return {
-        message: "Logout successful",
-      };
+        if (refreshToken) {
+          try {
+            const authService = new AuthService();
+            const decoded = await authService.verifyRefreshToken(refreshToken);
+
+            // Invalidate the refresh token in Redis
+            if (decoded.jti) {
+              await authService.invalidateRefreshToken(decoded.jti);
+            }
+          } catch (error) {
+            // Token already invalid or expired - that's fine, continue with logout
+            fastify.log.debug(
+              { error },
+              "Refresh token validation failed during logout (expected if token expired)",
+            );
+          }
+        }
+
+        // Clear both auth cookies
+        (reply as any).clearCookie("access_token", { path: "/" });
+        (reply as any).clearCookie("refresh_token", { path: "/" });
+
+        reply.code(200);
+        return {
+          message: "Logout successful",
+        };
+      } catch (error) {
+        fastify.log.error({ error }, "Logout error");
+
+        // Even if invalidation fails, clear cookies and return success
+        (reply as any).clearCookie("access_token", { path: "/" });
+        (reply as any).clearCookie("refresh_token", { path: "/" });
+
+        reply.code(200);
+        return {
+          message: "Logout successful",
+        };
+      }
     },
   );
 
@@ -164,7 +198,12 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         // Verify refresh token
         const authService = new AuthService();
-        const decoded = authService.verifyRefreshToken(refreshToken);
+        const decoded = await authService.verifyRefreshToken(refreshToken);
+
+        // Invalidate old refresh token (token rotation security)
+        if (decoded.jti) {
+          await authService.invalidateRefreshToken(decoded.jti);
+        }
 
         // Get user from database by user_id to retrieve current roles/permissions
         const localUser = await getUserById(decoded.user_id);
