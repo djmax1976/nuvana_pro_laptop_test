@@ -32,8 +32,9 @@ export interface TokenPair {
 export class AuthService {
   private readonly jwtSecret: string;
   private readonly jwtRefreshSecret: string;
-  private readonly accessTokenExpiry: string = "15m"; // 15 minutes
-  private readonly refreshTokenExpiry: string = "7d"; // 7 days
+  private readonly defaultAccessTokenExpiry: string;
+  private readonly superAdminAccessTokenExpiry: string;
+  private readonly refreshTokenExpiry: string;
 
   constructor() {
     this.jwtSecret = process.env.JWT_SECRET || "";
@@ -44,16 +45,50 @@ export class AuthService {
         "JWT_SECRET and JWT_REFRESH_SECRET must be set in environment variables",
       );
     }
+
+    // Configure token expiry times from environment variables with defaults
+    this.defaultAccessTokenExpiry = process.env.ACCESS_TOKEN_EXPIRY || "1h";
+    this.superAdminAccessTokenExpiry =
+      process.env.SUPER_ADMIN_TOKEN_EXPIRY || "8h";
+    this.refreshTokenExpiry = process.env.REFRESH_TOKEN_EXPIRY || "7d";
+
+    // Log configuration in non-production environments for debugging
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[AuthService] Token expiry configuration:", {
+        defaultAccessTokenExpiry: this.defaultAccessTokenExpiry,
+        superAdminAccessTokenExpiry: this.superAdminAccessTokenExpiry,
+        refreshTokenExpiry: this.refreshTokenExpiry,
+      });
+    }
   }
 
   /**
-   * Generate access token with 15 minute expiry
+   * Determine access token expiry based on user roles
+   * Super admins get 8 hours, all other users get 1 hour
+   * @param roles - User roles array
+   * @returns Token expiry string (e.g., "1h" or "8h")
+   */
+  private getAccessTokenExpiry(roles: string[] = []): string {
+    const isSuperAdmin = roles.includes("SUPER_ADMIN");
+    return isSuperAdmin
+      ? this.superAdminAccessTokenExpiry
+      : this.defaultAccessTokenExpiry;
+  }
+
+  /**
+   * Generate access token with role-based expiry
+   * Super admins: 8 hours (default), Regular users: 1 hour (default)
+   * Configurable via ACCESS_TOKEN_EXPIRY and SUPER_ADMIN_TOKEN_EXPIRY environment variables
+   *
    * @param user_id - User ID from database
    * @param email - User email
    * @param roles - User roles array (empty array if no roles assigned yet)
    * @param permissions - User permissions array (empty array if no permissions assigned yet)
    * @param client_id - Optional client_id for CLIENT_OWNER users
    * @returns Signed JWT access token
+   *
+   * @security Audit log entry is created when super admin tokens are generated
+   * @production Monitor super admin token generation patterns for anomaly detection
    */
   generateAccessToken(
     user_id: string,
@@ -74,8 +109,23 @@ export class AuthService {
       payload.client_id = client_id;
     }
 
+    // Determine expiry based on roles
+    const expiresIn = this.getAccessTokenExpiry(roles);
+    const isSuperAdmin = roles.includes("SUPER_ADMIN");
+
+    // Audit logging for super admin token generation
+    if (isSuperAdmin) {
+      console.log("[AUDIT] Super admin token generated:", {
+        user_id,
+        email,
+        expiresIn,
+        timestamp: new Date().toISOString(),
+        client_id: client_id || "N/A",
+      });
+    }
+
     return jwt.sign(payload, this.jwtSecret, {
-      expiresIn: this.accessTokenExpiry as string,
+      expiresIn,
       issuer: "nuvana-backend",
       audience: "nuvana-api",
     } as jwt.SignOptions);
