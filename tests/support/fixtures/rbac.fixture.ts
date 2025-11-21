@@ -452,11 +452,18 @@ export const test = base.extend<RBACFixture>({
 
     await use(corporateAdminUser);
 
-    // Cleanup
+    // Cleanup - Delete in correct order to respect foreign key constraints
+    // 1. Delete shifts first (references user via cashier_id)
+    await prismaClient.shift.deleteMany({
+      where: { cashier_id: user.user_id },
+    });
+    // 2. Delete user roles
     await prismaClient.userRole.deleteMany({
       where: { user_id: user.user_id },
     });
+    // 3. Delete user
     await prismaClient.user.delete({ where: { user_id: user.user_id } });
+    // 4. Delete company last
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });

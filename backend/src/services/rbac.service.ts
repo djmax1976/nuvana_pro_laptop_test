@@ -1,6 +1,11 @@
 import { getRedisClient } from "../utils/redis";
 import type { PermissionCode } from "../constants/permissions";
-import { prisma } from "../utils/db";
+import { PrismaClient } from "@prisma/client";
+
+// RBAC service needs a plain Prisma client (not RLS-aware)
+// because permission checks query across all tenants/companies
+// to verify if a user has permission for a specific resource
+const prisma = new PrismaClient();
 
 /**
  * User role with scope information
