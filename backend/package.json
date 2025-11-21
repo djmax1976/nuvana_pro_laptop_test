@@ -10,7 +10,7 @@
     "start": "node dist/app.js",
     "start:test": "cross-env NODE_ENV=test node dist/app.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "prisma:generate": "prisma generate",
+    "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
     "bootstrap:admin": "npx ts-node scripts/bootstrap-admin.ts"
   },
   "keywords": [],
