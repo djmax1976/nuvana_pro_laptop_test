@@ -27,7 +27,7 @@ export type ScopeType = "SYSTEM" | "COMPANY" | "STORE";
  * User data structure for test creation
  */
 export interface AdminUserData {
-  public_id?: string;
+  public_id: string;
   email: string;
   name: string;
   status?: UserStatus;

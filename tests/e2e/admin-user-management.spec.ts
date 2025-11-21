@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -38,6 +42,7 @@ test.describe("Admin User Management E2E", () => {
     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
     superadminUser = await prisma.user.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         email: "admin-e2e@test.com",
         name: "Admin E2E Tester",
         password_hash: hashedPassword,
@@ -63,6 +68,7 @@ test.describe("Admin User Management E2E", () => {
     // Create test user for editing
     testUser = await prisma.user.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         email: "test-user-e2e@test.com",
         name: "Test User E2E",
         password_hash: hashedPassword,

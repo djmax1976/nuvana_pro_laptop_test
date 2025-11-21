@@ -209,6 +209,7 @@ test.describe("Client Management API - CRUD Operations", () => {
       data: {
         public_id: clientData.public_id,
         name: clientData.name,
+        email: clientData.email,
         status: clientData.status,
         metadata: clientData.metadata,
       },
@@ -466,6 +467,7 @@ test.describe("Client Management API - Business Logic", () => {
       data: {
         public_id: clientData.public_id,
         name: clientData.name,
+        email: clientData.email,
         status: clientData.status,
         metadata: clientData.metadata,
       },

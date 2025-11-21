@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -35,6 +39,7 @@ test.describe("Store Management E2E", () => {
     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
     superadminUser = await prisma.user.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         email: "store-e2e@test.com",
         name: "Store E2E Tester",
         password_hash: hashedPassword,
@@ -60,6 +65,8 @@ test.describe("Store Management E2E", () => {
     // Create test client
     testClient = await prisma.client.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
+        email: `test-${Date.now()}@example.com`,
         name: "E2E Test Client for Stores",
         status: "ACTIVE",
       },
@@ -68,6 +75,7 @@ test.describe("Store Management E2E", () => {
     // Create test company
     testCompany = await prisma.company.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
         name: "E2E Test Company for Stores",
         status: "ACTIVE",
         client_id: testClient.client_id,
@@ -77,6 +85,8 @@ test.describe("Store Management E2E", () => {
     // Create test store
     testStore = await prisma.store.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+
         name: "E2E Test Store",
         status: "ACTIVE",
         company_id: testCompany.company_id,
@@ -380,6 +390,8 @@ test.describe("Store Management E2E", () => {
   test("[P1] Should successfully delete INACTIVE store", async ({ page }) => {
     const storeToDelete = await prisma.store.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+
         name: "Store to Delete E2E",
         status: "INACTIVE",
         company_id: testCompany.company_id,

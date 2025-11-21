@@ -4,6 +4,10 @@ import {
   createUser,
   createStore,
 } from "../../support/factories";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../../backend/src/utils/public-id";
 
 /**
  * Database Setup - Indexes API Tests
@@ -29,6 +33,7 @@ test.describe("1.3-API-004: Database Setup - Indexes", () => {
       const userData = createUser();
       const user = await prismaClient.user.create({
         data: {
+          public_id: userData.public_id,
           email: userData.email,
           name: userData.name,
           status: userData.status,
@@ -65,6 +70,7 @@ test.describe("1.3-API-004: Database Setup - Indexes", () => {
       const companyData = createCompany();
       const company = await prismaClient.company.create({
         data: {
+          public_id: companyData.public_id,
           name: companyData.name,
           status: companyData.status,
         },
@@ -74,6 +80,7 @@ test.describe("1.3-API-004: Database Setup - Indexes", () => {
       const storeData = createStore({ company_id: company.company_id });
       const store = await prismaClient.store.create({
         data: {
+          public_id: storeData.public_id,
           company_id: storeData.company_id,
           name: storeData.name,
           timezone: storeData.timezone,

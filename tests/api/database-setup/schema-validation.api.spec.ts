@@ -4,6 +4,10 @@ import {
   createUser,
   createStore,
 } from "../../support/factories";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../../backend/src/utils/public-id";
 
 /**
  * Database Setup - Schema Validation API Tests
@@ -172,6 +176,7 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
       await expect(
         prismaClient.user.create({
           data: {
+            public_id: userData.public_id,
             email: userData.email,
             name: "Different Name",
             status: "ACTIVE",

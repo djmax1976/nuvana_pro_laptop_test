@@ -274,6 +274,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
     await expect(
       prismaClient.transaction.create({
         data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
           store_id: nonExistentStoreId,
           shift_id: nonExistentShiftId,
           cashier_id: corporateAdminUser.user_id,
@@ -372,6 +373,7 @@ test.describe("Transaction Data Models - Query Operations", () => {
     for (let i = 0; i < 3; i++) {
       await prismaClient.transaction.create({
         data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
           store_id: store.store_id,
           shift_id: shift.shift_id,
           cashier_id: corporateAdminUser.user_id,
@@ -1091,6 +1093,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     await expect(
       prismaClient.transaction.create({
         data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
           store_id: invalidUuid,
           shift_id: invalidUuid,
           cashier_id: corporateAdminUser.user_id,
@@ -1134,6 +1137,7 @@ test.describe("Transaction Data Models - Security", () => {
     // Create a user for the other company
     const otherUser = await prismaClient.user.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         email: `other-${Date.now()}@test.com`,
         name: "Other User",
         auth_provider_id: `auth-${Date.now()}`,
@@ -1205,6 +1209,7 @@ test.describe("Transaction Data Models - Security", () => {
 
     const otherUser = await prismaClient.user.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         email: `unauth-${Date.now()}@test.com`,
         name: "Unauth User",
         auth_provider_id: `auth-unauth-${Date.now()}`,

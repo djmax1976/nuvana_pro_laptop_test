@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -25,6 +29,7 @@ test.describe("Mobile Alert Dialog Responsiveness", () => {
     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
     superadminUser = await prisma.user.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         email: "mobile-dialog-test@test.com",
         name: "Mobile Dialog Tester",
         password_hash: hashedPassword,
@@ -50,6 +55,8 @@ test.describe("Mobile Alert Dialog Responsiveness", () => {
     // Create an INACTIVE client for delete dialog testing
     inactiveClient = await prisma.client.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
+        email: `test-${Date.now()}@example.com`,
         name: "Mobile Test Client",
         status: "INACTIVE",
       },

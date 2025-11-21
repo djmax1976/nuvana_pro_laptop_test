@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -33,6 +37,7 @@ test.describe("Company Management E2E", () => {
     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
     superadminUser = await prisma.user.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         email: "company-e2e@test.com",
         name: "Company E2E Tester",
         password_hash: hashedPassword,
@@ -58,6 +63,8 @@ test.describe("Company Management E2E", () => {
     // Create test client for company linking
     testClient = await prisma.client.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
+        email: `test-${Date.now()}@example.com`,
         name: "E2E Test Client for Companies",
         status: "ACTIVE",
       },
@@ -66,6 +73,7 @@ test.describe("Company Management E2E", () => {
     // Create test company
     testCompany = await prisma.company.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
         name: "E2E Test Company",
         status: "ACTIVE",
         client_id: testClient.client_id,
@@ -267,6 +275,7 @@ test.describe("Company Management E2E", () => {
   test("[P1] Should successfully delete INACTIVE company", async ({ page }) => {
     const companyToDelete = await prisma.company.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
         name: "Company to Delete E2E",
         status: "INACTIVE",
         client_id: testClient.client_id,

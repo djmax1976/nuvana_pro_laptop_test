@@ -741,6 +741,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
 
       const transaction = await prismaClient.transaction.create({
         data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
           store_id: store.store_id,
           shift_id: shift.shift_id,
           cashier_id: storeManagerUser.user_id,
@@ -762,6 +763,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     });
     const transactionB = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: storesB[0].store_id,
         shift_id: shiftB.shift_id,
         cashier_id: storeManagerUser.user_id,

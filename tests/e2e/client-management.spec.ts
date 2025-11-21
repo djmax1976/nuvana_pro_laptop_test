@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -32,6 +36,7 @@ test.describe("Client Management E2E", () => {
 
     superadminUser = await prisma.user.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         email: "superadmin-client-e2e@test.com",
         name: "Superadmin Client E2E Tester",
         password_hash: hashedPassword,
@@ -57,6 +62,8 @@ test.describe("Client Management E2E", () => {
     // Create a test client for editing tests
     testClient = await prisma.client.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
+        email: "test-1763734068992-tue9nkahq@example.com",
         name: "E2E Test Client",
         status: "ACTIVE",
         metadata: { test: true },
@@ -397,6 +404,8 @@ test.describe("Client Management E2E", () => {
     // GIVEN: I create a new client and set it to INACTIVE
     const clientToDelete = await prisma.client.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
+        email: `test-${Date.now()}@example.com`,
         name: "Client to Delete E2E",
         status: "INACTIVE",
       },
@@ -583,6 +592,8 @@ test.describe("Client Management E2E", () => {
     // GIVEN: An INACTIVE client exists
     const inactiveClient = await prisma.client.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
+        email: `test-${Date.now()}@example.com`,
         name: "Inactive Client for Activation",
         status: "INACTIVE",
       },
@@ -632,6 +643,8 @@ test.describe("Client Management E2E", () => {
     // GIVEN: An ACTIVE client exists
     const activeClient = await prisma.client.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
+        email: `test-${Date.now()}@example.com`,
         name: "Active Client for Deactivation",
         status: "ACTIVE",
       },
@@ -681,6 +694,8 @@ test.describe("Client Management E2E", () => {
     // GIVEN: An INACTIVE client exists
     const clientToDelete = await prisma.client.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
+        email: `test-${Date.now()}@example.com`,
         name: "Client to Delete from List",
         status: "INACTIVE",
       },
@@ -737,6 +752,8 @@ test.describe("Client Management E2E", () => {
     // GIVEN: An ACTIVE client exists
     const activeClient = await prisma.client.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
+        email: `test-${Date.now()}@example.com`,
         name: "Active Client Cannot Delete",
         status: "ACTIVE",
       },
@@ -862,6 +879,8 @@ test.describe("Client Management E2E", () => {
     // GIVEN: An INACTIVE client exists
     const client = await prisma.client.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
+        email: `test-${Date.now()}@example.com`,
         name: "Client for Wrong Text Test",
         status: "INACTIVE",
       },

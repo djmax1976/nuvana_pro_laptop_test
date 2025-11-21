@@ -4,6 +4,10 @@ import {
   createCompany,
   createStore,
 } from "../support/factories";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
 
 /**
  * Transaction Import API Tests - Story 3.2
@@ -165,6 +169,7 @@ test.describe("Transaction Import API - Authentication", () => {
 
     const otherUser = await prismaClient.user.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         email: `other-${Date.now()}@test.com`,
         name: "Other User",
         auth_provider_id: `auth-${Date.now()}`,
