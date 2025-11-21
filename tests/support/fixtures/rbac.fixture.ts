@@ -316,15 +316,25 @@ export const test = base.extend<RBACFixture>({
   rlsPrismaClient: async ({}, use: (prisma: PrismaClient) => Promise<void>) => {
     // Create a Prisma client that connects as app_user (non-superuser)
     // This client respects RLS policies unlike the postgres superuser
+
+    // Replace postgres user with app_user in DATABASE_URL
+    // Handles both formats:
+    // - postgres:postgres@... (local with password)
+    // - postgres@... (CI without password)
+    const dbUrl =
+      process.env.DATABASE_URL ||
+      "postgresql://postgres@localhost:5432/nuvana_dev";
+    const appUserUrl = dbUrl
+      .replace("postgres:postgres@", "app_user:app_user_password@")
+      .replace(
+        /^postgresql:\/\/postgres@/,
+        "postgresql://app_user:app_user_password@",
+      );
+
     const rlsPrisma = new PrismaClient({
       datasources: {
         db: {
-          url:
-            process.env.DATABASE_URL?.replace(
-              "postgres:postgres",
-              "app_user:app_user_password",
-            ) ||
-            "postgresql://app_user:app_user_password@localhost:5432/nuvana_dev",
+          url: appUserUrl,
         },
       },
     });

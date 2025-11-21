@@ -30,7 +30,12 @@ function createRLSPrismaClient() {
         if (userId) {
           let variableSetByUs = false;
           try {
+            // IMPORTANT: Use baseClient for ALL operations to ensure same connection
+            // Prisma connection pooling means we must use the same client instance
+            // to check and set the variable on the same database connection
+
             // Check if variable is already set (e.g., by tests)
+            // Using baseClient ensures we check the same connection that will run the query
             const existing = await baseClient.$queryRaw<
               Array<{ current_setting: string | null }>
             >`
@@ -51,7 +56,8 @@ function createRLSPrismaClient() {
               }
             }
 
-            // Execute the query
+            // Execute the query - this MUST use baseClient to use the same connection
+            // where we just set app.current_user_id
             const result = await query(args);
 
             // Only clear if WE set it (don't interfere with test-set contexts)
