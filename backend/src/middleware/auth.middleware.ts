@@ -25,11 +25,9 @@ export async function authMiddleware(
     const accessToken = request.cookies?.access_token;
 
     if (!accessToken) {
-      reply.code(401);
-      reply.send({
+      return reply.code(401).send({
         error: "Missing access token cookie",
       });
-      return;
     }
 
     // Validate JWT token and extract user identity
@@ -47,8 +45,7 @@ export async function authMiddleware(
     // Attach user identity to request for use in route handlers
     (request as any).user = userIdentity;
   } catch (error) {
-    reply.code(401);
-    reply.send({
+    return reply.code(401).send({
       error:
         error instanceof Error ? error.message : "Token validation failed",
     });

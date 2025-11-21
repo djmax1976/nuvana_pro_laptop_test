@@ -106,12 +106,10 @@ export function permissionMiddleware(requiredPermission: PermissionCode) {
     try {
       // Check if user is authenticated (should be set by auth middleware)
       if (!request.user) {
-        reply.code(401);
-        reply.send({
+        return reply.code(401).send({
           error: "Unauthorized",
           message: "Authentication required",
         });
-        return;
       }
 
       const userId = request.user.id;
@@ -143,12 +141,10 @@ export function permissionMiddleware(requiredPermission: PermissionCode) {
         );
 
         // Return 403 Forbidden
-        reply.code(403);
-        reply.send({
+        return reply.code(403).send({
           error: "Forbidden",
           message: `Permission denied: ${requiredPermission} is required`,
         });
-        return;
       }
 
       // Permission granted, allow request to proceed
@@ -156,8 +152,7 @@ export function permissionMiddleware(requiredPermission: PermissionCode) {
     } catch (error) {
       // If permission check fails, deny access
       console.error("Permission check error:", error);
-      reply.code(403);
-      reply.send({
+      return reply.code(403).send({
         error: "Forbidden",
         message: "Permission check failed",
       });
@@ -177,12 +172,10 @@ export function requireAllPermissions(requiredPermissions: PermissionCode[]) {
   ): Promise<void> => {
     try {
       if (!request.user) {
-        reply.code(401);
-        reply.send({
+        return reply.code(401).send({
           error: "Unauthorized",
           message: "Authentication required",
         });
-        return;
       }
 
       const userId = request.user.id;
@@ -206,20 +199,17 @@ export function requireAllPermissions(requiredPermissions: PermissionCode[]) {
 
         if (!hasPermission) {
           await logPermissionDenial(userId, permission, resource, request);
-          reply.code(403);
-          reply.send({
+          return reply.code(403).send({
             error: "Forbidden",
             message: `Permission denied: ${permission} is required`,
           });
-          return;
         }
       }
 
       // All permissions granted
     } catch (error) {
       console.error("Permission check error:", error);
-      reply.code(403);
-      reply.send({
+      return reply.code(403).send({
         error: "Forbidden",
         message: "Permission check failed",
       });
@@ -246,12 +236,10 @@ export function requireAnyPermission(requiredPermissions: PermissionCode[]) {
   ): Promise<void> => {
     try {
       if (!request.user) {
-        reply.code(401);
-        reply.send({
+        return reply.code(401).send({
           error: "Unauthorized",
           message: "Authentication required",
         });
-        return;
       }
 
       const userId = request.user.id;
@@ -288,19 +276,16 @@ export function requireAnyPermission(requiredPermissions: PermissionCode[]) {
           resource,
           request,
         );
-        reply.code(403);
-        reply.send({
+        return reply.code(403).send({
           error: "Forbidden",
           message: `Permission denied: One of [${requiredPermissions.join(", ")}] is required`,
         });
-        return;
       }
 
       // At least one permission granted
     } catch (error) {
       console.error("Permission check error:", error);
-      reply.code(403);
-      reply.send({
+      return reply.code(403).send({
         error: "Forbidden",
         message: "Permission check failed",
       });

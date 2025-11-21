@@ -593,8 +593,10 @@ test.describe("Store Management API - Security", () => {
   test("2.2-API-019: [P0] AUTH BYPASS - should reject access without JWT token", async ({
     request,
   }) => {
-    // WHEN: Accessing protected endpoint without authentication
-    const response = await request.get("http://localhost:3001/api/stores/123");
+    // WHEN: Accessing protected endpoint without authentication (using valid UUID format)
+    const response = await request.get(
+      "http://localhost:3001/api/stores/00000000-0000-0000-0000-000000000000",
+    );
 
     // THEN: 401 Unauthorized
     expect(response.status()).toBe(401);
