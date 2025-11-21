@@ -36,6 +36,8 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Generate Prisma Client for type checking
+        run: cd backend && npx prisma generate
       - run: npm run lint
       - run: npx tsc --noEmit
       - name: Type-check backend
