@@ -6,7 +6,11 @@ import cookie from "@fastify/cookie";
 import dotenv from "dotenv";
 import addFormats from "ajv-formats";
 import { initializeRedis, closeRedis } from "./utils/redis";
-import { initializeRabbitMQ, closeRabbitMQ } from "./utils/rabbitmq";
+import {
+  initializeRabbitMQ,
+  closeRabbitMQ,
+  setupTransactionsQueue,
+} from "./utils/rabbitmq";
 import { healthRoutes } from "./routes/health";
 import { authRoutes } from "./routes/auth";
 import { adminRoutes } from "./routes/admin";
@@ -209,10 +213,15 @@ const start = async () => {
     try {
       await initializeRabbitMQ();
       app.log.info("RabbitMQ connection established");
+
+      // Initialize queues for transaction processing
+      app.log.info("Setting up RabbitMQ queues...");
+      await setupTransactionsQueue();
+      app.log.info("RabbitMQ queues initialized successfully");
     } catch (err) {
       app.log.warn(
         { err },
-        "RabbitMQ connection failed - server will start but health checks will report degraded",
+        "RabbitMQ setup failed - server will start but health checks will report degraded",
       );
       // Don't crash - RabbitMQ reconnect logic will handle reconnection
       // Health check endpoint will report service as unhealthy

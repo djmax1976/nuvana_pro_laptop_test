@@ -117,11 +117,21 @@ export class ClientService {
           },
         });
       } catch (auditError) {
-        // Log the audit failure but don't fail the creation operation
+        // Log the audit failure
         console.error(
           "Failed to create audit log for client creation:",
           auditError,
         );
+
+        // In test environment, fail loudly so we can identify and fix the issue
+        if (process.env.NODE_ENV === "test") {
+          throw new Error(
+            `Audit log creation failed: ${
+              auditError instanceof Error ? auditError.message : "Unknown error"
+            }`,
+          );
+        }
+        // In production, continue despite audit failure (non-blocking)
       }
 
       return {
