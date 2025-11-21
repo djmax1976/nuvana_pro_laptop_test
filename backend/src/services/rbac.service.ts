@@ -1,8 +1,6 @@
-import { PrismaClient } from "@prisma/client";
 import { getRedisClient } from "../utils/redis";
 import type { PermissionCode } from "../constants/permissions";
-
-const prisma = new PrismaClient();
+import { prisma } from "../utils/db";
 
 /**
  * User role with scope information

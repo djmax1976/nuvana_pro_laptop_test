@@ -1278,4 +1278,203 @@ export async function storeRoutes(fastify: FastifyInstance) {
       }
     },
   );
+
+  /**
+   * PUT /api/stores/:storeId/configuration
+   * Update store configuration (timezone, location, operating hours)
+   * Protected route - requires STORE_UPDATE permission
+   */
+  fastify.put(
+    "/api/stores/:storeId/configuration",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.STORE_UPDATE),
+      ],
+      schema: {
+        description: "Update store configuration",
+        tags: ["stores"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          properties: {
+            timezone: {
+              type: "string",
+              pattern: "^[A-Za-z]+(\\/[A-Za-z_]+)+$|^UTC$|^GMT[+-]\\d{1,2}$",
+              description:
+                "IANA timezone format (e.g., America/New_York, Europe/London)",
+            },
+            location: {
+              type: "object",
+              properties: {
+                address: {
+                  type: "string",
+                  description: "Store address",
+                },
+                gps: {
+                  type: "object",
+                  properties: {
+                    lat: {
+                      type: "number",
+                      minimum: -90,
+                      maximum: 90,
+                      description: "GPS latitude",
+                    },
+                    lng: {
+                      type: "number",
+                      minimum: -180,
+                      maximum: 180,
+                      description: "GPS longitude",
+                    },
+                  },
+                },
+              },
+            },
+            operating_hours: {
+              type: "object",
+              description: "Operating hours by day of week",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              store_id: { type: "string", format: "uuid" },
+              configuration: { type: "object" },
+              updated_at: { type: "string", format: "date-time" },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const params = request.params as { storeId: string };
+        const body = request.body as any;
+        const user = (request as any).user as UserIdentity;
+
+        // Get user's company_id
+        const userCompanyId = await getUserCompanyId(user.id);
+        if (!userCompanyId) {
+          reply.code(403);
+          return {
+            error: "Forbidden",
+            message: "You must have a COMPANY scope role to update stores",
+          };
+        }
+
+        // Check if store exists and get old values for audit log
+        const oldStore = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+        });
+
+        if (!oldStore) {
+          reply.code(404);
+          return {
+            error: "Not found",
+            message: "Store not found",
+          };
+        }
+
+        // Check company isolation
+        if (oldStore.company_id !== userCompanyId) {
+          reply.code(403);
+          return {
+            error: "Forbidden",
+            message:
+              "You can only update configuration for stores in your company",
+          };
+        }
+
+        // Update store configuration
+        const updatedStore = await prisma.store.update({
+          where: { store_id: params.storeId },
+          data: {
+            configuration: body,
+            updated_at: new Date(),
+          },
+        });
+
+        // Log configuration update to AuditLog
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        try {
+          await prisma.auditLog.create({
+            data: {
+              user_id: user.id,
+              action: "UPDATE",
+              table_name: "stores",
+              record_id: updatedStore.store_id,
+              old_values: { configuration: oldStore.configuration } as any,
+              new_values: { configuration: updatedStore.configuration } as any,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              reason: `Store configuration updated by ${user.email}`,
+            },
+          });
+        } catch (auditError) {
+          console.error("Failed to create audit log:", auditError);
+          // Continue - don't fail the request if audit logging fails
+        }
+
+        reply.code(200);
+        return {
+          store_id: updatedStore.store_id,
+          configuration: updatedStore.configuration,
+          updated_at: updatedStore.updated_at,
+        };
+      } catch (error: unknown) {
+        console.error("Error updating store configuration:", error);
+        if (error instanceof Error && error.message.includes("not found")) {
+          reply.code(404);
+          return {
+            error: "Not found",
+            message: error.message,
+          };
+        }
+        reply.code(500);
+        return {
+          error: "Internal server error",
+          message: "Failed to update store configuration",
+        };
+      }
+    },
+  );
 }
