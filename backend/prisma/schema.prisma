@@ -83,7 +83,7 @@ model Store {
   public_id     String        @unique @db.VarChar(30)
   pos_terminals POSTerminal[]
   shifts        Shift[]
-  company       Company       @relation(fields: [company_id], references: [company_id], onDelete: Restrict)
+  company       Company       @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
   transactions  Transaction[]
   user_roles    UserRole[]
 
@@ -132,11 +132,11 @@ model UserRole {
   status       String    @default("ACTIVE") @db.VarChar(50)
   deleted_at   DateTime? @db.Timestamptz(6)
   assigner     User?     @relation("UserRoleAssigner", fields: [assigned_by], references: [user_id])
-  client       Client?   @relation(fields: [client_id], references: [client_id], onDelete: Restrict)
-  company      Company?  @relation(fields: [company_id], references: [company_id], onDelete: Restrict)
-  role         Role      @relation(fields: [role_id], references: [role_id], onDelete: Restrict)
-  store        Store?    @relation(fields: [store_id], references: [store_id], onDelete: Restrict)
-  user         User      @relation(fields: [user_id], references: [user_id], onDelete: Restrict)
+  client       Client?   @relation(fields: [client_id], references: [client_id], onDelete: Cascade)
+  company      Company?  @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  role         Role      @relation(fields: [role_id], references: [role_id], onDelete: Cascade)
+  store        Store?    @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  user         User      @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
 
   @@unique([user_id, role_id, client_id, company_id, store_id])
   @@index([user_id])
