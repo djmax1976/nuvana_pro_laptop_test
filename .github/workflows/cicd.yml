@@ -91,7 +91,6 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
-      - name: Generate Prisma Client (backend)
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
@@ -221,7 +220,6 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
-      - name: Generate Prisma Client (backend)
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
@@ -376,7 +374,6 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
-      - name: Generate Prisma Client (backend)
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
@@ -521,7 +518,6 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
-      - name: Generate Prisma Client (backend)
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
@@ -713,7 +709,6 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
-      - name: Generate Prisma Client (backend)
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
@@ -827,7 +822,6 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
-      - name: Generate Prisma Client (backend)
       - run: npm run build
       - name: Generate build provenance attestation
         uses: actions/attest-build-provenance@1c608d11d69870c2092266b3f9a6f3abbf17002c  # v1.4.3
