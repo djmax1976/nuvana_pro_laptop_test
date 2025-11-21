@@ -185,6 +185,7 @@ model AuditLog {
 
 model Shift {
   shift_id        String    @id @default(uuid()) @db.Uuid
+  public_id       String?   @unique @db.VarChar(30) // sft_xxxxx (external-facing ID)
   store_id        String    @db.Uuid
   cashier_id      String    @db.Uuid
   pos_terminal_id String?   @db.Uuid
@@ -206,6 +207,7 @@ model Shift {
   @@index([pos_terminal_id])
   @@index([status])
   @@index([start_time])
+  @@index([public_id])
   @@map("shifts")
 }
 

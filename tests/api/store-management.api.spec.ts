@@ -5,6 +5,10 @@ import {
   createUser,
   createJWTAccessToken,
 } from "../support/factories";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
 
 /**
  * Store Management API Tests - OPTIMIZED VERSION

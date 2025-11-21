@@ -110,6 +110,17 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         }
 
         const { email, name, roles } = parseResult.data;
+
+        // Validate that user must have at least one role
+        if (!roles || roles.length === 0) {
+          reply.code(400);
+          return {
+            success: false,
+            error: "Validation error",
+            message: "User must be assigned at least one role",
+          };
+        }
+
         const auditContext = getAuditContext(request, user);
 
         const createdUser = await userAdminService.createUser(
@@ -508,6 +519,18 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         }
 
         const auditContext = getAuditContext(request, user);
+
+        // Check if this is the user's last role - users must have at least one role
+        const userWithRoles = await userAdminService.getUserById(userId);
+        if (userWithRoles.roles.length <= 1) {
+          reply.code(400);
+          return {
+            success: false,
+            error: "Validation error",
+            message:
+              "Cannot revoke the user's last role. Users must have at least one role.",
+          };
+        }
 
         await userAdminService.revokeRole(userId, userRoleId, auditContext);
 

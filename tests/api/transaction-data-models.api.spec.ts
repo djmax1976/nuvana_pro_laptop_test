@@ -6,6 +6,10 @@ import {
   createCompany,
   createStore,
 } from "../support/factories";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
 
 /**
  * Transaction Data Models API Tests - Story 3.1
@@ -97,6 +101,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: transactionData.store_id,
         shift_id: transactionData.shift_id,
         cashier_id: transactionData.cashier_id,
@@ -151,6 +156,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -213,6 +219,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -292,6 +299,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -417,6 +425,7 @@ test.describe("Transaction Data Models - Query Operations", () => {
     // Create transactions for different shifts
     await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift1.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -429,6 +438,7 @@ test.describe("Transaction Data Models - Query Operations", () => {
 
     await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift2.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -472,6 +482,7 @@ test.describe("Transaction Data Models - Query Operations", () => {
 
     await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -514,6 +525,7 @@ test.describe("Transaction Data Models - Query Operations", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -595,6 +607,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
     // WHEN: Creating transaction with calculated total
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -625,6 +638,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -688,6 +702,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
     // WHEN: Creating a refund transaction
     const refundTransaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -726,6 +741,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -782,6 +798,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -846,6 +863,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     // WHEN: Creating a zero-value transaction
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -877,6 +895,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     // WHEN: Creating a large transaction
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -908,6 +927,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
     // WHEN: Creating transaction with specific decimals
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -946,6 +966,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -985,6 +1006,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -1031,6 +1053,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -1129,6 +1152,7 @@ test.describe("Transaction Data Models - Security", () => {
 
     const otherTransaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: otherStore.store_id,
         shift_id: otherShift.shift_id,
         cashier_id: otherUser.user_id,
@@ -1201,6 +1225,7 @@ test.describe("Transaction Data Models - Security", () => {
     // Note: This test validates data isolation - in real app, API would enforce this
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: unauthorizedStore.store_id,
         shift_id: unauthorizedShift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -1235,6 +1260,7 @@ test.describe("Transaction Data Models - Security", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -1285,6 +1311,7 @@ test.describe("Transaction Data Models - Security", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -1326,6 +1353,7 @@ test.describe("Transaction Data Models - Security", () => {
 
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: corporateAdminUser.user_id,
@@ -1383,6 +1411,7 @@ test.describe("Transaction Data Models - Shift Rules", () => {
     // Note: This validates data model allows it - business logic in API should prevent
     const transaction = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: closedShift.shift_id,
         cashier_id: corporateAdminUser.user_id,

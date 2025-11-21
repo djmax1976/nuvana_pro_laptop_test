@@ -8,6 +8,10 @@
  */
 
 import { faker } from "@faker-js/faker";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../../backend/src/utils/public-id";
 
 /**
  * User status enum values
@@ -23,6 +27,7 @@ export type ScopeType = "SYSTEM" | "COMPANY" | "STORE";
  * User data structure for test creation
  */
 export interface AdminUserData {
+  public_id?: string;
   email: string;
   name: string;
   status?: UserStatus;
@@ -64,6 +69,7 @@ export interface CreateUserRequest {
 export const createAdminUser = (
   overrides: Partial<AdminUserData> = {},
 ): AdminUserData => ({
+  public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
   email: faker.internet.email().toLowerCase(),
   name: faker.person.fullName(),
   status: "ACTIVE",

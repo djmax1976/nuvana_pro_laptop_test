@@ -80,7 +80,7 @@ function isValidIANATimezone(timezone: string): boolean {
   // Common IANA timezone patterns
   // Examples: America/New_York, Europe/London, Asia/Tokyo, UTC
   const ianaTimezonePattern =
-    /^[A-Z][a-z]+(\/[A-Z][a-z_]+)+$|^UTC$|^GMT(\+|-)\d+$/;
+    /^[A-Za-z]+(\/[A-Za-z_]+)+$|^UTC$|^GMT[+-]\d{1,2}$/;
   return ianaTimezonePattern.test(timezone);
 }
 

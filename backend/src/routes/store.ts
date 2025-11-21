@@ -94,7 +94,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             },
             timezone: {
               type: "string",
-              pattern: "^[A-Z][a-z]+(\\/[A-Z][a-z_]+)+$|^UTC$|^GMT(\\+|-)\\d+$",
+              pattern: "^[A-Za-z]+(\\/[A-Za-z_]+)+$|^UTC$|^GMT[+-]\\d{1,2}$",
               description:
                 "IANA timezone format (e.g., America/New_York, Europe/London)",
               default: "America/New_York",
@@ -572,7 +572,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             },
             timezone: {
               type: "string",
-              pattern: "^[A-Z][a-z]+(\\/[A-Z][a-z_]+)+$|^UTC$|^GMT(\\+|-)\\d+$",
+              pattern: "^[A-Za-z]+(\\/[A-Za-z_]+)+$|^UTC$|^GMT[+-]\\d{1,2}$",
               description:
                 "IANA timezone format (e.g., America/New_York, Europe/London)",
             },
@@ -790,7 +790,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
           properties: {
             timezone: {
               type: "string",
-              pattern: "^[A-Z][a-z]+(\\/[A-Z][a-z_]+)+$|^UTC$|^GMT(\\+|-)\\d+$",
+              pattern: "^[A-Za-z]+(\\/[A-Za-z_]+)+$|^UTC$|^GMT[+-]\\d{1,2}$",
               description:
                 "IANA timezone format (e.g., America/New_York, Europe/London)",
             },

@@ -5,6 +5,10 @@ import {
   createCompany,
   createStore,
 } from "../support/factories/database.factory";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
 
 /**
  * Row-Level Security (RLS) Policies API Tests
@@ -493,6 +497,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     // Create transactions for both stores
     const transaction1 = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store1.store_id,
         shift_id: shift1.shift_id,
         cashier_id: storeManagerUser.user_id,
@@ -503,6 +508,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     });
     const transaction2 = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store2.store_id,
         shift_id: shift2.shift_id,
         cashier_id: storeManagerUser.user_id,
@@ -581,6 +587,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
 
     const transaction2 = await prismaClient.transaction.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store2.store_id,
         shift_id: shift2.shift_id,
         cashier_id: storeManagerUser.user_id,
@@ -651,6 +658,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
 
       const transaction = await prismaClient.transaction.create({
         data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
           store_id: store.store_id,
           shift_id: shift.shift_id,
           cashier_id: storeManagerUser.user_id,
