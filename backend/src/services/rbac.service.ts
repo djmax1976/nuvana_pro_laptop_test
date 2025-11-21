@@ -1,11 +1,13 @@
 import { getRedisClient } from "../utils/redis";
 import type { PermissionCode } from "../constants/permissions";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../utils/db";
 
-// RBAC service needs a plain Prisma client (not RLS-aware)
-// because permission checks query across all tenants/companies
-// to verify if a user has permission for a specific resource
-const prisma = new PrismaClient();
+// RBAC service MUST use RLS-aware Prisma client because:
+// 1. RLS policies on user_roles table require app.current_user_id to be set
+// 2. Without RLS context, queries return zero rows (all policy conditions fail)
+// 3. This causes permission checks to fail incorrectly with 403 errors
+// Note: Permission checks still work across tenants - RLS policies allow
+// viewing roles where user_id matches current_user_id OR company/store matches
 
 /**
  * User role with scope information
