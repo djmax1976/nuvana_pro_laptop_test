@@ -30,6 +30,7 @@ test.describe("Client Management API - CRUD Operations", () => {
     // WHEN: Creating a client via API
     const response = await superadminApiRequest.post("/api/clients", {
       name: clientData.name,
+      email: clientData.email,
       status: clientData.status,
       metadata: clientData.metadata,
     });
@@ -69,6 +70,7 @@ test.describe("Client Management API - CRUD Operations", () => {
     // GIVEN: I am authenticated as a System Admin with invalid client data (missing name)
     // WHEN: Creating a client with missing required field
     const response = await superadminApiRequest.post("/api/clients", {
+      email: "missingname@example.com",
       status: "ACTIVE",
       // name is missing
     });
@@ -87,6 +89,7 @@ test.describe("Client Management API - CRUD Operations", () => {
     // WHEN: Creating a client with invalid status
     const response = await superadminApiRequest.post("/api/clients", {
       name: "Test Client",
+      email: "testclient@example.com",
       status: "INVALID_STATUS",
     });
 
@@ -106,6 +109,7 @@ test.describe("Client Management API - CRUD Operations", () => {
     // WHEN: Attempting to create a client
     const response = await storeManagerApiRequest.post("/api/clients", {
       name: clientData.name,
+      email: clientData.email,
       status: clientData.status,
     });
 
@@ -433,6 +437,7 @@ test.describe("Client Management API - Permission Enforcement", () => {
     );
     const createResponse = await storeManagerApiRequest.post("/api/clients", {
       name: "New Client",
+      email: "newclient@example.com",
     });
     const updateResponse = await storeManagerApiRequest.put(
       `/api/clients/${client.client_id}`,
@@ -553,6 +558,7 @@ test.describe("Client Management API - Business Logic", () => {
     // WHEN: Creating another client with the same name
     const response = await superadminApiRequest.post("/api/clients", {
       name: "Duplicate Name Corp",
+      email: "duplicate2@example.com",
       status: "ACTIVE",
     });
 
@@ -572,6 +578,7 @@ test.describe("Client Management API - Edge Cases", () => {
       // WHEN: Creating client with empty name
       const response = await superadminApiRequest.post("/api/clients", {
         name: "",
+        email: "emptyname@example.com",
         status: "ACTIVE",
       });
 
@@ -588,6 +595,7 @@ test.describe("Client Management API - Edge Cases", () => {
       const longName = "A".repeat(1001);
       const response = await superadminApiRequest.post("/api/clients", {
         name: longName,
+        email: "longname@example.com",
         status: "ACTIVE",
       });
 
@@ -601,6 +609,7 @@ test.describe("Client Management API - Edge Cases", () => {
       // WHEN: Creating client with special characters
       const response = await superadminApiRequest.post("/api/clients", {
         name: "Test @#$%^&* Corp",
+        email: "specialchars@example.com",
         status: "ACTIVE",
       });
 
@@ -616,6 +625,7 @@ test.describe("Client Management API - Edge Cases", () => {
       // WHEN: Creating client with unicode/emoji
       const response = await superadminApiRequest.post("/api/clients", {
         name: "Test 日本語 Corp 🏢",
+        email: "unicode@example.com",
         status: "ACTIVE",
       });
 
@@ -631,6 +641,7 @@ test.describe("Client Management API - Edge Cases", () => {
       // WHEN: Creating client with whitespace-only name
       const response = await superadminApiRequest.post("/api/clients", {
         name: "   ",
+        email: "whitespace@example.com",
         status: "ACTIVE",
       });
 
@@ -646,6 +657,7 @@ test.describe("Client Management API - Edge Cases", () => {
       // WHEN: Creating client with leading/trailing whitespace
       const response = await superadminApiRequest.post("/api/clients", {
         name: "  Trimmed Corp  ",
+        email: "trimmed@example.com",
         status: "ACTIVE",
       });
 
@@ -664,6 +676,7 @@ test.describe("Client Management API - Edge Cases", () => {
       // WHEN: Creating client with empty metadata
       const response = await superadminApiRequest.post("/api/clients", {
         name: "Empty Metadata Corp",
+        email: "emptymetadata@example.com",
         status: "ACTIVE",
         metadata: {},
       });
@@ -678,6 +691,7 @@ test.describe("Client Management API - Edge Cases", () => {
       // WHEN: Creating client with null metadata
       const response = await superadminApiRequest.post("/api/clients", {
         name: "Null Metadata Corp",
+        email: "nullmetadata@example.com",
         status: "ACTIVE",
         metadata: null,
       });
@@ -703,6 +717,7 @@ test.describe("Client Management API - Edge Cases", () => {
       };
       const response = await superadminApiRequest.post("/api/clients", {
         name: "Deep Metadata Corp",
+        email: "deepmetadata@example.com",
         status: "ACTIVE",
         metadata: deepMetadata,
       });
@@ -721,6 +736,7 @@ test.describe("Client Management API - Edge Cases", () => {
       }
       const response = await superadminApiRequest.post("/api/clients", {
         name: "Large Metadata Corp",
+        email: "largemetadata@example.com",
         status: "ACTIVE",
         metadata: largeMetadata,
       });
@@ -791,6 +807,7 @@ test.describe("Client Management API - Security", () => {
     // WHEN: Attempting SQL injection
     const response = await superadminApiRequest.post("/api/clients", {
       name: "'; DROP TABLE clients;--",
+      email: "sqlinjection@example.com",
       status: "ACTIVE",
     });
 
@@ -901,6 +918,7 @@ test.describe("Client Management API - Security", () => {
     // WHEN: Attempting XSS injection
     const response = await superadminApiRequest.post("/api/clients", {
       name: "<script>alert('xss')</script>",
+      email: "xssinjection@example.com",
       status: "ACTIVE",
     });
 
@@ -926,6 +944,7 @@ test.describe("Client Management API - Public ID Support", () => {
     // WHEN: Creating a new client
     const response = await superadminApiRequest.post("/api/clients", {
       name: "Auto Public ID Test",
+      email: "autopublicid@example.com",
       status: "ACTIVE",
     });
 
@@ -958,14 +977,17 @@ test.describe("Client Management API - Public ID Support", () => {
     const responses = await Promise.all([
       superadminApiRequest.post("/api/clients", {
         name: "Client 1",
+        email: "client1@example.com",
         status: "ACTIVE",
       }),
       superadminApiRequest.post("/api/clients", {
         name: "Client 2",
+        email: "client2@example.com",
         status: "ACTIVE",
       }),
       superadminApiRequest.post("/api/clients", {
         name: "Client 3",
+        email: "client3@example.com",
         status: "ACTIVE",
       }),
     ]);
