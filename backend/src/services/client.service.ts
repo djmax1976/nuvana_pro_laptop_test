@@ -148,6 +148,16 @@ export class ClientService {
         );
       }
 
+      // Verify that the assigning user exists in database (before transaction)
+      let assignedBy: string | null = null;
+      if (auditContext.userId) {
+        const assigningUser = await prisma.user.findUnique({
+          where: { user_id: auditContext.userId },
+          select: { user_id: true },
+        });
+        assignedBy = assigningUser ? auditContext.userId : null;
+      }
+
       // Use transaction to create User + Client + UserRole atomically
       const result = await prisma.$transaction(async (tx) => {
         // 1. Create User record (for authentication)
@@ -193,17 +203,6 @@ export class ClientService {
         });
 
         // 3. Link User to Client with CLIENT_OWNER role
-        // Note: assigned_by should reference an existing user
-        // Verify that the assigning user exists in database
-        let assignedBy: string | null = null;
-        if (auditContext.userId) {
-          const assigningUser = await tx.user.findUnique({
-            where: { user_id: auditContext.userId },
-            select: { user_id: true },
-          });
-          assignedBy = assigningUser ? auditContext.userId : null;
-        }
-
         await tx.userRole.create({
           data: {
             user_id: user.user_id,
