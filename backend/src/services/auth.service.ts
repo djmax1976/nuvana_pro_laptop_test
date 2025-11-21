@@ -208,17 +208,18 @@ export class AuthService {
 
       // Check if token exists in Redis (not revoked)
       if (decoded.jti) {
-        try {
-          const redis = await getRedisClient();
-          if (redis) {
-            const exists = await redis.exists(`refresh_token:${decoded.jti}`);
-            if (!exists) {
-              throw new Error("Refresh token has been revoked");
-            }
+        const redis = await getRedisClient();
+        if (redis) {
+          const exists = await redis.exists(`refresh_token:${decoded.jti}`);
+          if (!exists) {
+            throw new Error("Refresh token has been revoked");
           }
-        } catch (error) {
-          // If Redis check fails, log but allow token (graceful degradation)
-          console.error("Redis token check failed:", error);
+        }
+        // If Redis is unavailable, we cannot verify token validity - fail securely
+        else {
+          throw new Error(
+            "Cannot verify refresh token - token validation service unavailable",
+          );
         }
       }
 
