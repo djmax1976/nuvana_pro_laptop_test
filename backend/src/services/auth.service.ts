@@ -11,6 +11,7 @@ export interface JWTPayload {
   email: string;
   roles: string[];
   permissions: string[];
+  client_id?: string; // Optional client_id for CLIENT_OWNER users
   jti?: string; // JWT ID for token tracking/invalidation
   iat?: number;
   exp?: number;
@@ -51,6 +52,7 @@ export class AuthService {
    * @param email - User email
    * @param roles - User roles array (empty array if no roles assigned yet)
    * @param permissions - User permissions array (empty array if no permissions assigned yet)
+   * @param client_id - Optional client_id for CLIENT_OWNER users
    * @returns Signed JWT access token
    */
   generateAccessToken(
@@ -58,6 +60,7 @@ export class AuthService {
     email: string,
     roles: string[] = [],
     permissions: string[] = [],
+    client_id?: string,
   ): string {
     const payload: JWTPayload = {
       user_id,
@@ -65,6 +68,11 @@ export class AuthService {
       roles,
       permissions,
     };
+
+    // Add client_id if provided
+    if (client_id) {
+      payload.client_id = client_id;
+    }
 
     return jwt.sign(payload, this.jwtSecret, {
       expiresIn: this.accessTokenExpiry as string,
@@ -110,9 +118,10 @@ export class AuthService {
 
   /**
    * Generate both access and refresh tokens with roles and permissions from database
+   * Includes client_id in token if user has CLIENT_OWNER role
    * @param user_id - User ID from database
    * @param email - User email
-   * @returns Token pair with access and refresh tokens, including roles and permissions
+   * @returns Token pair with access and refresh tokens, including roles, permissions, and client_id
    */
   async generateTokenPairWithRBAC(
     user_id: string,
@@ -121,9 +130,10 @@ export class AuthService {
     // Fetch user roles from database
     const userRoles = await rbacService.getUserRoles(user_id);
 
-    // Extract role codes and collect all unique permissions
+    // Extract role codes, collect permissions, and find client_id
     const roles: string[] = [];
     const permissionsSet = new Set<string>();
+    let client_id: string | undefined;
 
     for (const userRole of userRoles) {
       roles.push(userRole.role_code);
@@ -131,12 +141,22 @@ export class AuthService {
       for (const permission of userRole.permissions) {
         permissionsSet.add(permission);
       }
+      // If user has CLIENT_OWNER role, extract client_id
+      if (userRole.role_code === "CLIENT_OWNER" && userRole.client_id) {
+        client_id = userRole.client_id;
+      }
     }
 
     const permissions = Array.from(permissionsSet);
 
     return {
-      accessToken: this.generateAccessToken(user_id, email, roles, permissions),
+      accessToken: this.generateAccessToken(
+        user_id,
+        email,
+        roles,
+        permissions,
+        client_id,
+      ),
       refreshToken: await this.generateRefreshToken(user_id, email),
     };
   }

@@ -314,22 +314,66 @@ test.describe("Client Form Email and Password E2E", () => {
 
   test.describe("Edit Client Form", () => {
     test.beforeEach(async () => {
-      // Create a test client for editing
+      // Create a test client for editing with unified auth (User + Client + UserRole)
       const passwordHash = await bcrypt.hash("password123", 10);
+
+      // Create User record with password
+      const user = await prisma.user.create({
+        data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+          email: "existing@example.com",
+          name: "Existing Client",
+          password_hash: passwordHash,
+          status: "ACTIVE",
+        },
+      });
+
+      // Create Client record without password
       testClient = await prisma.client.create({
         data: {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
           name: "Existing Client",
           email: "existing@example.com",
-          password_hash: passwordHash,
           status: "ACTIVE",
         },
       });
+
+      // Link User and Client via UserRole with CLIENT role
+      const clientRole = await prisma.role.findUnique({
+        where: { code: "CLIENT" },
+      });
+
+      if (clientRole) {
+        await prisma.userRole.create({
+          data: {
+            user_id: user.user_id,
+            role_id: clientRole.role_id,
+            client_id: testClient.client_id,
+            assigned_by: superadminUser.user_id,
+          },
+        });
+      }
+
+      // Store user reference for cleanup
+      (testClient as any).user = user;
     });
 
     test.afterEach(async () => {
-      // Clean up test client
+      // Clean up test client and associated user
       if (testClient) {
+        // Delete UserRole first (cascade should handle this, but be explicit)
+        if ((testClient as any).user) {
+          await prisma.userRole
+            .deleteMany({
+              where: { user_id: (testClient as any).user.user_id },
+            })
+            .catch(() => {});
+          await prisma.user
+            .delete({
+              where: { user_id: (testClient as any).user.user_id },
+            })
+            .catch(() => {});
+        }
         await prisma.client
           .delete({
             where: { client_id: testClient.client_id },
@@ -410,8 +454,8 @@ test.describe("Client Form Email and Password E2E", () => {
     test("[P0] Should successfully update client password", async ({
       page,
     }) => {
-      // Get original password hash
-      const originalHash = testClient.password_hash;
+      // Get original password hash from User record
+      const originalHash = (testClient as any).user.password_hash;
 
       // WHEN: Updating password with matching confirmation
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
@@ -432,11 +476,11 @@ test.describe("Client Form Email and Password E2E", () => {
         page.locator("text=Client updated successfully"),
       ).toBeVisible({ timeout: 10000 });
 
-      // AND: Password hash is changed in database
-      const updatedClient = await prisma.client.findUnique({
-        where: { client_id: testClient.client_id },
+      // AND: Password hash is changed in User record (not Client)
+      const updatedUser = await prisma.user.findUnique({
+        where: { user_id: (testClient as any).user.user_id },
       });
-      expect(updatedClient?.password_hash).not.toBe(originalHash);
+      expect(updatedUser?.password_hash).not.toBe(originalHash);
     });
 
     test("[P0] Should show validation error when updating password with mismatched confirmation", async ({
@@ -463,8 +507,8 @@ test.describe("Client Form Email and Password E2E", () => {
     test("[P0] Should keep existing password when field is left blank", async ({
       page,
     }) => {
-      // Get original password hash
-      const originalHash = testClient.password_hash;
+      // Get original password hash from User record
+      const originalHash = (testClient as any).user.password_hash;
 
       // WHEN: Updating client without touching password field
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
@@ -481,11 +525,11 @@ test.describe("Client Form Email and Password E2E", () => {
         page.locator("text=Client updated successfully"),
       ).toBeVisible({ timeout: 10000 });
 
-      // AND: Password hash remains unchanged
-      const updatedClient = await prisma.client.findUnique({
-        where: { client_id: testClient.client_id },
+      // AND: Password hash remains unchanged in User record
+      const updatedUser = await prisma.user.findUnique({
+        where: { user_id: (testClient as any).user.user_id },
       });
-      expect(updatedClient?.password_hash).toBe(originalHash);
+      expect(updatedUser?.password_hash).toBe(originalHash);
     });
 
     test("[P0] Should show validation error for invalid email on update", async ({
@@ -755,17 +799,46 @@ test.describe("Client Form Email and Password E2E", () => {
     });
 
     test("[P0] Should work on edit form as well", async ({ page }) => {
-      // GIVEN: Test client exists
+      // GIVEN: Test client exists with unified auth (User + Client + UserRole)
       const passwordHash = await bcrypt.hash("password123", 10);
+
+      // Create User record with password
+      const editTestUser = await prisma.user.create({
+        data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+          email: "visibility@example.com",
+          name: "Edit Visibility Test Client",
+          password_hash: passwordHash,
+          status: "ACTIVE",
+        },
+      });
+
+      // Create Client record without password
       const editTestClient = await prisma.client.create({
         data: {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
           name: "Edit Visibility Test Client",
           email: "visibility@example.com",
-          password_hash: passwordHash,
           status: "ACTIVE",
         },
       });
+
+      // Link User and Client via UserRole
+      const clientRole = await prisma.role.findUnique({
+        where: { code: "CLIENT" },
+      });
+
+      let userRole: any = null;
+      if (clientRole) {
+        userRole = await prisma.userRole.create({
+          data: {
+            user_id: editTestUser.user_id,
+            role_id: clientRole.role_id,
+            client_id: editTestClient.client_id,
+            assigned_by: superadminUser.user_id,
+          },
+        });
+      }
 
       try {
         // WHEN: User navigates to edit form
@@ -792,10 +865,24 @@ test.describe("Client Form Email and Password E2E", () => {
         await expect(passwordInput).toHaveAttribute("type", "text");
         await expect(passwordInput).toHaveValue("NewPassword456");
       } finally {
-        // Cleanup
-        await prisma.client.delete({
-          where: { client_id: editTestClient.client_id },
-        });
+        // Cleanup: Delete in correct order
+        if (userRole) {
+          await prisma.userRole
+            .delete({
+              where: { user_role_id: userRole.user_role_id },
+            })
+            .catch(() => {});
+        }
+        await prisma.client
+          .delete({
+            where: { client_id: editTestClient.client_id },
+          })
+          .catch(() => {});
+        await prisma.user
+          .delete({
+            where: { user_id: editTestUser.user_id },
+          })
+          .catch(() => {});
       }
     });
   });

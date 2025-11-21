@@ -9,7 +9,6 @@
  */
 
 import { faker } from "@faker-js/faker";
-import { Decimal } from "@prisma/client/runtime/library";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,

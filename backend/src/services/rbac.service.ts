@@ -17,7 +17,8 @@ export interface UserRole {
   user_id: string;
   role_id: string;
   role_code: string;
-  scope: "SYSTEM" | "COMPANY" | "STORE";
+  scope: "SYSTEM" | "COMPANY" | "STORE" | "CLIENT";
+  client_id: string | null;
   company_id: string | null;
   store_id: string | null;
   permissions: string[];
@@ -86,7 +87,8 @@ export class RBACService {
       user_id: ur.user_id,
       role_id: ur.role_id,
       role_code: ur.role.code,
-      scope: ur.role.scope as "SYSTEM" | "COMPANY" | "STORE",
+      scope: ur.role.scope as "SYSTEM" | "COMPANY" | "STORE" | "CLIENT",
+      client_id: ur.client_id,
       company_id: ur.company_id,
       store_id: ur.store_id,
       permissions: ur.role.role_permissions.map(

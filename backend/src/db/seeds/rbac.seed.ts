@@ -117,7 +117,23 @@ export async function seedRBAC() {
       },
     });
 
-    console.log("✅ Seeded 5 roles");
+    // CLIENT_OWNER - CLIENT scope
+    const clientOwnerRole = await prisma.role.upsert({
+      where: { code: "CLIENT_OWNER" },
+      update: {
+        scope: "CLIENT",
+        description:
+          "Client owner with full access to manage their companies, stores, and employees",
+      },
+      create: {
+        code: "CLIENT_OWNER",
+        scope: "CLIENT",
+        description:
+          "Client owner with full access to manage their companies, stores, and employees",
+      },
+    });
+
+    console.log("✅ Seeded 6 roles");
 
     // Map roles to permissions
     console.log("Mapping roles to permissions...");
@@ -284,6 +300,52 @@ export async function seedRBAC() {
       }
     }
     console.log("✅ CASHIER: Permissions mapped");
+
+    // CLIENT_OWNER: Full access to their own companies, stores, employees, and reports
+    const clientOwnerPermissions = [
+      PERMISSIONS.COMPANY_CREATE,
+      PERMISSIONS.COMPANY_READ,
+      PERMISSIONS.COMPANY_UPDATE,
+      PERMISSIONS.COMPANY_DELETE,
+      PERMISSIONS.STORE_CREATE,
+      PERMISSIONS.STORE_READ,
+      PERMISSIONS.STORE_UPDATE,
+      PERMISSIONS.STORE_DELETE,
+      PERMISSIONS.USER_CREATE,
+      PERMISSIONS.USER_READ,
+      PERMISSIONS.USER_UPDATE,
+      PERMISSIONS.USER_DELETE,
+      PERMISSIONS.SHIFT_READ,
+      PERMISSIONS.TRANSACTION_READ,
+      PERMISSIONS.INVENTORY_READ,
+      PERMISSIONS.INVENTORY_ADJUST,
+      PERMISSIONS.INVENTORY_ORDER,
+      PERMISSIONS.LOTTERY_REPORT,
+      PERMISSIONS.REPORT_SHIFT,
+      PERMISSIONS.REPORT_DAILY,
+      PERMISSIONS.REPORT_ANALYTICS,
+      PERMISSIONS.REPORT_EXPORT,
+    ];
+
+    for (const permissionCode of clientOwnerPermissions) {
+      const permissionId = permissionMap.get(permissionCode);
+      if (permissionId) {
+        await prisma.rolePermission.upsert({
+          where: {
+            role_id_permission_id: {
+              role_id: clientOwnerRole.role_id,
+              permission_id: permissionId,
+            },
+          },
+          update: {},
+          create: {
+            role_id: clientOwnerRole.role_id,
+            permission_id: permissionId,
+          },
+        });
+      }
+    }
+    console.log("✅ CLIENT_OWNER: Permissions mapped");
 
     console.log("✅ RBAC seed completed successfully");
   } catch (error) {

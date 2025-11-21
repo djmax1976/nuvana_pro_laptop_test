@@ -10,6 +10,7 @@ export interface UserIdentity {
   name?: string;
   roles: string[];
   permissions: string[];
+  client_id?: string; // Optional client_id for CLIENT_OWNER users
 }
 
 /**
@@ -40,14 +41,14 @@ export async function authMiddleware(
       email: decoded.email,
       roles: decoded.roles || [],
       permissions: decoded.permissions || [],
+      client_id: decoded.client_id, // Include client_id if present (for CLIENT_OWNER users)
     };
 
     // Attach user identity to request for use in route handlers
     (request as any).user = userIdentity;
   } catch (error) {
     return reply.code(401).send({
-      error:
-        error instanceof Error ? error.message : "Token validation failed",
+      error: error instanceof Error ? error.message : "Token validation failed",
     });
   }
 }
