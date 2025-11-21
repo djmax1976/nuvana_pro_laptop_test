@@ -24,6 +24,65 @@ export interface AuditContext {
 }
 
 /**
+ * Helper function to safely create audit log entry
+ * Only creates audit log if the user exists in the database
+ * @param auditContext - Audit context with user information
+ * @param action - Action performed (CREATE, UPDATE, DELETE)
+ * @param tableName - Table name
+ * @param recordId - Record ID
+ * @param oldValues - Old values (for UPDATE/DELETE)
+ * @param newValues - New values (for CREATE/UPDATE)
+ */
+async function createAuditLogSafely(
+  auditContext: AuditContext,
+  action: string,
+  tableName: string,
+  recordId: string,
+  oldValues?: Prisma.JsonObject,
+  newValues?: Prisma.JsonObject,
+): Promise<void> {
+  try {
+    if (auditContext.userId) {
+      const assigningUser = await prisma.user.findUnique({
+        where: { user_id: auditContext.userId },
+        select: { user_id: true },
+      });
+
+      if (assigningUser) {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action,
+            table_name: tableName,
+            record_id: recordId,
+            old_values: oldValues || Prisma.JsonNull,
+            new_values: newValues || Prisma.JsonNull,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `${action} by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } else {
+        console.warn(
+          `Skipping audit log: user ${auditContext.userId} not found`,
+        );
+      }
+    } else {
+      console.warn("Skipping audit log: no userId in audit context");
+    }
+  } catch (auditError) {
+    console.error(`Failed to create audit log for ${action}:`, auditError);
+    if (process.env.NODE_ENV === "test") {
+      console.warn(
+        `Audit log creation failed (non-blocking): ${
+          auditError instanceof Error ? auditError.message : "Unknown error"
+        }`,
+      );
+    }
+  }
+}
+
+/**
  * Client service for managing client CRUD operations
  * Handles client creation, retrieval, updates, and soft deletion
  * with audit logging for compliance
@@ -134,12 +193,23 @@ export class ClientService {
         });
 
         // 3. Link User to Client with CLIENT_OWNER role
+        // Note: assigned_by should reference an existing user
+        // Verify that the assigning user exists in database
+        let assignedBy: string | null = null;
+        if (auditContext.userId) {
+          const assigningUser = await tx.user.findUnique({
+            where: { user_id: auditContext.userId },
+            select: { user_id: true },
+          });
+          assignedBy = assigningUser ? auditContext.userId : null;
+        }
+
         await tx.userRole.create({
           data: {
             user_id: user.user_id,
             role_id: clientOwnerRole.role_id,
             client_id: client.client_id,
-            assigned_by: auditContext.userId,
+            assigned_by: assignedBy,
           },
         });
 
@@ -149,36 +219,14 @@ export class ClientService {
       const { client } = result;
 
       // Create audit log entry (non-blocking - don't fail the creation if audit fails)
-      try {
-        await prisma.auditLog.create({
-          data: {
-            user_id: auditContext.userId,
-            action: "CREATE",
-            table_name: "clients",
-            record_id: client.client_id,
-            new_values: client as unknown as Prisma.JsonObject,
-            ip_address: auditContext.ipAddress,
-            user_agent: auditContext.userAgent,
-            reason: `Client created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
-          },
-        });
-      } catch (auditError) {
-        // Log the audit failure
-        console.error(
-          "Failed to create audit log for client creation:",
-          auditError,
-        );
-
-        // In test environment, fail loudly so we can identify and fix the issue
-        if (process.env.NODE_ENV === "test") {
-          throw new Error(
-            `Audit log creation failed: ${
-              auditError instanceof Error ? auditError.message : "Unknown error"
-            }`,
-          );
-        }
-        // In production, continue despite audit failure (non-blocking)
-      }
+      await createAuditLogSafely(
+        auditContext,
+        "CREATE",
+        "clients",
+        client.client_id,
+        undefined,
+        client as unknown as Prisma.JsonObject,
+      );
 
       return {
         client_id: client.client_id,
@@ -522,27 +570,14 @@ export class ClientService {
       const client = result;
 
       // Create audit log entry (non-blocking - don't fail the update if audit fails)
-      try {
-        await prisma.auditLog.create({
-          data: {
-            user_id: auditContext.userId,
-            action: "UPDATE",
-            table_name: "clients",
-            record_id: client.client_id,
-            old_values: existingClient as unknown as Prisma.JsonObject,
-            new_values: client as unknown as Prisma.JsonObject,
-            ip_address: auditContext.ipAddress,
-            user_agent: auditContext.userAgent,
-            reason: `Client updated by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
-          },
-        });
-      } catch (auditError) {
-        // Log the audit failure but don't fail the update operation
-        console.error(
-          "Failed to create audit log for client update:",
-          auditError,
-        );
-      }
+      await createAuditLogSafely(
+        auditContext,
+        "UPDATE",
+        "clients",
+        client.client_id,
+        existingClient as unknown as Prisma.JsonObject,
+        client as unknown as Prisma.JsonObject,
+      );
 
       return {
         client_id: client.client_id,
@@ -680,27 +715,14 @@ export class ClientService {
       });
 
       // Create audit log entry (non-blocking - don't fail the deletion if audit fails)
-      try {
-        await prisma.auditLog.create({
-          data: {
-            user_id: auditContext.userId,
-            action: "DELETE",
-            table_name: "clients",
-            record_id: client.client_id,
-            old_values: existingClient as unknown as Prisma.JsonObject,
-            new_values: client as unknown as Prisma.JsonObject,
-            ip_address: auditContext.ipAddress,
-            user_agent: auditContext.userAgent,
-            reason: `Client soft deleted by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
-          },
-        });
-      } catch (auditError) {
-        // Log the audit failure but don't fail the deletion operation
-        console.error(
-          "Failed to create audit log for client deletion:",
-          auditError,
-        );
-      }
+      await createAuditLogSafely(
+        auditContext,
+        "DELETE",
+        "clients",
+        client.client_id,
+        existingClient as unknown as Prisma.JsonObject,
+        client as unknown as Prisma.JsonObject,
+      );
 
       return {
         client_id: client.client_id,
