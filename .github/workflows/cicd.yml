@@ -99,6 +99,10 @@ jobs:
         run: npx tsx tests/support/seed-roles.ts
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
+      - name: Bootstrap admin user
+        run: npx tsx backend/scripts/bootstrap-admin.ts
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
       - name: Build backend
