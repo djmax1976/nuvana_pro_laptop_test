@@ -33,10 +33,9 @@ const app = Fastify({
   logger: true,
   ajv: {
     customOptions: {
-      removeAdditional: false, // Allow additional properties (for flexibility)
-      coerceTypes: false, // Don't coerce types - enforce strict validation
-      allErrors: true, // Report all validation errors
-      useDefaults: true, // Apply default values from schema
+      removeAdditional: false,
+      coerceTypes: "array", // Coerce types for query strings while keeping strict validation for body
+      allErrors: true,
     },
     plugins: [addFormats],
   },
