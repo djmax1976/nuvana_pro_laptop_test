@@ -7,7 +7,12 @@ import {
   createStoreScopeAssignment,
   createInvalidScopeAssignment,
 } from "../support/factories/user-admin.factory";
-import { createClient, createCompany, createStore } from "../support/factories";
+import {
+  createClient,
+  createCompany,
+  createStore,
+  createClientWithUser,
+} from "../support/factories";
 
 /**
  * User and Role Management API Tests
@@ -443,14 +448,12 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A user, client, company, and COMPANY scope role exist
+    // GIVEN: A user, client with user, company, and COMPANY scope role exist
     const user = await prismaClient.user.create({
       data: createAdminUser(),
     });
 
-    const client = await prismaClient.client.create({
-      data: createClient(),
-    });
+    const { client } = await createClientWithUser(prismaClient);
 
     const companyData = createCompany({
       name: "Test Company",
@@ -531,14 +534,12 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A user, client, company, store, and STORE scope role exist
+    // GIVEN: A user, client with user, company, store, and STORE scope role exist
     const user = await prismaClient.user.create({
       data: createAdminUser(),
     });
 
-    const client = await prismaClient.client.create({
-      data: createClient(),
-    });
+    const { client } = await createClientWithUser(prismaClient);
 
     const companyData = createCompany({
       name: "Test Company",
@@ -603,14 +604,12 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A user and STORE scope role exist
+    // GIVEN: A user, client with user, and STORE scope role exist
     const user = await prismaClient.user.create({
       data: createAdminUser(),
     });
 
-    const client = await prismaClient.client.create({
-      data: createClient(),
-    });
+    const { client } = await createClientWithUser(prismaClient);
 
     const companyData = createCompany({
       name: "Test Company",
@@ -658,12 +657,12 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       data: createAdminUser(),
     });
 
-    const client1 = await prismaClient.client.create({
-      data: createClient({ name: "Client One" }),
+    const { client: client1 } = await createClientWithUser(prismaClient, {
+      name: "Client One",
     });
 
-    const client2 = await prismaClient.client.create({
-      data: createClient({ name: "Client Two" }),
+    const { client: client2 } = await createClientWithUser(prismaClient, {
+      name: "Client Two",
     });
 
     const companyData = createCompany({
@@ -709,9 +708,7 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       data: createAdminUser(),
     });
 
-    const client = await prismaClient.client.create({
-      data: createClient(),
-    });
+    const { client } = await createClientWithUser(prismaClient);
 
     const companyData1 = createCompany({
       name: "Company One",
@@ -1316,9 +1313,7 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
       data: createAdminUser(),
     });
 
-    const client = await prismaClient.client.create({
-      data: createClient(),
-    });
+    const { client } = await createClientWithUser(prismaClient);
 
     const companyData = createCompany({
       name: "Test Company",

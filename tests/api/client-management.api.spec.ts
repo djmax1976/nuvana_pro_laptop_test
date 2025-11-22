@@ -1,5 +1,9 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createClient, createCompany } from "../support/factories";
+import {
+  createClient,
+  createCompany,
+  createClientWithUser,
+} from "../support/factories";
 import { createClientViaAPI } from "../support/helpers";
 
 /**
@@ -129,11 +133,11 @@ test.describe("Client Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and multiple clients exist
-    const client1 = await prismaClient.client.create({
-      data: createClient({ name: "Client One" }),
+    const { client: client1 } = await createClientWithUser(prismaClient, {
+      name: "Client One",
     });
-    const client2 = await prismaClient.client.create({
-      data: createClient({ name: "Client Two" }),
+    const { client: client2 } = await createClientWithUser(prismaClient, {
+      name: "Client Two",
     });
 
     // WHEN: Retrieving all clients (default pagination)
@@ -164,12 +168,8 @@ test.describe("Client Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Multiple clients exist with different names
-    await prismaClient.client.create({
-      data: createClient({ name: "Alpha Corp" }),
-    });
-    await prismaClient.client.create({
-      data: createClient({ name: "Beta Inc" }),
-    });
+    await createClientWithUser(prismaClient, { name: "Alpha Corp" });
+    await createClientWithUser(prismaClient, { name: "Beta Inc" });
 
     // WHEN: Searching for clients with "Alpha"
     const response = await superadminApiRequest.get(
@@ -189,11 +189,13 @@ test.describe("Client Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Clients with different statuses exist
-    await prismaClient.client.create({
-      data: createClient({ name: "Active Client", status: "ACTIVE" }),
+    await createClientWithUser(prismaClient, {
+      name: "Active Client",
+      status: "ACTIVE",
     });
-    await prismaClient.client.create({
-      data: createClient({ name: "Inactive Client", status: "INACTIVE" }),
+    await createClientWithUser(prismaClient, {
+      name: "Inactive Client",
+      status: "INACTIVE",
     });
 
     // WHEN: Filtering by ACTIVE status
@@ -213,16 +215,7 @@ test.describe("Client Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and a client exists
-    const clientData = createClient();
-    const client = await prismaClient.client.create({
-      data: {
-        public_id: clientData.public_id,
-        name: clientData.name,
-        email: clientData.email,
-        status: clientData.status,
-        metadata: clientData.metadata,
-      },
-    });
+    const { client } = await createClientWithUser(prismaClient);
 
     // WHEN: Retrieving client by ID
     const response = await superadminApiRequest.get(
@@ -350,8 +343,9 @@ test.describe("Client Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: I want to delete a client
-    const client = await prismaClient.client.create({
-      data: createClient({ name: "Client to Delete", status: "INACTIVE" }),
+    const { client } = await createClientWithUser(prismaClient, {
+      name: "Client to Delete",
+      status: "INACTIVE",
     });
 
     // WHEN: I attempt soft delete
@@ -386,11 +380,13 @@ test.describe("Client Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: A client has been soft-deleted
-    const client = await prismaClient.client.create({
-      data: {
-        ...createClient({ name: "Deleted Client" }),
-        deleted_at: new Date(),
-      },
+    const { client } = await createClientWithUser(prismaClient, {
+      name: "Deleted Client",
+    });
+    // Manually soft-delete it
+    await prismaClient.client.update({
+      where: { client_id: client.client_id },
+      data: { deleted_at: new Date() },
     });
 
     // WHEN: Listing clients
@@ -409,8 +405,9 @@ test.describe("Client Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: An ACTIVE client exists
-    const client = await prismaClient.client.create({
-      data: createClient({ name: "Active Client", status: "ACTIVE" }),
+    const { client } = await createClientWithUser(prismaClient, {
+      name: "Active Client",
+      status: "ACTIVE",
     });
 
     // WHEN: Attempting to delete ACTIVE client
@@ -432,9 +429,7 @@ test.describe("Client Management API - Permission Enforcement", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a Store Manager (not System Admin)
-    const client = await prismaClient.client.create({
-      data: createClient(),
-    });
+    const { client } = await createClientWithUser(prismaClient);
 
     // WHEN: Attempting various client operations
     const getResponse = await storeManagerApiRequest.get("/api/clients");
@@ -471,18 +466,9 @@ test.describe("Client Management API - Business Logic", () => {
     prismaClient,
   }) => {
     // GIVEN: A client exists with companies, stores, and user roles
-    const clientData = createClient({
+    const { client } = await createClientWithUser(prismaClient, {
       name: "Client With Companies",
       status: "INACTIVE",
-    });
-    const client = await prismaClient.client.create({
-      data: {
-        public_id: clientData.public_id,
-        name: clientData.name,
-        email: clientData.email,
-        status: clientData.status,
-        metadata: clientData.metadata,
-      },
     });
 
     const companyData = createCompany({
@@ -565,9 +551,10 @@ test.describe("Client Management API - Business Logic", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: An INACTIVE client exists
-    const client = await prismaClient.client.create({
-      data: createClient({ name: "Inactive Client", status: "INACTIVE" }),
+    // GIVEN: An INACTIVE client exists (with associated User and UserRole)
+    const { client } = await createClientWithUser(prismaClient, {
+      name: "Inactive Client",
+      status: "INACTIVE",
     });
 
     // WHEN: Reactivating the client
@@ -608,15 +595,16 @@ test.describe("Client Management API - Business Logic", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A client with a specific name already exists
-    await prismaClient.client.create({
-      data: createClient({ name: "Duplicate Name Corp" }),
+    // GIVEN: A client with a specific name already exists (with associated User)
+    await createClientWithUser(prismaClient, {
+      name: "Duplicate Name Corp",
     });
 
-    // WHEN: Creating another client with the same name
+    // WHEN: Creating another client with the same name but different email
+    const uniqueEmail = `duplicate-${Date.now()}@example.com`;
     const response = await superadminApiRequest.post("/api/clients", {
       name: "Duplicate Name Corp",
-      email: "duplicate2@example.com",
+      email: uniqueEmail,
       password: "TestPass123!",
       status: "ACTIVE",
     });
@@ -907,9 +895,7 @@ test.describe("Client Management API - Security", () => {
     prismaClient,
   }) => {
     // GIVEN: A client exists
-    const client = await prismaClient.client.create({
-      data: createClient(),
-    });
+    const { client } = await createClientWithUser(prismaClient);
 
     // WHEN: Making requests without authentication
     const getResponse = await request.get("/api/clients");
@@ -942,9 +928,7 @@ test.describe("Client Management API - Security", () => {
     prismaClient,
   }) => {
     // GIVEN: A client exists
-    const client = await prismaClient.client.create({
-      data: createClient(),
-    });
+    const { client } = await createClientWithUser(prismaClient);
 
     // WHEN: Retrieving client details
     const response = await superadminApiRequest.get(
@@ -966,9 +950,7 @@ test.describe("Client Management API - Security", () => {
     prismaClient,
   }) => {
     // GIVEN: A client exists that the Corporate Admin should not access
-    const client = await prismaClient.client.create({
-      data: createClient(),
-    });
+    const { client } = await createClientWithUser(prismaClient);
 
     // WHEN: Corporate Admin tries to update client
     const response = await corporateAdminApiRequest.put(
@@ -1089,8 +1071,8 @@ test.describe("Client Management API - Dual ID Format Support (GET)", () => {
     prismaClient,
   }) => {
     // GIVEN: A client exists with both UUID and public_id
-    const client = await prismaClient.client.create({
-      data: createClient({ name: "UUID Test Client" }),
+    const { client } = await createClientWithUser(prismaClient, {
+      name: "UUID Test Client",
     });
 
     // WHEN: Fetching by UUID (old format)
@@ -1117,8 +1099,8 @@ test.describe("Client Management API - Dual ID Format Support (GET)", () => {
     prismaClient,
   }) => {
     // GIVEN: A client exists with public_id
-    const client = await prismaClient.client.create({
-      data: createClient({ name: "Public ID Test Client" }),
+    const { client } = await createClientWithUser(prismaClient, {
+      name: "Public ID Test Client",
     });
 
     // WHEN: Fetching by public_id (new format)
@@ -1267,8 +1249,9 @@ test.describe("Client Management API - Dual ID Format Support (DELETE)", () => {
     prismaClient,
   }) => {
     // GIVEN: An INACTIVE client exists
-    const client = await prismaClient.client.create({
-      data: createClient({ name: "To Delete via UUID", status: "INACTIVE" }),
+    const { client } = await createClientWithUser(prismaClient, {
+      name: "To Delete via UUID",
+      status: "INACTIVE",
     });
 
     // WHEN: Deleting via UUID
@@ -1293,11 +1276,9 @@ test.describe("Client Management API - Dual ID Format Support (DELETE)", () => {
     prismaClient,
   }) => {
     // GIVEN: An INACTIVE client exists
-    const client = await prismaClient.client.create({
-      data: createClient({
-        name: "To Delete via Public ID",
-        status: "INACTIVE",
-      }),
+    const { client } = await createClientWithUser(prismaClient, {
+      name: "To Delete via Public ID",
+      status: "INACTIVE",
     });
 
     // WHEN: Deleting via public_id
@@ -1338,8 +1319,9 @@ test.describe("Client Management API - Dropdown Public ID Support", () => {
     prismaClient,
   }) => {
     // GIVEN: Active clients exist
-    const client = await prismaClient.client.create({
-      data: createClient({ name: "Dropdown Public ID Test", status: "ACTIVE" }),
+    const { client } = await createClientWithUser(prismaClient, {
+      name: "Dropdown Public ID Test",
+      status: "ACTIVE",
     });
 
     // WHEN: Fetching dropdown data

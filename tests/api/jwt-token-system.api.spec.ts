@@ -7,6 +7,7 @@ import {
   createAdminJWTAccessToken,
   createUser,
 } from "../support/factories";
+import { createUserWithRole } from "../support/helpers/user-with-role.helper";
 import { faker } from "@faker-js/faker";
 
 /**
@@ -28,37 +29,45 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     apiRequest,
     prismaClient,
   }) => {
-    // GIVEN: User exists in database
+    // GIVEN: User exists in database with role
     const userEmail = faker.internet.email();
-    const userData = createUser({
+    const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
     });
-    const createdUser = await prismaClient.user.create({ data: userData });
 
-    // AND: Valid JWT access token in httpOnly cookie
-    const validToken = createJWTAccessToken({
-      user_id: createdUser.user_id,
-      email: userEmail,
-      roles: ["USER"],
-      permissions: ["READ"],
-    });
+    try {
+      // AND: Valid JWT access token in httpOnly cookie
+      const validToken = createJWTAccessToken({
+        user_id: createdUser.user_id,
+        email: userEmail,
+        roles: ["USER"],
+        permissions: ["READ"],
+      });
 
-    // WHEN: Protected endpoint is called with valid token in cookie
-    const response = await apiRequest.get("/api/user/profile", {
-      headers: {
-        Cookie: `access_token=${validToken}`,
-      },
-    });
+      // WHEN: Protected endpoint is called with valid token in cookie
+      const response = await apiRequest.get("/api/user/profile", {
+        headers: {
+          Cookie: `access_token=${validToken}`,
+        },
+      });
 
-    // THEN: Request is authorized (200 OK)
-    expect(response.status()).toBe(200);
+      // THEN: Request is authorized (200 OK)
+      expect(response.status()).toBe(200);
 
-    // AND: User context is available in response
-    const body = await response.json();
-    expect(body).toHaveProperty("user");
-    expect(body.user).toHaveProperty("user_id", createdUser.user_id);
-    expect(body.user).toHaveProperty("email", userEmail);
+      // AND: User context is available in response
+      const body = await response.json();
+      expect(body).toHaveProperty("user");
+      expect(body.user).toHaveProperty("user_id", createdUser.user_id);
+      expect(body.user).toHaveProperty("email", userEmail);
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: createdUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: createdUser.user_id },
+      });
+    }
   });
 
   test("[P0] 1.6-API-002-002: Protected route should return 401 for expired access token", async ({
@@ -128,36 +137,44 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     apiRequest,
     prismaClient,
   }) => {
-    // GIVEN: User exists in database
+    // GIVEN: User exists in database with role
     const userEmail = faker.internet.email();
-    const userData = createUser({
+    const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
     });
-    const createdUser = await prismaClient.user.create({ data: userData });
 
-    // AND: Valid JWT access token with all claims
-    const validToken = createJWTAccessToken({
-      user_id: createdUser.user_id,
-      email: userEmail,
-      roles: ["USER", "ADMIN"],
-      permissions: ["READ", "WRITE", "DELETE"],
-    });
+    try {
+      // AND: Valid JWT access token with all claims
+      const validToken = createJWTAccessToken({
+        user_id: createdUser.user_id,
+        email: userEmail,
+        roles: ["USER", "ADMIN"],
+        permissions: ["READ", "WRITE", "DELETE"],
+      });
 
-    // WHEN: Protected endpoint is called with token
-    const response = await apiRequest.get("/api/user/profile", {
-      headers: {
-        Cookie: `access_token=${validToken}`,
-      },
-    });
+      // WHEN: Protected endpoint is called with token
+      const response = await apiRequest.get("/api/user/profile", {
+        headers: {
+          Cookie: `access_token=${validToken}`,
+        },
+      });
 
-    // THEN: Request is authorized
-    expect(response.status()).toBe(200);
+      // THEN: Request is authorized
+      expect(response.status()).toBe(200);
 
-    // AND: User exists in database response
-    const body = await response.json();
-    expect(body.user).toHaveProperty("user_id", createdUser.user_id);
-    expect(body.user).toHaveProperty("email", userEmail);
+      // AND: User exists in database response
+      const body = await response.json();
+      expect(body.user).toHaveProperty("user_id", createdUser.user_id);
+      expect(body.user).toHaveProperty("email", userEmail);
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: createdUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: createdUser.user_id },
+      });
+    }
   });
 
   test("[P1] 1.6-API-002-006: Protected route should return 401 for malformed JWT token", async ({
@@ -225,34 +242,42 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     apiRequest,
     prismaClient,
   }) => {
-    // GIVEN: User exists in database
+    // GIVEN: User exists in database with role
     const userEmail = faker.internet.email();
-    const userData = createUser({
+    const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
     });
-    const createdUser = await prismaClient.user.create({ data: userData });
 
-    // AND: Admin JWT access token
-    const adminToken = createAdminJWTAccessToken({
-      user_id: createdUser.user_id,
-      email: userEmail,
-    });
+    try {
+      // AND: Admin JWT access token
+      const adminToken = createAdminJWTAccessToken({
+        user_id: createdUser.user_id,
+        email: userEmail,
+      });
 
-    // WHEN: Protected endpoint is called with admin token
-    const response = await apiRequest.get("/api/user/profile", {
-      headers: {
-        Cookie: `access_token=${adminToken}`,
-      },
-    });
+      // WHEN: Protected endpoint is called with admin token
+      const response = await apiRequest.get("/api/user/profile", {
+        headers: {
+          Cookie: `access_token=${adminToken}`,
+        },
+      });
 
-    // THEN: Request is authorized
-    expect(response.status()).toBe(200);
+      // THEN: Request is authorized
+      expect(response.status()).toBe(200);
 
-    // AND: User exists in database
-    const body = await response.json();
-    expect(body.user).toHaveProperty("user_id", createdUser.user_id);
-    expect(body.user).toHaveProperty("email", userEmail);
+      // AND: User exists in database
+      const body = await response.json();
+      expect(body.user).toHaveProperty("user_id", createdUser.user_id);
+      expect(body.user).toHaveProperty("email", userEmail);
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: createdUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: createdUser.user_id },
+      });
+    }
   });
 });
 
@@ -261,53 +286,61 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     apiRequest,
     prismaClient,
   }) => {
-    // GIVEN: User exists in database
+    // GIVEN: User exists in database with role
     const userEmail = faker.internet.email();
-    const userData = createUser({
+    const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
     });
-    const createdUser = await prismaClient.user.create({ data: userData });
 
-    // AND: Valid refresh token in httpOnly cookie
-    const refreshToken = await createJWTRefreshToken({
-      user_id: createdUser.user_id,
-      email: userEmail,
-    });
+    try {
+      // AND: Valid refresh token in httpOnly cookie
+      const refreshToken = await createJWTRefreshToken({
+        user_id: createdUser.user_id,
+        email: userEmail,
+      });
 
-    // WHEN: Refresh endpoint is called with valid refresh token
-    const response = await apiRequest.post(
-      "/api/auth/refresh",
-      {},
-      {
-        headers: {
-          Cookie: `refresh_token=${refreshToken}`,
+      // WHEN: Refresh endpoint is called with valid refresh token
+      const response = await apiRequest.post(
+        "/api/auth/refresh",
+        {},
+        {
+          headers: {
+            Cookie: `refresh_token=${refreshToken}`,
+          },
         },
-      },
-    );
+      );
 
-    // THEN: Response is 200 OK
-    expect(response.status()).toBe(200);
+      // THEN: Response is 200 OK
+      expect(response.status()).toBe(200);
 
-    // AND: New access token is set in cookie
-    const setCookieHeader = response.headers()["set-cookie"];
-    const cookies = Array.isArray(setCookieHeader)
-      ? setCookieHeader
-      : setCookieHeader
-        ? [setCookieHeader]
-        : [];
-    const newAccessTokenCookie = cookies.find((cookie: string) =>
-      cookie.includes("access_token"),
-    );
-    expect(newAccessTokenCookie).toBeTruthy();
-    expect(newAccessTokenCookie).toContain("HttpOnly");
+      // AND: New access token is set in cookie
+      const setCookieHeader = response.headers()["set-cookie"];
+      const cookies = Array.isArray(setCookieHeader)
+        ? setCookieHeader
+        : setCookieHeader
+          ? [setCookieHeader]
+          : [];
+      const newAccessTokenCookie = cookies.find((cookie: string) =>
+        cookie.includes("access_token"),
+      );
+      expect(newAccessTokenCookie).toBeTruthy();
+      expect(newAccessTokenCookie).toContain("HttpOnly");
 
-    // AND: New refresh token is set in cookie (token rotation)
-    const newRefreshTokenCookie = cookies.find((cookie: string) =>
-      cookie.includes("refresh_token"),
-    );
-    expect(newRefreshTokenCookie).toBeTruthy();
-    expect(newRefreshTokenCookie).toContain("HttpOnly");
+      // AND: New refresh token is set in cookie (token rotation)
+      const newRefreshTokenCookie = cookies.find((cookie: string) =>
+        cookie.includes("refresh_token"),
+      );
+      expect(newRefreshTokenCookie).toBeTruthy();
+      expect(newRefreshTokenCookie).toContain("HttpOnly");
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: createdUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: createdUser.user_id },
+      });
+    }
   });
 
   test("[P0] 1.6-API-003-002: POST /api/auth/refresh should return 401 for expired refresh token", async ({
@@ -385,70 +418,78 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     apiRequest,
     prismaClient,
   }) => {
-    // GIVEN: User exists in database
+    // GIVEN: User exists in database with role
     const userEmail = faker.internet.email();
-    const userData = createUser({
+    const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
     });
-    const createdUser = await prismaClient.user.create({ data: userData });
 
-    // AND: Valid refresh token in cookie
-    const originalRefreshToken = await createJWTRefreshToken({
-      user_id: createdUser.user_id,
-      email: userEmail,
-    });
+    try {
+      // AND: Valid refresh token in cookie
+      const originalRefreshToken = await createJWTRefreshToken({
+        user_id: createdUser.user_id,
+        email: userEmail,
+      });
 
-    // WHEN: Refresh endpoint is called first time
-    const response1 = await apiRequest.post(
-      "/api/auth/refresh",
-      {},
-      {
-        headers: {
-          Cookie: `refresh_token=${originalRefreshToken}`,
+      // WHEN: Refresh endpoint is called first time
+      const response1 = await apiRequest.post(
+        "/api/auth/refresh",
+        {},
+        {
+          headers: {
+            Cookie: `refresh_token=${originalRefreshToken}`,
+          },
         },
-      },
-    );
+      );
 
-    // THEN: New tokens are issued
-    expect(response1.status()).toBe(200);
-    const setCookieHeader1 = response1.headers()["set-cookie"];
-    const cookies1 = Array.isArray(setCookieHeader1)
-      ? setCookieHeader1
-      : setCookieHeader1
-        ? [setCookieHeader1]
-        : [];
-    const newRefreshToken1 = cookies1
-      .find((cookie: string) => cookie.includes("refresh_token"))
-      ?.match(/refresh_token=([^;]+)/)?.[1];
+      // THEN: New tokens are issued
+      expect(response1.status()).toBe(200);
+      const setCookieHeader1 = response1.headers()["set-cookie"];
+      const cookies1 = Array.isArray(setCookieHeader1)
+        ? setCookieHeader1
+        : setCookieHeader1
+          ? [setCookieHeader1]
+          : [];
+      const newRefreshToken1 = cookies1
+        .find((cookie: string) => cookie.includes("refresh_token"))
+        ?.match(/refresh_token=([^;]+)/)?.[1];
 
-    // WHEN: Same original refresh token is used again (should be invalidated)
-    const response2 = await apiRequest.post(
-      "/api/auth/refresh",
-      {},
-      {
-        headers: {
-          Cookie: `refresh_token=${originalRefreshToken}`,
+      // WHEN: Same original refresh token is used again (should be invalidated)
+      const response2 = await apiRequest.post(
+        "/api/auth/refresh",
+        {},
+        {
+          headers: {
+            Cookie: `refresh_token=${originalRefreshToken}`,
+          },
         },
-      },
-    );
+      );
 
-    // THEN: Original token is rejected (401)
-    expect(response2.status()).toBe(401);
+      // THEN: Original token is rejected (401)
+      expect(response2.status()).toBe(401);
 
-    // AND: New refresh token from first call works
-    const response3 = await apiRequest.post(
-      "/api/auth/refresh",
-      {},
-      {
-        headers: {
-          Cookie: `refresh_token=${newRefreshToken1}`,
+      // AND: New refresh token from first call works
+      const response3 = await apiRequest.post(
+        "/api/auth/refresh",
+        {},
+        {
+          headers: {
+            Cookie: `refresh_token=${newRefreshToken1}`,
+          },
         },
-      },
-    );
+      );
 
-    // THEN: New token is accepted
-    expect(response3.status()).toBe(200);
+      // THEN: New token is accepted
+      expect(response3.status()).toBe(200);
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: createdUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: createdUser.user_id },
+      });
+    }
   });
 
   test("[P1] 1.6-API-003-006: POST /api/auth/refresh should return 401 for malformed refresh token", async ({
@@ -481,39 +522,47 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     apiRequest,
     prismaClient,
   }) => {
-    // GIVEN: User exists in database
+    // GIVEN: User exists in database with role
     const userEmail = faker.internet.email();
-    const userData = createUser({
+    const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
     });
-    const createdUser = await prismaClient.user.create({ data: userData });
 
-    // AND: Valid refresh token
-    const refreshToken = await createJWTRefreshToken({
-      user_id: createdUser.user_id,
-      email: userEmail,
-    });
+    try {
+      // AND: Valid refresh token
+      const refreshToken = await createJWTRefreshToken({
+        user_id: createdUser.user_id,
+        email: userEmail,
+      });
 
-    // WHEN: Refresh endpoint is called
-    const response = await apiRequest.post(
-      "/api/auth/refresh",
-      {},
-      {
-        headers: {
-          Cookie: `refresh_token=${refreshToken}`,
+      // WHEN: Refresh endpoint is called
+      const response = await apiRequest.post(
+        "/api/auth/refresh",
+        {},
+        {
+          headers: {
+            Cookie: `refresh_token=${refreshToken}`,
+          },
         },
-      },
-    );
+      );
 
-    // THEN: Response is 200 OK
-    expect(response.status()).toBe(200);
+      // THEN: Response is 200 OK
+      expect(response.status()).toBe(200);
 
-    // AND: Response contains user information matching original token
-    const body = await response.json();
-    expect(body).toHaveProperty("user");
-    expect(body.user).toHaveProperty("id", createdUser.user_id);
-    expect(body.user).toHaveProperty("email", userEmail);
+      // AND: Response contains user information matching original token
+      const body = await response.json();
+      expect(body).toHaveProperty("user");
+      expect(body.user).toHaveProperty("id", createdUser.user_id);
+      expect(body.user).toHaveProperty("email", userEmail);
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: createdUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: createdUser.user_id },
+      });
+    }
   });
 });
 
@@ -524,75 +573,83 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
   }) => {
     // GIVEN: User exists in database with valid refresh token
     const userEmail = faker.internet.email();
-    const userData = createUser({
+    const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
     });
-    const createdUser = await prismaClient.user.create({ data: userData });
 
-    // AND: Expired access token (causes initial 401)
-    const expiredAccessToken = createExpiredJWTAccessToken({
-      user_id: createdUser.user_id,
-      email: userEmail,
-    });
+    try {
+      // AND: Expired access token (causes initial 401)
+      const expiredAccessToken = createExpiredJWTAccessToken({
+        user_id: createdUser.user_id,
+        email: userEmail,
+      });
 
-    // AND: Valid refresh token (allows auto-refresh)
-    const validRefreshToken = await createJWTRefreshToken({
-      user_id: createdUser.user_id,
-      email: userEmail,
-    });
+      // AND: Valid refresh token (allows auto-refresh)
+      const validRefreshToken = await createJWTRefreshToken({
+        user_id: createdUser.user_id,
+        email: userEmail,
+      });
 
-    // WHEN: Protected endpoint is called with expired access token but valid refresh token
-    // This simulates the frontend 401 interceptor scenario
-    const response = await apiRequest.get("/api/user/profile", {
-      headers: {
-        Cookie: `access_token=${expiredAccessToken}; refresh_token=${validRefreshToken}`,
-      },
-    });
-
-    // THEN: Request should succeed after automatic token refresh
-    // Note: In a real frontend implementation, this would require two requests:
-    // 1. Initial request → 401
-    // 2. Auto-refresh → new tokens
-    // 3. Retry request → 200
-    // This test verifies the backend supports this flow
-    expect(response.status()).toBe(401); // First attempt fails with expired token
-
-    // Manual retry with refresh (simulating frontend auto-refresh logic)
-    const refreshResponse = await apiRequest.post(
-      "/api/auth/refresh",
-      {},
-      {
+      // WHEN: Protected endpoint is called with expired access token but valid refresh token
+      // This simulates the frontend 401 interceptor scenario
+      const response = await apiRequest.get("/api/user/profile", {
         headers: {
-          Cookie: `refresh_token=${validRefreshToken}`,
+          Cookie: `access_token=${expiredAccessToken}; refresh_token=${validRefreshToken}`,
         },
-      },
-    );
-    expect(refreshResponse.status()).toBe(200);
+      });
 
-    // Extract new access token from refresh response
-    const setCookieHeader = refreshResponse.headers()["set-cookie"];
-    const cookies = Array.isArray(setCookieHeader)
-      ? setCookieHeader
-      : setCookieHeader
-        ? [setCookieHeader]
-        : [];
-    const newAccessToken = cookies
-      .find((cookie: string) => cookie.includes("access_token"))
-      ?.match(/access_token=([^;]+)/)?.[1];
-    expect(newAccessToken).toBeTruthy();
+      // THEN: Request should succeed after automatic token refresh
+      // Note: In a real frontend implementation, this would require two requests:
+      // 1. Initial request → 401
+      // 2. Auto-refresh → new tokens
+      // 3. Retry request → 200
+      // This test verifies the backend supports this flow
+      expect(response.status()).toBe(401); // First attempt fails with expired token
 
-    // Retry original request with new token
-    const retryResponse = await apiRequest.get("/api/user/profile", {
-      headers: {
-        Cookie: `access_token=${newAccessToken}`,
-      },
-    });
+      // Manual retry with refresh (simulating frontend auto-refresh logic)
+      const refreshResponse = await apiRequest.post(
+        "/api/auth/refresh",
+        {},
+        {
+          headers: {
+            Cookie: `refresh_token=${validRefreshToken}`,
+          },
+        },
+      );
+      expect(refreshResponse.status()).toBe(200);
 
-    // THEN: Retry succeeds with new token
-    expect(retryResponse.status()).toBe(200);
-    const body = await retryResponse.json();
-    expect(body.user).toHaveProperty("user_id", createdUser.user_id);
+      // Extract new access token from refresh response
+      const setCookieHeader = refreshResponse.headers()["set-cookie"];
+      const cookies = Array.isArray(setCookieHeader)
+        ? setCookieHeader
+        : setCookieHeader
+          ? [setCookieHeader]
+          : [];
+      const newAccessToken = cookies
+        .find((cookie: string) => cookie.includes("access_token"))
+        ?.match(/access_token=([^;]+)/)?.[1];
+      expect(newAccessToken).toBeTruthy();
+
+      // Retry original request with new token
+      const retryResponse = await apiRequest.get("/api/user/profile", {
+        headers: {
+          Cookie: `access_token=${newAccessToken}`,
+        },
+      });
+
+      // THEN: Retry succeeds with new token
+      expect(retryResponse.status()).toBe(200);
+      const body = await retryResponse.json();
+      expect(body.user).toHaveProperty("user_id", createdUser.user_id);
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: createdUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: createdUser.user_id },
+      });
+    }
   });
 
   test("[P0] 1.6-API-004-002: API request should fail if both access and refresh tokens are expired", async ({
@@ -683,76 +740,84 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
   }) => {
     // GIVEN: User exists with valid refresh token
     const userEmail = faker.internet.email();
-    const userData = createUser({
+    const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
     });
-    const createdUser = await prismaClient.user.create({ data: userData });
 
-    // AND: Expired access token
-    const expiredAccessToken = createExpiredJWTAccessToken({
-      user_id: createdUser.user_id,
-      email: userEmail,
-    });
+    try {
+      // AND: Expired access token
+      const expiredAccessToken = createExpiredJWTAccessToken({
+        user_id: createdUser.user_id,
+        email: userEmail,
+      });
 
-    // AND: Valid refresh token
-    const validRefreshToken = await createJWTRefreshToken({
-      user_id: createdUser.user_id,
-      email: userEmail,
-    });
+      // AND: Valid refresh token
+      const validRefreshToken = await createJWTRefreshToken({
+        user_id: createdUser.user_id,
+        email: userEmail,
+      });
 
-    // WHEN: First refresh is performed
-    const refreshResponse = await apiRequest.post(
-      "/api/auth/refresh",
-      {},
-      {
-        headers: {
-          Cookie: `refresh_token=${validRefreshToken}`,
+      // WHEN: First refresh is performed
+      const refreshResponse = await apiRequest.post(
+        "/api/auth/refresh",
+        {},
+        {
+          headers: {
+            Cookie: `refresh_token=${validRefreshToken}`,
+          },
         },
-      },
-    );
-    expect(refreshResponse.status()).toBe(200);
+      );
+      expect(refreshResponse.status()).toBe(200);
 
-    // Extract new tokens
-    const setCookieHeader = refreshResponse.headers()["set-cookie"];
-    const cookies = Array.isArray(setCookieHeader)
-      ? setCookieHeader
-      : setCookieHeader
-        ? [setCookieHeader]
-        : [];
-    const newAccessToken = cookies
-      .find((cookie: string) => cookie.includes("access_token"))
-      ?.match(/access_token=([^;]+)/)?.[1];
-    const newRefreshToken = cookies
-      .find((cookie: string) => cookie.includes("refresh_token"))
-      ?.match(/refresh_token=([^;]+)/)?.[1];
+      // Extract new tokens
+      const setCookieHeader = refreshResponse.headers()["set-cookie"];
+      const cookies = Array.isArray(setCookieHeader)
+        ? setCookieHeader
+        : setCookieHeader
+          ? [setCookieHeader]
+          : [];
+      const newAccessToken = cookies
+        .find((cookie: string) => cookie.includes("access_token"))
+        ?.match(/access_token=([^;]+)/)?.[1];
+      const newRefreshToken = cookies
+        .find((cookie: string) => cookie.includes("refresh_token"))
+        ?.match(/refresh_token=([^;]+)/)?.[1];
 
-    // THEN: Multiple API requests should succeed with same new access token
-    const request1 = await apiRequest.get("/api/user/profile", {
-      headers: {
-        Cookie: `access_token=${newAccessToken}`,
-      },
-    });
-    expect(request1.status()).toBe(200);
-
-    const request2 = await apiRequest.get("/api/user/profile", {
-      headers: {
-        Cookie: `access_token=${newAccessToken}`,
-      },
-    });
-    expect(request2.status()).toBe(200);
-
-    // AND: Old refresh token should be invalidated (token rotation)
-    const oldRefreshRetry = await apiRequest.post(
-      "/api/auth/refresh",
-      {},
-      {
+      // THEN: Multiple API requests should succeed with same new access token
+      const request1 = await apiRequest.get("/api/user/profile", {
         headers: {
-          Cookie: `refresh_token=${validRefreshToken}`,
+          Cookie: `access_token=${newAccessToken}`,
         },
-      },
-    );
-    expect(oldRefreshRetry.status()).toBe(401); // Old token rejected
+      });
+      expect(request1.status()).toBe(200);
+
+      const request2 = await apiRequest.get("/api/user/profile", {
+        headers: {
+          Cookie: `access_token=${newAccessToken}`,
+        },
+      });
+      expect(request2.status()).toBe(200);
+
+      // AND: Old refresh token should be invalidated (token rotation)
+      const oldRefreshRetry = await apiRequest.post(
+        "/api/auth/refresh",
+        {},
+        {
+          headers: {
+            Cookie: `refresh_token=${validRefreshToken}`,
+          },
+        },
+      );
+      expect(oldRefreshRetry.status()).toBe(401); // Old token rejected
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: createdUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: createdUser.user_id },
+      });
+    }
   });
 
   test("[P0] 1.6-API-004-005: Session validation endpoint should reject expired tokens on app initialization", async ({
@@ -784,37 +849,45 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     apiRequest,
     prismaClient,
   }) => {
-    // GIVEN: User exists in database
+    // GIVEN: User exists in database with role
     const userEmail = faker.internet.email();
-    const userData = createUser({
+    const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
     });
-    const createdUser = await prismaClient.user.create({ data: userData });
 
-    // AND: Valid access token
-    const validAccessToken = createJWTAccessToken({
-      user_id: createdUser.user_id,
-      email: userEmail,
-      roles: ["USER"],
-      permissions: ["READ"],
-    });
+    try {
+      // AND: Valid access token
+      const validAccessToken = createJWTAccessToken({
+        user_id: createdUser.user_id,
+        email: userEmail,
+        roles: ["USER"],
+        permissions: ["READ"],
+      });
 
-    // WHEN: Frontend calls /api/auth/me to validate session on app load
-    const response = await apiRequest.get("/api/auth/me", {
-      headers: {
-        Cookie: `access_token=${validAccessToken}`,
-      },
-    });
+      // WHEN: Frontend calls /api/auth/me to validate session on app load
+      const response = await apiRequest.get("/api/auth/me", {
+        headers: {
+          Cookie: `access_token=${validAccessToken}`,
+        },
+      });
 
-    // THEN: Request succeeds
-    expect(response.status()).toBe(200);
+      // THEN: Request succeeds
+      expect(response.status()).toBe(200);
 
-    // AND: User information is returned
-    const body = await response.json();
-    expect(body).toHaveProperty("user");
-    expect(body.user).toHaveProperty("id", createdUser.user_id);
-    expect(body.user).toHaveProperty("email", userEmail);
+      // AND: User information is returned
+      const body = await response.json();
+      expect(body).toHaveProperty("user");
+      expect(body.user).toHaveProperty("id", createdUser.user_id);
+      expect(body.user).toHaveProperty("email", userEmail);
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: createdUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: createdUser.user_id },
+      });
+    }
   });
 
   test("[P1] 1.6-API-004-007: Refresh token rotation should prevent replay attacks", async ({
@@ -823,44 +896,52 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
   }) => {
     // GIVEN: User exists with valid refresh token
     const userEmail = faker.internet.email();
-    const userData = createUser({
+    const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
     });
-    const createdUser = await prismaClient.user.create({ data: userData });
 
-    const originalRefreshToken = await createJWTRefreshToken({
-      user_id: createdUser.user_id,
-      email: userEmail,
-    });
+    try {
+      const originalRefreshToken = await createJWTRefreshToken({
+        user_id: createdUser.user_id,
+        email: userEmail,
+      });
 
-    // WHEN: Token is refreshed once
-    const refresh1 = await apiRequest.post(
-      "/api/auth/refresh",
-      {},
-      {
-        headers: {
-          Cookie: `refresh_token=${originalRefreshToken}`,
+      // WHEN: Token is refreshed once
+      const refresh1 = await apiRequest.post(
+        "/api/auth/refresh",
+        {},
+        {
+          headers: {
+            Cookie: `refresh_token=${originalRefreshToken}`,
+          },
         },
-      },
-    );
-    expect(refresh1.status()).toBe(200);
+      );
+      expect(refresh1.status()).toBe(200);
 
-    // AND: Attacker attempts to reuse the original refresh token (replay attack)
-    const replayAttempt = await apiRequest.post(
-      "/api/auth/refresh",
-      {},
-      {
-        headers: {
-          Cookie: `refresh_token=${originalRefreshToken}`,
+      // AND: Attacker attempts to reuse the original refresh token (replay attack)
+      const replayAttempt = await apiRequest.post(
+        "/api/auth/refresh",
+        {},
+        {
+          headers: {
+            Cookie: `refresh_token=${originalRefreshToken}`,
+          },
         },
-      },
-    );
+      );
 
-    // THEN: Replay attack is blocked with 401
-    expect(replayAttempt.status()).toBe(401);
-    const body = await replayAttempt.json();
-    expect(body).toHaveProperty("error");
+      // THEN: Replay attack is blocked with 401
+      expect(replayAttempt.status()).toBe(401);
+      const body = await replayAttempt.json();
+      expect(body).toHaveProperty("error");
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: createdUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: createdUser.user_id },
+      });
+    }
   });
 
   test("[P1] 1.6-API-004-008: API requests without cookies should fail immediately without refresh attempt", async ({

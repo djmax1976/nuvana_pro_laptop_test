@@ -113,6 +113,15 @@ export {
   type ClientStatus,
 } from "./client.factory";
 
+// Client with User factories (Unified Authentication)
+export {
+  createClientWithUser,
+  createClientsWithUsers,
+  createClientWithUserByStatus,
+  type CreateClientWithUserInput,
+  type ClientWithUserResult,
+} from "./client-with-user.factory";
+
 // User Admin factories (Story 2.8)
 export {
   createAdminUser,
