@@ -7,32 +7,6 @@ test.describe("Infrastructure & Server Configuration [P0]", () => {
     expect(response.status()).toBe(200);
   });
 
-  // SKIPPED: Frontend not started in selective_tests job (API-only testing)
-  // These tests run in e2e_smoke job which starts both frontend and backend
-  test.skip("[P0] Frontend server starts on port 3000", async ({ page }) => {
-    const response = await page.goto("http://localhost:3000");
-    expect(response?.ok()).toBe(true);
-  });
-
-  test.skip("[P0] Backend and frontend run simultaneously without port conflicts", async ({
-    request,
-    page,
-  }) => {
-    // Check backend
-    const backendResponse = await request.get(
-      "http://localhost:3001/api/health",
-    );
-    expect(backendResponse.ok()).toBe(true);
-
-    // Check frontend
-    const frontendResponse = await page.goto("http://localhost:3000");
-    expect(frontendResponse?.ok()).toBe(true);
-
-    // Both should be accessible
-    const backendCheck = await request.get("http://localhost:3001/api/health");
-    expect(backendCheck.ok()).toBe(true);
-  });
-
   test("[P0] Backend health endpoint returns correct structure", async ({
     request,
   }) => {

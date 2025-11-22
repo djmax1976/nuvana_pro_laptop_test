@@ -141,29 +141,6 @@ test.describe("Store Management API - CRUD Operations", () => {
     expect(body).toHaveProperty("error");
   });
 
-  test.skip("2.2-API-004: [P0] POST /api/companies/:companyId/stores - should reject invalid GPS coordinates", async ({
-    corporateAdminApiRequest,
-    corporateAdminUser,
-  }) => {
-    // SKIPPED: GPS coordinates not used in system
-    // OPTIMIZATION NOTE: Kept 1 representative GPS validation test
-    // REMOVED: 3 other GPS variations (lat<-90, lng>180, lng<-180)
-
-    const response = await corporateAdminApiRequest.post(
-      `/api/companies/${corporateAdminUser.company_id}/stores`,
-      {
-        name: "Test Store",
-        location_json: {
-          gps: { lat: 100, lng: -74.006 }, // Invalid: lat > 90
-        },
-      },
-    );
-
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body).toHaveProperty("error");
-  });
-
   test("2.2-API-005: [P0] POST /api/companies/:companyId/stores - should enforce company isolation", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
@@ -678,25 +655,6 @@ test.describe("Store Management API - Security", () => {
     // THEN: 403 Forbidden
     expect(response.status()).toBe(403);
   });
-
-  test.skip("2.2-API-021: [P0] CSRF PROTECTION - should validate CSRF tokens on state-changing operations", async ({
-    corporateAdminApiRequest,
-    corporateAdminUser,
-  }) => {
-    // TODO: Implement once CSRF protection is added to the API
-    // WHEN: POST without CSRF token (if CSRF implemented)
-    const response = await corporateAdminApiRequest.post(
-      `/api/companies/${corporateAdminUser.company_id}/stores`,
-      {
-        name: "CSRF Test",
-        // Missing CSRF token header
-      },
-    );
-
-    // THEN: Should enforce CSRF (403 or 400 depending on implementation)
-    // NOTE: Adjust expectation based on actual CSRF implementation
-    expect([400, 403, 201]).toContain(response.status());
-  });
 });
 
 // =============================================================================
@@ -1009,38 +967,6 @@ test.describe("Store Configuration API", () => {
     const body = await response.json();
     expect(body).toHaveProperty("error", "Validation error");
     expect(body.message).toContain("timezone");
-  });
-
-  test.skip("2.5-API-003: [P0] PUT /api/stores/:storeId/configuration - should validate GPS coordinates range", async ({
-    corporateAdminApiRequest,
-    corporateAdminUser,
-    prismaClient,
-  }) => {
-    // SKIPPED: GPS coordinates not used in system
-    // GIVEN: A store exists
-    const storeData = createStore({
-      company_id: corporateAdminUser.company_id,
-      name: "Test Store",
-    });
-    const store = await prismaClient.store.create({
-      data: storeData,
-    });
-
-    // WHEN: Updating configuration with invalid GPS coordinates
-    const response = await corporateAdminApiRequest.put(
-      `/api/stores/${store.store_id}/configuration`,
-      {
-        location: {
-          gps: { lat: 91, lng: -180 }, // lat out of range
-        },
-      },
-    );
-
-    // THEN: Validation error is returned
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body).toHaveProperty("error", "Validation error");
-    expect(body.message).toContain("latitude");
   });
 
   test("2.5-API-004: [P0] PUT /api/stores/:storeId/configuration - should validate operating hours format", async ({

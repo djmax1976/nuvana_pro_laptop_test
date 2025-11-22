@@ -11,7 +11,7 @@ const nextConfig = {
   skipMiddlewareUrlNormalize: false,
   // Control build behavior
   onDemandEntries: {
-    maxInactiveAge: 25 * 1000,
+    maxInactiveAge: 30 * 60 * 1000, // 30 minutes
     pagesBufferLength: 2,
   },
   async rewrites() {
