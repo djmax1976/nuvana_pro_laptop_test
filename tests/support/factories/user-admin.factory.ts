@@ -103,8 +103,10 @@ export const createAdminUsers = (count: number): AdminUserData[] =>
 export const createUserRequest = (
   overrides: Partial<CreateUserRequest> = {},
 ): CreateUserRequest => ({
-  email: faker.internet.email().toLowerCase(),
-  name: faker.person.fullName(),
+  // Add timestamp to ensure uniqueness across burn-in iterations
+  email:
+    `test-${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase(),
+  name: `${faker.person.fullName()} ${Date.now()}`,
   ...overrides,
 });
 

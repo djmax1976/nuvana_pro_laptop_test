@@ -4,8 +4,8 @@
   "description": "",
   "main": "dist/app.js",
   "scripts": {
-    "dev": "tsc && node dist/app.js",
-    "dev:test": "tsc && cross-env NODE_ENV=test node dist/app.js",
+    "dev": "tsx watch src/app.ts",
+    "dev:test": "cross-env NODE_ENV=test tsx watch src/app.ts",
     "build": "tsc",
     "start": "node dist/app.js",
     "start:test": "cross-env NODE_ENV=test node dist/app.js",

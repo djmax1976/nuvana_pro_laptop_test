@@ -45,6 +45,19 @@ while IFS= read -r test_file; do
   for i in $(seq 1 "$ITERATIONS"); do
     echo "  Iteration $i/$ITERATIONS..."
 
+    # Clean and reseed database before each API/E2E test iteration
+    if [[ "$test_file" == tests/api/* ]] || [[ "$test_file" == tests/e2e/* ]]; then
+      echo "    Cleaning test database..."
+      npx tsx scripts/cleanup-test-data.ts > /dev/null 2>&1 || true
+
+      echo "    Reseeding RBAC roles..."
+      npx tsx backend/src/db/seeds/rbac.seed.ts > /dev/null 2>&1 || {
+        echo "❌ Failed to seed database before iteration $i"
+        FAILED_TESTS+=("$test_file")
+        break
+      }
+    fi
+
     # Determine test runner based on file path
     if [[ "$test_file" == tests/component/* ]]; then
       # Vitest for component tests

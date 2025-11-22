@@ -15,6 +15,7 @@ const BACKEND_PORT = 3001;
 
 let frontendProcess = null;
 let backendProcess = null;
+let shuttingDown = false;
 
 // Kill processes on specific ports (Windows-compatible)
 async function killPort(port) {
@@ -70,6 +71,15 @@ function startProcess(name, command, args, cwd = process.cwd()) {
   proc.on('close', (code) => {
     if (code !== 0 && code !== null) {
       console.error(`\n❌ ${name} exited with code ${code}`);
+      // Auto-restart backend if it crashes unexpectedly
+      if (name === 'Backend' && !shuttingDown) {
+        console.log(`\n🔄 Restarting ${name} in 2 seconds...`);
+        setTimeout(() => {
+          if (!shuttingDown) {
+            backendProcess = startProcess('Backend', 'npm', ['run', 'dev:backend']);
+          }
+        }, 2000);
+      }
     }
   });
 
@@ -82,6 +92,7 @@ function startProcess(name, command, args, cwd = process.cwd()) {
 
 // Graceful shutdown
 async function shutdown() {
+  shuttingDown = true;
   console.log('\n\n🛑 Shutting down development servers...');
 
   if (frontendProcess) {
@@ -124,9 +135,39 @@ async function start() {
     ['run', 'dev:backend']
   );
 
-  // Wait for backend to be ready
+  // Wait for backend to be ready with health check
   console.log('Waiting for backend to start...');
-  await new Promise(resolve => setTimeout(resolve, 3000));
+  let backendReady = false;
+  const maxAttempts = 15;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      const http = require('http');
+      await new Promise((resolve, reject) => {
+        const req = http.get(`http://localhost:${BACKEND_PORT}/api/health`, (res) => {
+          if (res.statusCode === 200) {
+            backendReady = true;
+            resolve();
+          } else {
+            reject();
+          }
+        });
+        req.on('error', reject);
+        req.setTimeout(2000, () => reject());
+      });
+
+      if (backendReady) {
+        console.log('✅ Backend is ready');
+        break;
+      }
+    } catch (error) {
+      // Backend not ready yet, continue waiting
+      if (i === maxAttempts - 1) {
+        console.warn('⚠️  Backend health check timeout, continuing anyway...');
+      }
+    }
+  }
 
   // Start frontend
   frontendProcess = startProcess(

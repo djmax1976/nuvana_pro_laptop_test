@@ -492,13 +492,32 @@ export class StoreService {
         );
       }
 
+      // Merge new configuration with existing configuration (deep merge)
+      const existingConfig = (existingStore.configuration as any) || {};
+      const mergedConfig = {
+        ...existingConfig,
+        ...(config.timezone !== undefined && { timezone: config.timezone }),
+        ...(config.location !== undefined && {
+          location: {
+            ...(existingConfig.location || {}),
+            ...config.location,
+          },
+        }),
+        ...(config.operating_hours !== undefined && {
+          operating_hours: {
+            ...(existingConfig.operating_hours || {}),
+            ...config.operating_hours,
+          },
+        }),
+      };
+
       // Update store configuration
       const store = await prisma.store.update({
         where: {
           store_id: storeId,
         },
         data: {
-          configuration: config as any,
+          configuration: mergedConfig as any,
         },
       });
 

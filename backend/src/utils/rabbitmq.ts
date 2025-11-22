@@ -7,6 +7,7 @@ type Channel = amqp.Channel;
 
 let connection: Connection | null = null;
 let channels: Set<Channel> = new Set();
+let transactionsChannel: Channel | null = null;
 
 /**
  * Queue configuration constants
@@ -51,6 +52,7 @@ export async function initializeRabbitMQ(): Promise<Connection> {
         console.log("RabbitMQ: Connection closed");
         connection = null;
         channels.clear();
+        transactionsChannel = null;
       });
 
       connection = conn;
@@ -108,6 +110,10 @@ export async function createChannel(): Promise<Channel> {
     channel.on("close", () => {
       console.log("RabbitMQ: Channel closed");
       channels.delete(channel);
+      // Clear transactions channel if this was it
+      if (channel === transactionsChannel) {
+        transactionsChannel = null;
+      }
     });
 
     return channel;
@@ -138,6 +144,9 @@ export async function closeChannel(channel: Channel): Promise<void> {
  * Close all channels and connection gracefully
  */
 export async function closeRabbitMQ(): Promise<void> {
+  // Clear transactions channel reference
+  transactionsChannel = null;
+
   // Close all channels first
   const closePromises = Array.from(channels).map((channel) =>
     closeChannel(channel),
@@ -159,9 +168,24 @@ export async function closeRabbitMQ(): Promise<void> {
 
 /**
  * Setup transactions queue with dead letter exchange
+ * Reuses existing channel if available to prevent connection churn
  * @returns Channel configured with the queue
  */
 export async function setupTransactionsQueue(): Promise<Channel> {
+  // Reuse existing channel if available and open
+  if (transactionsChannel) {
+    try {
+      // Verify channel is still usable by checking the queue
+      await transactionsChannel.checkQueue(QUEUES.TRANSACTIONS_PROCESSING);
+      return transactionsChannel;
+    } catch (error) {
+      // Channel is broken, create a new one
+      console.log("RabbitMQ: Transactions channel unavailable, recreating...");
+      transactionsChannel = null;
+    }
+  }
+
+  // Create new channel
   const channel = await createChannel();
 
   try {
@@ -192,6 +216,9 @@ export async function setupTransactionsQueue(): Promise<Channel> {
     console.log(
       `RabbitMQ: Queue ${QUEUES.TRANSACTIONS_PROCESSING} setup complete`,
     );
+
+    // Cache the channel for reuse
+    transactionsChannel = channel;
     return channel;
   } catch (error) {
     console.error("RabbitMQ: Failed to setup transactions queue:", error);
@@ -240,6 +267,7 @@ export async function publishToTransactionsQueue(
 
 /**
  * Health check: Verify RabbitMQ connection and channel creation
+ * Reuses transactions channel to avoid creating/destroying test channels
  * @returns Health status object
  */
 export async function checkRabbitMQHealth(): Promise<{
@@ -249,8 +277,9 @@ export async function checkRabbitMQHealth(): Promise<{
 }> {
   try {
     await getRabbitMQConnection();
-    // Try to create and immediately close a test channel
-    const testChannel = await createChannel();
+
+    // Reuse transactions channel for health check (avoid creating test channels)
+    const channel = await setupTransactionsQueue();
 
     // Check transactions queue status
     let queues: {
@@ -259,7 +288,7 @@ export async function checkRabbitMQHealth(): Promise<{
       consumerCount: number;
     }[] = [];
     try {
-      const queueInfo = await testChannel.checkQueue(
+      const queueInfo = await channel.checkQueue(
         QUEUES.TRANSACTIONS_PROCESSING,
       );
       queues.push({
@@ -271,7 +300,7 @@ export async function checkRabbitMQHealth(): Promise<{
       // Queue may not exist yet, that's okay
     }
 
-    await closeChannel(testChannel);
+    // Don't close the channel - we're reusing it
     return { healthy: true, queues };
   } catch (error) {
     return {
