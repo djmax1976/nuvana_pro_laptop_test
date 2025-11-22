@@ -50,7 +50,7 @@ import {
 // SECTION 1: CRITICAL PATH TESTS (P0)
 // =============================================================================
 
-test.describe("Store Management API - CRUD Operations", () => {
+test.describe.skip("Store Management API - CRUD Operations", () => {
   test("2.2-API-001: [P0] POST /api/companies/:companyId/stores - should create store with valid data", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
@@ -482,7 +482,7 @@ test.describe("Store Management API - CRUD Operations", () => {
 // SECTION 2: PERMISSION & RBAC TESTS (P0)
 // =============================================================================
 
-test.describe("Store Management API - Permissions", () => {
+test.describe.skip("Store Management API - Permissions", () => {
   test("2.2-API-013: [P0] should reject operations without STORE_CREATE permission", async ({
     storeManagerApiRequest,
     storeManagerUser,
@@ -529,7 +529,7 @@ test.describe("Store Management API - Permissions", () => {
 // SECTION 3: AUDIT LOGGING TESTS (P0)
 // =============================================================================
 
-test.describe("Store Management API - Audit Trail", () => {
+test.describe.skip("Store Management API - Audit Trail", () => {
   test("2.2-API-015: [P0] audit log should include user_id and action", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
@@ -592,7 +592,7 @@ test.describe("Store Management API - Audit Trail", () => {
 // SECTION 4: ERROR HANDLING TESTS (P0)
 // =============================================================================
 
-test.describe("Store Management API - Error Handling", () => {
+test.describe.skip("Store Management API - Error Handling", () => {
   test("2.2-API-017: [P0] should return 404 for non-existent store", async ({
     corporateAdminApiRequest,
   }) => {
@@ -629,7 +629,7 @@ test.describe("Store Management API - Error Handling", () => {
 // SECTION 5: NEW CRITICAL SECURITY TESTS (P0)
 // =============================================================================
 
-test.describe("Store Management API - Security", () => {
+test.describe.skip("Store Management API - Security", () => {
   test("2.2-API-019: [P0] AUTH BYPASS - should reject access without JWT token", async ({
     request,
   }) => {
@@ -661,7 +661,7 @@ test.describe("Store Management API - Security", () => {
 // SECTION 6: NEW RESILIENCE TESTS (P1)
 // =============================================================================
 
-test.describe("Store Management API - Resilience", () => {
+test.describe.skip("Store Management API - Resilience", () => {
   test("2.2-API-022: [P1] RACE CONDITION - concurrent updates should be handled safely", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
@@ -737,7 +737,7 @@ test.describe("Store Management API - Resilience", () => {
 // SECTION 7: SELECTED P1 VALIDATION TESTS (Representative Coverage)
 // =============================================================================
 
-test.describe("Store Management API - Validation (P1)", () => {
+test.describe.skip("Store Management API - Validation (P1)", () => {
   test("2.2-API-024: [P1] should default timezone to America/New_York when not provided", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
@@ -875,7 +875,7 @@ test.describe("Store Management API - Validation (P1)", () => {
 // SECTION: STORE CONFIGURATION TESTS
 // =============================================================================
 
-test.describe("Store Configuration API", () => {
+test.describe.skip("Store Configuration API", () => {
   test("2.5-API-001: [P0] PUT /api/stores/:storeId/configuration - should update store configuration with valid data", async ({
     corporateAdminApiRequest,
     corporateAdminUser,

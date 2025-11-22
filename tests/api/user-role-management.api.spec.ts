@@ -37,10 +37,19 @@ test.describe("2.8-API: User Management API - User CRUD Operations", () => {
     // GIVEN: I am authenticated as a System Admin with valid user data
     const userData = createUserRequest();
 
+    // Get a SYSTEM scope role for initial assignment (required field)
+    const role = await prismaClient.role.findFirst({
+      where: { scope: "SYSTEM" },
+    });
+    if (!role) {
+      throw new Error("No SYSTEM scope role found in database");
+    }
+
     // WHEN: Creating a user via API
     const response = await superadminApiRequest.post("/api/admin/users", {
       email: userData.email,
       name: userData.name,
+      roles: [createSystemScopeAssignment(role.role_id)],
     });
 
     // THEN: User is created successfully
@@ -1221,7 +1230,8 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message || body.error).toMatch(/role|required/i);
+    // Zod returns generic error when required field is missing (undefined)
+    expect(body.message || body.error).toMatch(/expected array|role|required/i);
   });
 
   test("2.8-API-043: [P0] POST /api/admin/users - should reject user creation with empty roles array", async ({
