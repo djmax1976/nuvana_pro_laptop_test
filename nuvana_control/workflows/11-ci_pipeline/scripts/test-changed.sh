@@ -102,8 +102,8 @@ fi
 
 if [ "$RUN_API" = true ]; then
   echo "Running API [P0] tests only..."
-  # Use single quotes to properly escape square brackets for regex literal match
-  npm run test:api -- --grep '\[P0\]' || exit 1
+  # Use the dedicated P0 test script which has the correct grep pattern
+  npm run test:api:p0 || exit 1
 fi
 
 if [ "$RUN_E2E" = true ]; then
