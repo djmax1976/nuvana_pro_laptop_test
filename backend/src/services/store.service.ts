@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 
 const prisma = new PrismaClient();
@@ -547,7 +547,7 @@ export class StoreService {
       const deletedAt = new Date();
 
       // Use transaction to cascade soft delete to user roles
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // Cascade soft delete to all UserRoles associated with this store
         await tx.userRole.updateMany({
           where: {

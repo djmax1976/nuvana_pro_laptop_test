@@ -106,7 +106,7 @@ export class CompanyService {
             action: "CREATE",
             table_name: "companies",
             record_id: company.company_id,
-            new_values: company as unknown as Prisma.InputJsonValue,
+            new_values: company as unknown as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
             reason: `Company created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
@@ -231,7 +231,7 @@ export class CompanyService {
       ]);
 
       const companiesWithClient: CompanyWithClient[] = companies.map(
-        (company) => ({
+        (company: any) => ({
           company_id: company.company_id,
           client_id: company.client_id,
           client_name: company.client?.name,
@@ -353,8 +353,8 @@ export class CompanyService {
             action: "UPDATE",
             table_name: "companies",
             record_id: company.company_id,
-            old_values: existingCompany as unknown as Prisma.InputJsonValue,
-            new_values: company as unknown as Prisma.InputJsonValue,
+            old_values: existingCompany as unknown as Record<string, any>,
+            new_values: company as unknown as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
             reason: `Company updated by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
@@ -431,7 +431,7 @@ export class CompanyService {
       const deletedAt = new Date();
 
       // Use transaction to cascade soft delete to stores and user roles
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // Cascade soft delete to all stores under this company
         await tx.store.updateMany({
           where: {
@@ -484,8 +484,8 @@ export class CompanyService {
             action: "DELETE",
             table_name: "companies",
             record_id: company.company_id,
-            old_values: existingCompany as unknown as Prisma.InputJsonValue,
-            new_values: company as unknown as Prisma.InputJsonValue,
+            old_values: existingCompany as unknown as Record<string, any>,
+            new_values: company as unknown as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
             reason: `Company soft deleted by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,

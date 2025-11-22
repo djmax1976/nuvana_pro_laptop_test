@@ -38,8 +38,8 @@ async function createAuditLogSafely(
   action: string,
   tableName: string,
   recordId: string,
-  oldValues?: Prisma.InputJsonValue,
-  newValues?: Prisma.InputJsonValue,
+  oldValues?: Record<string, any> | null,
+  newValues?: Record<string, any> | null,
 ): Promise<void> {
   try {
     if (auditContext.userId) {
@@ -178,9 +178,7 @@ export class ClientService {
             name: data.name.trim(),
             email: data.email.trim().toLowerCase(),
             status: data.status || ClientStatus.ACTIVE,
-            metadata: data.metadata
-              ? (data.metadata as Prisma.InputJsonValue)
-              : Prisma.DbNull,
+            metadata: (data.metadata as any) ?? Prisma.DbNull,
           },
           include: {
             _count: {
@@ -223,8 +221,8 @@ export class ClientService {
         "CREATE",
         "clients",
         client.client_id,
-        undefined,
-        client as unknown as Prisma.InputJsonValue,
+        null,
+        client as unknown as Record<string, any>,
       );
 
       return {
@@ -315,7 +313,7 @@ export class ClientService {
       ]);
 
       const clientsWithCount: ClientWithCompanyCount[] = clients.map(
-        (client) => ({
+        (client: any) => ({
           client_id: client.client_id,
           public_id: client.public_id,
           name: client.name,
@@ -536,7 +534,7 @@ export class ClientService {
           clientUpdateData.status = data.status;
         }
         if (data.metadata !== undefined) {
-          clientUpdateData.metadata = data.metadata as Prisma.InputJsonValue;
+          clientUpdateData.metadata = data.metadata as any;
         }
 
         // Update Client (business data)
@@ -574,8 +572,8 @@ export class ClientService {
         "UPDATE",
         "clients",
         client.client_id,
-        existingClient as unknown as Prisma.InputJsonValue,
-        client as unknown as Prisma.InputJsonValue,
+        existingClient as unknown as Record<string, any>,
+        client as unknown as Record<string, any>,
       );
 
       return {
@@ -753,8 +751,8 @@ export class ClientService {
         "DELETE",
         "clients",
         client.client_id,
-        existingClient as unknown as Prisma.InputJsonValue,
-        client as unknown as Prisma.InputJsonValue,
+        existingClient as unknown as Record<string, any>,
+        client as unknown as Record<string, any>,
       );
 
       return {

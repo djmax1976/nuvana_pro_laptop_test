@@ -187,7 +187,7 @@ export class UserAdminService {
               email: user.email,
               name: user.name,
               status: user.status,
-            } as unknown as Prisma.InputJsonValue,
+            } as unknown as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
             reason: `User created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
@@ -267,14 +267,14 @@ export class UserAdminService {
         prisma.user.count({ where }),
       ]);
 
-      const usersWithRoles: UserWithRoles[] = users.map((user) => ({
+      const usersWithRoles: UserWithRoles[] = users.map((user: any) => ({
         user_id: user.user_id,
         email: user.email,
         name: user.name,
         status: user.status as UserStatus,
         created_at: user.created_at,
         updated_at: user.updated_at,
-        roles: user.user_roles.map((ur) => ({
+        roles: user.user_roles.map((ur: any) => ({
           user_role_id: ur.user_role_id,
           role: {
             role_id: ur.role.role_id,
@@ -343,7 +343,7 @@ export class UserAdminService {
         status: user.status as UserStatus,
         created_at: user.created_at,
         updated_at: user.updated_at,
-        roles: user.user_roles.map((ur) => ({
+        roles: user.user_roles.map((ur: any) => ({
           user_role_id: ur.user_role_id,
           role: {
             role_id: ur.role.role_id,
@@ -413,10 +413,10 @@ export class UserAdminService {
             record_id: user.user_id,
             old_values: {
               status: existingUser.status,
-            } as unknown as Prisma.InputJsonValue,
+            } as unknown as Record<string, any>,
             new_values: {
               status: user.status,
-            } as unknown as Prisma.InputJsonValue,
+            } as unknown as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
             reason: `User ${status === "INACTIVE" ? "deactivated" : "activated"} by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
@@ -570,7 +570,7 @@ export class UserAdminService {
               scope_type,
               company_id: userRole.company_id,
               store_id: userRole.store_id,
-            } as unknown as Prisma.InputJsonValue,
+            } as unknown as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
             reason: `Role ${role.code} assigned to user ${user.email} by ${auditContext.userEmail}`,
@@ -674,7 +674,7 @@ export class UserAdminService {
               role_code: userRole.role.code,
               company_id: userRole.company_id,
               store_id: userRole.store_id,
-            } as unknown as Prisma.InputJsonValue,
+            } as unknown as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
             reason: `Role ${userRole.role.code} revoked from user ${user.email} by ${auditContext.userEmail}`,
