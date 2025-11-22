@@ -51,7 +51,7 @@ const createUserSchema = z.object({
       "Password must contain at least one special character",
     )
     .optional(),
-  roles: z.array(roleAssignmentSchema).optional(),
+  roles: z.array(roleAssignmentSchema).min(1, "At least one role is required"),
 });
 
 const updateUserStatusSchema = z.object({

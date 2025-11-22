@@ -59,7 +59,7 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
       const body = await response.json();
       expect(body).toHaveProperty("user");
       expect(body.user).toHaveProperty("user_id", createdUser.user_id);
-      expect(body.user).toHaveProperty("email", userEmail);
+      expect(body.user).toHaveProperty("email", userEmail.toLowerCase());
     } finally {
       await prismaClient.userRole.deleteMany({
         where: { user_id: createdUser.user_id },
@@ -92,7 +92,8 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     // AND: Error message indicates token expiration
     const body = await response.json();
     expect(body).toHaveProperty("error");
-    expect(body.error).toContain("expired");
+    expect(body.error).toHaveProperty("code", "UNAUTHORIZED");
+    expect(body.error.message).toContain("expired");
   });
 
   test("[P0] 1.6-API-002-003: Protected route should return 401 for invalid JWT token", async ({
@@ -114,7 +115,8 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     // AND: Error message indicates invalid token
     const body = await response.json();
     expect(body).toHaveProperty("error");
-    expect(body.error).toContain("token");
+    expect(body.error).toHaveProperty("code", "UNAUTHORIZED");
+    expect(body.error.message).toContain("token");
   });
 
   test("[P0] 1.6-API-002-004: Protected route should return 401 for missing access token cookie", async ({
@@ -130,7 +132,8 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     // AND: Error message indicates missing token
     const body = await response.json();
     expect(body).toHaveProperty("error");
-    expect(body.error).toContain("token");
+    expect(body.error).toHaveProperty("code", "UNAUTHORIZED");
+    expect(body.error.message).toContain("token");
   });
 
   test("[P0] 1.6-API-002-005: Middleware should extract user_id, email, roles, and permissions from token", async ({
@@ -166,7 +169,7 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
       // AND: User exists in database response
       const body = await response.json();
       expect(body.user).toHaveProperty("user_id", createdUser.user_id);
-      expect(body.user).toHaveProperty("email", userEmail);
+      expect(body.user).toHaveProperty("email", userEmail.toLowerCase());
     } finally {
       await prismaClient.userRole.deleteMany({
         where: { user_id: createdUser.user_id },
@@ -842,7 +845,8 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     // AND: Error indicates token expiration
     const body = await response.json();
     expect(body).toHaveProperty("error");
-    expect(body.error).toContain("expired");
+    expect(body.error).toHaveProperty("code", "UNAUTHORIZED");
+    expect(body.error.message).toContain("expired");
   });
 
   test("[P0] 1.6-API-004-006: Session validation endpoint should succeed with valid token on app initialization", async ({

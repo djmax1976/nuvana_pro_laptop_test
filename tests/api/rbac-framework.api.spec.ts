@@ -288,9 +288,10 @@ test.describe("RBAC Framework - Permission Middleware", () => {
     expect(response.status()).toBe(401);
     const body = await response.json();
     expect(body).toHaveProperty("error");
+    expect(body.error).toHaveProperty("code", "UNAUTHORIZED");
     // Error message can be either "Unauthorized" or "Missing access token cookie"
     expect(["Unauthorized", "Missing access token cookie"]).toContain(
-      body.error,
+      body.error.message,
     );
   });
 
