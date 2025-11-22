@@ -1,5 +1,6 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
 import { createClient, createCompany } from "../support/factories";
+import { createClientViaAPI } from "../support/helpers";
 
 /**
  * Client Management API Tests
@@ -263,10 +264,10 @@ test.describe("Client Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a System Admin and a client exists
-    const client = await prismaClient.client.create({
-      data: createClient({ name: "Original Name" }),
+    const client = await createClientViaAPI(superadminApiRequest, {
+      name: "Original Name",
     });
-    const originalUpdatedAt = client.updated_at;
+    const originalUpdatedAt = new Date(client.updated_at);
 
     // WHEN: Updating client
     const response = await superadminApiRequest.put(
@@ -311,8 +312,9 @@ test.describe("Client Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: I am editing a client with ACTIVE status
-    const client = await prismaClient.client.create({
-      data: createClient({ name: "Client to Deactivate", status: "ACTIVE" }),
+    const client = await createClientViaAPI(superadminApiRequest, {
+      name: "Client to Deactivate",
+      status: "ACTIVE",
     });
 
     // WHEN: I deactivate the client
@@ -1192,8 +1194,8 @@ test.describe("Client Management API - Dual ID Format Support (PUT)", () => {
     prismaClient,
   }) => {
     // GIVEN: A client exists
-    const client = await prismaClient.client.create({
-      data: createClient({ name: "Original Name" }),
+    const client = await createClientViaAPI(superadminApiRequest, {
+      name: "Original Name",
     });
 
     // WHEN: Updating via UUID
@@ -1220,8 +1222,8 @@ test.describe("Client Management API - Dual ID Format Support (PUT)", () => {
     prismaClient,
   }) => {
     // GIVEN: A client exists
-    const client = await prismaClient.client.create({
-      data: createClient({ name: "Original Name" }),
+    const client = await createClientViaAPI(superadminApiRequest, {
+      name: "Original Name",
     });
 
     // WHEN: Updating via public_id

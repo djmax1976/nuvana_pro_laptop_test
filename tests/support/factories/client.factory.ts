@@ -51,7 +51,7 @@ export const createClient = (
 ): ClientData => ({
   public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
   name: faker.company.name(),
-  email: faker.internet.email().toLowerCase(),
+  email: `test-${Date.now()}-${Math.random().toString(36).substring(2, 9)}@example.com`,
   status: "ACTIVE",
   metadata: {
     industry: faker.company.buzzNoun(),
@@ -90,6 +90,6 @@ export const createClientWithStatus = (status: ClientStatus): ClientData =>
 export const createClientNoMetadata = (): ClientData => ({
   public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
   name: faker.company.name(),
-  email: faker.internet.email().toLowerCase(),
+  email: `test-${Date.now()}-${Math.random().toString(36).substring(2, 9)}@example.com`,
   status: "ACTIVE",
 });
