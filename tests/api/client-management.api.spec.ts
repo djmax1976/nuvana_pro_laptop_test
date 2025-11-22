@@ -31,6 +31,7 @@ test.describe("Client Management API - CRUD Operations", () => {
     const response = await superadminApiRequest.post("/api/clients", {
       name: clientData.name,
       email: clientData.email,
+      password: "TestPass123!",
       status: clientData.status,
       metadata: clientData.metadata,
     });
@@ -71,6 +72,7 @@ test.describe("Client Management API - CRUD Operations", () => {
     // WHEN: Creating a client with missing required field
     const response = await superadminApiRequest.post("/api/clients", {
       email: "missingname@example.com",
+      password: "TestPass123!",
       status: "ACTIVE",
       // name is missing
     });
@@ -90,6 +92,7 @@ test.describe("Client Management API - CRUD Operations", () => {
     const response = await superadminApiRequest.post("/api/clients", {
       name: "Test Client",
       email: "testclient@example.com",
+      password: "TestPass123!",
       status: "INVALID_STATUS",
     });
 
@@ -110,6 +113,7 @@ test.describe("Client Management API - CRUD Operations", () => {
     const response = await storeManagerApiRequest.post("/api/clients", {
       name: clientData.name,
       email: clientData.email,
+      password: "TestPass123!",
       status: clientData.status,
     });
 
@@ -438,6 +442,7 @@ test.describe("Client Management API - Permission Enforcement", () => {
     const createResponse = await storeManagerApiRequest.post("/api/clients", {
       name: "New Client",
       email: "newclient@example.com",
+      password: "TestPass123!",
     });
     const updateResponse = await storeManagerApiRequest.put(
       `/api/clients/${client.client_id}`,
@@ -610,6 +615,7 @@ test.describe("Client Management API - Business Logic", () => {
     const response = await superadminApiRequest.post("/api/clients", {
       name: "Duplicate Name Corp",
       email: "duplicate2@example.com",
+      password: "TestPass123!",
       status: "ACTIVE",
     });
 
@@ -630,6 +636,7 @@ test.describe("Client Management API - Edge Cases", () => {
       const response = await superadminApiRequest.post("/api/clients", {
         name: "",
         email: "emptyname@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
       });
 
@@ -647,6 +654,7 @@ test.describe("Client Management API - Edge Cases", () => {
       const response = await superadminApiRequest.post("/api/clients", {
         name: longName,
         email: "longname@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
       });
 
@@ -661,6 +669,7 @@ test.describe("Client Management API - Edge Cases", () => {
       const response = await superadminApiRequest.post("/api/clients", {
         name: "Test @#$%^&* Corp",
         email: "specialchars@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
       });
 
@@ -677,6 +686,7 @@ test.describe("Client Management API - Edge Cases", () => {
       const response = await superadminApiRequest.post("/api/clients", {
         name: "Test 日本語 Corp 🏢",
         email: "unicode@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
       });
 
@@ -693,6 +703,7 @@ test.describe("Client Management API - Edge Cases", () => {
       const response = await superadminApiRequest.post("/api/clients", {
         name: "   ",
         email: "whitespace@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
       });
 
@@ -709,6 +720,7 @@ test.describe("Client Management API - Edge Cases", () => {
       const response = await superadminApiRequest.post("/api/clients", {
         name: "  Trimmed Corp  ",
         email: "trimmed@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
       });
 
@@ -728,6 +740,7 @@ test.describe("Client Management API - Edge Cases", () => {
       const response = await superadminApiRequest.post("/api/clients", {
         name: "Empty Metadata Corp",
         email: "emptymetadata@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
         metadata: {},
       });
@@ -743,6 +756,7 @@ test.describe("Client Management API - Edge Cases", () => {
       const response = await superadminApiRequest.post("/api/clients", {
         name: "Null Metadata Corp",
         email: "nullmetadata@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
         metadata: null,
       });
@@ -769,6 +783,7 @@ test.describe("Client Management API - Edge Cases", () => {
       const response = await superadminApiRequest.post("/api/clients", {
         name: "Deep Metadata Corp",
         email: "deepmetadata@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
         metadata: deepMetadata,
       });
@@ -788,6 +803,7 @@ test.describe("Client Management API - Edge Cases", () => {
       const response = await superadminApiRequest.post("/api/clients", {
         name: "Large Metadata Corp",
         email: "largemetadata@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
         metadata: largeMetadata,
       });
@@ -859,6 +875,7 @@ test.describe("Client Management API - Security", () => {
     const response = await superadminApiRequest.post("/api/clients", {
       name: "'; DROP TABLE clients;--",
       email: "sqlinjection@example.com",
+      password: "TestPass123!",
       status: "ACTIVE",
     });
 
@@ -970,6 +987,7 @@ test.describe("Client Management API - Security", () => {
     const response = await superadminApiRequest.post("/api/clients", {
       name: "<script>alert('xss')</script>",
       email: "xssinjection@example.com",
+      password: "TestPass123!",
       status: "ACTIVE",
     });
 
@@ -996,6 +1014,7 @@ test.describe("Client Management API - Public ID Support", () => {
     const response = await superadminApiRequest.post("/api/clients", {
       name: "Auto Public ID Test",
       email: "autopublicid@example.com",
+      password: "TestPass123!",
       status: "ACTIVE",
     });
 
@@ -1029,16 +1048,19 @@ test.describe("Client Management API - Public ID Support", () => {
       superadminApiRequest.post("/api/clients", {
         name: "Client 1",
         email: "client1@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
       }),
       superadminApiRequest.post("/api/clients", {
         name: "Client 2",
         email: "client2@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
       }),
       superadminApiRequest.post("/api/clients", {
         name: "Client 3",
         email: "client3@example.com",
+        password: "TestPass123!",
         status: "ACTIVE",
       }),
     ]);
