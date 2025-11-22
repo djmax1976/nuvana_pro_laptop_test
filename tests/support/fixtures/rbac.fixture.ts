@@ -456,7 +456,32 @@ export const test = base.extend<RBACFixture>({
     // Cleanup - Use bypass client to avoid RLS restrictions during test cleanup
     // Delete in correct order to respect foreign key constraints
     await withBypassClient(async (bypassClient) => {
-      // 1. Delete shifts first (references user via cashier_id)
+      // 1. Delete transaction-related data FIRST (children of transactions)
+      // Get all shifts for this user to find related transactions
+      const userShifts = await bypassClient.shift.findMany({
+        where: { cashier_id: user.user_id },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        // Delete transaction payments (child of transaction)
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+
+        // Delete transaction line items (child of transaction)
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+
+        // Delete transactions (child of shift)
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      // 2. NOW delete shifts (after transactions are gone)
       await bypassClient.shift.deleteMany({
         where: { cashier_id: user.user_id },
       });
