@@ -11,15 +11,36 @@ const prisma = new PrismaClient();
 /**
  * Helper function to extract user's company_id from their roles
  * @param userId - User ID
- * @returns Company ID if user has COMPANY scope role, null otherwise
+ * @returns Company ID if user has COMPANY or STORE scope role, null otherwise
  */
 async function getUserCompanyId(userId: string): Promise<string | null> {
   const userRoles = await rbacService.getUserRoles(userId);
-  // Find COMPANY scope role
+
+  // Find COMPANY scope role first
   const companyRole = userRoles.find(
     (role) => role.scope === "COMPANY" && role.company_id,
   );
-  return companyRole?.company_id || null;
+  if (companyRole) {
+    return companyRole.company_id;
+  }
+
+  // If no COMPANY role, check for STORE scope role and get company_id from the store
+  const storeRole = userRoles.find(
+    (role) => role.scope === "STORE" && role.store_id && role.company_id,
+  );
+  if (storeRole) {
+    return storeRole.company_id;
+  }
+
+  // Check for SYSTEM scope (can access all companies)
+  const systemRole = userRoles.find((role) => role.scope === "SYSTEM");
+  if (systemRole) {
+    // System admins don't have a specific company, return null
+    // They should be handled separately with permission checks
+    return null;
+  }
+
+  return null;
 }
 
 /**
@@ -94,9 +115,8 @@ export async function storeRoutes(fastify: FastifyInstance) {
             },
             timezone: {
               type: "string",
-              pattern: "^[A-Za-z]+(\\/[A-Za-z_]+)+$|^UTC$|^GMT[+-]\\d{1,2}$",
               description:
-                "IANA timezone format (e.g., America/New_York, Europe/London)",
+                "IANA timezone format (e.g., America/New_York, Europe/London) - validated by service layer",
               default: "America/New_York",
             },
             status: {
@@ -192,7 +212,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
               action: "CREATE",
               table_name: "stores",
               record_id: store.store_id,
-              new_values: store as any,
+              new_values: JSON.stringify(store) as any,
               ip_address: ipAddress,
               user_agent: userAgent,
               reason: `Store created by ${user.email} (roles: ${user.roles.join(", ")})`,
@@ -386,10 +406,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
   fastify.get(
     "/api/stores/:storeId",
     {
-      preHandler: [
-        authMiddleware,
-        permissionMiddleware(PERMISSIONS.STORE_READ),
-      ],
+      preHandler: [authMiddleware],
       schema: {
         description: "Get store by ID",
         tags: ["stores"],
@@ -477,6 +494,21 @@ export async function storeRoutes(fastify: FastifyInstance) {
           return {
             error: "Forbidden",
             message: "You can only access stores for your assigned company",
+          };
+        }
+
+        // Check permission (after existence and ownership checks)
+        const hasPermission = await rbacService.checkPermission(
+          user.id,
+          PERMISSIONS.STORE_READ,
+          { storeId: params.storeId, companyId: userCompanyId },
+        );
+
+        if (!hasPermission) {
+          reply.code(403);
+          return {
+            error: "Forbidden",
+            message: `Permission denied: ${PERMISSIONS.STORE_READ} is required`,
           };
         }
 
@@ -572,9 +604,8 @@ export async function storeRoutes(fastify: FastifyInstance) {
             },
             timezone: {
               type: "string",
-              pattern: "^[A-Za-z]+(\\/[A-Za-z_]+)+$|^UTC$|^GMT[+-]\\d{1,2}$",
               description:
-                "IANA timezone format (e.g., America/New_York, Europe/London)",
+                "IANA timezone format (e.g., America/New_York, Europe/London) - validated by service layer",
             },
             status: {
               type: "string",
@@ -702,8 +733,8 @@ export async function storeRoutes(fastify: FastifyInstance) {
               action: "UPDATE",
               table_name: "stores",
               record_id: store.store_id,
-              old_values: oldStore as any,
-              new_values: store as any,
+              old_values: JSON.stringify(oldStore) as any,
+              new_values: JSON.stringify(store) as any,
               ip_address: ipAddress,
               user_agent: userAgent,
               reason: `Store updated by ${user.email} (roles: ${user.roles.join(", ")})`,
@@ -767,10 +798,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
   fastify.put(
     "/api/stores/:storeId/configuration",
     {
-      preHandler: [
-        authMiddleware,
-        permissionMiddleware(PERMISSIONS.STORE_UPDATE),
-      ],
+      preHandler: [authMiddleware],
       schema: {
         description: "Update store configuration",
         tags: ["stores"],
@@ -787,12 +815,12 @@ export async function storeRoutes(fastify: FastifyInstance) {
         },
         body: {
           type: "object",
+          additionalProperties: false,
           properties: {
             timezone: {
               type: "string",
-              pattern: "^[A-Za-z]+(\\/[A-Za-z_]+)+$|^UTC$|^GMT[+-]\\d{1,2}$",
               description:
-                "IANA timezone format (e.g., America/New_York, Europe/London)",
+                "IANA timezone format (e.g., America/New_York, Europe/London) - validated by service layer",
             },
             location: {
               type: "object",
@@ -1030,6 +1058,21 @@ export async function storeRoutes(fastify: FastifyInstance) {
           };
         }
 
+        // Check permission (after ownership check to give specific error)
+        const hasPermission = await rbacService.checkPermission(
+          user.id,
+          PERMISSIONS.STORE_UPDATE,
+          { storeId: params.storeId, companyId: userCompanyId },
+        );
+
+        if (!hasPermission) {
+          reply.code(403);
+          return {
+            error: "Forbidden",
+            message: `Permission denied: ${PERMISSIONS.STORE_UPDATE} is required`,
+          };
+        }
+
         // Update store configuration (service will verify company isolation and validate)
         const store = await storeService.updateStoreConfiguration(
           params.storeId,
@@ -1231,8 +1274,8 @@ export async function storeRoutes(fastify: FastifyInstance) {
               action: "DELETE",
               table_name: "stores",
               record_id: store.store_id,
-              old_values: oldStore as any,
-              new_values: store as any,
+              old_values: JSON.stringify(oldStore) as any,
+              new_values: JSON.stringify(store) as any,
               ip_address: ipAddress,
               user_agent: userAgent,
               reason: `Store deleted by ${user.email} (roles: ${user.roles.join(", ")})`,

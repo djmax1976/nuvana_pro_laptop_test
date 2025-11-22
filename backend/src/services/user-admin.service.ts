@@ -42,8 +42,8 @@ export interface AssignRoleRequest {
 export interface CreateUserInput {
   email: string;
   name: string;
-  password: string;
-  roles: AssignRoleRequest[];
+  password?: string;
+  roles?: AssignRoleRequest[];
 }
 
 /**
@@ -138,8 +138,8 @@ export class UserAdminService {
       throw new Error("Name cannot be whitespace only");
     }
 
-    // Validate password
-    if (!data.password || data.password.length < 8) {
+    // Validate password if provided (optional for SSO users)
+    if (data.password && data.password.length < 8) {
       throw new Error("Password must be at least 8 characters");
     }
 
@@ -158,8 +158,10 @@ export class UserAdminService {
     }
 
     try {
-      // Hash password
-      const passwordHash = await bcrypt.hash(data.password, 10);
+      // Hash password if provided
+      const passwordHash = data.password
+        ? await bcrypt.hash(data.password, 10)
+        : null;
 
       // Create user
       const user = await prisma.user.create({

@@ -27,7 +27,11 @@ export async function authMiddleware(
 
     if (!accessToken) {
       return reply.code(401).send({
-        error: "Missing access token cookie",
+        success: false,
+        error: {
+          code: "UNAUTHORIZED",
+          message: "Missing access token cookie",
+        },
       });
     }
 
@@ -48,7 +52,12 @@ export async function authMiddleware(
     (request as any).user = userIdentity;
   } catch (error) {
     return reply.code(401).send({
-      error: error instanceof Error ? error.message : "Token validation failed",
+      success: false,
+      error: {
+        code: "UNAUTHORIZED",
+        message:
+          error instanceof Error ? error.message : "Token validation failed",
+      },
     });
   }
 }

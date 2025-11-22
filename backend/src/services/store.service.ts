@@ -405,6 +405,15 @@ export class StoreService {
       ) {
         throw new Error("location.address must be a string");
       }
+      // XSS protection: Reject addresses containing script tags or other dangerous HTML
+      if (config.location.address) {
+        const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+        if (xssPattern.test(config.location.address)) {
+          throw new Error(
+            "Invalid address: HTML tags and scripts are not allowed",
+          );
+        }
+      }
       if (config.location.gps) {
         if (
           typeof config.location.gps.lat !== "number" ||
