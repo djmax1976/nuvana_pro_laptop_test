@@ -270,7 +270,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     const createdUser = await prismaClient.user.create({ data: userData });
 
     // AND: Valid refresh token in httpOnly cookie
-    const refreshToken = createJWTRefreshToken({
+    const refreshToken = await createJWTRefreshToken({
       user_id: createdUser.user_id,
       email: userEmail,
     });
@@ -394,7 +394,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     const createdUser = await prismaClient.user.create({ data: userData });
 
     // AND: Valid refresh token in cookie
-    const originalRefreshToken = createJWTRefreshToken({
+    const originalRefreshToken = await createJWTRefreshToken({
       user_id: createdUser.user_id,
       email: userEmail,
     });
@@ -490,7 +490,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     const createdUser = await prismaClient.user.create({ data: userData });
 
     // AND: Valid refresh token
-    const refreshToken = createJWTRefreshToken({
+    const refreshToken = await createJWTRefreshToken({
       user_id: createdUser.user_id,
       email: userEmail,
     });
@@ -537,7 +537,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     });
 
     // AND: Valid refresh token (allows auto-refresh)
-    const validRefreshToken = createJWTRefreshToken({
+    const validRefreshToken = await createJWTRefreshToken({
       user_id: createdUser.user_id,
       email: userEmail,
     });
@@ -696,7 +696,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     });
 
     // AND: Valid refresh token
-    const validRefreshToken = createJWTRefreshToken({
+    const validRefreshToken = await createJWTRefreshToken({
       user_id: createdUser.user_id,
       email: userEmail,
     });
@@ -829,7 +829,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     });
     const createdUser = await prismaClient.user.create({ data: userData });
 
-    const originalRefreshToken = createJWTRefreshToken({
+    const originalRefreshToken = await createJWTRefreshToken({
       user_id: createdUser.user_id,
       email: userEmail,
     });

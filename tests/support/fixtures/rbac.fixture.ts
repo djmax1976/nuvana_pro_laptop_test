@@ -360,11 +360,14 @@ export const test = base.extend<RBACFixture>({
     }
 
     // Assign SUPERADMIN role to user
-    await prismaClient.userRole.create({
-      data: {
-        user_id: user.user_id,
-        role_id: role.role_id,
-      },
+    // Use bypass client to avoid RLS restrictions during test setup
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: role.role_id,
+        },
+      });
     });
 
     const token = createJWTAccessToken({
@@ -414,12 +417,15 @@ export const test = base.extend<RBACFixture>({
     }
 
     // Assign CORPORATE_ADMIN role to user with company_id (COMPANY scope)
-    await prismaClient.userRole.create({
-      data: {
-        user_id: user.user_id,
-        role_id: role.role_id,
-        company_id: company.company_id,
-      },
+    // Use bypass client to avoid RLS restrictions during test setup
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: role.role_id,
+          company_id: company.company_id,
+        },
+      });
     });
 
     const token = createJWTAccessToken({
@@ -550,13 +556,16 @@ export const test = base.extend<RBACFixture>({
     }
 
     // Assign STORE_MANAGER role to user with store_id (STORE scope)
-    await prismaClient.userRole.create({
-      data: {
-        user_id: user.user_id,
-        role_id: role.role_id,
-        company_id: company.company_id,
-        store_id: store.store_id,
-      },
+    // Use bypass client to avoid RLS restrictions during test setup
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: role.role_id,
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      });
     });
 
     const token = createJWTAccessToken({
