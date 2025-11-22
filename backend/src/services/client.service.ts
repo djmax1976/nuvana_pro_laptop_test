@@ -38,8 +38,8 @@ async function createAuditLogSafely(
   action: string,
   tableName: string,
   recordId: string,
-  oldValues?: Prisma.JsonObject,
-  newValues?: Prisma.JsonObject,
+  oldValues?: Prisma.InputJsonValue,
+  newValues?: Prisma.InputJsonValue,
 ): Promise<void> {
   try {
     if (auditContext.userId) {
@@ -55,8 +55,8 @@ async function createAuditLogSafely(
             action,
             table_name: tableName,
             record_id: recordId,
-            old_values: oldValues || Prisma.JsonNull,
-            new_values: newValues || Prisma.JsonNull,
+            old_values: oldValues ?? Prisma.DbNull,
+            new_values: newValues ?? Prisma.DbNull,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
             reason: `${action} by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
@@ -159,7 +159,7 @@ export class ClientService {
       }
 
       // Use transaction to create User + Client + UserRole atomically
-      const result = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // 1. Create User record (for authentication)
         const user = await tx.user.create({
           data: {
@@ -180,7 +180,7 @@ export class ClientService {
             status: data.status || ClientStatus.ACTIVE,
             metadata: data.metadata
               ? (data.metadata as Prisma.InputJsonValue)
-              : Prisma.JsonNull,
+              : Prisma.DbNull,
           },
           include: {
             _count: {
@@ -224,7 +224,7 @@ export class ClientService {
         "clients",
         client.client_id,
         undefined,
-        client as unknown as Prisma.JsonObject,
+        client as unknown as Prisma.InputJsonValue,
       );
 
       return {
@@ -485,7 +485,7 @@ export class ClientService {
 
       // Find the associated user via UserRole
       const userRole = existingClient.user_roles.find(
-        (ur) => ur.client_id === clientId,
+        (ur: any) => ur.client_id === clientId,
       );
       if (!userRole) {
         throw new Error(
@@ -496,7 +496,7 @@ export class ClientService {
       const userId = userRole.user_id;
 
       // Use transaction to update both User and Client atomically
-      const result = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // Prepare User update data
         const userUpdateData: Prisma.UserUpdateInput = {};
         if (data.name !== undefined) {
@@ -574,8 +574,8 @@ export class ClientService {
         "UPDATE",
         "clients",
         client.client_id,
-        existingClient as unknown as Prisma.JsonObject,
-        client as unknown as Prisma.JsonObject,
+        existingClient as unknown as Prisma.InputJsonValue,
+        client as unknown as Prisma.InputJsonValue,
       );
 
       return {
@@ -654,7 +654,7 @@ export class ClientService {
 
       // Find the associated user via UserRole (may not exist for test data)
       const userRole = existingClient.user_roles.find(
-        (ur) => ur.client_id === clientId,
+        (ur: any) => ur.client_id === clientId,
       );
       const userId = userRole?.user_id;
 
@@ -662,7 +662,7 @@ export class ClientService {
       const deletedAt = new Date();
 
       // Use transaction to soft delete Client, User, Companies, Stores, and UserRoles atomically
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // Deactivate the associated User account (if exists)
         if (userId) {
           await tx.user.update({
@@ -680,7 +680,7 @@ export class ClientService {
           select: { company_id: true },
         });
 
-        const companyIds = companies.map((c) => c.company_id);
+        const companyIds = companies.map((c: any) => c.company_id);
 
         // Cascade soft delete to associated companies
         await tx.company.updateMany({
@@ -753,8 +753,8 @@ export class ClientService {
         "DELETE",
         "clients",
         client.client_id,
-        existingClient as unknown as Prisma.JsonObject,
-        client as unknown as Prisma.JsonObject,
+        existingClient as unknown as Prisma.InputJsonValue,
+        client as unknown as Prisma.InputJsonValue,
       );
 
       return {

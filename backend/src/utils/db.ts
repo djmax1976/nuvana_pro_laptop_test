@@ -20,7 +20,7 @@ function createRLSPrismaClient() {
   const extendedClient = baseClient.$extends({
     name: "rls-middleware",
     query: {
-      async $allOperations({ args, query }) {
+      async $allOperations({ args, query }: { args: any; query: any }) {
         const userId = rlsContext.getStore();
 
         // Only set RLS context if userId is provided (from withRLSContext)
