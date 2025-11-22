@@ -199,7 +199,7 @@ export class CompanyService {
     const skip = (page - 1) * limit;
 
     // Build where clause
-    const where: Prisma.CompanyWhereInput = {};
+    const where: any = {};
 
     // Filter by status
     if (status) {
@@ -317,7 +317,7 @@ export class CompanyService {
       }
 
       // Prepare update data
-      const updateData: Prisma.CompanyUpdateInput = {};
+      const updateData: any = {};
       if (data.name !== undefined) {
         updateData.name = data.name.trim();
       }

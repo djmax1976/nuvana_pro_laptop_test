@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 
@@ -228,7 +228,7 @@ export class UserAdminService {
     const skip = (page - 1) * limit;
 
     // Build where clause
-    const where: Prisma.UserWhereInput = {};
+    const where: any = {};
 
     // Filter by status
     if (status) {
@@ -600,12 +600,9 @@ export class UserAdminService {
         store_name: userRole.store?.name || null,
         assigned_at: userRole.assigned_at,
       };
-    } catch (error: unknown) {
+    } catch (error: any) {
       // Handle unique constraint violation
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002"
-      ) {
+      if (error && error.code === "P2002") {
         throw new Error("User already has this role assignment");
       }
       console.error("Error assigning role:", error);

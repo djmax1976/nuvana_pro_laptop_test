@@ -55,8 +55,8 @@ async function createAuditLogSafely(
             action,
             table_name: tableName,
             record_id: recordId,
-            old_values: oldValues ?? Prisma.DbNull,
-            new_values: newValues ?? Prisma.DbNull,
+            old_values: oldValues as any,
+            new_values: newValues as any,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
             reason: `${action} by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
@@ -178,7 +178,7 @@ export class ClientService {
             name: data.name.trim(),
             email: data.email.trim().toLowerCase(),
             status: data.status || ClientStatus.ACTIVE,
-            metadata: (data.metadata as any) ?? Prisma.DbNull,
+            metadata: (data.metadata as any) ?? null,
           },
           include: {
             _count: {
@@ -263,7 +263,7 @@ export class ClientService {
     const skip = (page - 1) * limit;
 
     // Build where clause
-    const where: Prisma.ClientWhereInput = {};
+    const where: any = {};
 
     // Exclude soft-deleted by default
     if (!includeDeleted) {
@@ -496,7 +496,7 @@ export class ClientService {
       // Use transaction to update both User and Client atomically
       const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // Prepare User update data
-        const userUpdateData: Prisma.UserUpdateInput = {};
+        const userUpdateData: any = {};
         if (data.name !== undefined) {
           userUpdateData.name = data.name.trim();
         }
@@ -523,7 +523,7 @@ export class ClientService {
         }
 
         // Prepare Client update data
-        const clientUpdateData: Prisma.ClientUpdateInput = {};
+        const clientUpdateData: any = {};
         if (data.name !== undefined) {
           clientUpdateData.name = data.name.trim();
         }
