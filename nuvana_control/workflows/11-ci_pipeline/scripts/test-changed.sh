@@ -108,7 +108,56 @@ fi
 
 if [ "$RUN_E2E" = true ]; then
   echo "Running E2E [P0] tests..."
-  npm run test:e2e:p0 || exit 1
+
+  # Clean up port 3000 if occupied
+  echo "Cleaning up port 3000..."
+  lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+  sleep 1
+
+  # Build the frontend first
+  echo "Building frontend for E2E tests..."
+  npm run build || exit 1
+
+  # Start the frontend server in the background
+  echo "Starting frontend server..."
+  npm start > frontend.log 2>&1 &
+  FRONTEND_PID=$!
+  echo "Frontend PID: $FRONTEND_PID"
+
+  # Wait for frontend to be ready
+  echo "Waiting for frontend to be ready..."
+  FRONTEND_READY=false
+  for i in {1..30}; do
+    if curl -sf --max-time 5 http://localhost:3000 > /dev/null 2>&1; then
+      echo "Frontend is ready"
+      FRONTEND_READY=true
+      break
+    fi
+    echo "Waiting for frontend... ($i/30)"
+    sleep 2
+  done
+
+  if [ "$FRONTEND_READY" = false ]; then
+    echo "ERROR: Frontend failed to start within timeout"
+    echo "Frontend logs:"
+    cat frontend.log || echo "No frontend logs available"
+    kill $FRONTEND_PID 2>/dev/null || true
+    exit 1
+  fi
+
+  # Run E2E tests
+  npm run test:e2e:p0
+  E2E_EXIT_CODE=$?
+
+  # Stop frontend server
+  echo "Stopping frontend server (PID: $FRONTEND_PID)..."
+  kill $FRONTEND_PID 2>/dev/null || true
+  lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+
+  # Exit with E2E test exit code
+  if [ $E2E_EXIT_CODE -ne 0 ]; then
+    exit $E2E_EXIT_CODE
+  fi
 fi
 
 if [ "$RUN_COMPONENT" = false ] && [ "$RUN_API" = false ] && [ "$RUN_E2E" = false ]; then
