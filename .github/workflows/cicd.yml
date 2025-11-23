@@ -51,7 +51,7 @@ jobs:
         run: cd backend && npx tsc --noEmit
 
   test_selector:
-    name: Select Tests (no services)
+    name: Select Tests
     needs: lint_typecheck
     runs-on: ubuntu-latest
     permissions:
@@ -71,116 +71,17 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - name: Install backend dependencies
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true') && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != ''
-        run: cd backend && npm ci
-      - name: Generate Prisma Client
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true') && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != ''
-        run: cd backend && npx prisma generate
-      - name: Run Prisma migrations
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true') && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != ''
-        run: cd backend && npx prisma migrate deploy
-        env:
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-      - name: Seed test database
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true') && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != ''
-        run: npx tsx backend/src/db/seeds/rbac.seed.ts
-        env:
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-      - name: Bootstrap admin user
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true') && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != ''
-        run: npx tsx backend/scripts/bootstrap-admin.ts
-        env:
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-      - name: Clean test database
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true') && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != ''
-        run: npx tsx scripts/cleanup-test-data.ts
-        env:
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-      - name: Install Playwright browsers
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true') && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != ''
-        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9  # v4.1.2
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - name: Install Playwright browsers
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true') && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != ''
-        run: npx playwright install --with-deps chromium
-      - name: Build backend
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true') && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != ''
-        run: cd backend && npm run build
-      - name: Clean up port 3001 (if occupied)
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true') && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != ''
-        run: bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
-      - name: Start backend (if API tests needed)
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true') && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != ''
+      - name: Select tests to run
+        id: select_tests
         run: |
-          cd backend && npm run start:test > ../backend.log 2>&1 &
-          echo $! > ../backend.pid
-        env:
-          NODE_ENV: test
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-          REDIS_URL: redis://localhost:6379
-          RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
-          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
-          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
-      - name: Wait for backend health (if started)
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true') && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != ''
-        run: |
-          echo "Waiting for backend to be healthy..."
-          for i in {1..30}; do
-            if curl -sf --max-time 5 --retry 2 ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
-              echo "Backend is ready"
-              exit 0
-            fi
-            echo "Waiting for backend... ($i/30)"
-            sleep $((i > 10 ? 5 : 2))
-          done
-          echo "Backend health check timeout - may not be needed for this test run"
-        continue-on-error: false
-      - name: Run selective tests
-        env:
-          NODE_ENV: test
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-          REDIS_URL: redis://localhost:6379
-          RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
-          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
-          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
-        run: bash nuvana_control/workflows/11-ci_pipeline/scripts/test-changed.sh
-      - name: Scrub secrets from logs
-        if: failure()
-        run: |
-          if [ -f backend.log ]; then
-            sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' backend.log
-            sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' backend.log
-            sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' backend.log
-            sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' backend.log
-            sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' backend.log
-          fi
-      - name: Upload backend logs
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: backend-logs-selective-tests
-          path: backend.log
-          retention-days: 7
-      - name: Stop backend
-        if: always()
-        run: |
-          if [ -f backend.pid ]; then
-            kill $(cat backend.pid) 2>/dev/null || true
-            rm -f backend.pid
-          fi
-          # Extra cleanup: kill any remaining process on port 3001
-          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
+          # Determine which tests to run based on changed files
+          bash nuvana_control/workflows/11-ci_pipeline/scripts/test-changed.sh --select-only
 
   selective_tests:
     name: Selective Tests
     needs: [lint_typecheck, test_selector]
     runs-on: ubuntu-latest
-    if: ${{ needs.test_selector.outputs.any == 'true' && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != '' && (github.event_name != 'pull_request' || github.event.pull_request.head_repo.fork == false) }}
+    if: ${{ needs.test_selector.outputs.any == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
     permissions:
       contents: read
     services:
@@ -340,7 +241,7 @@ jobs:
     needs: [selective_tests, test_selector]
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: ${{ needs.test_selector.outputs.any == 'true' && secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != '' && (github.event_name != 'pull_request' || github.event.pull_request.head_repo.fork == false) }}
+    if: ${{ needs.test_selector.outputs.any == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
     permissions:
       contents: read
     services:
@@ -525,7 +426,7 @@ jobs:
     name: API Smoke
     needs: lint_typecheck
     runs-on: ubuntu-latest
-    if: ${{ secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != '' && (github.event_name != 'pull_request' || github.event.pull_request.head_repo.fork == false) }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     permissions:
       contents: read
     services:
@@ -674,7 +575,7 @@ jobs:
     needs: build_app
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: ${{ secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != '' && (github.event_name != 'pull_request' || github.event.pull_request.head_repo.fork == false) }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     permissions:
       contents: read
     services:
@@ -869,7 +770,7 @@ jobs:
     needs: security_static
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: ${{ secrets.TEST_JWT_SECRET != '' && secrets.TEST_JWT_REFRESH_SECRET != '' && secrets.TEST_COOKIE_SECRET != '' && (github.event_name != 'pull_request' || github.event.pull_request.head_repo.fork == false) }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     permissions:
       contents: read
       issues: write
@@ -1057,9 +958,6 @@ jobs:
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
-    environment:
-      name: production
-      url: https://your-app.com
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
