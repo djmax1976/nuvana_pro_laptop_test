@@ -185,6 +185,14 @@ test.describe("Client Form Email and Password E2E", () => {
         '[data-testid="create-client-name-input"]',
         "Test Client",
       );
+      await page.fill(
+        '[data-testid="create-client-password-input"]',
+        "ValidPassword123!",
+      );
+      await page.fill(
+        '[data-testid="create-client-confirm-password-input"]',
+        "ValidPassword123!",
+      );
       await page.click('[data-testid="create-client-submit-button"]');
 
       // THEN: Validation error is displayed
@@ -202,6 +210,14 @@ test.describe("Client Form Email and Password E2E", () => {
       await page.fill(
         '[data-testid="create-client-email-input"]',
         "not-an-email",
+      );
+      await page.fill(
+        '[data-testid="create-client-password-input"]',
+        "ValidPassword123!",
+      );
+      await page.fill(
+        '[data-testid="create-client-confirm-password-input"]',
+        "ValidPassword123!",
       );
       await page.click('[data-testid="create-client-submit-button"]');
 
