@@ -238,7 +238,7 @@ jobs:
 
   changed_tests_burn_in:
     name: Burn-In Changed Tests
-    needs: [selective_tests, test_selector]
+    needs: [selective_tests, test_selector, e2e_smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     if: ${{ needs.test_selector.outputs.any == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
