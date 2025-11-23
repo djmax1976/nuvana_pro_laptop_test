@@ -33,7 +33,7 @@ test.describe("Client Form Email and Password E2E", () => {
   let superadminUser: any;
   let testClient: any;
 
-  test.beforeAll(async () => {
+  test.beforeEach(async () => {
     // Clean up any existing test data first (delete userRoles before users to avoid FK violations)
     const existingUsers = await prisma.user.findMany({
       where: { email: "superadmin-client-form@test.com" },
