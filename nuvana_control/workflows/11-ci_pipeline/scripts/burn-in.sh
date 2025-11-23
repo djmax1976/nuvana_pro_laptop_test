@@ -28,7 +28,18 @@ if [ -z "$CHANGED_TESTS" ]; then
   exit 0
 fi
 
-echo "Changed test files:"
+# Count changed test files
+TEST_COUNT=$(echo "$CHANGED_TESTS" | grep -c . || echo 0)
+MAX_BURN_IN_FILES="${MAX_BURN_IN_FILES:-5}"
+
+if [ "$TEST_COUNT" -gt "$MAX_BURN_IN_FILES" ]; then
+  echo "⚠️  Too many test files changed ($TEST_COUNT > $MAX_BURN_IN_FILES)"
+  echo "Skipping burn-in to avoid 2+ hour run time"
+  echo "Burn-in is only practical for small changesets (≤$MAX_BURN_IN_FILES files)"
+  exit 0
+fi
+
+echo "Changed test files ($TEST_COUNT):"
 echo "$CHANGED_TESTS"
 echo ""
 

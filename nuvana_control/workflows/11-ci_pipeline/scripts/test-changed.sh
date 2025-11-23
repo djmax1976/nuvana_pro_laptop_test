@@ -5,6 +5,11 @@ set -euo pipefail
 # Analyzes changed files and runs appropriate test suites based on change type
 # Exits 0 even when no tests need to run (required for S4 stability)
 
+SELECT_ONLY=false
+if [[ "${1:-}" == "--select-only" ]]; then
+  SELECT_ONLY=true
+fi
+
 echo "=== Selective Test Runner ==="
 echo "Analyzing changed files..."
 
@@ -15,13 +20,32 @@ if [ -n "${GITHUB_BASE_REF:-}" ]; then
   echo "PR mode - Base branch: $BASE_BRANCH"
   CHANGED_FILES=$(git diff --name-only "origin/$BASE_BRANCH"...HEAD || echo "")
 else
-  # Push event: compare against previous commit
-  echo "Push mode - Comparing HEAD~1...HEAD"
-  CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD || echo "")
+  # Push event: compare against full pushed range when available
+  BEFORE_SHA=""
+  AFTER_SHA=""
+  if command -v jq >/dev/null 2>&1 && [ -n "${GITHUB_EVENT_PATH:-}" ]; then
+    BEFORE_SHA=$(jq -r '.before // ""' "$GITHUB_EVENT_PATH" 2>/dev/null || echo "")
+    AFTER_SHA=$(jq -r '.after // ""' "$GITHUB_EVENT_PATH" 2>/dev/null || echo "")
+  fi
+  if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+    echo "Push mode - Comparing $BEFORE_SHA...$AFTER_SHA"
+    CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" || echo "")
+  else
+    # Fallback for unexpected payloads
+    echo "Push mode - Fallback HEAD~1...HEAD"
+    CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD || echo "")
+  fi
 fi
 
 if [ -z "$CHANGED_FILES" ]; then
   echo "No files changed - skipping tests"
+  if [ "$SELECT_ONLY" = true ]; then
+    {
+      echo "component=false"
+      echo "api=false"
+      echo "e2e=false"
+    } >> "${GITHUB_OUTPUT:-/dev/null}"
+  fi
   exit 0
 fi
 
@@ -94,6 +118,23 @@ echo "Component tests: $RUN_COMPONENT"
 echo "API tests: $RUN_API"
 echo "E2E tests: $RUN_E2E"
 echo ""
+
+if [ "$SELECT_ONLY" = true ]; then
+  {
+    echo "component=$RUN_COMPONENT"
+    echo "api=$RUN_API"
+    echo "e2e=$RUN_E2E"
+  } >> "${GITHUB_OUTPUT:-/dev/null}"
+  exit 0
+fi
+
+# Skip API/E2E tests gracefully if required secrets are unavailable (e.g., fork PRs)
+if { [ "$RUN_API" = true ] || [ "$RUN_E2E" = true ]; } && \
+   { [ -z "${JWT_SECRET:-}" ] || [ -z "${JWT_REFRESH_SECRET:-}" ] || [ -z "${COOKIE_SECRET:-}" ]; }; then
+  echo "API/E2E tests selected but JWT/COOKIE secrets are missing; skipping API/E2E suites"
+  RUN_API=false
+  RUN_E2E=false
+fi
 
 if [ "$RUN_COMPONENT" = true ]; then
   echo "Running component tests..."
