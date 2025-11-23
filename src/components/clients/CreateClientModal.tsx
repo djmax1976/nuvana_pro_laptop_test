@@ -46,6 +46,7 @@ const createClientSchema = z
       .max(255, "Client name must be 255 characters or less"),
     email: z
       .string()
+      .min(1, "Email is required")
       .email("Invalid email address")
       .max(255, "Email must be 255 characters or less"),
     password: z
@@ -184,7 +185,11 @@ export function CreateClientModal({
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="space-y-6"
+            noValidate
+          >
             <FormField
               control={form.control}
               name="name"
