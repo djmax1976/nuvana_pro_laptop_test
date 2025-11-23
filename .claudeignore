@@ -1,0 +1,19 @@
+# Claude Code ignore file
+# By default, Claude Code respects .gitignore
+# This file overrides .gitignore to allow access to specific folders
+
+# Allow access to nuvana_docs and nuvana_control
+!nuvana_docs/
+!nuvana_control/
+
+# Keep ignoring these from .gitignore
+node_modules/
+.next/
+build/
+dist/
+coverage/
+.env
+.env.local
+*.tsbuildinfo
+playwright-report/
+test-results/

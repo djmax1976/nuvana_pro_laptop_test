@@ -45,14 +45,6 @@ export {
   type RabbitMQConnectionConfig,
 } from "./rabbitmq.factory";
 
-// Supabase factories
-export {
-  createSupabaseToken,
-  createOAuthCallbackParams,
-  createSupabaseUserIdentity,
-  type SupabaseTokenData,
-} from "./supabase.factory";
-
 // JWT factories
 export {
   createJWTAccessToken,
@@ -65,3 +57,83 @@ export {
   createMultiRoleJWTAccessToken,
   type JWTTokenPayload,
 } from "./jwt.factory";
+
+// RBAC factories
+export {
+  createRole,
+  createSuperadminRole,
+  createCorporateAdminRole,
+  createStoreManagerRole,
+  createShiftManagerRole,
+  createCashierRole,
+  createPermission,
+  createUserCreatePermission,
+  createUserReadPermission,
+  createUserUpdatePermission,
+  createUserDeletePermission,
+  createStoreCreatePermission,
+  createStoreReadPermission,
+  createShiftOpenPermission,
+  createShiftClosePermission,
+  createUserRole,
+  createRolePermission,
+  createRoles,
+  createPermissions,
+  createUserRoles,
+  createRolePermissions,
+  type RoleData,
+  type PermissionData,
+  type UserRoleData,
+  type RolePermissionData,
+} from "./rbac.factory";
+
+// Transaction factories (Story 3.1 & 3.2)
+export {
+  createTransaction,
+  createTransactionLineItem,
+  createTransactionPayment,
+  createTransactions,
+  createTransactionLineItems,
+  createTransactionPayments,
+  createFullTransaction,
+  createTransactionPayload,
+  type TransactionData,
+  type TransactionLineItemData,
+  type TransactionPaymentData,
+  type TransactionPayloadData,
+} from "./transaction.factory";
+
+// Client factories (Story 2.6)
+export {
+  createClient,
+  createClients,
+  createClientWithStatus,
+  createClientNoMetadata,
+  type ClientData,
+  type ClientStatus,
+} from "./client.factory";
+
+// Client with User factories (Unified Authentication)
+export {
+  createClientWithUser,
+  createClientsWithUsers,
+  createClientWithUserByStatus,
+  type CreateClientWithUserInput,
+  type ClientWithUserResult,
+} from "./client-with-user.factory";
+
+// User Admin factories (Story 2.8)
+export {
+  createAdminUser,
+  createAdminUsers,
+  createUserRequest,
+  createSystemScopeAssignment,
+  createCompanyScopeAssignment,
+  createStoreScopeAssignment,
+  createInvalidScopeAssignment,
+  type AdminUserData,
+  type AssignRoleRequest,
+  type CreateUserRequest,
+  type UserStatus,
+  type ScopeType,
+} from "./user-admin.factory";

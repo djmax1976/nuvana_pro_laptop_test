@@ -10,23 +10,25 @@ export async function healthRoutes(fastify: FastifyInstance) {
   fastify.get(
     "/api/health",
     async (_request: FastifyRequest, reply: FastifyReply) => {
+      const redisHealth = await checkRedisHealth();
+      const rabbitmqHealth = await checkRabbitMQHealth();
+
+      // Determine overall health status
+      const allHealthy = redisHealth.healthy && rabbitmqHealth.healthy;
+
       const healthStatus = {
-        status: "ok",
+        status: allHealthy ? "ok" : "degraded",
         timestamp: new Date().toISOString(),
         services: {
-          redis: await checkRedisHealth(),
-          rabbitmq: await checkRabbitMQHealth(),
+          redis: redisHealth,
+          rabbitmq: rabbitmqHealth,
         },
         version: process.env.npm_package_version || "1.0.0",
       };
 
-      // Determine overall health status
-      const allHealthy =
-        healthStatus.services.redis.healthy &&
-        healthStatus.services.rabbitmq.healthy;
-
-      const statusCode = allHealthy ? 200 : 503;
-      reply.code(statusCode);
+      // Return 503 if any critical service is unhealthy
+      // This allows proper health checking in CI/CD pipelines and load balancers
+      reply.code(allHealthy ? 200 : 503);
 
       return healthStatus;
     },

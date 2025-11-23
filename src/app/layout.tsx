@@ -1,10 +1,13 @@
-import type { Metadata } from "next";
 import "./globals.css";
+import { QueryProvider } from "@/lib/providers/query-provider";
+import { ThemeProvider } from "@/components/providers/ThemeProvider";
+// DISABLED: ThemeSync causing issues - will be fixed later
+// import { ThemeSync } from "@/components/providers/ThemeSync";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { Toaster } from "@/components/ui/toaster";
 
-export const metadata: Metadata = {
-  title: "Nuvana Pro",
-  description: "Enterprise store management platform",
-};
+// Force all pages to be dynamically rendered
+export const dynamic = "force-dynamic";
 
 export default function RootLayout({
   children,
@@ -12,8 +15,26 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <title>Nuvana Pro</title>
+        <meta
+          name="description"
+          content="Enterprise store management platform"
+        />
+      </head>
+      <body>
+        <ThemeProvider>
+          <AuthProvider>
+            <QueryProvider>
+              {/* DISABLED: ThemeSync causing issues - will be fixed later */}
+              {/* <ThemeSync /> */}
+              {children}
+              <Toaster />
+            </QueryProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

@@ -7,12 +7,12 @@
  * - JWT token payloads with user claims
  * Uses faker for dynamic values to prevent collisions in parallel tests.
  *
- * Note: These factories generate simplified token representations for testing.
- * In production, tokens are actual JWTs signed with JWT_SECRET. The backend
- * middleware should handle both formats during testing.
+ * Generates REAL signed JWT tokens using jsonwebtoken library.
+ * Tokens are signed with JWT_SECRET from environment or test default.
  */
 
 import { faker } from "@faker-js/faker";
+import jwt from "jsonwebtoken";
 
 export type JWTTokenPayload = {
   user_id: string;
@@ -27,18 +27,16 @@ export type JWTTokenPayload = {
 /**
  * Creates a JWT access token payload (15 minute expiry)
  * Defaults to standard user role with READ permission.
+ * Note: exp and iat are omitted - jwt.sign() will add them based on options
  */
 export const createJWTAccessTokenPayload = (
   overrides: Partial<JWTTokenPayload> = {},
 ): JWTTokenPayload => {
-  const now = Math.floor(Date.now() / 1000);
   return {
     user_id: faker.string.uuid(),
     email: faker.internet.email(),
     roles: ["USER"],
     permissions: ["READ"],
-    exp: now + 15 * 60, // Expires in 15 minutes
-    iat: now,
     type: "access",
     ...overrides,
   };
@@ -47,44 +45,84 @@ export const createJWTAccessTokenPayload = (
 /**
  * Creates a JWT refresh token payload (7 days expiry)
  * Refresh tokens typically don't include roles/permissions.
+ * Note: exp and iat are omitted - jwt.sign() will add them based on options
  */
 export const createJWTRefreshTokenPayload = (
   overrides: Partial<JWTTokenPayload> = {},
 ): JWTTokenPayload => {
-  const now = Math.floor(Date.now() / 1000);
   return {
     user_id: faker.string.uuid(),
     email: faker.internet.email(),
-    exp: now + 7 * 24 * 60 * 60, // Expires in 7 days
-    iat: now,
     type: "refresh",
     ...overrides,
   };
 };
 
 /**
- * Creates a mock JWT access token string (for testing purposes)
- * Returns a JSON-serialized payload that the backend can parse.
- * In production, this would be a properly signed JWT (header.payload.signature).
+ * Creates a real signed JWT access token (for testing purposes)
+ * Returns a properly signed JWT that the backend auth middleware can verify.
  */
 export const createJWTAccessToken = (
   overrides: Partial<JWTTokenPayload> = {},
 ): string => {
   const payload = createJWTAccessTokenPayload(overrides);
-  // Return token string (in real implementation, this would be a signed JWT)
-  // Format: base64(header).base64(payload).signature
-  // For testing, we'll use a simple format that the backend can parse
-  return JSON.stringify(payload);
+  const secret =
+    process.env.JWT_SECRET || "test-secret-key-change-in-production";
+
+  return jwt.sign(payload, secret, {
+    expiresIn: "15m",
+    issuer: "nuvana-backend",
+    audience: "nuvana-api",
+  });
 };
 
 /**
- * Creates a mock JWT refresh token string
+ * Creates a real signed JWT refresh token with JTI for Redis tracking
+ * NOW ASYNC: Returns Promise<string> because it stores JTI in Redis
+ * @param overrides - Optional payload overrides
+ * @returns Promise resolving to signed JWT refresh token
  */
-export const createJWTRefreshToken = (
+export const createJWTRefreshToken = async (
   overrides: Partial<JWTTokenPayload> = {},
-): string => {
-  const payload = createJWTRefreshTokenPayload(overrides);
-  return JSON.stringify(payload);
+): Promise<string> => {
+  const { randomUUID } = await import("crypto");
+  const { getRedisClient } = await import("../../../backend/src/utils/redis");
+
+  // Generate JTI for token tracking (matches production behavior)
+  const jti = randomUUID();
+
+  const payload = {
+    ...createJWTRefreshTokenPayload(overrides),
+    jti, // Add JTI to payload
+  };
+
+  const secret =
+    process.env.JWT_REFRESH_SECRET ||
+    "test-refresh-secret-key-change-in-production";
+
+  const token = jwt.sign(payload, secret, {
+    expiresIn: "7d",
+    issuer: "nuvana-backend",
+    audience: "nuvana-api",
+  });
+
+  // Store JTI in Redis for validation (matches production behavior)
+  // This allows token rotation tests to work correctly
+  try {
+    const redis = await getRedisClient();
+    if (redis && payload.user_id) {
+      await redis.setEx(
+        `refresh_token:${jti}`,
+        7 * 24 * 60 * 60,
+        payload.user_id,
+      );
+    }
+  } catch (error) {
+    console.warn("Failed to store test refresh token in Redis:", error);
+    // Continue anyway - token will still work but rotation won't be testable
+  }
+
+  return token;
 };
 
 /**
@@ -94,26 +132,45 @@ export const createJWTRefreshToken = (
 export const createExpiredJWTAccessToken = (
   overrides: Partial<JWTTokenPayload> = {},
 ): string => {
-  const now = Math.floor(Date.now() / 1000);
-  const payload = createJWTAccessTokenPayload({
-    exp: now - 3600, // Expired 1 hour ago
-    ...overrides,
+  const payload = createJWTAccessTokenPayload(overrides);
+  const secret =
+    process.env.JWT_SECRET || "test-secret-key-change-in-production";
+
+  // Sign with negative expiry to create already-expired token
+  return jwt.sign(payload, secret, {
+    expiresIn: "-1h", // Already expired
+    issuer: "nuvana-backend",
+    audience: "nuvana-api",
   });
-  return JSON.stringify(payload);
 };
 
 /**
  * Creates expired JWT refresh token (for testing error handling)
+ * Includes JTI but doesn't store in Redis (token is already expired)
  */
 export const createExpiredJWTRefreshToken = (
   overrides: Partial<JWTTokenPayload> = {},
 ): string => {
-  const now = Math.floor(Date.now() / 1000);
-  const payload = createJWTRefreshTokenPayload({
-    exp: now - 3600, // Expired 1 hour ago
-    ...overrides,
+  const { randomUUID } = require("crypto");
+
+  // Generate JTI for consistency (but don't store in Redis since token is expired)
+  const jti = randomUUID();
+
+  const payload = {
+    ...createJWTRefreshTokenPayload(overrides),
+    jti, // Add JTI to payload
+  };
+
+  const secret =
+    process.env.JWT_REFRESH_SECRET ||
+    "test-refresh-secret-key-change-in-production";
+
+  // Sign with negative expiry to create already-expired token
+  return jwt.sign(payload, secret, {
+    expiresIn: "-1h", // Already expired
+    issuer: "nuvana-backend",
+    audience: "nuvana-api",
   });
-  return JSON.stringify(payload);
 };
 
 /**

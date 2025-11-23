@@ -4,6 +4,7 @@
  */
 
 import { PrismaClient } from "@prisma/client";
+import { generatePublicId, PUBLIC_ID_PREFIXES } from "./utils/public-id";
 
 const prisma = new PrismaClient();
 
@@ -19,6 +20,7 @@ async function testPrismaClient() {
     console.log("Testing Company creation...");
     const company = await prisma.company.create({
       data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
         name: "Test Company",
         status: "ACTIVE",
       },

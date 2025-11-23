@@ -1,141 +1,177 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { createClient } from "@supabase/supabase-js";
-import { getUserOrCreate, getUserById } from "../services/user.service";
+import bcrypt from "bcrypt";
+import { getUserById } from "../services/user.service";
 import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
+import { PrismaClient } from "@prisma/client";
 
-/**
- * OAuth callback endpoint that handles Supabase OAuth authentication
- * GET /api/auth/callback
- */
+const prisma = new PrismaClient();
+
+// NOTE: OAuth has been removed from this application
+// Using local email/password authentication with bcrypt
+
 export async function authRoutes(fastify: FastifyInstance) {
-  fastify.get(
-    "/api/auth/callback",
+  /**
+   * Login endpoint - Local email/password authentication
+   * POST /api/auth/login
+   * Validates credentials, generates JWT tokens with RBAC
+   */
+  fastify.post(
+    "/api/auth/login",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        // Extract query parameters
-        const query = request.query as {
-          code?: string;
-          state?: string;
-          error?: string;
+        const { email, password } = request.body as {
+          email: string;
+          password: string;
         };
 
-        // Validate required code parameter
-        if (!query.code) {
+        // Validate input
+        if (!email || !password) {
           reply.code(400);
           return {
-            error: "Missing required parameter: code",
-            message: "OAuth code is required for authentication",
+            error: "Bad Request",
+            message: "Email and password are required",
           };
         }
 
-        // Handle OAuth errors from provider
-        if (query.error) {
+        // Find user by email
+        const user = await prisma.user.findUnique({
+          where: { email: email.toLowerCase().trim() },
+        });
+
+        if (!user) {
           reply.code(401);
           return {
-            error: "OAuth authentication failed",
-            message: query.error,
+            error: "Unauthorized",
+            message: "Invalid email or password",
           };
         }
 
-        // Initialize Supabase client for token validation
-        const supabaseUrl = process.env.SUPABASE_URL;
-        const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-        if (!supabaseUrl || !supabaseServiceKey) {
-          fastify.log.error("Missing Supabase configuration");
-          reply.code(500);
-          return {
-            error: "Server configuration error",
-            message: "Supabase configuration is missing",
-          };
-        }
-
-        const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-        // Exchange OAuth code for session (Supabase handles this)
-        // Note: In production, the frontend typically handles the OAuth flow
-        // and sends the access token to the backend for validation
-        // For this implementation, we'll validate the code directly
-        const { data: sessionData, error: sessionError } =
-          await supabase.auth.exchangeCodeForSession(query.code);
-
-        if (sessionError || !sessionData.session) {
-          fastify.log.error(
-            { error: sessionError },
-            "Failed to exchange code for session",
-          );
+        // Check if user is active
+        if (user.status !== "ACTIVE") {
           reply.code(401);
           return {
-            error: "Invalid OAuth code",
-            message: "The provided authorization code is invalid or expired",
+            error: "Unauthorized",
+            message: "Account is inactive",
           };
         }
 
-        // Extract user identity from session
-        const user = sessionData.user;
-        if (!user || !user.id || !user.email) {
+        // Check if user has a password set
+        if (!user.password_hash) {
           reply.code(401);
           return {
-            error: "Invalid user data",
-            message: "Unable to extract user identity from OAuth token",
+            error: "Unauthorized",
+            message: "Password not set for this account",
           };
         }
 
-        // Get or create user in local database
-        const localUser = await getUserOrCreate(
-          user.id, // auth_provider_id (Supabase user ID)
-          user.email,
-          user.user_metadata?.name ||
-            user.user_metadata?.full_name ||
-            undefined,
+        // Verify password
+        const isValidPassword = await bcrypt.compare(
+          password,
+          user.password_hash,
         );
 
-        // Generate JWT tokens
-        // Note: Roles and permissions will be empty arrays until RBAC framework is implemented (Story 1-7)
+        if (!isValidPassword) {
+          reply.code(401);
+          return {
+            error: "Unauthorized",
+            message: "Invalid email or password",
+          };
+        }
+
+        // Generate JWT tokens with RBAC
         const authService = new AuthService();
-        const { accessToken, refreshToken } = authService.generateTokenPair(
-          localUser.user_id,
-          localUser.email,
-          [], // roles - empty until RBAC implemented
-          [], // permissions - empty until RBAC implemented
-        );
+        const { accessToken, refreshToken } =
+          await authService.generateTokenPairWithRBAC(user.user_id, user.email);
 
-        // Set httpOnly cookies with secure flags
+        // Set httpOnly cookies
         // Access token cookie (15 min expiry)
-        (reply as any).setCookie("accessToken", accessToken, {
+        (reply as any).setCookie("access_token", accessToken, {
           httpOnly: true,
-          secure: true, // HTTPS only
-          sameSite: "strict", // CSRF protection
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
           path: "/",
           maxAge: 15 * 60, // 15 minutes in seconds
         });
 
         // Refresh token cookie (7 days expiry)
-        (reply as any).setCookie("refreshToken", refreshToken, {
+        (reply as any).setCookie("refresh_token", refreshToken, {
           httpOnly: true,
-          secure: true, // HTTPS only
-          sameSite: "strict", // CSRF protection
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
           path: "/",
           maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
         });
 
-        // Return user identity
+        // Return success response with user data
         reply.code(200);
         return {
+          message: "Login successful",
           user: {
-            id: localUser.user_id,
-            email: localUser.email,
-            name: localUser.name,
-            auth_provider_id: localUser.auth_provider_id,
+            id: user.user_id,
+            email: user.email,
+            name: user.name,
           },
         };
       } catch (error) {
-        fastify.log.error({ error }, "OAuth callback error");
+        fastify.log.error({ error }, "Login error");
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "An error occurred during authentication",
+          error: "Internal Server Error",
+          message: "An error occurred during login",
+        };
+      }
+    },
+  );
+
+  /**
+   * Logout endpoint - Clear auth cookies and invalidate refresh token
+   * POST /api/auth/logout
+   * Clears httpOnly cookies and invalidates refresh token in Redis
+   */
+  fastify.post(
+    "/api/auth/logout",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // Extract refresh token from cookie to invalidate it
+        const refreshToken = (request as any).cookies?.refresh_token;
+
+        if (refreshToken) {
+          try {
+            const authService = new AuthService();
+            const decoded = await authService.verifyRefreshToken(refreshToken);
+
+            // Invalidate the refresh token in Redis
+            if (decoded.jti) {
+              await authService.invalidateRefreshToken(decoded.jti);
+            }
+          } catch (error) {
+            // Token already invalid or expired - that's fine, continue with logout
+            fastify.log.debug(
+              { error },
+              "Refresh token validation failed during logout (expected if token expired)",
+            );
+          }
+        }
+
+        // Clear both auth cookies
+        (reply as any).clearCookie("access_token", { path: "/" });
+        (reply as any).clearCookie("refresh_token", { path: "/" });
+
+        reply.code(200);
+        return {
+          message: "Logout successful",
+        };
+      } catch (error) {
+        fastify.log.error({ error }, "Logout error");
+
+        // Even if invalidation fails, clear cookies and return success
+        (reply as any).clearCookie("access_token", { path: "/" });
+        (reply as any).clearCookie("refresh_token", { path: "/" });
+
+        reply.code(200);
+        return {
+          message: "Logout successful",
         };
       }
     },
@@ -151,36 +187,37 @@ export async function authRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         // Extract refresh token from httpOnly cookie
-        const refreshToken = (request as any).cookies?.refreshToken;
+        const refreshToken = (request as any).cookies?.refresh_token;
 
         if (!refreshToken) {
           reply.code(401);
           return {
-            error: "Unauthorized",
-            message: "Missing refresh token cookie",
+            error: "Missing refresh token cookie",
           };
         }
 
         // Verify refresh token
         const authService = new AuthService();
-        const decoded = authService.verifyRefreshToken(refreshToken);
+        const decoded = await authService.verifyRefreshToken(refreshToken);
+
+        // Invalidate old refresh token (token rotation security)
+        if (decoded.jti) {
+          await authService.invalidateRefreshToken(decoded.jti);
+        }
 
         // Get user from database by user_id to retrieve current roles/permissions
-        // Note: Roles and permissions will be empty until RBAC is implemented (Story 1-7)
         const localUser = await getUserById(decoded.user_id);
 
-        // Generate new token pair (token rotation - old refresh token is now invalid)
+        // Generate new token pair with roles and permissions from database (token rotation - old refresh token is now invalid)
         const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
-          authService.generateTokenPair(
+          await authService.generateTokenPairWithRBAC(
             localUser.user_id,
             localUser.email,
-            [], // roles - empty until RBAC implemented
-            [], // permissions - empty until RBAC implemented
           );
 
         // Set new httpOnly cookies with secure flags
         // Access token cookie (15 min expiry)
-        (reply as any).setCookie("accessToken", newAccessToken, {
+        (reply as any).setCookie("access_token", newAccessToken, {
           httpOnly: true,
           secure: true, // HTTPS only
           sameSite: "strict", // CSRF protection
@@ -189,7 +226,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         });
 
         // Refresh token cookie (7 days expiry) - rotated
-        (reply as any).setCookie("refreshToken", newRefreshToken, {
+        (reply as any).setCookie("refresh_token", newRefreshToken, {
           httpOnly: true,
           secure: true, // HTTPS only
           sameSite: "strict", // CSRF protection
@@ -210,13 +247,12 @@ export async function authRoutes(fastify: FastifyInstance) {
         fastify.log.error({ error }, "Refresh token error");
 
         // Clear invalid cookies
-        (reply as any).clearCookie("accessToken", { path: "/" });
-        (reply as any).clearCookie("refreshToken", { path: "/" });
+        (reply as any).clearCookie("access_token", { path: "/" });
+        (reply as any).clearCookie("refresh_token", { path: "/" });
 
         reply.code(401);
         return {
-          error: "Unauthorized",
-          message:
+          error:
             error instanceof Error
               ? error.message
               : "Refresh token validation failed",

@@ -4,6 +4,10 @@ import {
   createUser,
   createStore,
 } from "../../support/factories";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../../backend/src/utils/public-id";
 
 /**
  * Database Setup - Schema Validation API Tests
@@ -32,6 +36,7 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
       // THEN: User should be created successfully
       const user = await prismaClient.user.create({
         data: {
+          public_id: userData.public_id,
           email: userData.email,
           name: userData.name,
           auth_provider_id: userData.auth_provider_id,
@@ -68,6 +73,7 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
       // THEN: Company should be created successfully
       const company = await prismaClient.company.create({
         data: {
+          public_id: companyData.public_id,
           name: companyData.name,
           status: companyData.status,
         },
@@ -102,6 +108,7 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
       const companyData = createCompany();
       const company = await prismaClient.company.create({
         data: {
+          public_id: companyData.public_id,
           name: companyData.name,
           status: companyData.status,
         },
@@ -113,6 +120,7 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
       // THEN: Store should be created successfully
       const store = await prismaClient.store.create({
         data: {
+          public_id: storeData.public_id,
           company_id: storeData.company_id,
           name: storeData.name,
           location_json: storeData.location_json as any,
@@ -156,6 +164,7 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
       // Create first user
       const firstUser = await prismaClient.user.create({
         data: {
+          public_id: userData.public_id,
           email: userData.email,
           name: userData.name,
           status: userData.status,
@@ -167,6 +176,7 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
       await expect(
         prismaClient.user.create({
           data: {
+            public_id: userData.public_id,
             email: userData.email,
             name: "Different Name",
             status: "ACTIVE",
@@ -195,6 +205,7 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
       const companyData = createCompany();
       const company = await prismaClient.company.create({
         data: {
+          public_id: companyData.public_id,
           name: companyData.name,
           status: companyData.status,
         },
@@ -204,6 +215,7 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
       const storeData = createStore({ company_id: company.company_id });
       const store = await prismaClient.store.create({
         data: {
+          public_id: storeData.public_id,
           company_id: storeData.company_id,
           name: storeData.name,
           timezone: storeData.timezone,

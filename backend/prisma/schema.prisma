@@ -1,8 +1,6 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
+  output   = "../../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -11,47 +9,277 @@ datasource db {
 }
 
 model User {
-  user_id          String   @id @default(uuid()) @db.Uuid
-  email            String   @unique @db.VarChar(255)
-  name             String   @db.VarChar(255)
-  auth_provider_id String?  @db.VarChar(255)
-  status           String   @default("ACTIVE") @db.VarChar(50)
-  created_at       DateTime @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  user_id          String        @id @default(uuid()) @db.Uuid
+  email            String        @unique @db.VarChar(255)
+  name             String        @db.VarChar(255)
+  auth_provider_id String?       @unique @db.VarChar(255)
+  status           String        @default("ACTIVE") @db.VarChar(50)
+  created_at       DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
+  password_hash    String?       @db.VarChar(255)
+  public_id        String        @unique @db.VarChar(30)
+  audit_logs       AuditLog[]
+  shifts           Shift[]       @relation("ShiftCashier")
+  transactions     Transaction[] @relation("TransactionCashier")
+  assigned_roles   UserRole[]    @relation("UserRoleAssigner")
+  user_roles       UserRole[]
 
   @@index([email])
-  @@index([auth_provider_id])
   @@index([status])
+  @@index([public_id])
   @@map("users")
 }
 
-model Company {
-  company_id String   @id @default(uuid()) @db.Uuid
-  name       String   @db.VarChar(255)
-  status     String   @default("ACTIVE") @db.VarChar(50)
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  stores Store[]
+model Client {
+  client_id  String     @id @default(uuid()) @db.Uuid
+  name       String     @db.VarChar(255)
+  email      String     @db.VarChar(255)
+  status     String     @default("ACTIVE") @db.VarChar(50)
+  metadata   Json?
+  created_at DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at DateTime   @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at DateTime?  @db.Timestamptz(6)
+  public_id  String     @unique @db.VarChar(30)
+  companies  Company[]
+  user_roles UserRole[]
 
   @@index([status])
+  @@index([deleted_at])
+  @@index([public_id])
+  @@index([email])
+  @@map("clients")
+}
+
+model Company {
+  company_id String     @id @default(uuid()) @db.Uuid
+  name       String     @db.VarChar(255)
+  status     String     @default("ACTIVE") @db.VarChar(50)
+  created_at DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at DateTime   @default(now()) @updatedAt @db.Timestamptz(6)
+  client_id  String?    @db.Uuid
+  deleted_at DateTime?  @db.Timestamptz(6)
+  public_id  String     @unique @db.VarChar(30)
+  client     Client?    @relation(fields: [client_id], references: [client_id])
+  stores     Store[]
+  user_roles UserRole[]
+
+  @@index([client_id])
+  @@index([status])
+  @@index([public_id])
   @@map("companies")
 }
 
 model Store {
-  store_id     String   @id @default(uuid()) @db.Uuid
-  company_id   String   @db.Uuid
-  name         String   @db.VarChar(255)
-  location_json Json?   @db.JsonB
-  timezone     String   @default("America/New_York") @db.VarChar(50)
-  status       String   @default("ACTIVE") @db.VarChar(50)
-  created_at   DateTime @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  company Company @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  store_id      String        @id @default(uuid()) @db.Uuid
+  company_id    String        @db.Uuid
+  name          String        @db.VarChar(255)
+  location_json Json?
+  timezone      String        @default("America/New_York") @db.VarChar(50)
+  status        String        @default("ACTIVE") @db.VarChar(50)
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at    DateTime?     @db.Timestamptz(6)
+  configuration Json?
+  public_id     String        @unique @db.VarChar(30)
+  pos_terminals POSTerminal[]
+  shifts        Shift[]
+  company       Company       @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  transactions  Transaction[]
+  user_roles    UserRole[]
 
   @@index([company_id])
   @@index([status])
+  @@index([deleted_at])
+  @@index([public_id])
   @@map("stores")
 }
 
+model Role {
+  role_id          String           @id @default(uuid()) @db.Uuid
+  scope            String           @db.VarChar(50)
+  code             String           @unique @db.VarChar(100)
+  description      String?
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+  role_permissions RolePermission[]
+  user_roles       UserRole[]
+
+  @@index([scope])
+  @@index([code])
+  @@map("roles")
+}
+
+model Permission {
+  permission_id    String           @id @default(uuid()) @db.Uuid
+  code             String           @unique @db.VarChar(100)
+  description      String?
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  role_permissions RolePermission[]
+
+  @@index([code])
+  @@map("permissions")
+}
+
+model UserRole {
+  user_role_id String    @id @default(uuid()) @db.Uuid
+  user_id      String    @db.Uuid
+  role_id      String    @db.Uuid
+  company_id   String?   @db.Uuid
+  store_id     String?   @db.Uuid
+  assigned_by  String?   @db.Uuid
+  assigned_at  DateTime  @default(now()) @db.Timestamptz(6)
+  client_id    String?   @db.Uuid
+  status       String    @default("ACTIVE") @db.VarChar(50)
+  deleted_at   DateTime? @db.Timestamptz(6)
+  assigner     User?     @relation("UserRoleAssigner", fields: [assigned_by], references: [user_id])
+  client       Client?   @relation(fields: [client_id], references: [client_id], onDelete: Cascade)
+  company      Company?  @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  role         Role      @relation(fields: [role_id], references: [role_id], onDelete: Cascade)
+  store        Store?    @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  user         User      @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@unique([user_id, role_id, client_id, company_id, store_id])
+  @@index([user_id])
+  @@index([client_id])
+  @@index([company_id])
+  @@index([store_id])
+  @@index([status])
+  @@index([deleted_at])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  role_id       String     @db.Uuid
+  permission_id String     @db.Uuid
+  permission    Permission @relation(fields: [permission_id], references: [permission_id], onDelete: Cascade)
+  role          Role       @relation(fields: [role_id], references: [role_id], onDelete: Cascade)
+
+  @@id([role_id, permission_id])
+  @@index([role_id])
+  @@index([permission_id])
+  @@map("role_permissions")
+}
+
+model AuditLog {
+  log_id     String   @id @default(uuid()) @db.Uuid
+  user_id    String?  @db.Uuid
+  action     String   @db.VarChar(50)
+  table_name String   @db.VarChar(100)
+  record_id  String   @db.Uuid
+  old_values Json?
+  new_values Json?
+  reason     String?
+  ip_address String?  @db.VarChar(45)
+  user_agent String?
+  timestamp  DateTime @default(now()) @db.Timestamptz(6)
+  user       User?    @relation(fields: [user_id], references: [user_id])
+
+  @@index([user_id])
+  @@index([table_name])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+model Shift {
+  shift_id        String        @id @default(uuid()) @db.Uuid
+  store_id        String        @db.Uuid
+  cashier_id      String        @db.Uuid
+  pos_terminal_id String?       @db.Uuid
+  start_time      DateTime      @default(now()) @db.Timestamptz(6)
+  end_time        DateTime?     @db.Timestamptz(6)
+  opening_amount  Decimal       @default(0) @db.Decimal(10, 2)
+  closing_amount  Decimal?      @db.Decimal(10, 2)
+  status          String        @default("OPEN") @db.VarChar(50)
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
+  public_id       String?       @unique @db.VarChar(30)
+  cashier         User          @relation("ShiftCashier", fields: [cashier_id], references: [user_id])
+  pos_terminal    POSTerminal?  @relation(fields: [pos_terminal_id], references: [pos_terminal_id])
+  store           Store         @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  transactions    Transaction[]
+
+  @@index([store_id])
+  @@index([cashier_id])
+  @@index([pos_terminal_id])
+  @@index([status])
+  @@index([start_time])
+  @@index([public_id])
+  @@map("shifts")
+}
+
+model POSTerminal {
+  pos_terminal_id String        @id @default(uuid()) @db.Uuid
+  store_id        String        @db.Uuid
+  name            String        @db.VarChar(100)
+  device_id       String?       @db.VarChar(255)
+  status          String        @default("ACTIVE") @db.VarChar(50)
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
+  store           Store         @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  shifts          Shift[]
+  transactions    Transaction[]
+
+  @@index([store_id])
+  @@index([status])
+  @@map("pos_terminals")
+}
+
+model Transaction {
+  transaction_id  String                @id @default(uuid()) @db.Uuid
+  store_id        String                @db.Uuid
+  shift_id        String                @db.Uuid
+  cashier_id      String                @db.Uuid
+  pos_terminal_id String?               @db.Uuid
+  timestamp       DateTime              @default(now()) @db.Timestamptz(6)
+  subtotal        Decimal               @db.Decimal(10, 2)
+  tax             Decimal               @default(0) @db.Decimal(10, 2)
+  discount        Decimal               @default(0) @db.Decimal(10, 2)
+  total           Decimal               @db.Decimal(10, 2)
+  created_at      DateTime              @default(now()) @db.Timestamptz(6)
+  public_id       String                @unique @db.VarChar(30)
+  line_items      TransactionLineItem[]
+  payments        TransactionPayment[]
+  cashier         User                  @relation("TransactionCashier", fields: [cashier_id], references: [user_id])
+  pos_terminal    POSTerminal?          @relation(fields: [pos_terminal_id], references: [pos_terminal_id])
+  shift           Shift                 @relation(fields: [shift_id], references: [shift_id])
+  store           Store                 @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+
+  @@index([store_id])
+  @@index([shift_id])
+  @@index([cashier_id])
+  @@index([pos_terminal_id])
+  @@index([timestamp])
+  @@index([public_id])
+  @@map("transactions")
+}
+
+model TransactionLineItem {
+  line_item_id   String      @id @default(uuid()) @db.Uuid
+  transaction_id String      @db.Uuid
+  product_id     String?     @db.Uuid
+  sku            String?     @db.VarChar(100)
+  name           String      @db.VarChar(255)
+  quantity       Int
+  unit_price     Decimal     @db.Decimal(10, 2)
+  discount       Decimal     @default(0) @db.Decimal(10, 2)
+  line_total     Decimal     @db.Decimal(10, 2)
+  created_at     DateTime    @default(now()) @db.Timestamptz(6)
+  transaction    Transaction @relation(fields: [transaction_id], references: [transaction_id], onDelete: Cascade)
+
+  @@index([transaction_id])
+  @@index([product_id])
+  @@map("transaction_line_items")
+}
+
+model TransactionPayment {
+  payment_id     String      @id @default(uuid()) @db.Uuid
+  transaction_id String      @db.Uuid
+  method         String      @db.VarChar(50)
+  amount         Decimal     @db.Decimal(10, 2)
+  reference      String?     @db.VarChar(100)
+  created_at     DateTime    @default(now()) @db.Timestamptz(6)
+  transaction    Transaction @relation(fields: [transaction_id], references: [transaction_id], onDelete: Cascade)
+
+  @@index([transaction_id])
+  @@map("transaction_payments")
+}

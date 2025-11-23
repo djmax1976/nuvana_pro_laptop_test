@@ -1,0 +1,2048 @@
+
+> backend@1.0.0 start:test
+> cross-env NODE_ENV=test node dist/app.js
+
+{"level":30,"time":1763781340078,"pid":5318,"hostname":"runnervmg1sw1","msg":"Initializing Redis connection..."}
+Redis: Connecting...
+Redis: Client ready
+Redis: Connected successfully
+{"level":30,"time":1763781340097,"pid":5318,"hostname":"runnervmg1sw1","msg":"Redis connection established"}
+{"level":30,"time":1763781340097,"pid":5318,"hostname":"runnervmg1sw1","msg":"Initializing RabbitMQ connection..."}
+RabbitMQ: Connected successfully
+{"level":30,"time":1763781340174,"pid":5318,"hostname":"runnervmg1sw1","msg":"RabbitMQ connection established"}
+{"level":30,"time":1763781340174,"pid":5318,"hostname":"runnervmg1sw1","msg":"Setting up RabbitMQ queues..."}
+RabbitMQ: Queue transactions.processing setup complete
+{"level":30,"time":1763781340192,"pid":5318,"hostname":"runnervmg1sw1","msg":"RabbitMQ queues initialized successfully"}
+{"level":30,"time":1763781340328,"pid":5318,"hostname":"runnervmg1sw1","msg":"Server listening at http://[::]:3001"}
+{"level":30,"time":1763781340328,"pid":5318,"hostname":"runnervmg1sw1","msg":"Server listening on :::3001"}
+{"level":30,"time":1763781340328,"pid":5318,"hostname":"runnervmg1sw1","msg":"Health endpoint available at /api/health"}
+{"level":30,"time":1763781344520,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":51460},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781344530,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1","res":{"statusCode":200},"responseTime":10.107907999976305,"msg":"request completed"}
+{"level":30,"time":1763781357217,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2","req":{"method":"GET","url":"/api/clients/dropdown","host":"localhost:3001","remoteAddress":"::ffff:127.0.0.1","remotePort":53134},"msg":"incoming request"}
+{"level":30,"time":1763781357219,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2","res":{"statusCode":401},"responseTime":1.435750000004191,"msg":"request completed"}
+{"level":30,"time":1763781357225,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3","req":{"method":"GET","url":"/api/clients/dropdown","host":"localhost:3001","remoteAddress":"::ffff:127.0.0.1","remotePort":53144},"msg":"incoming request"}
+{"level":30,"time":1763781357226,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3","res":{"statusCode":401},"responseTime":0.9063980000209995,"msg":"request completed"}
+{"level":30,"time":1763781357227,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4","req":{"method":"GET","url":"/api/clients/dropdown","host":"localhost:3001","remoteAddress":"::ffff:127.0.0.1","remotePort":53158},"msg":"incoming request"}
+{"level":30,"time":1763781357227,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4","res":{"statusCode":401},"responseTime":0.5395209999987856,"msg":"request completed"}
+{"level":30,"time":1763781357228,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5","req":{"method":"GET","url":"/api/clients/dropdown","host":"localhost:3001","remoteAddress":"::ffff:127.0.0.1","remotePort":53164},"msg":"incoming request"}
+{"level":30,"time":1763781357235,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5","res":{"statusCode":401},"responseTime":0.7799510000040755,"msg":"request completed"}
+{"level":30,"time":1763781357235,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::ffff:127.0.0.1","remotePort":53134},"msg":"incoming request"}
+{"level":30,"time":1763781357236,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6","res":{"statusCode":401},"responseTime":0.8084239999880083,"msg":"request completed"}
+{"level":30,"time":1763781357236,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7","req":{"method":"GET","url":"/api/clients/dropdown","host":"localhost:3001","remoteAddress":"::1","remotePort":46304},"msg":"incoming request"}
+{"level":30,"time":1763781357241,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7","res":{"statusCode":401},"responseTime":4.209062999987509,"msg":"request completed"}
+{"level":30,"time":1763781357241,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8","req":{"method":"GET","url":"/api/clients/dropdown","host":"localhost:3001","remoteAddress":"::1","remotePort":46308},"msg":"incoming request"}
+{"level":30,"time":1763781357242,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8","res":{"statusCode":401},"responseTime":0.4158490000118036,"msg":"request completed"}
+{"level":30,"time":1763781358313,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-9","req":{"method":"GET","url":"/api/clients/dropdown","host":"localhost:3001","remoteAddress":"::1","remotePort":46324},"msg":"incoming request"}
+{"level":30,"time":1763781358320,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-9","res":{"statusCode":401},"responseTime":7.463202999992063,"msg":"request completed"}
+{"level":30,"time":1763781358321,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-a","req":{"method":"GET","url":"/api/clients/dropdown","host":"localhost:3001","remoteAddress":"::1","remotePort":46330},"msg":"incoming request"}
+{"level":30,"time":1763781358322,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-a","res":{"statusCode":401},"responseTime":0.7860229999932926,"msg":"request completed"}
+{"level":30,"time":1763781358328,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-b","req":{"method":"GET","url":"/api/clients/dropdown","host":"localhost:3001","remoteAddress":"::1","remotePort":46342},"msg":"incoming request"}
+{"level":30,"time":1763781358329,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-b","res":{"statusCode":401},"responseTime":0.7959820000105537,"msg":"request completed"}
+{"level":30,"time":1763781358331,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-c","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":46324},"msg":"incoming request"}
+{"level":30,"time":1763781358335,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-c","res":{"statusCode":401},"responseTime":0.7974140000005718,"msg":"request completed"}
+{"level":30,"time":1763781358337,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-d","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":46330},"msg":"incoming request"}
+{"level":30,"time":1763781358337,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-d","res":{"statusCode":401},"responseTime":0.5562820000050124,"msg":"request completed"}
+{"level":30,"time":1763781358337,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-e","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":46348},"msg":"incoming request"}
+{"level":30,"time":1763781358338,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-e","res":{"statusCode":401},"responseTime":0.734636999986833,"msg":"request completed"}
+{"level":30,"time":1763781363077,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-f","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781363081,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-f","res":{"statusCode":200},"responseTime":3.861791000002995,"msg":"request completed"}
+{"level":30,"time":1763781363126,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-g","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781363130,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-g","res":{"statusCode":200},"responseTime":3.6570149999752175,"msg":"request completed"}
+{"level":30,"time":1763781363160,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-h","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781363164,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-h","res":{"statusCode":200},"responseTime":3.572228000004543,"msg":"request completed"}
+{"level":30,"time":1763781363281,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-i","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781363422,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-i","res":{"statusCode":201},"responseTime":141.4522730000026,"msg":"request completed"}
+{"level":30,"time":1763781363529,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-j","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781363531,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error creating client"}
+{"level":30,"time":1763781363532,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-j","res":{"statusCode":400},"responseTime":2.780148999998346,"msg":"request completed"}
+{"level":30,"time":1763781363617,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-k","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781363619,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-k","res":{"statusCode":400},"responseTime":2.1528640000033192,"msg":"request completed"}
+{"level":30,"time":1763781363703,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-l","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781363704,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-l","res":{"statusCode":400},"responseTime":1.7697859999898355,"msg":"request completed"}
+{"level":30,"time":1763781363784,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-m","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781363786,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-m","res":{"statusCode":400},"responseTime":1.7864769999869168,"msg":"request completed"}
+{"level":30,"time":1763781363871,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-n","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781363947,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-n","res":{"statusCode":201},"responseTime":76.37507599999662,"msg":"request completed"}
+{"level":30,"time":1763781363951,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-o","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+Error creating client: PrismaClientKnownRequestError: 
+Invalid `tx.user.create()` invocation in
+/home/runner/work/nuvana_pro_laptop_test/nuvana_pro_laptop_test/backend/dist/services/client.service.js:122:44
+
+  119 // Use transaction to create User + Client + UserRole atomically
+  120 const result = await prisma.$transaction(async (tx) => {
+  121     // 1. Create User record (for authentication)
+→ 122     const user = await tx.user.create(
+Unique constraint failed on the fields: (`email`)
+    at ei.handleRequestError (/home/runner/work/nuvana_pro_laptop_test/nuvana_pro_laptop_test/node_modules/.prisma/client/runtime/library.js:125:7268)
+    at ei.handleAndLogRequestError (/home/runner/work/nuvana_pro_laptop_test/nuvana_pro_laptop_test/node_modules/.prisma/client/runtime/library.js:125:6593)
+    at ei.request (/home/runner/work/nuvana_pro_laptop_test/nuvana_pro_laptop_test/node_modules/.prisma/client/runtime/library.js:125:6300)
+    at async a (/home/runner/work/nuvana_pro_laptop_test/nuvana_pro_laptop_test/node_modules/.prisma/client/runtime/library.js:134:9551)
+    at async /home/runner/work/nuvana_pro_laptop_test/nuvana_pro_laptop_test/backend/dist/services/client.service.js:122:30
+    at async Proxy._transactionWithCallback (/home/runner/work/nuvana_pro_laptop_test/nuvana_pro_laptop_test/node_modules/.prisma/client/runtime/library.js:134:8120)
+    at async ClientService.createClient (/home/runner/work/nuvana_pro_laptop_test/nuvana_pro_laptop_test/backend/dist/services/client.service.js:120:28)
+    at async Object.<anonymous> (/home/runner/work/nuvana_pro_laptop_test/nuvana_pro_laptop_test/backend/dist/routes/clients.js:132:28) {
+  code: 'P2002',
+  meta: { modelName: 'User', target: [ 'email' ] },
+  clientVersion: '6.19.0'
+}
+{"level":50,"time":1763781364022,"pid":5318,"hostname":"runnervmg1sw1","error":{"code":"P2002","meta":{"modelName":"User","target":["email"]},"clientVersion":"6.19.0","name":"PrismaClientKnownRequestError"},"msg":"Error creating client"}
+{"level":30,"time":1763781364023,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-o","res":{"statusCode":400},"responseTime":72.17625200000475,"msg":"request completed"}
+{"level":30,"time":1763781364106,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-p","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781364178,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-p","res":{"statusCode":201},"responseTime":71.36404899999616,"msg":"request completed"}
+{"level":30,"time":1763781364181,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-q","req":{"method":"PUT","url":"/api/clients/clt_s3y0dljxktjhumncui3wzswq","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781364244,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-q","res":{"statusCode":200},"responseTime":62.09487899998203,"msg":"request completed"}
+{"level":30,"time":1763781364333,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-r","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781364405,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-r","res":{"statusCode":201},"responseTime":72.22802100001718,"msg":"request completed"}
+{"level":30,"time":1763781364410,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-s","req":{"method":"PUT","url":"/api/clients/clt_akyhbbgtzs8stmlex1ucm12s","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781364482,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-s","res":{"statusCode":200},"responseTime":71.28638300002785,"msg":"request completed"}
+{"level":30,"time":1763781364627,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-t","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781364697,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-t","res":{"statusCode":201},"responseTime":69.59465499999351,"msg":"request completed"}
+{"level":30,"time":1763781364701,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-u","req":{"method":"PUT","url":"/api/clients/clt_vxmgfg4vil7szcavnwsg2y3t","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781364711,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-u","res":{"statusCode":200},"responseTime":9.810412999999244,"msg":"request completed"}
+{"level":30,"time":1763781364791,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-v","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781364861,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-v","res":{"statusCode":201},"responseTime":70.72252499999013,"msg":"request completed"}
+{"level":30,"time":1763781364864,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-w","req":{"method":"PUT","url":"/api/clients/clt_an3xmmn8fp0ewfnt8smys63l","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781364867,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-w","res":{"statusCode":400},"responseTime":2.4097750000073574,"msg":"request completed"}
+{"level":30,"time":1763781364946,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-x","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781365015,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-x","res":{"statusCode":201},"responseTime":68.63786399998935,"msg":"request completed"}
+{"level":30,"time":1763781365158,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-y","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781365228,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-y","res":{"statusCode":201},"responseTime":69.97718799998984,"msg":"request completed"}
+{"level":30,"time":1763781365231,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-z","req":{"method":"GET","url":"/api/clients/clt_y1ij8wmya4v7ihdrfq2k2dxf","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781365235,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-z","res":{"statusCode":200},"responseTime":4.005074000015156,"msg":"request completed"}
+{"level":30,"time":1763781365316,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-10","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781365386,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-10","res":{"statusCode":201},"responseTime":69.62378300001728,"msg":"request completed"}
+{"level":30,"time":1763781365389,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-11","req":{"method":"GET","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781365398,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-11","res":{"statusCode":200},"responseTime":8.316767000011168,"msg":"request completed"}
+{"level":30,"time":1763781365548,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-12","req":{"method":"POST","url":"/api/auth/login","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781365751,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-12","res":{"statusCode":200},"responseTime":202.181865999999,"msg":"request completed"}
+{"level":30,"time":1763781365755,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-13","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781365832,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-13","res":{"statusCode":201},"responseTime":76.41573899998912,"msg":"request completed"}
+{"level":30,"time":1763781365836,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-14","req":{"method":"POST","url":"/api/auth/login","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781365908,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-14","res":{"statusCode":200},"responseTime":71.03998999999021,"msg":"request completed"}
+{"level":30,"time":1763781366065,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-15","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781366141,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-15","res":{"statusCode":201},"responseTime":75.87829999998212,"msg":"request completed"}
+{"level":30,"time":1763781366253,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-16","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781366255,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-16","res":{"statusCode":400},"responseTime":1.5200480000057723,"msg":"request completed"}
+{"level":30,"time":1763781366334,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-17","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781366335,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-17","res":{"statusCode":400},"responseTime":1.8774780000094324,"msg":"request completed"}
+{"level":30,"time":1763781366423,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-18","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781366479,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-18","res":{"statusCode":403},"responseTime":56.043593999987934,"msg":"request completed"}
+{"level":30,"time":1763781366572,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-19","req":{"method":"GET","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781366575,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-19","res":{"statusCode":200},"responseTime":3.642091999994591,"msg":"request completed"}
+{"level":30,"time":1763781366661,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1a","req":{"method":"GET","url":"/api/clients/9fdfecf9-3b7b-4632-89fa-a14f93a59204","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781366664,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1a","res":{"statusCode":200},"responseTime":3.25450800001272,"msg":"request completed"}
+{"level":30,"time":1763781366748,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1b","req":{"method":"GET","url":"/api/clients/00000000-0000-0000-0000-000000000000","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781366750,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781366750,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1b","res":{"statusCode":404},"responseTime":2.672279000020353,"msg":"request completed"}
+{"level":30,"time":1763781366834,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1c","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781366904,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1c","res":{"statusCode":201},"responseTime":70.35877699998673,"msg":"request completed"}
+{"level":30,"time":1763781366908,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1d","req":{"method":"PUT","url":"/api/clients/75f9267f-02a3-4740-8d13-90d90e66f932","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781366919,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1d","res":{"statusCode":200},"responseTime":11.146164999983739,"msg":"request completed"}
+{"level":30,"time":1763781367010,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1e","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367079,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1e","res":{"statusCode":201},"responseTime":69.62771900001098,"msg":"request completed"}
+{"level":30,"time":1763781367083,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1f","req":{"method":"PUT","url":"/api/clients/73484007-038f-45a2-822f-1bf1d5ea70f0","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367092,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1f","res":{"statusCode":200},"responseTime":9.705803999997443,"msg":"request completed"}
+{"level":30,"time":1763781367181,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1g","req":{"method":"DELETE","url":"/api/clients/41bb3407-a260-47fc-bef8-0f5d999d1000","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367192,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1g","res":{"statusCode":200},"responseTime":10.915749000007054,"msg":"request completed"}
+{"level":30,"time":1763781367280,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1h","req":{"method":"GET","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367286,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1h","res":{"statusCode":403},"responseTime":5.8841039999970235,"msg":"request completed"}
+{"level":30,"time":1763781367289,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1i","req":{"method":"GET","url":"/api/clients/5a51c737-cca4-440c-b978-d85cce08063c","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367291,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1i","res":{"statusCode":403},"responseTime":2.540887000010116,"msg":"request completed"}
+{"level":30,"time":1763781367294,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1j","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367298,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1j","res":{"statusCode":403},"responseTime":4.276102000003448,"msg":"request completed"}
+{"level":30,"time":1763781367301,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1k","req":{"method":"PUT","url":"/api/clients/5a51c737-cca4-440c-b978-d85cce08063c","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367304,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1k","res":{"statusCode":403},"responseTime":2.4226889999990817,"msg":"request completed"}
+{"level":30,"time":1763781367306,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1l","req":{"method":"DELETE","url":"/api/clients/5a51c737-cca4-440c-b978-d85cce08063c","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367309,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1l","res":{"statusCode":403},"responseTime":2.7372990000003483,"msg":"request completed"}
+{"level":30,"time":1763781367401,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1m","req":{"method":"DELETE","url":"/api/clients/0e860cd2-a5fd-4cfe-8e42-0349d4bfbe85","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367413,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1m","res":{"statusCode":200},"responseTime":12.493848000012804,"msg":"request completed"}
+{"level":30,"time":1763781367498,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1n","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367569,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1n","res":{"statusCode":201},"responseTime":70.17361599998549,"msg":"request completed"}
+{"level":30,"time":1763781367649,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1o","req":{"method":"GET","url":"/api/clients?search=%27%20OR%20%271%27=%271","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367652,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1o","res":{"statusCode":200},"responseTime":3.1839100000215694,"msg":"request completed"}
+{"level":30,"time":1763781367726,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1p","req":{"method":"GET","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+{"level":30,"time":1763781367727,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1p","res":{"statusCode":401},"responseTime":0.39309700002195314,"msg":"request completed"}
+{"level":30,"time":1763781367729,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1q","req":{"method":"GET","url":"/api/clients/c78a05e7-a8f4-48ce-af23-dc2ffca7b906","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+{"level":30,"time":1763781367729,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1q","res":{"statusCode":401},"responseTime":0.32634200001484714,"msg":"request completed"}
+{"level":30,"time":1763781367731,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1r","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+{"level":30,"time":1763781367732,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1r","res":{"statusCode":401},"responseTime":0.40108199999667704,"msg":"request completed"}
+{"level":30,"time":1763781367734,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1s","req":{"method":"PUT","url":"/api/clients/c78a05e7-a8f4-48ce-af23-dc2ffca7b906","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+{"level":30,"time":1763781367734,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1s","res":{"statusCode":401},"responseTime":0.34258200001204386,"msg":"request completed"}
+{"level":30,"time":1763781367736,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1t","req":{"method":"DELETE","url":"/api/clients/c78a05e7-a8f4-48ce-af23-dc2ffca7b906","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+{"level":30,"time":1763781367736,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1t","res":{"statusCode":401},"responseTime":0.23657399998046458,"msg":"request completed"}
+{"level":30,"time":1763781367809,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1u","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367879,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1u","res":{"statusCode":201},"responseTime":69.52032200002577,"msg":"request completed"}
+{"level":30,"time":1763781367961,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1v","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367964,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1w","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781367966,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1x","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40788},"msg":"incoming request"}
+{"level":30,"time":1763781368038,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1v","res":{"statusCode":201},"responseTime":76.21935499997926,"msg":"request completed"}
+{"level":30,"time":1763781368046,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1x","res":{"statusCode":201},"responseTime":80.3787130000128,"msg":"request completed"}
+{"level":30,"time":1763781368058,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1w","res":{"statusCode":201},"responseTime":93.26413700002013,"msg":"request completed"}
+{"level":30,"time":1763781368148,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1y","req":{"method":"GET","url":"/api/clients/a8c53b88-1415-42f6-bd34-3f4fd1a1ef1a","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781368151,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1y","res":{"statusCode":200},"responseTime":3.213450000010198,"msg":"request completed"}
+{"level":30,"time":1763781368231,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1z","req":{"method":"GET","url":"/api/clients/clt_kcy9sf5m51c4v5yxj2rrmhqv","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781368235,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-1z","res":{"statusCode":200},"responseTime":3.5033240000193473,"msg":"request completed"}
+{"level":30,"time":1763781368324,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-20","req":{"method":"GET","url":"/api/clients/invalid-id","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781368325,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781368325,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-20","res":{"statusCode":404},"responseTime":1.2206270000024233,"msg":"request completed"}
+{"level":30,"time":1763781368329,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-21","req":{"method":"GET","url":"/api/clients/clt_","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781368330,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781368330,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-21","res":{"statusCode":404},"responseTime":1.2021020000101998,"msg":"request completed"}
+{"level":30,"time":1763781368334,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-22","req":{"method":"GET","url":"/api/clients/clt_abc","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781368335,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781368335,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-22","res":{"statusCode":404},"responseTime":1.3344600000127684,"msg":"request completed"}
+{"level":30,"time":1763781368339,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-23","req":{"method":"GET","url":"/api/clients/usr_1234567890abcdef","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781368340,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781368341,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-23","res":{"statusCode":404},"responseTime":1.2070919999969192,"msg":"request completed"}
+{"level":30,"time":1763781368345,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-24","req":{"method":"GET","url":"/api/clients/CLT_1234567890abcdef","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781368346,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781368346,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-24","res":{"statusCode":404},"responseTime":1.2338619999936782,"msg":"request completed"}
+{"level":30,"time":1763781368351,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-25","req":{"method":"GET","url":"/api/clients/clt-1234567890abcdef","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781368352,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781368352,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-25","res":{"statusCode":404},"responseTime":1.153200000000652,"msg":"request completed"}
+{"level":30,"time":1763781368431,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-26","req":{"method":"GET","url":"/api/clients/clt_nonexistent123","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781368433,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781368433,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-26","res":{"statusCode":404},"responseTime":2.2620849999948405,"msg":"request completed"}
+{"level":30,"time":1763781368512,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-27","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781368581,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-27","res":{"statusCode":201},"responseTime":69.54292599999462,"msg":"request completed"}
+{"level":30,"time":1763781368584,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-28","req":{"method":"PUT","url":"/api/clients/cd21feac-462c-409f-88e9-99583307a834","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781368593,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-28","res":{"statusCode":200},"responseTime":9.360167000006186,"msg":"request completed"}
+{"level":30,"time":1763781368679,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-29","req":{"method":"POST","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781368749,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-29","res":{"statusCode":201},"responseTime":70.06089100000099,"msg":"request completed"}
+{"level":30,"time":1763781368752,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2a","req":{"method":"PUT","url":"/api/clients/clt_yjwbw0sqvlh5ro9szelewm69","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781368761,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2a","res":{"statusCode":200},"responseTime":8.694773999974132,"msg":"request completed"}
+{"level":30,"time":1763781368843,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2b","req":{"method":"PUT","url":"/api/clients/clt_fabricated123","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781368845,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error updating client"}
+{"level":30,"time":1763781368845,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2b","res":{"statusCode":404},"responseTime":2.2582819999952335,"msg":"request completed"}
+{"level":30,"time":1763781368925,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2c","req":{"method":"DELETE","url":"/api/clients/ab95dd7c-a515-43fc-b9b6-72d2ad6b9871","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781368935,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2c","res":{"statusCode":200},"responseTime":10.423599000001559,"msg":"request completed"}
+{"level":30,"time":1763781369045,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2d","req":{"method":"DELETE","url":"/api/clients/clt_zyodzp9hkahta1c0l14v1ivi","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781369056,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2d","res":{"statusCode":200},"responseTime":10.904860000009649,"msg":"request completed"}
+{"level":30,"time":1763781369139,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2e","req":{"method":"DELETE","url":"/api/clients/clt_fabricated999","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781369141,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error deleting client"}
+{"level":30,"time":1763781369141,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2e","res":{"statusCode":404},"responseTime":2.090797000011662,"msg":"request completed"}
+{"level":30,"time":1763781369356,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2f","req":{"method":"GET","url":"/api/clients/dropdown","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781369359,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2f","res":{"statusCode":200},"responseTime":3.079534999997122,"msg":"request completed"}
+{"level":30,"time":1763781369781,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2g","req":{"method":"GET","url":"/api/clients/clt_1234567890","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781369783,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369783,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2g","res":{"statusCode":404},"responseTime":2.016587999998592,"msg":"request completed"}
+{"level":30,"time":1763781369786,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2h","req":{"method":"GET","url":"/api/clients/clt_abcdefghij","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781369787,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369787,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2h","res":{"statusCode":404},"responseTime":1.6370160000224132,"msg":"request completed"}
+{"level":30,"time":1763781369790,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2i","req":{"method":"GET","url":"/api/clients/clt_aaaaaaaaaa","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781369792,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369792,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2i","res":{"statusCode":404},"responseTime":2.127805999974953,"msg":"request completed"}
+{"level":30,"time":1763781369794,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2j","req":{"method":"GET","url":"/api/clients/clt_zzzzzzzzzz","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781369796,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369796,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2j","res":{"statusCode":404},"responseTime":1.5426909999805503,"msg":"request completed"}
+{"level":30,"time":1763781369879,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2k","req":{"method":"GET","url":"/api/clients/clt_fake0000000000","host":"localhost:3001","remoteAddress":"::1","remotePort":40772},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781369880,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2l","req":{"method":"GET","url":"/api/clients/clt_fake0000000001","host":"localhost:3001","remoteAddress":"::1","remotePort":40788},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781369882,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2m","req":{"method":"GET","url":"/api/clients/clt_fake0000000002","host":"localhost:3001","remoteAddress":"::1","remotePort":40768},"msg":"incoming request"}
+{"level":50,"time":1763781369883,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369884,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2k","res":{"statusCode":404},"responseTime":4.565323999995599,"msg":"request completed"}
+{"level":50,"time":1763781369884,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369884,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2l","res":{"statusCode":404},"responseTime":3.312095999979647,"msg":"request completed"}
+{"level":50,"time":1763781369884,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369884,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2m","res":{"statusCode":404},"responseTime":2.162360999995144,"msg":"request completed"}
+{"level":30,"time":1763781369886,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2n","req":{"method":"GET","url":"/api/clients/clt_fake0000000003","host":"localhost:3001","remoteAddress":"::1","remotePort":40804},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781369888,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2o","req":{"method":"GET","url":"/api/clients/clt_fake0000000004","host":"localhost:3001","remoteAddress":"::1","remotePort":40812},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781369889,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369889,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2n","res":{"statusCode":404},"responseTime":2.479445000004489,"msg":"request completed"}
+{"level":30,"time":1763781369889,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2p","req":{"method":"GET","url":"/api/clients/clt_fake0000000005","host":"localhost:3001","remoteAddress":"::1","remotePort":40814},"msg":"incoming request"}
+{"level":30,"time":1763781369890,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2q","req":{"method":"GET","url":"/api/clients/clt_fake0000000006","host":"localhost:3001","remoteAddress":"::1","remotePort":40822},"msg":"incoming request"}
+{"level":30,"time":1763781369892,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2r","req":{"method":"GET","url":"/api/clients/clt_fake0000000007","host":"localhost:3001","remoteAddress":"::1","remotePort":40826},"msg":"incoming request"}
+{"level":30,"time":1763781369893,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2s","req":{"method":"GET","url":"/api/clients/clt_fake0000000008","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+{"level":30,"time":1763781369894,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2t","req":{"method":"GET","url":"/api/clients/clt_fake0000000009","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":50,"time":1763781369895,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369895,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2o","res":{"statusCode":404},"responseTime":7.317410000017844,"msg":"request completed"}
+{"level":50,"time":1763781369895,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369895,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2p","res":{"statusCode":404},"responseTime":6.075922999996692,"msg":"request completed"}
+{"level":50,"time":1763781369895,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369895,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2q","res":{"statusCode":404},"responseTime":5.133537999994587,"msg":"request completed"}
+{"level":50,"time":1763781369896,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369896,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2r","res":{"statusCode":404},"responseTime":4.107736000005389,"msg":"request completed"}
+{"level":50,"time":1763781369896,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369896,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2s","res":{"statusCode":404},"responseTime":3.210815000027651,"msg":"request completed"}
+{"level":50,"time":1763781369896,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369896,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2t","res":{"statusCode":404},"responseTime":2.4781329999968875,"msg":"request completed"}
+{"level":30,"time":1763781369979,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2u","req":{"method":"GET","url":"/api/clients/clt_'%3B%20DROP%20TABLE%20clients%3B%20--","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781369980,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369980,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2u","res":{"statusCode":404},"responseTime":1.2725239999999758,"msg":"request completed"}
+{"level":30,"time":1763781369983,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2v","req":{"method":"GET","url":"/api/clients/clt_'%20OR%20'1'%3D'1","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781369983,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369984,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2v","res":{"statusCode":404},"responseTime":0.9238009999971837,"msg":"request completed"}
+{"level":30,"time":1763781369986,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2w","req":{"method":"GET","url":"/api/clients/clt_admin'--","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781369987,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369987,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2w","res":{"statusCode":404},"responseTime":0.8707410000206437,"msg":"request completed"}
+{"level":30,"time":1763781369989,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2x","req":{"method":"GET","url":"/api/clients/clt_'%3B%20DELETE%20FROM%20clients%20WHERE%20'1'%3D'1","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781369990,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781369990,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2x","res":{"statusCode":404},"responseTime":0.9691260000108741,"msg":"request completed"}
+{"level":30,"time":1763781369992,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2y","req":{"method":"GET","url":"/api/clients","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781369997,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2y","res":{"statusCode":200},"responseTime":4.130758999992395,"msg":"request completed"}
+{"level":30,"time":1763781370075,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2z","req":{"method":"GET","url":"/api/clients/clt_%3Cscript%3Ealert('xss')%3C%2Fscript%3E","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781370076,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781370077,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-2z","res":{"statusCode":404},"responseTime":1.1375110000080895,"msg":"request completed"}
+{"level":30,"time":1763781370081,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-30","req":{"method":"GET","url":"/api/clients/clt_%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781370082,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781370082,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-30","res":{"statusCode":404},"responseTime":1.0648950000177138,"msg":"request completed"}
+{"level":30,"time":1763781370085,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-31","req":{"method":"GET","url":"/api/clients/clt_javascript%3Aalert(1)","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781370086,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781370086,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-31","res":{"statusCode":404},"responseTime":0.9351719999976922,"msg":"request completed"}
+{"level":30,"time":1763781370166,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-32","req":{"method":"GET","url":"/api/clients/clt_..%2F..%2Fetc%2Fpasswd","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781370167,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781370168,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-32","res":{"statusCode":404},"responseTime":1.1205900000059046,"msg":"request completed"}
+{"level":30,"time":1763781370170,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-33","req":{"method":"GET","url":"/api/clients/clt_....%2F%2F....%2F%2F....%2F%2Fetc%2Fpasswd","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781370171,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781370171,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-33","res":{"statusCode":404},"responseTime":0.9528349999745842,"msg":"request completed"}
+{"level":30,"time":1763781370174,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-34","req":{"method":"GET","url":"/api/clients/..%2Fclients%2Fclt_valid","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781370175,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781370175,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-34","res":{"statusCode":404},"responseTime":1.1658239999960642,"msg":"request completed"}
+{"level":30,"time":1763781370257,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-35","req":{"method":"GET","url":"/api/clients/clt_ebssahv07krvfe3ul3u8vc7j","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781370263,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-35","res":{"statusCode":403},"responseTime":5.432698999997228,"msg":"request completed"}
+{"level":30,"time":1763781370343,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-36","req":{"method":"GET","url":"/api/clients/clt_nonexistent123","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781370345,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error fetching client"}
+{"level":30,"time":1763781370345,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-36","res":{"statusCode":404},"responseTime":2.0595759999996517,"msg":"request completed"}
+{"level":30,"time":1763781370347,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-37","req":{"method":"GET","url":"/api/clients/clt_kodkgymk836ley81x5qvu96o","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781370350,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-37","res":{"statusCode":200},"responseTime":2.927945000003092,"msg":"request completed"}
+{"level":30,"time":1763781370584,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-38","req":{"method":"PUT","url":"/api/clients/clt_nonexistent000","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781370586,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error updating client"}
+{"level":30,"time":1763781370587,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-38","res":{"statusCode":404},"responseTime":2.3173319999768864,"msg":"request completed"}
+{"level":30,"time":1763781370665,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-39","req":{"method":"DELETE","url":"/api/clients/clt_nonexistent000","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781370667,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error deleting client"}
+{"level":30,"time":1763781370667,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-39","res":{"statusCode":404},"responseTime":1.8812250000191852,"msg":"request completed"}
+{"level":30,"time":1763781370766,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3a","req":{"method":"PUT","url":"/api/clients/clt_d1b9rmv6g3yirh6kt10v60hi","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781370772,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3a","res":{"statusCode":403},"responseTime":6.183123000024352,"msg":"request completed"}
+{"level":30,"time":1763781370858,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3b","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":30,"time":1763781370859,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3b","res":{"statusCode":401},"responseTime":1.0393580000090878,"msg":"request completed"}
+{"level":30,"time":1763781370879,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3c","req":{"method":"GET","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":30,"time":1763781370880,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3c","res":{"statusCode":401},"responseTime":0.6888310000067577,"msg":"request completed"}
+{"level":30,"time":1763781370894,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3d","req":{"method":"PUT","url":"/api/companies/00000000-0000-0000-0000-000000000001","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":30,"time":1763781370895,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3d","res":{"statusCode":401},"responseTime":0.9638960000011139,"msg":"request completed"}
+{"level":30,"time":1763781370909,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3e","req":{"method":"GET","url":"/api/clients/dropdown","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":30,"time":1763781370909,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3e","res":{"statusCode":401},"responseTime":0.3650740000011865,"msg":"request completed"}
+{"level":30,"time":1763781370985,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3f","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781370990,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3f","res":{"statusCode":403},"responseTime":5.834897000022465,"msg":"request completed"}
+{"level":30,"time":1763781371074,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3g","req":{"method":"GET","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781371080,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3g","res":{"statusCode":403},"responseTime":5.408026999997674,"msg":"request completed"}
+{"level":30,"time":1763781371161,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3h","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":50,"time":1763781371161,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"/client_id","schemaPath":"#/properties/client_id/format","keyword":"format","params":{"format":"uuid"},"message":"must match format \"uuid\""}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781371162,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3h","res":{"statusCode":400},"responseTime":1.03078099997947,"msg":"request completed"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781371260,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3i","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":30,"time":1763781371317,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3i","res":{"statusCode":201},"responseTime":57.299425999983214,"msg":"request completed"}
+{"level":30,"time":1763781371405,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3j","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781371410,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3j","res":{"statusCode":201},"responseTime":5.495755000010831,"msg":"request completed"}
+{"level":30,"time":1763781371490,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3k","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":50,"time":1763781371490,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"/client_id","schemaPath":"#/properties/client_id/format","keyword":"format","params":{"format":"uuid"},"message":"must match format \"uuid\""}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781371490,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3k","res":{"statusCode":400},"responseTime":0.6215139999985695,"msg":"request completed"}
+{"level":30,"time":1763781371568,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3l","req":{"method":"GET","url":"/api/companies?clientId=invalid-uuid","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":50,"time":1763781371568,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"/clientId","schemaPath":"#/properties/clientId/format","keyword":"format","params":{"format":"uuid"},"message":"must match format \"uuid\""}],"validationContext":"querystring"},"msg":"Request error"}
+{"level":30,"time":1763781371568,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3l","res":{"statusCode":400},"responseTime":0.47216499998467043,"msg":"request completed"}
+{"level":30,"time":1763781371650,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3m","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781371655,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3m","res":{"statusCode":201},"responseTime":5.221854000003077,"msg":"request completed"}
+{"level":30,"time":1763781371741,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3n","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":50,"time":1763781371741,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"client_id"},"message":"must have required property 'client_id'"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781371741,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3n","res":{"statusCode":400},"responseTime":0.6317130000097677,"msg":"request completed"}
+{"level":30,"time":1763781371822,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3o","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781371824,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error creating company"}
+{"level":30,"time":1763781371824,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3o","res":{"statusCode":400},"responseTime":2.36772499998915,"msg":"request completed"}
+{"level":30,"time":1763781371899,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3p","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":50,"time":1763781371900,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"/client_id","schemaPath":"#/properties/client_id/format","keyword":"format","params":{"format":"uuid"},"message":"must match format \"uuid\""}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781371900,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3p","res":{"statusCode":400},"responseTime":0.6876880000054371,"msg":"request completed"}
+{"level":30,"time":1763781371985,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3q","req":{"method":"GET","url":"/api/companies?clientId=1b03e4a5-ad16-4109-894a-9e6041e52569","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781371992,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3q","res":{"statusCode":200},"responseTime":6.962235999992117,"msg":"request completed"}
+{"level":30,"time":1763781372083,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3r","req":{"method":"GET","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781372086,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3r","res":{"statusCode":200},"responseTime":3.3173079999978654,"msg":"request completed"}
+{"level":30,"time":1763781372176,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3s","req":{"method":"GET","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781372180,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3s","res":{"statusCode":200},"responseTime":3.34549100001459,"msg":"request completed"}
+{"level":30,"time":1763781372267,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3t","req":{"method":"PUT","url":"/api/companies/5261936f-2820-4b1c-8b73-d4459cbd6f1e","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781372276,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3t","res":{"statusCode":200},"responseTime":9.086956000013743,"msg":"request completed"}
+{"level":30,"time":1763781372361,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3u","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781372367,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3u","res":{"statusCode":201},"responseTime":5.907498000015039,"msg":"request completed"}
+{"level":30,"time":1763781372449,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3v","req":{"method":"GET","url":"/api/clients/dropdown","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781372451,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3v","res":{"statusCode":200},"responseTime":2.1546170000219718,"msg":"request completed"}
+{"level":30,"time":1763781372545,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3w","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781372551,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3w","res":{"statusCode":201},"responseTime":5.736556999996537,"msg":"request completed"}
+{"level":30,"time":1763781372636,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3x","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":50,"time":1763781372636,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"name"},"message":"must have required property 'name'"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781372636,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3x","res":{"statusCode":400},"responseTime":0.6946020000032149,"msg":"request completed"}
+{"level":30,"time":1763781372728,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3y","req":{"method":"GET","url":"/api/companies/0e1e094f-5d2a-46a7-81c3-4fa7b25833cf","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781372731,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3y","res":{"statusCode":200},"responseTime":2.6694319999951404,"msg":"request completed"}
+{"level":30,"time":1763781372814,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3z","req":{"method":"GET","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781372817,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-3z","res":{"statusCode":200},"responseTime":2.7519259999971837,"msg":"request completed"}
+{"level":30,"time":1763781372903,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-40","req":{"method":"PUT","url":"/api/companies/0c6ade2b-cc58-4588-b8ec-27b2f63b4fb2","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781372909,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-40","res":{"statusCode":200},"responseTime":5.646418999996968,"msg":"request completed"}
+{"level":30,"time":1763781372998,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-41","req":{"method":"DELETE","url":"/api/companies/5eb40080-051c-46b9-af4a-9628c8fe08ab","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781373007,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-41","res":{"statusCode":200},"responseTime":8.976985999994213,"msg":"request completed"}
+{"level":30,"time":1763781373100,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-42","req":{"method":"DELETE","url":"/api/companies/993e9485-19ec-4868-89b9-c6d62c3b5ee5","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781373107,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-42","res":{"statusCode":200},"responseTime":7.637890000012703,"msg":"request completed"}
+{"level":30,"time":1763781373198,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-43","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781373203,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-43","res":{"statusCode":403},"responseTime":5.462253999983659,"msg":"request completed"}
+{"level":30,"time":1763781373208,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-44","req":{"method":"GET","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781373213,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-44","res":{"statusCode":403},"responseTime":4.67850599999656,"msg":"request completed"}
+{"level":30,"time":1763781373351,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-45","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":30,"time":1763781373352,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-45","res":{"statusCode":401},"responseTime":0.5374069999961648,"msg":"request completed"}
+{"level":30,"time":1763781373430,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-46","req":{"method":"DELETE","url":"/api/companies/e7b2e748-385b-4e44-9eac-8e81decec78e","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781373433,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error deleting company"}
+{"level":30,"time":1763781373433,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-46","res":{"statusCode":400},"responseTime":2.5957430000125896,"msg":"request completed"}
+{"level":30,"time":1763781373515,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-47","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781373517,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error creating company"}
+{"level":30,"time":1763781373517,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-47","res":{"statusCode":400},"responseTime":2.618335000006482,"msg":"request completed"}
+{"level":30,"time":1763781373595,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-48","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":50,"time":1763781373596,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"/name","schemaPath":"#/properties/name/minLength","keyword":"minLength","params":{"limit":1},"message":"must NOT have fewer than 1 characters"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781373596,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-48","res":{"statusCode":400},"responseTime":0.618839000002481,"msg":"request completed"}
+{"level":30,"time":1763781373673,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-49","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781373678,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-49","res":{"statusCode":201},"responseTime":5.234767999994801,"msg":"request completed"}
+{"level":30,"time":1763781373757,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4a","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":50,"time":1763781373757,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"/name","schemaPath":"#/properties/name/maxLength","keyword":"maxLength","params":{"limit":255},"message":"must NOT have more than 255 characters"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781373757,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4a","res":{"statusCode":400},"responseTime":0.618229000014253,"msg":"request completed"}
+{"level":30,"time":1763781373836,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4b","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":50,"time":1763781373837,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"/status","schemaPath":"#/properties/status/enum","keyword":"enum","params":{"allowedValues":["ACTIVE","INACTIVE","SUSPENDED","PENDING"]},"message":"must be equal to one of the allowed values"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781373837,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4b","res":{"statusCode":400},"responseTime":0.6769689999928232,"msg":"request completed"}
+{"level":30,"time":1763781373915,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4c","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781373920,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4c","res":{"statusCode":201},"responseTime":5.3861719999986235,"msg":"request completed"}
+{"level":30,"time":1763781374004,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4d","req":{"method":"PUT","url":"/api/companies/eec12cde-d837-4745-829b-063d602c20bd","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781374010,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4d","res":{"statusCode":200},"responseTime":5.5541359999915585,"msg":"request completed"}
+{"level":30,"time":1763781374090,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4e","req":{"method":"PUT","url":"/api/companies/47fe8226-132b-4732-860d-3241e83508ed","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781374091,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error updating company"}
+{"level":30,"time":1763781374091,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4e","res":{"statusCode":400},"responseTime":1.365328000014415,"msg":"request completed"}
+{"level":30,"time":1763781374170,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4f","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781374175,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4f","res":{"statusCode":201},"responseTime":5.453264000010677,"msg":"request completed"}
+{"level":30,"time":1763781374253,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4g","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781374258,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4g","res":{"statusCode":201},"responseTime":5.287416000006488,"msg":"request completed"}
+{"level":30,"time":1763781374338,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4h","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781374351,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4h","res":{"statusCode":201},"responseTime":13.167949000024237,"msg":"request completed"}
+{"level":30,"time":1763781374433,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4i","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781374438,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4i","res":{"statusCode":201},"responseTime":5.3055200000235345,"msg":"request completed"}
+{"level":30,"time":1763781374520,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4j","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781374526,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4j","res":{"statusCode":201},"responseTime":5.874666999996407,"msg":"request completed"}
+{"level":30,"time":1763781374609,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4k","req":{"method":"POST","url":"/api/companies","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+{"level":50,"time":1763781374610,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"/name","schemaPath":"#/properties/name/maxLength","keyword":"maxLength","params":{"limit":255},"message":"must NOT have more than 255 characters"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781374611,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4k","res":{"statusCode":400},"responseTime":2.064427999983309,"msg":"request completed"}
+{"level":30,"time":1763781374692,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4l","req":{"method":"PUT","url":"/api/companies/fe577fb0-fbe3-44c6-a359-ba7f6ae29d62","host":"localhost:3001","remoteAddress":"::1","remotePort":40846},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781374694,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4m","req":{"method":"PUT","url":"/api/companies/fe577fb0-fbe3-44c6-a359-ba7f6ae29d62","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781374699,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4l","res":{"statusCode":200},"responseTime":7.2098149999801535,"msg":"request completed"}
+{"level":30,"time":1763781374700,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4m","res":{"statusCode":200},"responseTime":6.407818000006955,"msg":"request completed"}
+{"level":30,"time":1763781375256,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4n","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781375259,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4n","res":{"statusCode":200},"responseTime":2.9791719999921042,"msg":"request completed"}
+{"level":30,"time":1763781375273,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4o","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781375276,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4o","res":{"statusCode":200},"responseTime":2.645118000014918,"msg":"request completed"}
+{"level":30,"time":1763781375290,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4p","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781375292,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4p","res":{"statusCode":200},"responseTime":2.436561000009533,"msg":"request completed"}
+{"level":30,"time":1763781375306,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4q","req":{"method":"OPTIONS","url":"/api/auth/login","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+{"level":30,"time":1763781375306,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4q","res":{"statusCode":204},"responseTime":0.36056500000995584,"msg":"request completed"}
+{"level":30,"time":1763781375320,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4r","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781375323,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4r","res":{"statusCode":200},"responseTime":2.702893999987282,"msg":"request completed"}
+{"level":30,"time":1763781375336,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4s","req":{"method":"OPTIONS","url":"/api/auth/login","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+{"level":30,"time":1763781375336,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4s","res":{"statusCode":204},"responseTime":0.17670099998940714,"msg":"request completed"}
+{"level":30,"time":1763781375351,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4t","req":{"method":"OPTIONS","url":"/api/auth/login","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+{"level":30,"time":1763781375351,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4t","res":{"statusCode":204},"responseTime":0.1808489999966696,"msg":"request completed"}
+{"level":30,"time":1763781375422,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4u","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781375472,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4u","res":{"statusCode":200},"responseTime":50.645779000013135,"msg":"request completed"}
+{"level":30,"time":1763781375492,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4v","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781375493,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4v","res":{"statusCode":401},"responseTime":1.1745999999984633,"msg":"request completed"}
+{"level":30,"time":1763781375509,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4w","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781375510,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4w","res":{"statusCode":401},"responseTime":0.49424599998747,"msg":"request completed"}
+{"level":30,"time":1763781375525,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4x","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+{"level":30,"time":1763781375525,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4x","res":{"statusCode":401},"responseTime":0.34502599999541417,"msg":"request completed"}
+{"level":30,"time":1763781375595,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4y","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781375597,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4y","res":{"statusCode":200},"responseTime":1.9919119999976829,"msg":"request completed"}
+{"level":30,"time":1763781375667,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4z","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781375673,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-4z","res":{"statusCode":200},"responseTime":6.151092999993125,"msg":"request completed"}
+{"level":30,"time":1763781375693,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-50","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781375694,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Refresh token error"}
+{"level":30,"time":1763781375694,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-50","res":{"statusCode":401},"responseTime":1.4165240000002086,"msg":"request completed"}
+{"level":30,"time":1763781375710,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-51","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781375711,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Refresh token error"}
+{"level":30,"time":1763781375711,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-51","res":{"statusCode":401},"responseTime":0.7589119999902323,"msg":"request completed"}
+{"level":30,"time":1763781375729,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-52","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+{"level":30,"time":1763781375729,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-52","res":{"statusCode":401},"responseTime":0.5269069999922067,"msg":"request completed"}
+{"level":30,"time":1763781375806,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-53","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781375810,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-53","res":{"statusCode":200},"responseTime":4.866406999994069,"msg":"request completed"}
+{"level":30,"time":1763781375813,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-54","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":40838},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781375816,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-54","res":{"statusCode":200},"responseTime":3.319619000016246,"msg":"request completed"}
+{"level":30,"time":1763781376927,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-55","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":37006},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781376936,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-55","res":{"statusCode":200},"responseTime":9.004879999993136,"msg":"request completed"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781376964,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-56","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":37006},"msg":"incoming request"}
+{"level":30,"time":1763781376975,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-56","res":{"statusCode":200},"responseTime":10.031164999993052,"msg":"request completed"}
+{"level":30,"time":1763781377955,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-57","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":37018},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781377960,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-57","res":{"statusCode":200},"responseTime":5.1106870000076015,"msg":"request completed"}
+{"level":30,"time":1763781377973,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-58","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":37018},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781377977,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-58","res":{"statusCode":200},"responseTime":3.9134719999856316,"msg":"request completed"}
+{"level":30,"time":1763781378933,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-59","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":37028},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781378935,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-59","res":{"statusCode":401},"responseTime":1.2982429999974556,"msg":"request completed"}
+{"level":30,"time":1763781378945,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5a","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":37028},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781378951,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5a","res":{"statusCode":200},"responseTime":5.615533000003779,"msg":"request completed"}
+{"level":30,"time":1763781378964,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5b","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":37028},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781378967,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5b","res":{"statusCode":200},"responseTime":2.2715859999880195,"msg":"request completed"}
+{"level":30,"time":1763781379002,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5c","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":37028},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781379004,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5c","res":{"statusCode":401},"responseTime":1.1667660000093747,"msg":"request completed"}
+{"level":30,"time":1763781379009,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5d","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":37028},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781379010,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Refresh token error"}
+{"level":30,"time":1763781379010,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5d","res":{"statusCode":401},"responseTime":1.244831999996677,"msg":"request completed"}
+{"level":30,"time":1763781379040,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5e","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":37028},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781379041,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5e","res":{"statusCode":401},"responseTime":1.1640199999965262,"msg":"request completed"}
+{"level":30,"time":1763781379048,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5f","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":37028},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781379049,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Refresh token error"}
+{"level":30,"time":1763781379049,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5f","res":{"statusCode":401},"responseTime":0.8910089999844786,"msg":"request completed"}
+{"level":30,"time":1763781379128,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5g","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":37028},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781379133,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5g","res":{"statusCode":200},"responseTime":4.837235999992117,"msg":"request completed"}
+{"level":30,"time":1763781379139,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5h","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":37028},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781379141,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5h","res":{"statusCode":200},"responseTime":1.8538530000078026,"msg":"request completed"}
+{"level":30,"time":1763781379144,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5i","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":37028},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781379146,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5i","res":{"statusCode":200},"responseTime":1.8499249999877065,"msg":"request completed"}
+{"level":30,"time":1763781379149,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5j","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":37028},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781379153,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5j","res":{"statusCode":200},"responseTime":3.415808999998262,"msg":"request completed"}
+{"level":30,"time":1763781380107,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5k","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":37032},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781380112,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5k","res":{"statusCode":200},"responseTime":4.876948999997694,"msg":"request completed"}
+{"level":30,"time":1763781380123,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5l","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":37032},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781380125,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5l","res":{"statusCode":200},"responseTime":1.8990280000143684,"msg":"request completed"}
+{"level":30,"time":1763781380136,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5m","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":37032},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781380138,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5m","res":{"statusCode":200},"responseTime":2.063332999998238,"msg":"request completed"}
+{"level":30,"time":1763781380142,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5n","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":37032},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781380146,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5n","res":{"statusCode":200},"responseTime":4.180904000008013,"msg":"request completed"}
+{"level":30,"time":1763781381097,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5o","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":49826},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781381103,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5o","res":{"statusCode":200},"responseTime":5.677656999992905,"msg":"request completed"}
+{"level":30,"time":1763781381115,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5p","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":49826},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781381117,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5p","res":{"statusCode":200},"responseTime":2.336968000017805,"msg":"request completed"}
+{"level":30,"time":1763781381123,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5q","req":{"method":"GET","url":"/api/user/profile","host":"localhost:3001","remoteAddress":"::1","remotePort":49826},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781381125,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5q","res":{"statusCode":200},"responseTime":1.8373139999748673,"msg":"request completed"}
+{"level":30,"time":1763781381135,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5r","req":{"method":"POST","url":"/api/auth/refresh","host":"localhost:3001","remoteAddress":"::1","remotePort":49826},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781381140,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5r","res":{"statusCode":200},"responseTime":4.673865999997361,"msg":"request completed"}
+{"level":30,"time":1763781382025,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5s","req":{"method":"GET","url":"/api/auth/me","host":"localhost:3001","remoteAddress":"::1","remotePort":49830},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781382027,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5s","res":{"statusCode":401},"responseTime":1.5803000000014435,"msg":"request completed"}
+{"level":30,"time":1763781382144,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5t","req":{"method":"GET","url":"/api/auth/me","host":"localhost:3001","remoteAddress":"::1","remotePort":49830},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781382145,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5t","res":{"statusCode":200},"responseTime":1.2273700000077952,"msg":"request completed"}
+{"level":30,"time":1763781382258,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5u","req":{"method":"GET","url":"/api/users","host":"localhost:3001","remoteAddress":"::1","remotePort":49830},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781382264,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5u","res":{"statusCode":200},"responseTime":6.015519000007771,"msg":"request completed"}
+{"level":30,"time":1763781382361,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5v","req":{"method":"DELETE","url":"/api/users/307b6804-66e6-4fc4-9bf1-9cc8c48286bc","host":"localhost:3001","remoteAddress":"::1","remotePort":49830},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781382367,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5v","res":{"statusCode":403},"responseTime":5.975844999979017,"msg":"request completed"}
+{"level":30,"time":1763781382517,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5w","req":{"method":"GET","url":"/api/admin/system-config","host":"localhost:3001","remoteAddress":"::1","remotePort":49830},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781382518,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5w","res":{"statusCode":200},"responseTime":1.2360359999875072,"msg":"request completed"}
+{"level":30,"time":1763781382603,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5x","req":{"method":"GET","url":"/api/companies/52e4ad8d-77af-4138-8c66-53cd7c006044/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":49830},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781382658,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5x","res":{"statusCode":200},"responseTime":55.19241700001294,"msg":"request completed"}
+{"level":30,"time":1763781382814,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5y","req":{"method":"GET","url":"/api/companies/9e3505b8-d5a6-474f-8a74-e74dc48b70ff/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":49830},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781382819,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5y","res":{"statusCode":403},"responseTime":5.4800669999967795,"msg":"request completed"}
+{"level":30,"time":1763781382961,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5z","req":{"method":"GET","url":"/api/stores/ba4f3efb-0cbf-42bf-a456-f21e716ee493","host":"localhost:3001","remoteAddress":"::1","remotePort":49830},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781383017,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-5z","res":{"statusCode":403},"responseTime":55.76074699999299,"msg":"request completed"}
+{"level":30,"time":1763781383992,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-60","req":{"method":"GET","url":"/api/stores/584904a3-dcc7-4f4a-ae9d-8e386fa2e931","host":"localhost:3001","remoteAddress":"::1","remotePort":49840},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781383997,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-60","res":{"statusCode":403},"responseTime":5.573491999995895,"msg":"request completed"}
+{"level":30,"time":1763781384980,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-61","req":{"method":"GET","url":"/api/stores/f33f3232-7311-4319-bc49-0534512c9cc3","host":"localhost:3001","remoteAddress":"::1","remotePort":49856},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781384986,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-61","res":{"statusCode":403},"responseTime":6.136524000001373,"msg":"request completed"}
+{"level":30,"time":1763781386011,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-62","req":{"method":"GET","url":"/api/stores/2be3e307-01dc-4ac3-98bb-0133f456f96f","host":"localhost:3001","remoteAddress":"::1","remotePort":49860},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781386017,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-62","res":{"statusCode":403},"responseTime":5.8108310000097845,"msg":"request completed"}
+{"level":30,"time":1763781386131,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-63","req":{"method":"GET","url":"/api/stores/ead75b3d-8b6c-44cd-8c95-9ae612154912","host":"localhost:3001","remoteAddress":"::1","remotePort":49860},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781386139,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-63","res":{"statusCode":200},"responseTime":7.512137999990955,"msg":"request completed"}
+{"level":30,"time":1763781386297,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-64","req":{"method":"GET","url":"/api/stores/d71cb536-186e-40bf-ac3f-a44ad380e3c4","host":"localhost:3001","remoteAddress":"::1","remotePort":49860},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781386303,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-64","res":{"statusCode":403},"responseTime":5.418132000020705,"msg":"request completed"}
+{"level":30,"time":1763781387403,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-65","req":{"method":"GET","url":"/api/stores/4c6d8e45-e6a3-4b6a-b621-ad95d90f0763","host":"localhost:3001","remoteAddress":"::1","remotePort":49866},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781387410,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-65","res":{"statusCode":403},"responseTime":6.793067999999039,"msg":"request completed"}
+{"level":30,"time":1763781388408,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-66","req":{"method":"GET","url":"/api/stores/36dab9b0-76d2-4b1c-b0a9-26d29a1cf294","host":"localhost:3001","remoteAddress":"::1","remotePort":49870},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781388414,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-66","res":{"statusCode":403},"responseTime":5.949307000002591,"msg":"request completed"}
+{"level":30,"time":1763781389439,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-67","req":{"method":"POST","url":"/api/users","host":"localhost:3001","remoteAddress":"::1","remotePort":49884},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781389445,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-67","res":{"statusCode":403},"responseTime":6.112904000008712,"msg":"request completed"}
+{"level":30,"time":1763781389561,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-68","req":{"method":"POST","url":"/api/users","host":"localhost:3001","remoteAddress":"::1","remotePort":49884},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781389565,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-68","res":{"statusCode":201},"responseTime":4.2767730000196025,"msg":"request completed"}
+{"level":30,"time":1763781389600,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-69","req":{"method":"GET","url":"/api/users","host":"localhost:3001","remoteAddress":"::1","remotePort":49884},"msg":"incoming request"}
+{"level":30,"time":1763781389601,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-69","res":{"statusCode":401},"responseTime":0.3955710000009276,"msg":"request completed"}
+{"level":30,"time":1763781389624,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6a","req":{"method":"GET","url":"/api/users","host":"localhost:3001","remoteAddress":"::1","remotePort":49884},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781389624,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6a","res":{"statusCode":401},"responseTime":0.7267209999845363,"msg":"request completed"}
+{"level":30,"time":1763781389648,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6b","req":{"method":"GET","url":"/api/users","host":"localhost:3001","remoteAddress":"::1","remotePort":49884},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781389649,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6b","res":{"statusCode":401},"responseTime":1.265190000005532,"msg":"request completed"}
+{"level":30,"time":1763781389672,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6c","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":49884},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781389675,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6c","res":{"statusCode":200},"responseTime":2.9800539999851026,"msg":"request completed"}
+{"level":30,"time":1763781389699,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6d","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":49884},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781389702,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6d","res":{"statusCode":200},"responseTime":3.1135160000121687,"msg":"request completed"}
+{"level":30,"time":1763781389722,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6e","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":49884},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781389727,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6e","res":{"statusCode":200},"responseTime":4.848845000000438,"msg":"request completed"}
+{"level":30,"time":1763781389748,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6f","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":49884},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781389751,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6f","res":{"statusCode":200},"responseTime":2.785989999974845,"msg":"request completed"}
+{"level":30,"time":1763781389771,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6g","req":{"method":"GET","url":"/api/health","host":"localhost:3001","remoteAddress":"::1","remotePort":49884},"msg":"incoming request"}
+RabbitMQ: Channel closed
+RabbitMQ: Channel closed successfully
+{"level":30,"time":1763781389774,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6g","res":{"statusCode":200},"responseTime":2.6693109999760054,"msg":"request completed"}
+{"level":30,"time":1763781396020,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6h","req":{"method":"POST","url":"/api/companies/ae46484b-10af-4a99-af2c-13d69a281050/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":54752},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781396032,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6h","res":{"statusCode":201},"responseTime":12.547167999990052,"msg":"request completed"}
+{"level":30,"time":1763781396205,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6i","req":{"method":"POST","url":"/api/companies/97af65b6-98d7-4479-bb7d-9372597c2bd8/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":54752},"msg":"incoming request"}
+{"level":50,"time":1763781396205,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"name"},"message":"must have required property 'name'"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781396205,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6i","res":{"statusCode":400},"responseTime":0.7108510000107344,"msg":"request completed"}
+{"level":30,"time":1763781396358,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6j","req":{"method":"POST","url":"/api/companies/2917a102-155b-474a-a278-016f2e46a12a/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":54752},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781396366,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6j","res":{"statusCode":201},"responseTime":8.632994999992661,"msg":"request completed"}
+{"level":30,"time":1763781397424,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6k","req":{"method":"POST","url":"/api/companies/a43ff050-3d97-4fde-855e-511f161735e2/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":54756},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781397433,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6k","res":{"statusCode":201},"responseTime":8.26467999999295,"msg":"request completed"}
+{"level":30,"time":1763781398621,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6l","req":{"method":"POST","url":"/api/companies/46e42f61-36ae-42f4-a7ae-5914dd2e316d/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":54758},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781398630,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6l","res":{"statusCode":201},"responseTime":8.700711999990745,"msg":"request completed"}
+{"level":30,"time":1763781399719,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6m","req":{"method":"POST","url":"/api/companies/170fb6a7-23fe-4bd4-8404-159d86c27045/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":54762},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781399727,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6m","res":{"statusCode":403},"responseTime":7.817019999987679,"msg":"request completed"}
+{"level":30,"time":1763781399907,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6n","req":{"method":"GET","url":"/api/stores/60605e8b-4f9a-45d4-aebc-8f39c5748bee","host":"localhost:3001","remoteAddress":"::1","remotePort":54762},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781399913,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6n","res":{"statusCode":200},"responseTime":6.49638799999957,"msg":"request completed"}
+{"level":30,"time":1763781400074,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6o","req":{"method":"GET","url":"/api/stores/a18f59e4-5136-48b0-b611-523b9c83c44e","host":"localhost:3001","remoteAddress":"::1","remotePort":54762},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781400080,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6o","res":{"statusCode":403},"responseTime":6.154460999998264,"msg":"request completed"}
+{"level":30,"time":1763781400233,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6p","req":{"method":"GET","url":"/api/companies/9b62ba49-88bb-4176-b7b5-41e7d0139377/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":54762},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781400239,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6p","res":{"statusCode":200},"responseTime":6.519081000005826,"msg":"request completed"}
+{"level":30,"time":1763781400388,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6q","req":{"method":"PUT","url":"/api/stores/daeab497-b268-4879-a87f-2d931962e6dd","host":"localhost:3001","remoteAddress":"::1","remotePort":54762},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781400399,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6q","res":{"statusCode":200},"responseTime":11.290460000018356,"msg":"request completed"}
+{"level":30,"time":1763781401475,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6r","req":{"method":"PUT","url":"/api/stores/9e1bb49e-64a6-4ca9-9edf-fa858de52d38","host":"localhost:3001","remoteAddress":"::1","remotePort":43530},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781401485,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6r","res":{"statusCode":200},"responseTime":10.148767999984557,"msg":"request completed"}
+{"level":30,"time":1763781402568,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6s","req":{"method":"PUT","url":"/api/stores/3de0166c-0ef9-41b7-8a4f-4a24aa36c784","host":"localhost:3001","remoteAddress":"::1","remotePort":43532},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781402579,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6s","res":{"statusCode":200},"responseTime":10.278733000013744,"msg":"request completed"}
+{"level":30,"time":1763781403688,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6t","req":{"method":"PUT","url":"/api/stores/b416f21e-851c-4b5e-8c2c-d9cfe8ae7ce5","host":"localhost:3001","remoteAddress":"::1","remotePort":43538},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781403696,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6t","res":{"statusCode":403},"responseTime":7.609830999979749,"msg":"request completed"}
+{"level":30,"time":1763781403867,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6u","req":{"method":"DELETE","url":"/api/stores/43f01b90-4b9c-4146-b02a-fe734b35f405","host":"localhost:3001","remoteAddress":"::1","remotePort":43538},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781403881,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6u","res":{"statusCode":200},"responseTime":13.452745000016876,"msg":"request completed"}
+{"level":30,"time":1763781404048,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6v","req":{"method":"DELETE","url":"/api/stores/cfe09cba-e5fe-4e1d-810a-1ac4bf097b27","host":"localhost:3001","remoteAddress":"::1","remotePort":43538},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781404059,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6v","res":{"statusCode":200},"responseTime":11.073218000005,"msg":"request completed"}
+{"level":30,"time":1763781404217,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6w","req":{"method":"DELETE","url":"/api/stores/08bee7f6-c5e8-42cd-a4c1-4173ac12caa4","host":"localhost:3001","remoteAddress":"::1","remotePort":43538},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781404223,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6w","res":{"statusCode":403},"responseTime":6.402732999995351,"msg":"request completed"}
+{"level":30,"time":1763781404367,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6x","req":{"method":"POST","url":"/api/companies/2a30d1c9-89bf-4f70-98d5-81cf9ea88ed4/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":43538},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781404374,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6x","res":{"statusCode":403},"responseTime":6.780289999995148,"msg":"request completed"}
+{"level":30,"time":1763781404466,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6y","req":{"method":"GET","url":"/api/stores/b21cef9c-1a14-434d-a3ee-e0e5f508db46","host":"localhost:3001","remoteAddress":"::1","remotePort":43538},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781404472,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6y","res":{"statusCode":403},"responseTime":6.325654000014765,"msg":"request completed"}
+{"level":30,"time":1763781404563,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6z","req":{"method":"POST","url":"/api/companies/d16e8748-655b-401c-99a2-eaec8b7f0459/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":43538},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781404572,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-6z","res":{"statusCode":201},"responseTime":8.95810999997775,"msg":"request completed"}
+{"level":30,"time":1763781404721,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-70","req":{"method":"POST","url":"/api/companies/dbe9fda9-3194-4a55-8ee8-d9f053b8a79d/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":43538},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781404730,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-70","res":{"statusCode":201},"responseTime":8.833685999998124,"msg":"request completed"}
+{"level":30,"time":1763781404876,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-71","req":{"method":"GET","url":"/api/stores/00000000-0000-0000-0000-000000000000","host":"localhost:3001","remoteAddress":"::1","remotePort":43538},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781404883,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-71","res":{"statusCode":403},"responseTime":7.484178999991855,"msg":"request completed"}
+{"level":30,"time":1763781405938,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-72","req":{"method":"GET","url":"/api/stores/00000000-0000-0000-0000-000000000000","host":"localhost:3001","remoteAddress":"::1","remotePort":43554},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781405945,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-72","res":{"statusCode":403},"responseTime":7.265102000004845,"msg":"request completed"}
+{"level":30,"time":1763781407040,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-73","req":{"method":"GET","url":"/api/stores/00000000-0000-0000-0000-000000000000","host":"localhost:3001","remoteAddress":"::1","remotePort":43562},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781407046,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-73","res":{"statusCode":403},"responseTime":6.73407700000098,"msg":"request completed"}
+{"level":30,"time":1763781408115,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-74","req":{"method":"POST","url":"/api/companies/eb49b80f-2936-431c-94df-94efef8b62dd/stores","host":"localhost:3001","remoteAddress":"::1","remotePort":43570},"msg":"incoming request"}
+{"level":50,"time":1763781408115,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"/location_json","schemaPath":"#/properties/location_json/type","keyword":"type","params":{"type":"object"},"message":"must be object"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781408116,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-74","res":{"statusCode":400},"responseTime":0.8058099999907427,"msg":"request completed"}
+{"level":30,"time":1763781408266,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-75","req":{"method":"GET","url":"/api/stores/00000000-0000-0000-0000-000000000000","host":"localhost:3001","remoteAddress":"::1","remotePort":43570},"msg":"incoming request"}
+{"level":30,"time":1763781408267,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-75","res":{"statusCode":401},"responseTime":0.494416999979876,"msg":"request completed"}
+{"level":30,"time":1763781408387,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-76","req":{"method":"GET","url":"/api/admin/system-config","host":"localhost:3001","remoteAddress":"::1","remotePort":43570},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781408394,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-76","res":{"statusCode":403},"responseTime":6.651178000000073,"msg":"request completed"}
+{"level":30,"time":1763781408524,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-77","req":{"method":"PUT","url":"/api/stores/38677ad6-f24c-417d-9a55-dd57e10a5cef/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":43570},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781408540,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-77","res":{"statusCode":200},"responseTime":16.479466999997385,"msg":"request completed"}
+{"level":30,"time":1763781409626,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-78","req":{"method":"PUT","url":"/api/stores/9cf419e4-f89a-474e-aa19-539f3a6cd570/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":43584},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781409636,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-78","res":{"statusCode":200},"responseTime":9.738917000009678,"msg":"request completed"}
+{"level":30,"time":1763781410700,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-79","req":{"method":"PUT","url":"/api/stores/c1823fb5-0895-4fbf-ba46-e2f2dda2913e/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":39872},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781410710,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-79","res":{"statusCode":200},"responseTime":9.750660000019707,"msg":"request completed"}
+{"level":30,"time":1763781411796,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7a","req":{"method":"PUT","url":"/api/stores/d8804e8d-aa71-4bb0-9fac-131c854dc1cd/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":39884},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781411806,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7a","res":{"statusCode":200},"responseTime":9.867789000010816,"msg":"request completed"}
+{"level":30,"time":1763781412889,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7b","req":{"method":"PUT","url":"/api/stores/9c106be3-f827-41b3-9e64-922b39d78e0a/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":39894},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781412899,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7b","res":{"statusCode":200},"responseTime":9.472068000002764,"msg":"request completed"}
+{"level":30,"time":1763781414001,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7c","req":{"method":"PUT","url":"/api/stores/13cb4bb6-83ec-4168-a191-1c6b6c027792/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":39904},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781414012,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7c","res":{"statusCode":200},"responseTime":10.945191000006162,"msg":"request completed"}
+{"level":30,"time":1763781415113,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7d","req":{"method":"PUT","url":"/api/stores/d99e9dc7-d2d7-46ee-9931-8d245d079690/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":39906},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781415120,"pid":5318,"hostname":"runnervmg1sw1","error":{},"msg":"Error updating store configuration"}
+{"level":30,"time":1763781415121,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7d","res":{"statusCode":400},"responseTime":7.107294999994338,"msg":"request completed"}
+{"level":30,"time":1763781415309,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7e","req":{"method":"PUT","url":"/api/stores/757bc8c8-e609-4b46-85ad-8445ace57257/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":39906},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781415316,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7e","res":{"statusCode":403},"responseTime":6.8663850000011735,"msg":"request completed"}
+{"level":30,"time":1763781416403,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7f","req":{"method":"PUT","url":"/api/stores/5249d2d8-dba1-43e9-8c1d-c4e1d6090cf9/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":39922},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781416410,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7f","res":{"statusCode":403},"responseTime":7.3848630000138655,"msg":"request completed"}
+{"level":30,"time":1763781417493,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7g","req":{"method":"PUT","url":"/api/stores/066cb8e5-36f3-4330-8ae6-8b3a747dfa91/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":39926},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781417501,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7g","res":{"statusCode":403},"responseTime":7.269050000002608,"msg":"request completed"}
+{"level":30,"time":1763781418583,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7h","req":{"method":"PUT","url":"/api/stores/00000000-0000-0000-0000-000000000000/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":39940},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781418589,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7h","res":{"statusCode":403},"responseTime":6.364097999990918,"msg":"request completed"}
+{"level":30,"time":1763781419805,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7i","req":{"method":"PUT","url":"/api/stores/00000000-0000-0000-0000-000000000000/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":39946},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781419811,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7i","res":{"statusCode":403},"responseTime":6.748737999994773,"msg":"request completed"}
+{"level":30,"time":1763781420904,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7j","req":{"method":"PUT","url":"/api/stores/00000000-0000-0000-0000-000000000000/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34330},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781420911,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7j","res":{"statusCode":403},"responseTime":6.813144999992801,"msg":"request completed"}
+{"level":30,"time":1763781422001,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7k","req":{"method":"PUT","url":"/api/stores/0eb1cff0-f6f7-4efb-950b-9e26c996a6c9/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34332},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781422010,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7k","res":{"statusCode":200},"responseTime":9.430308999988483,"msg":"request completed"}
+{"level":30,"time":1763781423114,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7l","req":{"method":"PUT","url":"/api/stores/7fddde78-02f7-4132-95ac-6372c318fb79/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34348},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781423124,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7l","res":{"statusCode":200},"responseTime":9.31030899999314,"msg":"request completed"}
+{"level":30,"time":1763781424212,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7m","req":{"method":"PUT","url":"/api/stores/9c06b965-072f-4cf5-9909-68fff002cae9/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34354},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781424221,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7m","res":{"statusCode":200},"responseTime":9.361807000008412,"msg":"request completed"}
+{"level":30,"time":1763781425293,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7n","req":{"method":"PUT","url":"/api/stores/cfa966fd-fb79-42de-9b0b-d0a64c5f2d5c/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34368},"msg":"incoming request"}
+{"level":50,"time":1763781425294,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"/timezone","schemaPath":"#/properties/timezone/pattern","keyword":"pattern","params":{"pattern":"^[A-Za-z]+(\\/[A-Za-z_]+)+$|^UTC$|^GMT[+-]\\d{1,2}$"},"message":"must match pattern \"^[A-Za-z]+(\\/[A-Za-z_]+)+$|^UTC$|^GMT[+-]\\d{1,2}$\""}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781425294,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7n","res":{"statusCode":400},"responseTime":0.6859959999856073,"msg":"request completed"}
+{"level":30,"time":1763781425466,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7o","req":{"method":"PUT","url":"/api/stores/079bc45c-6fe3-4ff7-ac66-8aa8af6f8b8a/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34368},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781425477,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7o","res":{"statusCode":200},"responseTime":11.517254999984289,"msg":"request completed"}
+{"level":30,"time":1763781425633,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7p","req":{"method":"PUT","url":"/api/stores/1d229b1f-8c7c-4305-bd28-76c1180cc5e2/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34368},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781425642,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7p","res":{"statusCode":200},"responseTime":8.999410999997053,"msg":"request completed"}
+{"level":30,"time":1763781426707,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7q","req":{"method":"PUT","url":"/api/stores/7135616a-4353-4d4e-a5cd-119a90723609/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34382},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781426717,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7q","res":{"statusCode":200},"responseTime":9.726206000021193,"msg":"request completed"}
+{"level":30,"time":1763781427785,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7r","req":{"method":"PUT","url":"/api/stores/8dc842ca-2cda-4fe3-a852-54e367fb891e/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34398},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781427795,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7r","res":{"statusCode":200},"responseTime":10.165956999990158,"msg":"request completed"}
+{"level":30,"time":1763781428876,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7s","req":{"method":"PUT","url":"/api/stores/bc057c6e-292d-46a4-b218-da6cf9d75abd/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34410},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781428886,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7s","res":{"statusCode":200},"responseTime":10.118797999981325,"msg":"request completed"}
+{"level":30,"time":1763781429061,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7t","req":{"method":"PUT","url":"/api/stores/659a4900-1295-47de-8a6a-04adce7cbcce/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34410},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781429074,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7t","res":{"statusCode":200},"responseTime":12.987587000010535,"msg":"request completed"}
+{"level":30,"time":1763781429234,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7u","req":{"method":"PUT","url":"/api/stores/bed7dcab-84a2-4610-a266-5b1c4a24c144/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34410},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":50,"time":1763781429256,"pid":5318,"hostname":"runnervmg1sw1","error":{"code":"InvalidArg","meta":{"modelName":"Store"},"clientVersion":"6.19.0","name":"PrismaClientKnownRequestError"},"msg":"Error updating store configuration"}
+{"level":30,"time":1763781429256,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7u","res":{"statusCode":400},"responseTime":21.820020999992266,"msg":"request completed"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781429434,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7v","req":{"method":"PUT","url":"/api/stores/2bb76b36-6599-42fc-aa87-7d295893cbb4/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34410},"msg":"incoming request"}
+{"level":30,"time":1763781429458,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7v","res":{"statusCode":200},"responseTime":24.795876999996835,"msg":"request completed"}
+{"level":30,"time":1763781429639,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7w","req":{"method":"PUT","url":"/api/stores/21a02f58-abf4-414d-bd6a-12f06acd781b/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34410},"msg":"incoming request"}
+{"level":30,"time":1763781429640,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7w","res":{"statusCode":401},"responseTime":0.6718590000236873,"msg":"request completed"}
+{"level":30,"time":1763781429768,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7x","req":{"method":"PUT","url":"/api/stores/42329cac-bad1-4ba7-820f-76b851dd222c/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34410},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781429780,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7x","res":{"statusCode":200},"responseTime":12.212092000001576,"msg":"request completed"}
+{"level":30,"time":1763781429952,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7y","req":{"method":"PUT","url":"/api/stores/eddcf2c8-2b0e-4d62-81dd-f233bdcfe438/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":34410},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781429958,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7y","res":{"statusCode":403},"responseTime":6.15500699999393,"msg":"request completed"}
+{"level":30,"time":1763781431034,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7z","req":{"method":"PUT","url":"/api/stores/092288e1-65fb-403e-8742-ea9e781e5a52/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":55040},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781431041,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-7z","res":{"statusCode":403},"responseTime":6.099988000001758,"msg":"request completed"}
+{"level":30,"time":1763781432140,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-80","req":{"method":"PUT","url":"/api/stores/6626d9b4-edbe-4544-bfa8-ce2f094e3368/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":55048},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781432146,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-80","res":{"statusCode":403},"responseTime":5.657810000004247,"msg":"request completed"}
+{"level":30,"time":1763781433256,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-81","req":{"method":"PUT","url":"/api/stores/952b7087-1314-4da0-bb0e-dee46ce01240/configuration","host":"localhost:3001","remoteAddress":"::1","remotePort":55058},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781433266,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-81","res":{"statusCode":200},"responseTime":9.903445000003558,"msg":"request completed"}
+{"level":30,"time":1763781434160,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-82","req":{"method":"POST","url":"/api/transactions","host":"localhost:3001","remoteAddress":"::1","remotePort":55058},"msg":"incoming request"}
+{"level":30,"time":1763781434162,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-82","res":{"statusCode":401},"responseTime":1.6534279999905266,"msg":"request completed"}
+{"level":30,"time":1763781435088,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-83","req":{"method":"POST","url":"/api/transactions","host":"localhost:3001","remoteAddress":"::1","remotePort":55062},"msg":"incoming request"}
+{"level":30,"time":1763781435089,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-83","res":{"statusCode":401},"responseTime":0.5587469999736641,"msg":"request completed"}
+{"level":30,"time":1763781436011,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-84","req":{"method":"POST","url":"/api/transactions","host":"localhost:3001","remoteAddress":"::1","remotePort":55066},"msg":"incoming request"}
+{"level":30,"time":1763781436012,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-84","res":{"statusCode":401},"responseTime":0.5473460000066552,"msg":"request completed"}
+{"level":30,"time":1763781436955,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-85","req":{"method":"POST","url":"/api/transactions","host":"localhost:3001","remoteAddress":"::1","remotePort":55076},"msg":"incoming request"}
+{"level":30,"time":1763781436956,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-85","res":{"statusCode":401},"responseTime":0.7535719999868888,"msg":"request completed"}
+{"level":30,"time":1763781437873,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-86","req":{"method":"POST","url":"/api/transactions","host":"localhost:3001","remoteAddress":"::1","remotePort":55088},"msg":"incoming request"}
+{"level":30,"time":1763781437874,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-86","res":{"statusCode":401},"responseTime":0.695743999996921,"msg":"request completed"}
+{"level":30,"time":1763781438792,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-87","req":{"method":"POST","url":"/api/transactions","host":"localhost:3001","remoteAddress":"::1","remotePort":55100},"msg":"incoming request"}
+{"level":30,"time":1763781438793,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-87","res":{"statusCode":401},"responseTime":0.5427869999839459,"msg":"request completed"}
+{"level":30,"time":1763781439817,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-88","req":{"method":"POST","url":"/api/transactions","host":"localhost:3001","remoteAddress":"::1","remotePort":55114},"msg":"incoming request"}
+{"level":50,"time":1763781439817,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"store_id"},"message":"must have required property 'store_id'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"shift_id"},"message":"must have required property 'shift_id'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"subtotal"},"message":"must have required property 'subtotal'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"line_items"},"message":"must have required property 'line_items'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"payments"},"message":"must have required property 'payments'"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781439818,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-88","res":{"statusCode":400},"responseTime":0.85199600001215,"msg":"request completed"}
+{"level":30,"time":1763781441016,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-89","req":{"method":"POST","url":"/api/transactions","host":"localhost:3001","remoteAddress":"::1","remotePort":52692},"msg":"incoming request"}
+{"level":50,"time":1763781441017,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"store_id"},"message":"must have required property 'store_id'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"shift_id"},"message":"must have required property 'shift_id'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"subtotal"},"message":"must have required property 'subtotal'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"line_items"},"message":"must have required property 'line_items'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"payments"},"message":"must have required property 'payments'"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781441017,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-89","res":{"statusCode":400},"responseTime":0.8175219999975525,"msg":"request completed"}
+{"level":30,"time":1763781442124,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8a","req":{"method":"POST","url":"/api/transactions","host":"localhost:3001","remoteAddress":"::1","remotePort":52696},"msg":"incoming request"}
+{"level":50,"time":1763781442124,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"store_id"},"message":"must have required property 'store_id'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"shift_id"},"message":"must have required property 'shift_id'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"subtotal"},"message":"must have required property 'subtotal'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"line_items"},"message":"must have required property 'line_items'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"payments"},"message":"must have required property 'payments'"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781442125,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8a","res":{"statusCode":400},"responseTime":0.6350800000072923,"msg":"request completed"}
+{"level":30,"time":1763781443249,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8b","req":{"method":"POST","url":"/api/transactions","host":"localhost:3001","remoteAddress":"::1","remotePort":52702},"msg":"incoming request"}
+{"level":50,"time":1763781443250,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"store_id"},"message":"must have required property 'store_id'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"shift_id"},"message":"must have required property 'shift_id'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"subtotal"},"message":"must have required property 'subtotal'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"line_items"},"message":"must have required property 'line_items'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"payments"},"message":"must have required property 'payments'"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781443250,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8b","res":{"statusCode":400},"responseTime":0.7738899999822024,"msg":"request completed"}
+{"level":30,"time":1763781444352,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8c","req":{"method":"POST","url":"/api/transactions","host":"localhost:3001","remoteAddress":"::1","remotePort":52712},"msg":"incoming request"}
+{"level":50,"time":1763781444352,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"store_id"},"message":"must have required property 'store_id'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"shift_id"},"message":"must have required property 'shift_id'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"subtotal"},"message":"must have required property 'subtotal'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"line_items"},"message":"must have required property 'line_items'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"payments"},"message":"must have required property 'payments'"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781444352,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8c","res":{"statusCode":400},"responseTime":0.6966049999755342,"msg":"request completed"}
+{"level":30,"time":1763781445444,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8d","req":{"method":"POST","url":"/api/transactions","host":"localhost:3001","remoteAddress":"::1","remotePort":52720},"msg":"incoming request"}
+{"level":50,"time":1763781445445,"pid":5318,"hostname":"runnervmg1sw1","error":{"statusCode":400,"code":"FST_ERR_VALIDATION","validation":[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"store_id"},"message":"must have required property 'store_id'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"shift_id"},"message":"must have required property 'shift_id'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"subtotal"},"message":"must have required property 'subtotal'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"line_items"},"message":"must have required property 'line_items'"},{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"payments"},"message":"must have required property 'payments'"}],"validationContext":"body"},"msg":"Request error"}
+{"level":30,"time":1763781445445,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8d","res":{"statusCode":400},"responseTime":0.7124739999999292,"msg":"request completed"}
+{"level":30,"time":1763781446529,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8e","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":52724},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781446531,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8e","res":{"statusCode":400},"responseTime":2.298677000013413,"msg":"request completed"}
+{"level":30,"time":1763781447561,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8f","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":52730},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781447563,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8f","res":{"statusCode":400},"responseTime":1.6412949999794364,"msg":"request completed"}
+{"level":30,"time":1763781448571,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8g","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":52734},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781448573,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8g","res":{"statusCode":400},"responseTime":1.744979000010062,"msg":"request completed"}
+{"level":30,"time":1763781449584,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8h","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":52736},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781449586,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8h","res":{"statusCode":400},"responseTime":1.80689499998698,"msg":"request completed"}
+{"level":30,"time":1763781449689,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8i","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":52736},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781449691,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8i","res":{"statusCode":400},"responseTime":1.9255669999984093,"msg":"request completed"}
+{"level":30,"time":1763781449788,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8j","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":52736},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781449790,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8j","res":{"statusCode":400},"responseTime":2.036556000006385,"msg":"request completed"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781450878,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8k","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":51634},"msg":"incoming request"}
+{"level":30,"time":1763781450882,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8k","res":{"statusCode":400},"responseTime":3.793967999983579,"msg":"request completed"}
+{"level":30,"time":1763781451956,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8l","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":51648},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781451958,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8l","res":{"statusCode":400},"responseTime":1.8649139999761246,"msg":"request completed"}
+{"level":30,"time":1763781453006,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8m","req":{"method":"GET","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":51664},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781453062,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8m","res":{"statusCode":200},"responseTime":56.24701799999457,"msg":"request completed"}
+{"level":30,"time":1763781453191,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8n","req":{"method":"GET","url":"/api/admin/users/9f7a3c09-933b-41a4-8eaa-0677548f2392","host":"localhost:3001","remoteAddress":"::1","remotePort":51664},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781453195,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8n","res":{"statusCode":200},"responseTime":3.705813999986276,"msg":"request completed"}
+{"level":30,"time":1763781453306,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8o","req":{"method":"POST","url":"/api/admin/users/e2042dd9-d433-4928-a045-bcfbc1959289/roles","host":"localhost:3001","remoteAddress":"::1","remotePort":51664},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781453316,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8o","res":{"statusCode":201},"responseTime":10.133746000006795,"msg":"request completed"}
+{"level":30,"time":1763781453422,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8p","req":{"method":"GET","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":51664},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781453428,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8p","res":{"statusCode":403},"responseTime":6.22913500003051,"msg":"request completed"}
+{"level":30,"time":1763781453433,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8q","req":{"method":"GET","url":"/api/admin/users/395397a6-e1f3-4a32-bbf3-d593ef265b3b","host":"localhost:3001","remoteAddress":"::1","remotePort":51664},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781453436,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8q","res":{"statusCode":403},"responseTime":2.917024999973364,"msg":"request completed"}
+{"level":30,"time":1763781453440,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8r","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":51664},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781453443,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8r","res":{"statusCode":403},"responseTime":3.0990699999965727,"msg":"request completed"}
+{"level":30,"time":1763781453537,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8s","req":{"method":"POST","url":"/api/admin/users/b3d81d94-07e2-471e-a566-8111d2d64087/roles","host":"localhost:3001","remoteAddress":"::1","remotePort":51664},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781453543,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8s","res":{"statusCode":403},"responseTime":5.489747999992687,"msg":"request completed"}
+{"level":30,"time":1763781453681,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8t","req":{"method":"GET","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":51664},"msg":"incoming request"}
+{"level":30,"time":1763781453682,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8t","res":{"statusCode":401},"responseTime":0.3737500000279397,"msg":"request completed"}
+{"level":30,"time":1763781453684,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8u","req":{"method":"GET","url":"/api/admin/users/9ed25027-3053-4e3e-9629-96e95f3e0a86","host":"localhost:3001","remoteAddress":"::1","remotePort":51664},"msg":"incoming request"}
+{"level":30,"time":1763781453685,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8u","res":{"statusCode":401},"responseTime":0.34754099999554455,"msg":"request completed"}
+{"level":30,"time":1763781453688,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8v","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":51664},"msg":"incoming request"}
+{"level":30,"time":1763781453688,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8v","res":{"statusCode":401},"responseTime":0.5125600000028498,"msg":"request completed"}
+{"level":30,"time":1763781453772,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8w","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":51664},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781453773,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8w","res":{"statusCode":400},"responseTime":1.5069439999642782,"msg":"request completed"}
+{"level":30,"time":1763781454797,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8x","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":51670},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781454799,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8x","res":{"statusCode":400},"responseTime":1.4558880000258796,"msg":"request completed"}
+{"level":30,"time":1763781455829,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8y","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":51676},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781455831,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8y","res":{"statusCode":400},"responseTime":1.5881350000272505,"msg":"request completed"}
+{"level":30,"time":1763781456863,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8z","req":{"method":"POST","url":"/api/admin/users","host":"localhost:3001","remoteAddress":"::1","remotePort":51686},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781456865,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-8z","res":{"statusCode":400},"responseTime":2.1225260000210255,"msg":"request completed"}
+{"level":30,"time":1763781456975,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-90","req":{"method":"DELETE","url":"/api/admin/users/76e7bfc3-9c40-4101-9177-bdf7c04f0c84/roles/8e64ff62-6720-472f-a04b-b86ad9b4b626","host":"localhost:3001","remoteAddress":"::1","remotePort":51686},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781456980,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-90","res":{"statusCode":400},"responseTime":5.083133000007365,"msg":"request completed"}
+{"level":30,"time":1763781457073,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-91","req":{"method":"PATCH","url":"/api/admin/users/21a7addd-5394-4578-a97e-f202cbc3bf89/status","host":"localhost:3001","remoteAddress":"::1","remotePort":51686},"msg":"incoming request"}
+[AuthService] Token expiry configuration: {
+  defaultAccessTokenExpiry: '1h',
+  superAdminAccessTokenExpiry: '8h',
+  refreshTokenExpiry: '7d'
+}
+{"level":30,"time":1763781457075,"pid":5318,"hostname":"runnervmg1sw1","reqId":"req-91","res":{"statusCode":400},"responseTime":1.4984960000147112,"msg":"request completed"}

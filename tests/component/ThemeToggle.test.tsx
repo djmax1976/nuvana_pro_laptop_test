@@ -1,0 +1,153 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderWithProviders, screen, waitFor } from "../support/test-utils";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import userEvent from "@testing-library/user-event";
+
+// Mock next-themes
+const mockUseTheme = vi.fn();
+vi.mock("next-themes", () => ({
+  useTheme: () => mockUseTheme(),
+}));
+
+describe("ThemeToggle Component", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should render ThemeToggle correctly", async () => {
+    // GIVEN: ThemeToggle component with light theme
+    mockUseTheme.mockReturnValue({
+      theme: "light",
+      setTheme: vi.fn(),
+      resolvedTheme: "light",
+    });
+
+    // WHEN: Component is rendered
+    renderWithProviders(<ThemeToggle />);
+
+    // THEN: Toggle button should be present (wait for mount)
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("theme-toggle"),
+        "Theme toggle button should be rendered",
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("should display Sun icon when theme is light", async () => {
+    // GIVEN: Theme is set to light
+    mockUseTheme.mockReturnValue({
+      theme: "light",
+      setTheme: vi.fn(),
+      resolvedTheme: "light",
+    });
+
+    // WHEN: Component is rendered
+    renderWithProviders(<ThemeToggle />);
+
+    // THEN: Sun icon should be visible and aria-label should mention dark mode
+    await waitFor(() => {
+      const toggleButton = screen.getByTestId("theme-toggle");
+      expect(
+        toggleButton,
+        "Toggle button should have correct aria-label for light theme",
+      ).toHaveAttribute("aria-label", "Switch to dark mode");
+    });
+  });
+
+  it("should display Moon icon when theme is dark", async () => {
+    // GIVEN: Theme is set to dark
+    mockUseTheme.mockReturnValue({
+      theme: "dark",
+      setTheme: vi.fn(),
+      resolvedTheme: "dark",
+    });
+
+    // WHEN: Component is rendered
+    renderWithProviders(<ThemeToggle />);
+
+    // THEN: Moon icon should be visible and aria-label should mention light mode
+    await waitFor(() => {
+      const toggleButton = screen.getByTestId("theme-toggle");
+      expect(
+        toggleButton,
+        "Toggle button should have correct aria-label for dark theme",
+      ).toHaveAttribute("aria-label", "Switch to light mode");
+    });
+  });
+
+  it("should call setTheme when toggle button is clicked", async () => {
+    // GIVEN: ThemeToggle with light theme
+    const setThemeMock = vi.fn();
+    mockUseTheme.mockReturnValue({
+      theme: "light",
+      setTheme: setThemeMock,
+      resolvedTheme: "light",
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<ThemeToggle />);
+
+    // WHEN: User clicks the toggle button (wait for mount first)
+    await waitFor(async () => {
+      const toggleButton = screen.getByTestId("theme-toggle");
+      await user.click(toggleButton);
+    });
+
+    // THEN: setTheme should be called with "dark"
+    expect(
+      setThemeMock,
+      "setTheme should be called with 'dark' when toggling from light",
+    ).toHaveBeenCalledWith("dark");
+  });
+
+  it("should call setTheme with light when clicking from dark theme", async () => {
+    // GIVEN: ThemeToggle with dark theme
+    const setThemeMock = vi.fn();
+    mockUseTheme.mockReturnValue({
+      theme: "dark",
+      setTheme: setThemeMock,
+      resolvedTheme: "dark",
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<ThemeToggle />);
+
+    // WHEN: User clicks the toggle button (wait for mount first)
+    await waitFor(async () => {
+      const toggleButton = screen.getByTestId("theme-toggle");
+      await user.click(toggleButton);
+    });
+
+    // THEN: setTheme should be called with "light"
+    expect(
+      setThemeMock,
+      "setTheme should be called with 'light' when toggling from dark",
+    ).toHaveBeenCalledWith("light");
+  });
+
+  it("should have proper accessibility attributes", async () => {
+    // GIVEN: ThemeToggle component
+    mockUseTheme.mockReturnValue({
+      theme: "light",
+      setTheme: vi.fn(),
+      resolvedTheme: "light",
+    });
+
+    // WHEN: Component is rendered
+    renderWithProviders(<ThemeToggle />);
+
+    // THEN: Button should have aria-label and role (wait for mount)
+    await waitFor(() => {
+      const toggleButton = screen.getByTestId("theme-toggle");
+      expect(
+        toggleButton,
+        "Toggle button should have aria-label for accessibility",
+      ).toHaveAttribute("aria-label");
+      expect(
+        toggleButton,
+        "Toggle button should have role='button' for accessibility",
+      ).toHaveAttribute("role", "button");
+    });
+  });
+});

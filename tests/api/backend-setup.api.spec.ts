@@ -19,12 +19,12 @@ import {
  */
 
 test.describe("1.2-API-001: Backend Setup - Health Check", () => {
-  test("[P0] 1.2-API-001-001: GET /health should return 200 OK with status", async ({
+  test("[P0] 1.2-API-001-001: GET /api/health should return 200 OK with status", async ({
     apiRequest,
   }) => {
     // GIVEN: Backend server is running
     // WHEN: Health check endpoint is called
-    const response = await apiRequest.get("/health");
+    const response = await apiRequest.get("/api/health");
 
     // THEN: Response is 200 OK
     expect(response.status()).toBe(200);
@@ -35,12 +35,12 @@ test.describe("1.2-API-001: Backend Setup - Health Check", () => {
     expect(body.status).toBe("ok");
   });
 
-  test("[P1] 1.2-API-001-002: GET /health should include server metadata", async ({
+  test("[P1] 1.2-API-001-002: GET /api/health should include server metadata", async ({
     apiRequest,
   }) => {
     // GIVEN: Backend server is running
     // WHEN: Health check endpoint is called
-    const response = await apiRequest.get("/health");
+    const response = await apiRequest.get("/api/health");
 
     // THEN: Response includes server metadata
     expect(response.status()).toBe(200);
@@ -58,7 +58,7 @@ test.describe("1.2-API-002: Backend Setup - CORS Middleware", () => {
   }) => {
     // GIVEN: Backend server with CORS middleware configured
     // WHEN: OPTIONS request is sent
-    const response = await apiRequest.options("/health", {
+    const response = await apiRequest.options("/api/health", {
       headers: {
         Origin: "http://localhost:3000",
         "Access-Control-Request-Method": "GET",
@@ -75,7 +75,7 @@ test.describe("1.2-API-002: Backend Setup - CORS Middleware", () => {
   }) => {
     // GIVEN: Backend server with CORS middleware configured
     // WHEN: GET request is sent with Origin header
-    const response = await apiRequest.get("/health", {
+    const response = await apiRequest.get("/api/health", {
       headers: {
         Origin: "http://localhost:3000",
       },
@@ -93,7 +93,7 @@ test.describe("1.2-API-003: Backend Setup - Security Headers (Helmet)", () => {
   }) => {
     // GIVEN: Backend server with Helmet middleware configured
     // WHEN: Any endpoint is called
-    const response = await apiRequest.get("/health");
+    const response = await apiRequest.get("/api/health");
 
     // THEN: Security headers are present
     expect(response.status()).toBe(200);
@@ -112,7 +112,7 @@ test.describe("1.2-API-004: Backend Setup - Rate Limiting", () => {
     // GIVEN: Backend server with rate limiting configured (100 req/min per user)
     // WHEN: Multiple requests are sent within limit
     const requests = Array.from({ length: 10 }, () =>
-      apiRequest.get("/health"),
+      apiRequest.get("/api/health"),
     );
 
     const responses = await Promise.all(requests);
@@ -130,7 +130,7 @@ test.describe("1.2-API-004: Backend Setup - Rate Limiting", () => {
     // WHEN: More than 100 requests are sent in quick succession
     // Note: Rate limiting may not trigger immediately - this test verifies rate limiting is configured
     const requests = Array.from({ length: 110 }, () =>
-      apiRequest.get("/health"),
+      apiRequest.get("/api/health"),
     );
 
     const responses = await Promise.all(requests);
@@ -160,7 +160,7 @@ test.describe("1.2-API-005: Backend Setup - Server Configuration", () => {
   }) => {
     // GIVEN: Backend server configured with PORT environment variable
     // WHEN: Health check endpoint is called
-    const response = await apiRequest.get("/health");
+    const response = await apiRequest.get("/api/health");
 
     // THEN: Server responds successfully
     expect(response.status()).toBe(200);
@@ -174,7 +174,7 @@ test.describe("1.2-API-005: Backend Setup - Server Configuration", () => {
     // THEN: Server completes in-flight requests before shutting down
     // NOTE: This test requires manual verification or integration test setup
     // For now, verify server is responsive
-    const response = await apiRequest.get("/health");
+    const response = await apiRequest.get("/api/health");
     expect(response.status()).toBe(200);
   });
 });

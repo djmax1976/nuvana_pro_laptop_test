@@ -1,0 +1,41 @@
+#!/bin/bash
+set -euo pipefail
+
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMRTUXB | grep -E '\.(ts|tsx)$' || true)
+
+if [ -z "$STAGED_FILES" ]; then
+  echo "No TypeScript files staged; skipping pre-commit checks."
+  exit 0
+fi
+
+echo "Formatting staged TypeScript files..."
+npx prettier --write --loglevel warn $STAGED_FILES
+git add $STAGED_FILES
+
+echo "Linting staged TypeScript files..."
+./node_modules/.bin/eslint --fix $STAGED_FILES
+git add $STAGED_FILES
+
+echo "Type-checking project..."
+npx tsc --noEmit
+
+# Find newly created or modified Vitest test files (unit/component tests only, exclude Playwright E2E/API tests)
+# Only match .test.ts or .test.tsx files in tests/unit/ or tests/component/ directories
+STAGED_TEST_FILES=$(git diff --cached --name-only --diff-filter=ACMRTUXB | grep -E 'tests/(unit|component)/.*\.test\.(ts|tsx)$' || true)
+
+if [ -n "$STAGED_TEST_FILES" ]; then
+  echo "Running newly created or modified unit/component tests..."
+  # Run vitest on the staged test files
+  npx vitest run $STAGED_TEST_FILES
+  
+  if [ $? -ne 0 ]; then
+    echo "❌ Tests failed! Commit blocked."
+    exit 1
+  fi
+  echo "✅ All tests passed."
+else
+  echo "No new or modified test files to run."
+fi
+
+echo "Pre-commit checks passed."
+exit 0

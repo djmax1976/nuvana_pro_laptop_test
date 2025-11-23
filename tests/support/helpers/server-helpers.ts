@@ -8,11 +8,14 @@
 export type HealthCheckResponse = {
   status: string;
   timestamp: string;
-  uptime: number;
+  uptime?: number; // Optional - /api/health doesn't include uptime
+  services?: Record<string, unknown>; // Optional - /api/health includes services
+  version?: string; // Optional - /api/health includes version
 };
 
 /**
  * Validates health check response structure
+ * Supports both /health (simple) and /api/health (full) endpoints
  */
 export function validateHealthCheckResponse(
   body: unknown,
@@ -22,11 +25,17 @@ export function validateHealthCheckResponse(
   }
 
   const health = body as Record<string, unknown>;
-  return (
-    health.status === "ok" &&
-    typeof health.timestamp === "string" &&
-    typeof health.uptime === "number"
-  );
+  // Must have status and timestamp
+  const hasRequiredFields =
+    health.status === "ok" && typeof health.timestamp === "string";
+
+  // May have uptime (simple /health) or services (full /api/health)
+  const hasValidOptionalFields =
+    health.uptime === undefined ||
+    typeof health.uptime === "number" ||
+    (health.services !== undefined && typeof health.services === "object");
+
+  return hasRequiredFields && hasValidOptionalFields;
 }
 
 /**

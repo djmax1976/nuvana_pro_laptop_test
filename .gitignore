@@ -62,5 +62,13 @@ test-results/
 # BMAD-specific ignores (DO NOT commit framework files)
 nuvana_docs/
 nuvana_control/
+# Exception: CI/CD scripts are required for pipeline execution
+!nuvana_control/
+nuvana_control/*
+!nuvana_control/workflows/
+nuvana_control/workflows/*
+!nuvana_control/workflows/11-ci_pipeline/
+nuvana_control/workflows/11-ci_pipeline/*
+!nuvana_control/workflows/11-ci_pipeline/scripts/
 my-files/
 bmad/

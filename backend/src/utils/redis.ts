@@ -4,9 +4,10 @@ let redisClient: RedisClientType | null = null;
 
 /**
  * Initialize Redis client with connection options, pooling, and retry logic
- * @returns Redis client instance
+ * Returns null if connection fails (graceful degradation)
+ * @returns Redis client instance or null if connection failed
  */
-export async function initializeRedis(): Promise<RedisClientType> {
+export async function initializeRedis(): Promise<RedisClientType | null> {
   if (redisClient && redisClient.isOpen) {
     return redisClient;
   }
@@ -49,23 +50,24 @@ export async function initializeRedis(): Promise<RedisClientType> {
     console.log("Redis: Reconnecting...");
   });
 
-  // Connect with retry logic
+  // Connect with retry logic - gracefully handle failures
   try {
     await redisClient.connect();
     console.log("Redis: Connected successfully");
+    return redisClient;
   } catch (error) {
-    console.error("Redis: Connection failed:", error);
-    throw error;
+    console.error("Redis: Connection failed, continuing without cache:", error);
+    redisClient = null;
+    return null;
   }
-
-  return redisClient;
 }
 
 /**
  * Get the Redis client instance (initializes if needed)
- * @returns Redis client instance
+ * Returns null if Redis is unavailable (for graceful degradation)
+ * @returns Redis client instance or null if unavailable
  */
-export async function getRedisClient(): Promise<RedisClientType> {
+export async function getRedisClient(): Promise<RedisClientType | null> {
   if (!redisClient || !redisClient.isOpen) {
     return await initializeRedis();
   }
@@ -100,6 +102,12 @@ export async function checkRedisHealth(): Promise<{
 }> {
   try {
     const client = await getRedisClient();
+    if (!client) {
+      return {
+        healthy: false,
+        error: "Redis client unavailable",
+      };
+    }
     const start = Date.now();
     await client.ping();
     const latency = Date.now() - start;
