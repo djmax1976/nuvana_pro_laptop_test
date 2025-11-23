@@ -12,15 +12,16 @@ ITERATIONS="${BURN_IN_ITERATIONS:-5}"
 echo "Burn-in iterations: $ITERATIONS"
 
 # Find changed test files based on event type
+# Only include files that exist (exclude deleted files)
 if [ -n "${GITHUB_BASE_REF:-}" ]; then
   # Pull request: compare against base branch
   BASE_BRANCH="$GITHUB_BASE_REF"
   echo "PR mode - Base branch: $BASE_BRANCH"
-  CHANGED_TESTS=$(git diff --name-only "origin/$BASE_BRANCH"...HEAD | grep -E '\.(spec|test)\.(ts|tsx|js|jsx)$' || echo "")
+  CHANGED_TESTS=$(git diff --name-only --diff-filter=ACMRTU "origin/$BASE_BRANCH"...HEAD | grep -E '\.(spec|test)\.(ts|tsx|js|jsx)$' | while read -r file; do [ -f "$file" ] && echo "$file"; done || echo "")
 else
   # Push event: compare against previous commit
   echo "Push mode - Comparing HEAD~1...HEAD"
-  CHANGED_TESTS=$(git diff --name-only HEAD~1 HEAD | grep -E '\.(spec|test)\.(ts|tsx|js|jsx)$' || echo "")
+  CHANGED_TESTS=$(git diff --name-only --diff-filter=ACMRTU HEAD~1 HEAD | grep -E '\.(spec|test)\.(ts|tsx|js|jsx)$' | while read -r file; do [ -f "$file" ] && echo "$file"; done || echo "")
 fi
 
 if [ -z "$CHANGED_TESTS" ]; then

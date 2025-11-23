@@ -306,10 +306,14 @@ jobs:
         run: cd backend && npm run build
       - name: Make scripts executable
         run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
-      - name: Clean up port 3001 (if occupied)
-        run: bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
-      - name: Start backend (if API/E2E tests needed)
+      - name: Clean up ports (if occupied)
         run: |
+          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000
+          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
+      - name: Start full stack (frontend and backend)
+        run: |
+          npm run start > frontend.log 2>&1 &
+          echo $! > frontend.pid
           cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
@@ -317,12 +321,23 @@ jobs:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
+          BACKEND_URL: ${{ env.BACKEND_URL }}
+          FRONTEND_URL: ${{ env.FRONTEND_URL }}
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
-      - name: Wait for backend health (if started)
+      - name: Wait for frontend and backend
         run: |
-          echo "Waiting for backend to be healthy..."
+          echo "Waiting for frontend..."
+          for i in {1..30}; do
+            if curl -sf --max-time 5 --retry 2 ${{ env.FRONTEND_URL }} > /dev/null 2>&1; then
+              echo "Frontend is ready"
+              break
+            fi
+            echo "Waiting for frontend... ($i/30)"
+            sleep $((i > 10 ? 5 : 2))
+          done
+          echo "Waiting for backend..."
           for i in {1..30}; do
             if curl -sf --max-time 5 --retry 2 ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
               echo "Backend is ready"
@@ -331,8 +346,9 @@ jobs:
             echo "Waiting for backend... ($i/30)"
             sleep $((i > 10 ? 5 : 2))
           done
-          echo "Backend health check timeout - may not be needed for this test run"
-        continue-on-error: true
+          echo "Services failed to start"
+          cat frontend.log backend.log || true
+          exit 1
       - name: Run burn-in loop
         env:
           BURN_IN_ITERATIONS: ${{ env.BURN_IN_ITERATIONS }}
@@ -346,28 +362,37 @@ jobs:
       - name: Scrub secrets from logs
         if: failure()
         run: |
-          if [ -f backend.log ]; then
-            sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' backend.log
-            sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' backend.log
-            sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' backend.log
-            sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' backend.log
-            sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' backend.log
-          fi
-      - name: Upload backend logs
+          for log_file in frontend.log backend.log; do
+            if [ -f "$log_file" ]; then
+              sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' "$log_file"
+              sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' "$log_file"
+              sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' "$log_file"
+              sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' "$log_file"
+              sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' "$log_file"
+            fi
+          done
+      - name: Upload full stack logs
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: backend-logs-burn-in
-          path: backend.log
+          name: full-stack-logs-burn-in
+          path: |
+            frontend.log
+            backend.log
           retention-days: 7
-      - name: Stop backend
+      - name: Stop full stack
         if: always()
         run: |
+          if [ -f frontend.pid ]; then
+            kill $(cat frontend.pid) 2>/dev/null || true
+            rm -f frontend.pid
+          fi
           if [ -f backend.pid ]; then
             kill $(cat backend.pid) 2>/dev/null || true
             rm -f backend.pid
           fi
-          # Extra cleanup: kill any remaining process on port 3001
+          # Extra cleanup: kill any remaining processes on ports
+          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000 || true
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
   component_smoke:
