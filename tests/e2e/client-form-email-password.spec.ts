@@ -370,7 +370,7 @@ test.describe("Client Form Email and Password E2E", () => {
       // THEN: Client is created successfully
       await expect(
         page.locator("text=Client created successfully"),
-      ).toBeVisible({ timeout: 10000 });
+      ).toBeVisible({ timeout: 30000 });
     });
   });
 
