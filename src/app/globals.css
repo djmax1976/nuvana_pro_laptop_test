@@ -87,5 +87,36 @@
   html {
     scroll-behavior: smooth;
   }
+
+  /*
+   * ARCHITECTURAL FIX: Radix UI Dialog Centering
+   *
+   * PROBLEM: Tailwind's tailwindcss-animate plugin uses CSS keyframes that
+   * REPLACE transform properties rather than composing them. When using
+   * animation utilities like zoom-in-95, the @keyframes rule sets transform
+   * which overrides any transform classes (-translate-x-1/2, -translate-y-1/2).
+   *
+   * WHY THIS IS THE PROPER SOLUTION:
+   * 1. This is a known limitation of CSS animations - you cannot compose
+   *    multiple transform properties from different sources
+   * 2. The official Radix UI + Tailwind examples work because they either:
+   *    a) Don't use conflicting animations (AlertDialog uses slide-in-from-bottom only)
+   *    b) Or they expect you to handle centering differently
+   * 3. This CSS applies the centering transform with specificity that works
+   *    alongside the animation system
+   *
+   * SELECTOR LOGIC:
+   * - [role="dialog"] - Targets Radix Dialog Content elements
+   * - [data-state] - Ensures it's a Radix component (has open/closed state)
+   * - :not([class*="inset-y"]):not([class*="inset-x"]) - Excludes Sheet components
+   *   which use inset positioning for sliding from edges
+   *
+   * ALTERNATIVE CONSIDERED: Remove all animations - rejected because animations
+   * provide important UX feedback. This solution preserves animations while
+   * fixing centering.
+   */
+  [role="dialog"][data-state]:not([class*="inset-y"]):not([class*="inset-x"]) {
+    transform: translate(-50%, -50%) !important;
+  }
 }
 

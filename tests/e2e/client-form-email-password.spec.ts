@@ -132,15 +132,19 @@ test.describe("Client Form Email and Password E2E", () => {
 
   test.describe("Create Client Form", () => {
     test.beforeEach(async ({ page }) => {
-      await page.goto("http://localhost:3000/clients/new");
-      await page.waitForSelector('[data-testid="client-name-input"]');
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector('[data-testid="client-create-button"]');
+      await page.click('[data-testid="client-create-button"]');
+      await page.waitForSelector('[data-testid="create-client-name-input"]');
     });
 
     test("[P0] Should display email and password fields in create form", async ({
       page,
     }) => {
       // THEN: Email field is visible
-      const emailInput = page.locator('[data-testid="client-email-input"]');
+      const emailInput = page.locator(
+        '[data-testid="create-client-email-input"]',
+      );
       await expect(emailInput).toBeVisible();
       await expect(emailInput).toHaveAttribute("type", "email");
       await expect(emailInput).toHaveAttribute(
@@ -151,7 +155,7 @@ test.describe("Client Form Email and Password E2E", () => {
 
       // AND: Password field is visible
       const passwordInput = page.locator(
-        '[data-testid="client-password-input"]',
+        '[data-testid="create-client-password-input"]',
       );
       await expect(passwordInput).toBeVisible();
       await expect(passwordInput).toHaveAttribute("type", "password");
@@ -162,7 +166,7 @@ test.describe("Client Form Email and Password E2E", () => {
 
       // AND: Confirm password field is visible
       const confirmPasswordInput = page.locator(
-        '[data-testid="client-confirm-password-input"]',
+        '[data-testid="create-client-confirm-password-input"]',
       );
       await expect(confirmPasswordInput).toBeVisible();
       await expect(confirmPasswordInput).toHaveAttribute("type", "password");
@@ -176,8 +180,11 @@ test.describe("Client Form Email and Password E2E", () => {
       page,
     }) => {
       // WHEN: Submitting form without email
-      await page.fill('[data-testid="client-name-input"]', "Test Client");
-      await page.click('[data-testid="client-submit-button"]');
+      await page.fill(
+        '[data-testid="create-client-name-input"]',
+        "Test Client",
+      );
+      await page.click('[data-testid="create-client-submit-button"]');
 
       // THEN: Validation error is displayed
       await expect(page.locator("text=Invalid email address")).toBeVisible();
@@ -187,9 +194,15 @@ test.describe("Client Form Email and Password E2E", () => {
       page,
     }) => {
       // WHEN: Entering invalid email format
-      await page.fill('[data-testid="client-name-input"]', "Test Client");
-      await page.fill('[data-testid="client-email-input"]', "not-an-email");
-      await page.click('[data-testid="client-submit-button"]');
+      await page.fill(
+        '[data-testid="create-client-name-input"]',
+        "Test Client",
+      );
+      await page.fill(
+        '[data-testid="create-client-email-input"]',
+        "not-an-email",
+      );
+      await page.click('[data-testid="create-client-submit-button"]');
 
       // THEN: Validation error is displayed
       await expect(page.locator("text=Invalid email address")).toBeVisible();
@@ -199,11 +212,20 @@ test.describe("Client Form Email and Password E2E", () => {
       page,
     }) => {
       // WHEN: Entering password shorter than 8 characters
-      await page.fill('[data-testid="client-name-input"]', "Test Client");
-      await page.fill('[data-testid="client-email-input"]', "test@example.com");
-      await page.fill('[data-testid="client-password-input"]', "short");
-      await page.fill('[data-testid="client-confirm-password-input"]', "short");
-      await page.click('[data-testid="client-submit-button"]');
+      await page.fill(
+        '[data-testid="create-client-name-input"]',
+        "Test Client",
+      );
+      await page.fill(
+        '[data-testid="create-client-email-input"]',
+        "test@example.com",
+      );
+      await page.fill('[data-testid="create-client-password-input"]', "short");
+      await page.fill(
+        '[data-testid="create-client-confirm-password-input"]',
+        "short",
+      );
+      await page.click('[data-testid="create-client-submit-button"]');
 
       // THEN: Validation error is displayed
       await expect(
@@ -215,17 +237,23 @@ test.describe("Client Form Email and Password E2E", () => {
       page,
     }) => {
       // WHEN: Entering different passwords
-      await page.fill('[data-testid="client-name-input"]', "Test Client");
       await page.fill(
-        '[data-testid="client-email-input"]',
+        '[data-testid="create-client-name-input"]',
+        "Test Client",
+      );
+      await page.fill(
+        '[data-testid="create-client-email-input"]',
         "mismatch@example.com",
       );
-      await page.fill('[data-testid="client-password-input"]', "Password123");
       await page.fill(
-        '[data-testid="client-confirm-password-input"]',
+        '[data-testid="create-client-password-input"]',
+        "Password123",
+      );
+      await page.fill(
+        '[data-testid="create-client-confirm-password-input"]',
         "Password456",
       );
-      await page.click('[data-testid="client-submit-button"]');
+      await page.click('[data-testid="create-client-submit-button"]');
 
       // THEN: Validation error is displayed
       await expect(page.locator("text=Passwords do not match")).toBeVisible();
@@ -236,22 +264,22 @@ test.describe("Client Form Email and Password E2E", () => {
     }) => {
       // WHEN: Entering matching passwords
       await page.fill(
-        '[data-testid="client-name-input"]',
+        '[data-testid="create-client-name-input"]',
         "Matching Pass Client",
       );
       await page.fill(
-        '[data-testid="client-email-input"]',
+        '[data-testid="create-client-email-input"]',
         "matching@example.com",
       );
       await page.fill(
-        '[data-testid="client-password-input"]',
+        '[data-testid="create-client-password-input"]',
         "MatchingPass123",
       );
       await page.fill(
-        '[data-testid="client-confirm-password-input"]',
+        '[data-testid="create-client-confirm-password-input"]',
         "MatchingPass123",
       );
-      await page.click('[data-testid="client-submit-button"]');
+      await page.click('[data-testid="create-client-submit-button"]');
 
       // THEN: Form submits successfully
       await expect(
@@ -264,38 +292,32 @@ test.describe("Client Form Email and Password E2E", () => {
     }) => {
       // WHEN: Filling form with valid data including email and password
       await page.fill(
-        '[data-testid="client-name-input"]',
+        '[data-testid="create-client-name-input"]',
         "New Client with Auth",
       );
       await page.fill(
-        '[data-testid="client-email-input"]',
+        '[data-testid="create-client-email-input"]',
         "newclient@example.com",
       );
-      await page.fill('[data-testid="client-password-input"]', "securePass123");
       await page.fill(
-        '[data-testid="client-confirm-password-input"]',
+        '[data-testid="create-client-password-input"]',
         "securePass123",
       );
-      await page.click('[data-testid="client-submit-button"]');
+      await page.fill(
+        '[data-testid="create-client-confirm-password-input"]',
+        "securePass123",
+      );
+      await page.click('[data-testid="create-client-submit-button"]');
 
       // THEN: Success toast is displayed
       await expect(
         page.locator("text=Client created successfully"),
       ).toBeVisible({ timeout: 10000 });
 
-      // AND: Form is reset for next entry
+      // AND: Modal should close and we should be back on clients list
       await expect(
-        page.locator('[data-testid="client-name-input"]'),
-      ).toHaveValue("");
-      await expect(
-        page.locator('[data-testid="client-email-input"]'),
-      ).toHaveValue("");
-      await expect(
-        page.locator('[data-testid="client-password-input"]'),
-      ).toHaveValue("");
-      await expect(
-        page.locator('[data-testid="client-confirm-password-input"]'),
-      ).toHaveValue("");
+        page.locator('[data-testid="client-create-button"]'),
+      ).toBeVisible();
     });
 
     test("[P0] Should successfully create client with email but no password", async ({
@@ -303,15 +325,15 @@ test.describe("Client Form Email and Password E2E", () => {
     }) => {
       // WHEN: Creating client without password (optional)
       await page.fill(
-        '[data-testid="client-name-input"]',
+        '[data-testid="create-client-name-input"]',
         "Client Without Password",
       );
       await page.fill(
-        '[data-testid="client-email-input"]',
+        '[data-testid="create-client-email-input"]',
         "nopass@example.com",
       );
       // Leave password empty
-      await page.click('[data-testid="client-submit-button"]');
+      await page.click('[data-testid="create-client-submit-button"]');
 
       // THEN: Client is created successfully
       await expect(
@@ -576,15 +598,15 @@ test.describe("Client Form Email and Password E2E", () => {
       page,
     }) => {
       // WHEN: Viewing create form
-      await page.goto("http://localhost:3000/clients/new");
-      await page.waitForSelector('[data-testid="client-name-input"]');
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector('[data-testid="client-create-button"]');
+      await page.click('[data-testid="client-create-button"]');
+      await page.waitForSelector('[data-testid="create-client-name-input"]');
 
       // THEN: Email field has label and description
       await expect(page.locator('label:has-text("Email")')).toBeVisible();
       await expect(
-        page.locator(
-          "text=Client email address (required, max 255 characters)",
-        ),
+        page.locator("text=Client email address (max 255 characters)"),
       ).toBeVisible();
 
       // AND: Password field has label and description
@@ -602,14 +624,18 @@ test.describe("Client Form Email and Password E2E", () => {
       page,
     }) => {
       // GIVEN: User is on create client form
-      await page.goto("http://localhost:3000/clients/new");
-      await page.waitForSelector('[data-testid="client-password-input"]');
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector('[data-testid="client-create-button"]');
+      await page.click('[data-testid="client-create-button"]');
+      await page.waitForSelector(
+        '[data-testid="create-client-password-input"]',
+      );
 
       const passwordInput = page.locator(
-        '[data-testid="client-password-input"]',
+        '[data-testid="create-client-password-input"]',
       );
       const toggleButton = page.locator(
-        '[data-testid="toggle-password-visibility"]',
+        '[data-testid="create-toggle-password-visibility"]',
       );
 
       // WHEN: Password field is initially displayed
@@ -644,16 +670,18 @@ test.describe("Client Form Email and Password E2E", () => {
       page,
     }) => {
       // GIVEN: User is on create client form
-      await page.goto("http://localhost:3000/clients/new");
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector('[data-testid="client-create-button"]');
+      await page.click('[data-testid="client-create-button"]');
       await page.waitForSelector(
-        '[data-testid="client-confirm-password-input"]',
+        '[data-testid="create-client-confirm-password-input"]',
       );
 
       const confirmPasswordInput = page.locator(
-        '[data-testid="client-confirm-password-input"]',
+        '[data-testid="create-client-confirm-password-input"]',
       );
       const toggleButton = page.locator(
-        '[data-testid="toggle-confirm-password-visibility"]',
+        '[data-testid="create-toggle-confirm-password-visibility"]',
       );
 
       // WHEN: Confirm password field is initially displayed
@@ -682,20 +710,24 @@ test.describe("Client Form Email and Password E2E", () => {
       page,
     }) => {
       // GIVEN: User is on create client form
-      await page.goto("http://localhost:3000/clients/new");
-      await page.waitForSelector('[data-testid="client-password-input"]');
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector('[data-testid="client-create-button"]');
+      await page.click('[data-testid="client-create-button"]');
+      await page.waitForSelector(
+        '[data-testid="create-client-password-input"]',
+      );
 
       const passwordInput = page.locator(
-        '[data-testid="client-password-input"]',
+        '[data-testid="create-client-password-input"]',
       );
       const confirmPasswordInput = page.locator(
-        '[data-testid="client-confirm-password-input"]',
+        '[data-testid="create-client-confirm-password-input"]',
       );
       const passwordToggle = page.locator(
-        '[data-testid="toggle-password-visibility"]',
+        '[data-testid="create-toggle-password-visibility"]',
       );
       const confirmPasswordToggle = page.locator(
-        '[data-testid="toggle-confirm-password-visibility"]',
+        '[data-testid="create-toggle-confirm-password-visibility"]',
       );
 
       // WHEN: User enters both passwords
@@ -732,14 +764,18 @@ test.describe("Client Form Email and Password E2E", () => {
       page,
     }) => {
       // GIVEN: User is on create client form
-      await page.goto("http://localhost:3000/clients/new");
-      await page.waitForSelector('[data-testid="toggle-password-visibility"]');
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector('[data-testid="client-create-button"]');
+      await page.click('[data-testid="client-create-button"]');
+      await page.waitForSelector(
+        '[data-testid="create-toggle-password-visibility"]',
+      );
 
       const passwordToggle = page.locator(
-        '[data-testid="toggle-password-visibility"]',
+        '[data-testid="create-toggle-password-visibility"]',
       );
       const confirmPasswordToggle = page.locator(
-        '[data-testid="toggle-confirm-password-visibility"]',
+        '[data-testid="create-toggle-confirm-password-visibility"]',
       );
 
       // THEN: Toggle buttons should have proper attributes
@@ -778,25 +814,33 @@ test.describe("Client Form Email and Password E2E", () => {
       page,
     }) => {
       // GIVEN: User is on create client form with valid data
-      await page.goto("http://localhost:3000/clients/new");
-      await page.waitForSelector('[data-testid="client-name-input"]');
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector('[data-testid="client-create-button"]');
+      await page.click('[data-testid="client-create-button"]');
+      await page.waitForSelector('[data-testid="create-client-name-input"]');
 
-      await page.fill('[data-testid="client-name-input"]', "Test Client");
       await page.fill(
-        '[data-testid="client-email-input"]',
+        '[data-testid="create-client-name-input"]',
+        "Test Client",
+      );
+      await page.fill(
+        '[data-testid="create-client-email-input"]',
         "valid@example.com",
       );
-      await page.fill('[data-testid="client-password-input"]', "ValidPass123");
       await page.fill(
-        '[data-testid="client-confirm-password-input"]',
+        '[data-testid="create-client-password-input"]',
+        "ValidPass123",
+      );
+      await page.fill(
+        '[data-testid="create-client-confirm-password-input"]',
         "ValidPass123",
       );
 
       const passwordToggle = page.locator(
-        '[data-testid="toggle-password-visibility"]',
+        '[data-testid="create-toggle-password-visibility"]',
       );
       const confirmPasswordToggle = page.locator(
-        '[data-testid="toggle-confirm-password-visibility"]',
+        '[data-testid="create-toggle-confirm-password-visibility"]',
       );
 
       // WHEN: Form is being submitted
@@ -891,6 +935,130 @@ test.describe("Client Form Email and Password E2E", () => {
             where: { user_id: editTestUser.user_id },
           })
           .catch(() => {});
+      }
+    });
+  });
+
+  test.describe("Modal Centering and Responsiveness", () => {
+    test("[P0] Should center Create Client modal on desktop (1920x1080)", async ({
+      page,
+    }) => {
+      // GIVEN: Desktop viewport
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector('[data-testid="client-create-button"]');
+
+      // WHEN: Open create client modal
+      await page.click('[data-testid="client-create-button"]');
+      await page.waitForSelector('[data-testid="create-client-name-input"]');
+
+      // THEN: Modal should be perfectly centered
+      const dialog = page.locator('[role="dialog"]');
+      await expect(dialog).toBeVisible();
+
+      const dialogBox = await dialog.boundingBox();
+      expect(dialogBox).not.toBeNull();
+
+      if (dialogBox) {
+        const dialogCenterX = dialogBox.x + dialogBox.width / 2;
+        const dialogCenterY = dialogBox.y + dialogBox.height / 2;
+        const viewportCenterX = 1920 / 2;
+        const viewportCenterY = 1080 / 2;
+
+        // Modal should be centered with less than 5px tolerance
+        expect(Math.abs(dialogCenterX - viewportCenterX)).toBeLessThan(5);
+        expect(Math.abs(dialogCenterY - viewportCenterY)).toBeLessThan(5);
+      }
+    });
+
+    test("[P0] Should center Create Client modal on mobile (375x667)", async ({
+      page,
+    }) => {
+      // GIVEN: Mobile viewport
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector('[data-testid="client-create-button"]');
+
+      // WHEN: Open create client modal
+      await page.click('[data-testid="client-create-button"]');
+      await page.waitForSelector('[data-testid="create-client-name-input"]');
+
+      // THEN: Modal should be centered
+      const dialog = page.locator('[role="dialog"]');
+      await expect(dialog).toBeVisible();
+
+      const dialogBox = await dialog.boundingBox();
+      expect(dialogBox).not.toBeNull();
+
+      if (dialogBox) {
+        const dialogCenterX = dialogBox.x + dialogBox.width / 2;
+        const viewportCenterX = 375 / 2;
+
+        // Modal should be horizontally centered with less than 5px tolerance
+        expect(Math.abs(dialogCenterX - viewportCenterX)).toBeLessThan(5);
+
+        // Modal should not overflow viewport
+        expect(dialogBox.x).toBeGreaterThanOrEqual(0);
+        expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(375);
+      }
+    });
+
+    test("[P0] Should center Create Client modal on tablet (768x1024)", async ({
+      page,
+    }) => {
+      // GIVEN: Tablet viewport
+      await page.setViewportSize({ width: 768, height: 1024 });
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector('[data-testid="client-create-button"]');
+
+      // WHEN: Open create client modal
+      await page.click('[data-testid="client-create-button"]');
+      await page.waitForSelector('[data-testid="create-client-name-input"]');
+
+      // THEN: Modal should be centered
+      const dialog = page.locator('[role="dialog"]');
+      await expect(dialog).toBeVisible();
+
+      const dialogBox = await dialog.boundingBox();
+      expect(dialogBox).not.toBeNull();
+
+      if (dialogBox) {
+        const dialogCenterX = dialogBox.x + dialogBox.width / 2;
+        const viewportCenterX = 768 / 2;
+
+        // Modal should be horizontally centered with less than 10px tolerance
+        expect(Math.abs(dialogCenterX - viewportCenterX)).toBeLessThan(10);
+      }
+    });
+
+    test("[P0] Should not overflow on very small mobile (320x568)", async ({
+      page,
+    }) => {
+      // GIVEN: Very small mobile viewport (iPhone SE first gen)
+      await page.setViewportSize({ width: 320, height: 568 });
+      await page.goto("http://localhost:3000/clients");
+      await page.waitForSelector('[data-testid="client-create-button"]');
+
+      // WHEN: Open create client modal
+      await page.click('[data-testid="client-create-button"]');
+      await page.waitForSelector('[data-testid="create-client-name-input"]');
+
+      // THEN: Modal should fit within viewport
+      const dialog = page.locator('[role="dialog"]');
+      await expect(dialog).toBeVisible();
+
+      const dialogBox = await dialog.boundingBox();
+      expect(dialogBox).not.toBeNull();
+
+      if (dialogBox) {
+        // Modal should fit within viewport with margins
+        expect(dialogBox.x).toBeGreaterThanOrEqual(0);
+        expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(320);
+
+        // Modal should be centered
+        const dialogCenterX = dialogBox.x + dialogBox.width / 2;
+        const viewportCenterX = 320 / 2;
+        expect(Math.abs(dialogCenterX - viewportCenterX)).toBeLessThan(5);
       }
     });
   });
