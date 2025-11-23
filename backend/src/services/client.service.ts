@@ -118,12 +118,12 @@ export class ClientService {
       throw new Error("Client email cannot exceed 255 characters");
     }
 
-    // Validate password (required for client authentication)
-    if (!data.password || data.password.trim().length === 0) {
-      throw new Error("Password is required for client authentication");
-    }
-
-    if (data.password.length < 8) {
+    // Validate password (optional, but must be >= 8 chars if provided)
+    if (
+      data.password &&
+      data.password.trim().length > 0 &&
+      data.password.length < 8
+    ) {
       throw new Error("Password must be at least 8 characters");
     }
 
@@ -133,9 +133,12 @@ export class ClientService {
     }
 
     try {
-      // Hash password for User table (authentication)
-      const saltRounds = 10;
-      const passwordHash = await bcrypt.hash(data.password, saltRounds);
+      // Hash password for User table (authentication) - only if provided
+      let passwordHash: string | null = null;
+      if (data.password && data.password.trim().length > 0) {
+        const saltRounds = 10;
+        passwordHash = await bcrypt.hash(data.password, saltRounds);
+      }
 
       // Get CLIENT_OWNER role
       const clientOwnerRole = await prisma.role.findUnique({
@@ -159,59 +162,61 @@ export class ClientService {
       }
 
       // Use transaction to create User + Client + UserRole atomically
-      const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        // 1. Create User record (for authentication)
-        const user = await tx.user.create({
-          data: {
-            public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-            email: data.email.trim().toLowerCase(),
-            name: data.name.trim(),
-            password_hash: passwordHash,
-            status: data.status || ClientStatus.ACTIVE,
-          },
-        });
-
-        // 2. Create Client record (for business data)
-        const client = await tx.client.create({
-          data: {
-            public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
-            name: data.name.trim(),
-            email: data.email.trim().toLowerCase(),
-            status: data.status || ClientStatus.ACTIVE,
-            metadata: (data.metadata as any) ?? null,
-          },
-          include: {
-            _count: {
-              select: { companies: true },
+      const result = await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          // 1. Create User record (for authentication)
+          const user = await tx.user.create({
+            data: {
+              public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+              email: data.email.trim().toLowerCase(),
+              name: data.name.trim(),
+              password_hash: passwordHash,
+              status: data.status || ClientStatus.ACTIVE,
             },
-            companies: {
-              where: {
-                deleted_at: null,
+          });
+
+          // 2. Create Client record (for business data)
+          const client = await tx.client.create({
+            data: {
+              public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
+              name: data.name.trim(),
+              email: data.email.trim().toLowerCase(),
+              status: data.status || ClientStatus.ACTIVE,
+              metadata: (data.metadata as any) ?? null,
+            },
+            include: {
+              _count: {
+                select: { companies: true },
               },
-              select: {
-                company_id: true,
-                public_id: true,
-                name: true,
-              },
-              orderBy: {
-                name: "asc",
+              companies: {
+                where: {
+                  deleted_at: null,
+                },
+                select: {
+                  company_id: true,
+                  public_id: true,
+                  name: true,
+                },
+                orderBy: {
+                  name: "asc",
+                },
               },
             },
-          },
-        });
+          });
 
-        // 3. Link User to Client with CLIENT_OWNER role
-        await tx.userRole.create({
-          data: {
-            user_id: user.user_id,
-            role_id: clientOwnerRole.role_id,
-            client_id: client.client_id,
-            assigned_by: assignedBy,
-          },
-        });
+          // 3. Link User to Client with CLIENT_OWNER role
+          await tx.userRole.create({
+            data: {
+              user_id: user.user_id,
+              role_id: clientOwnerRole.role_id,
+              client_id: client.client_id,
+              assigned_by: assignedBy,
+            },
+          });
 
-        return { user, client };
-      });
+          return { user, client };
+        },
+      );
 
       const { client } = result;
 
@@ -494,75 +499,77 @@ export class ClientService {
       const userId = userRole.user_id;
 
       // Use transaction to update both User and Client atomically
-      const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        // Prepare User update data
-        const userUpdateData: any = {};
-        if (data.name !== undefined) {
-          userUpdateData.name = data.name.trim();
-        }
-        if (data.email !== undefined) {
-          userUpdateData.email = data.email.trim().toLowerCase();
-        }
-        if (data.password) {
-          const saltRounds = 10;
-          userUpdateData.password_hash = await bcrypt.hash(
-            data.password,
-            saltRounds,
-          );
-        }
-        if (data.status !== undefined) {
-          userUpdateData.status = data.status;
-        }
+      const result = await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          // Prepare User update data
+          const userUpdateData: any = {};
+          if (data.name !== undefined) {
+            userUpdateData.name = data.name.trim();
+          }
+          if (data.email !== undefined) {
+            userUpdateData.email = data.email.trim().toLowerCase();
+          }
+          if (data.password) {
+            const saltRounds = 10;
+            userUpdateData.password_hash = await bcrypt.hash(
+              data.password,
+              saltRounds,
+            );
+          }
+          if (data.status !== undefined) {
+            userUpdateData.status = data.status;
+          }
 
-        // Update User (authentication data)
-        if (Object.keys(userUpdateData).length > 0) {
-          await tx.user.update({
-            where: { user_id: userId },
-            data: userUpdateData,
+          // Update User (authentication data)
+          if (Object.keys(userUpdateData).length > 0) {
+            await tx.user.update({
+              where: { user_id: userId },
+              data: userUpdateData,
+            });
+          }
+
+          // Prepare Client update data
+          const clientUpdateData: any = {};
+          if (data.name !== undefined) {
+            clientUpdateData.name = data.name.trim();
+          }
+          if (data.email !== undefined) {
+            clientUpdateData.email = data.email.trim().toLowerCase();
+          }
+          if (data.status !== undefined) {
+            clientUpdateData.status = data.status;
+          }
+          if (data.metadata !== undefined) {
+            clientUpdateData.metadata = data.metadata as any;
+          }
+
+          // Update Client (business data)
+          const client = await tx.client.update({
+            where: { client_id: clientId },
+            data: clientUpdateData,
+            include: {
+              _count: {
+                select: { companies: true },
+              },
+              companies: {
+                where: {
+                  deleted_at: null,
+                },
+                select: {
+                  company_id: true,
+                  public_id: true,
+                  name: true,
+                },
+                orderBy: {
+                  name: "asc",
+                },
+              },
+            },
           });
-        }
 
-        // Prepare Client update data
-        const clientUpdateData: any = {};
-        if (data.name !== undefined) {
-          clientUpdateData.name = data.name.trim();
-        }
-        if (data.email !== undefined) {
-          clientUpdateData.email = data.email.trim().toLowerCase();
-        }
-        if (data.status !== undefined) {
-          clientUpdateData.status = data.status;
-        }
-        if (data.metadata !== undefined) {
-          clientUpdateData.metadata = data.metadata as any;
-        }
-
-        // Update Client (business data)
-        const client = await tx.client.update({
-          where: { client_id: clientId },
-          data: clientUpdateData,
-          include: {
-            _count: {
-              select: { companies: true },
-            },
-            companies: {
-              where: {
-                deleted_at: null,
-              },
-              select: {
-                company_id: true,
-                public_id: true,
-                name: true,
-              },
-              orderBy: {
-                name: "asc",
-              },
-            },
-          },
-        });
-
-        return client;
-      });
+          return client;
+        },
+      );
 
       const client = result;
 

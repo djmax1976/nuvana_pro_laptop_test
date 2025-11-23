@@ -48,11 +48,10 @@ const clientFormSchema = z
       .string()
       .email("Invalid email address")
       .max(255, "Email must be 255 characters or less"),
-    password: z
-      .string()
-      .min(8, "Password must be at least 8 characters")
-      .optional()
-      .or(z.literal("")),
+    password: z.union([
+      z.literal(""),
+      z.string().min(8, "Password must be at least 8 characters"),
+    ]),
     confirmPassword: z.string().optional().or(z.literal("")),
     status: z.nativeEnum(ClientStatus, {
       message: "Please select a status",

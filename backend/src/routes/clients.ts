@@ -68,8 +68,10 @@ const createClientSchema = z.object({
     .email("Invalid email address")
     .max(255, "Email cannot exceed 255 characters"),
   password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
+    .union([
+      z.literal(""),
+      z.string().min(8, "Password must be at least 8 characters"),
+    ])
     .optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
   metadata: z.record(z.string(), z.unknown()).optional().nullable(),
@@ -87,8 +89,10 @@ const updateClientSchema = z.object({
     .max(255, "Email cannot exceed 255 characters")
     .optional(),
   password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
+    .union([
+      z.literal(""),
+      z.string().min(8, "Password must be at least 8 characters"),
+    ])
     .optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
   metadata: z.record(z.string(), z.unknown()).optional().nullable(),

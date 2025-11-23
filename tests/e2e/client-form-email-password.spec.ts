@@ -325,7 +325,7 @@ test.describe("Client Form Email and Password E2E", () => {
 
       // THEN: Form submits successfully
       await expect(
-        page.locator("text=Client created successfully"),
+        page.locator("text=Client created successfully").first(),
       ).toBeVisible({ timeout: 10000 });
     });
 
@@ -353,7 +353,7 @@ test.describe("Client Form Email and Password E2E", () => {
 
       // THEN: Success toast is displayed
       await expect(
-        page.locator("text=Client created successfully"),
+        page.locator("text=Client created successfully").first(),
       ).toBeVisible({ timeout: 10000 });
 
       // AND: Modal should close and we should be back on clients list
@@ -379,7 +379,7 @@ test.describe("Client Form Email and Password E2E", () => {
 
       // THEN: Client is created successfully
       await expect(
-        page.locator("text=Client created successfully"),
+        page.locator("text=Client created successfully").first(),
       ).toBeVisible({ timeout: 30000 });
     });
   });
@@ -491,7 +491,7 @@ test.describe("Client Form Email and Password E2E", () => {
 
       // AND: Label indicates password is optional
       await expect(
-        page.locator("text=Password (leave blank to keep current)"),
+        page.locator("text=Password (leave blank to keep current)").first(),
       ).toBeVisible();
 
       // AND: Description explains optional nature
@@ -513,7 +513,7 @@ test.describe("Client Form Email and Password E2E", () => {
 
       // THEN: Update is successful
       await expect(
-        page.locator("text=Client updated successfully"),
+        page.locator("text=Client updated successfully").first(),
       ).toBeVisible({ timeout: 10000 });
 
       // AND: Email is updated in database
@@ -545,7 +545,7 @@ test.describe("Client Form Email and Password E2E", () => {
 
       // THEN: Update is successful
       await expect(
-        page.locator("text=Client updated successfully"),
+        page.locator("text=Client updated successfully").first(),
       ).toBeVisible({ timeout: 10000 });
 
       // AND: Password hash is changed in User record (not Client)
@@ -594,7 +594,7 @@ test.describe("Client Form Email and Password E2E", () => {
 
       // THEN: Update is successful
       await expect(
-        page.locator("text=Client updated successfully"),
+        page.locator("text=Client updated successfully").first(),
       ).toBeVisible({ timeout: 10000 });
 
       // AND: Password hash remains unchanged in User record
