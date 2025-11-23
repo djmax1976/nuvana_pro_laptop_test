@@ -114,13 +114,9 @@ if [ "$RUN_E2E" = true ]; then
   lsof -ti:3000 | xargs kill -9 2>/dev/null || true
   sleep 1
 
-  # Build the frontend first
-  echo "Building frontend for E2E tests..."
-  npm run build || exit 1
-
-  # Start the frontend server in the background
-  echo "Starting frontend server..."
-  npm start > frontend.log 2>&1 &
+  # Start the frontend server in dev mode (faster than production build)
+  echo "Starting frontend server in dev mode..."
+  npm run dev > frontend.log 2>&1 &
   FRONTEND_PID=$!
   echo "Frontend PID: $FRONTEND_PID"
 
