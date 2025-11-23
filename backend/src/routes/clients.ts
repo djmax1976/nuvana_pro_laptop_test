@@ -293,15 +293,21 @@ export async function clientRoutes(fastify: FastifyInstance) {
           error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error fetching client");
 
-        if (
-          message.includes("not found") ||
-          message.includes("Invalid client identifier")
-        ) {
+        if (message.includes("Invalid client identifier")) {
+          reply.code(400);
+          return {
+            success: false,
+            error: "Validation error",
+            message,
+          };
+        }
+
+        if (message.includes("not found")) {
           reply.code(404);
           return {
             success: false,
             error: "Not found",
-            message: message.includes("Invalid") ? message : "Client not found",
+            message: "Client not found",
           };
         }
 
@@ -372,15 +378,21 @@ export async function clientRoutes(fastify: FastifyInstance) {
           error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error updating client");
 
-        if (
-          message.includes("not found") ||
-          message.includes("Invalid client identifier")
-        ) {
+        if (message.includes("Invalid client identifier")) {
+          reply.code(400);
+          return {
+            success: false,
+            error: "Validation error",
+            message,
+          };
+        }
+
+        if (message.includes("not found")) {
           reply.code(404);
           return {
             success: false,
             error: "Not found",
-            message: message.includes("Invalid") ? message : "Client not found",
+            message: "Client not found",
           };
         }
 
@@ -445,15 +457,21 @@ export async function clientRoutes(fastify: FastifyInstance) {
           error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error deleting client");
 
-        if (
-          message.includes("not found") ||
-          message.includes("Invalid client identifier")
-        ) {
+        if (message.includes("Invalid client identifier")) {
+          reply.code(400);
+          return {
+            success: false,
+            error: "Validation error",
+            message,
+          };
+        }
+
+        if (message.includes("not found")) {
           reply.code(404);
           return {
             success: false,
             error: "Not found",
-            message: message.includes("Invalid") ? message : "Client not found",
+            message: "Client not found",
           };
         }
 
