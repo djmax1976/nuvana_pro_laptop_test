@@ -132,12 +132,18 @@ test.describe("Client Form Email and Password E2E", () => {
 
   test.describe("Create Client Form", () => {
     test.beforeEach(async ({ page }) => {
-      await page.goto("http://localhost:3000/clients");
-      await page.waitForLoadState("networkidle");
-      // Wait for button with longer timeout - API may be slow in CI
-      await page.waitForSelector('[data-testid="client-create-button"]', {
-        timeout: 30000,
-      });
+      // Navigate and wait for the clients API call to complete
+      await Promise.all([
+        page.goto("http://localhost:3000/clients"),
+        page.waitForResponse(
+          (response) =>
+            response.url().includes("/api/clients") &&
+            response.status() === 200,
+        ),
+      ]);
+
+      // Now the button should be rendered - wait for it and click
+      await page.waitForSelector('[data-testid="client-create-button"]');
       await page.click('[data-testid="client-create-button"]');
       await page.waitForSelector('[data-testid="create-client-name-input"]');
     });
