@@ -312,7 +312,7 @@ jobs:
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
       - name: Start full stack (frontend and backend)
         run: |
-          npm run dev > frontend.log 2>&1 &
+          npm run dev:frontend > frontend.log 2>&1 &
           echo $! > frontend.pid
           cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
@@ -684,7 +684,7 @@ jobs:
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
       - name: Start full stack
         run: |
-          npm run dev > frontend.log 2>&1 &
+          npm run dev:frontend > frontend.log 2>&1 &
           echo $! > frontend.pid
           cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
