@@ -293,16 +293,10 @@ export async function clientRoutes(fastify: FastifyInstance) {
           error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error fetching client");
 
-        if (message.includes("Invalid client identifier")) {
-          reply.code(400);
-          return {
-            success: false,
-            error: "Validation error",
-            message,
-          };
-        }
-
-        if (message.includes("not found")) {
+        if (
+          message.includes("not found") ||
+          message.includes("Invalid client identifier")
+        ) {
           reply.code(404);
           return {
             success: false,
@@ -378,16 +372,10 @@ export async function clientRoutes(fastify: FastifyInstance) {
           error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error updating client");
 
-        if (message.includes("Invalid client identifier")) {
-          reply.code(400);
-          return {
-            success: false,
-            error: "Validation error",
-            message,
-          };
-        }
-
-        if (message.includes("not found")) {
+        if (
+          message.includes("not found") ||
+          message.includes("Invalid client identifier")
+        ) {
           reply.code(404);
           return {
             success: false,
@@ -457,16 +445,10 @@ export async function clientRoutes(fastify: FastifyInstance) {
           error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error deleting client");
 
-        if (message.includes("Invalid client identifier")) {
-          reply.code(400);
-          return {
-            success: false,
-            error: "Validation error",
-            message,
-          };
-        }
-
-        if (message.includes("not found")) {
+        if (
+          message.includes("not found") ||
+          message.includes("Invalid client identifier")
+        ) {
           reply.code(404);
           return {
             success: false,

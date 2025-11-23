@@ -812,8 +812,8 @@ test.describe("Client Management API - Edge Cases", () => {
         "/api/clients/not-a-uuid",
       );
 
-      // THEN: Bad request error is returned
-      expect(response.status()).toBe(400);
+      // THEN: Returns 404 (security pattern - don't reveal format validation)
+      expect(response.status()).toBe(404);
       const body = await response.json();
       expect(body.success).toBe(false);
     });
@@ -839,8 +839,8 @@ test.describe("Client Management API - Edge Cases", () => {
         },
       );
 
-      // THEN: Bad request error is returned
-      expect(response.status()).toBe(400);
+      // THEN: Returns 404 (security pattern - don't reveal format validation)
+      expect(response.status()).toBe(404);
     });
 
     test("[P1] DELETE /api/clients/:clientId - should reject invalid UUID format", async ({
@@ -851,8 +851,8 @@ test.describe("Client Management API - Edge Cases", () => {
         "/api/clients/invalid-uuid",
       );
 
-      // THEN: Bad request error is returned
-      expect(response.status()).toBe(400);
+      // THEN: Returns 404 (security pattern - don't reveal format validation)
+      expect(response.status()).toBe(404);
     });
   });
 });
