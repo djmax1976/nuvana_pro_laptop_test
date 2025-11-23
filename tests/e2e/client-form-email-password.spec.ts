@@ -195,6 +195,9 @@ test.describe("Client Form Email and Password E2E", () => {
       );
       await page.click('[data-testid="create-client-submit-button"]');
 
+      // Wait for validation
+      await page.waitForTimeout(500);
+
       // THEN: Validation error is displayed
       await expect(page.locator("text=Invalid email address")).toBeVisible();
     });
@@ -220,6 +223,9 @@ test.describe("Client Form Email and Password E2E", () => {
         "ValidPassword123!",
       );
       await page.click('[data-testid="create-client-submit-button"]');
+
+      // Wait for validation
+      await page.waitForTimeout(500);
 
       // THEN: Validation error is displayed
       await expect(page.locator("text=Invalid email address")).toBeVisible();
