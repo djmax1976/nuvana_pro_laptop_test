@@ -208,7 +208,7 @@ test.describe("Client Form Email and Password E2E", () => {
       await page.waitForTimeout(500);
 
       // THEN: Validation error is displayed
-      await expect(page.locator("text=Invalid email address")).toBeVisible();
+      await expect(page.locator("text=Email is required")).toBeVisible();
     });
 
     test("[P0] Should show validation error for invalid email format", async ({
