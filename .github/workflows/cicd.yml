@@ -312,7 +312,7 @@ jobs:
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
       - name: Start full stack (frontend and backend)
         run: |
-          npm run start > frontend.log 2>&1 &
+          npm run dev > frontend.log 2>&1 &
           echo $! > frontend.pid
           cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
@@ -329,26 +329,44 @@ jobs:
       - name: Wait for frontend and backend
         run: |
           echo "Waiting for frontend..."
+          FRONTEND_READY=false
           for i in {1..30}; do
             if curl -sf --max-time 5 --retry 2 ${{ env.FRONTEND_URL }} > /dev/null 2>&1; then
               echo "Frontend is ready"
+              FRONTEND_READY=true
               break
             fi
             echo "Waiting for frontend... ($i/30)"
             sleep $((i > 10 ? 5 : 2))
           done
+
+          if [ "$FRONTEND_READY" = false ]; then
+            echo "❌ Frontend failed to start"
+            echo "Frontend logs:"
+            cat frontend.log || echo "No frontend.log found"
+            exit 1
+          fi
+
           echo "Waiting for backend..."
+          BACKEND_READY=false
           for i in {1..30}; do
             if curl -sf --max-time 5 --retry 2 ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
               echo "Backend is ready"
-              exit 0
+              BACKEND_READY=true
+              break
             fi
             echo "Waiting for backend... ($i/30)"
             sleep $((i > 10 ? 5 : 2))
           done
-          echo "Services failed to start"
-          cat frontend.log backend.log || true
-          exit 1
+
+          if [ "$BACKEND_READY" = false ]; then
+            echo "❌ Backend failed to start"
+            echo "Backend logs:"
+            cat backend.log || echo "No backend.log found"
+            exit 1
+          fi
+
+          echo "✅ Both services are ready"
       - name: Run burn-in loop
         env:
           BURN_IN_ITERATIONS: ${{ env.BURN_IN_ITERATIONS }}
@@ -666,7 +684,7 @@ jobs:
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
       - name: Start full stack
         run: |
-          npm run start > frontend.log 2>&1 &
+          npm run dev > frontend.log 2>&1 &
           echo $! > frontend.pid
           cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
@@ -683,26 +701,44 @@ jobs:
       - name: Wait for frontend and backend
         run: |
           echo "Waiting for frontend..."
+          FRONTEND_READY=false
           for i in {1..30}; do
             if curl -sf --max-time 5 --retry 2 ${{ env.FRONTEND_URL }} > /dev/null 2>&1; then
               echo "Frontend is ready"
+              FRONTEND_READY=true
               break
             fi
             echo "Waiting for frontend... ($i/30)"
             sleep $((i > 10 ? 5 : 2))
           done
+
+          if [ "$FRONTEND_READY" = false ]; then
+            echo "❌ Frontend failed to start"
+            echo "Frontend logs:"
+            cat frontend.log || echo "No frontend.log found"
+            exit 1
+          fi
+
           echo "Waiting for backend..."
+          BACKEND_READY=false
           for i in {1..30}; do
             if curl -sf --max-time 5 --retry 2 ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
               echo "Backend is ready"
-              exit 0
+              BACKEND_READY=true
+              break
             fi
             echo "Waiting for backend... ($i/30)"
             sleep $((i > 10 ? 5 : 2))
           done
-          echo "Services failed to start"
-          cat frontend.log backend.log || true
-          exit 1
+
+          if [ "$BACKEND_READY" = false ]; then
+            echo "❌ Backend failed to start"
+            echo "Backend logs:"
+            cat backend.log || echo "No backend.log found"
+            exit 1
+          fi
+
+          echo "✅ Both services are ready"
       - name: Run E2E health check
         env:
           BACKEND_URL: ${{ env.BACKEND_URL }}
