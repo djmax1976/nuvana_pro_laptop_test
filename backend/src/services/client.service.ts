@@ -483,13 +483,24 @@ export class ClientService {
         throw new Error(`Client with ID ${clientId} not found`);
       }
 
-      // Find the associated user via UserRole
+      // Find the CLIENT_OWNER user via UserRole (clients should have exactly one owner)
+      const clientOwnerRole = await prisma.role.findUnique({
+        where: { code: "CLIENT_OWNER" },
+      });
+
+      if (!clientOwnerRole) {
+        throw new Error(
+          "CLIENT_OWNER role not found. Please run RBAC seed script.",
+        );
+      }
+
       const userRole = existingClient.user_roles.find(
-        (ur: any) => ur.client_id === clientId,
+        (ur: any) =>
+          ur.client_id === clientId && ur.role_id === clientOwnerRole.role_id,
       );
       if (!userRole) {
         throw new Error(
-          `User account not found for client ${clientId}. Data integrity issue.`,
+          `CLIENT_OWNER user account not found for client ${clientId}. Data integrity issue.`,
         );
       }
 

@@ -416,18 +416,18 @@ test.describe("Client Form Email and Password E2E", () => {
         },
       });
 
-      // Link User and Client via UserRole with CLIENT role
-      const clientRole = await prisma.role.findUnique({
-        where: { code: "CLIENT" },
+      // Link User and Client via UserRole with CLIENT_OWNER role (matches production setup)
+      const clientOwnerRole = await prisma.role.findUnique({
+        where: { code: "CLIENT_OWNER" },
       });
 
-      if (clientRole) {
+      if (clientOwnerRole) {
         await prisma.userRole.create({
           data: {
             user_id: user.user_id,
-            role_id: clientRole.role_id,
+            role_id: clientOwnerRole.role_id,
             client_id: testClient.client_id,
-            assigned_by: superadminUser.user_id,
+            assigned_by: user.user_id, // Self-assigned for test setup
           },
         });
       }
@@ -552,11 +552,16 @@ test.describe("Client Form Email and Password E2E", () => {
     test("[P0] Should successfully update client password", async ({
       page,
     }) => {
+      // Generate unique password for this test run to avoid burn-in pollution
+      const uniquePassword = `newPassword${Date.now()}`;
+      console.log("🔑 Unique password for this test:", uniquePassword);
+
       // IMPORTANT: Refresh user data from DB to get current state
       const currentUser = await prisma.user.findUnique({
         where: { user_id: (testClient as any).user.user_id },
       });
       const originalHash = currentUser!.password_hash;
+      console.log("📝 Original password hash:", originalHash);
 
       // WHEN: Updating password with matching confirmation
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
@@ -586,23 +591,31 @@ test.describe("Client Form Email and Password E2E", () => {
       // Stabilization wait
       await page.waitForTimeout(1000);
 
-      // Fill password fields
-      await page.fill(
+      // Clear and fill password fields with unique password
+      // Important: React Hook Form needs proper events to register changes
+      const passwordInput = page.locator(
         '[data-testid="client-password-input"]',
-        "newPassword456",
       );
-      await page.fill(
+      const confirmPasswordInput = page.locator(
         '[data-testid="client-confirm-password-input"]',
-        "newPassword456",
       );
+
+      // Focus, select all with Ctrl+A, then type to ensure React Hook Form sees the change
+      await passwordInput.focus();
+      await page.keyboard.press("Control+A");
+      await page.keyboard.type(uniquePassword);
+
+      await confirmPasswordInput.focus();
+      await page.keyboard.press("Control+A");
+      await page.keyboard.type(uniquePassword);
 
       // Verify submit button is ready
       const submitButton = page.locator('[data-testid="client-submit-button"]');
       await expect(submitButton).toBeVisible();
       await expect(submitButton).toBeEnabled();
 
-      // Click and wait for network
-      await Promise.all([
+      // Click and wait for network - capture request to debug
+      const [response] = await Promise.all([
         page
           .waitForResponse(
             (response) =>
@@ -612,9 +625,19 @@ test.describe("Client Form Email and Password E2E", () => {
           )
           .catch(() => {
             console.log("API response timeout - continuing with DB check");
+            return null;
           }),
         submitButton.click(),
       ]);
+
+      // Log the request payload for debugging
+      if (response) {
+        const requestBody = response.request().postDataJSON();
+        console.log(
+          "📤 API Request payload:",
+          JSON.stringify(requestBody, null, 2),
+        );
+      }
 
       // Wait longer for async operations and DB transaction to complete
       await page.waitForTimeout(3000);
@@ -625,10 +648,19 @@ test.describe("Client Form Email and Password E2E", () => {
       // Extra wait to ensure database transaction commits
       await page.waitForTimeout(2000);
 
-      // THEN: Verify database was updated - refetch to get latest data
+      // THEN: Verify database was updated - disconnect and reconnect to bypass caching
+      await prisma.$disconnect();
+      await prisma.$connect();
+
       const updatedUser = await prisma.user.findUnique({
         where: { user_id: (testClient as any).user.user_id },
       });
+
+      console.log("📝 Updated password hash:", updatedUser?.password_hash);
+      console.log(
+        "🔍 Hashes match?",
+        updatedUser?.password_hash === originalHash,
+      );
 
       expect(updatedUser).toBeDefined();
       expect(updatedUser?.password_hash).toBeDefined();
@@ -637,7 +669,7 @@ test.describe("Client Form Email and Password E2E", () => {
       // Verify new password works
       if (updatedUser?.password_hash) {
         const passwordMatch = bcrypt.compare(
-          "newPassword456",
+          uniquePassword,
           updatedUser.password_hash,
         );
         expect(await passwordMatch).toBe(true);
