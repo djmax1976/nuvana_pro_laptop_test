@@ -118,12 +118,12 @@ export class ClientService {
       throw new Error("Client email cannot exceed 255 characters");
     }
 
-    // Validate password (optional, but must be >= 8 chars if provided)
-    if (
-      data.password &&
-      data.password.trim().length > 0 &&
-      data.password.length < 8
-    ) {
+    // Validate password (required for client authentication)
+    if (!data.password || data.password.trim().length === 0) {
+      throw new Error("Password is required for client authentication");
+    }
+
+    if (data.password.length < 8) {
       throw new Error("Password must be at least 8 characters");
     }
 
@@ -133,12 +133,9 @@ export class ClientService {
     }
 
     try {
-      // Hash password for User table (authentication) - only if provided
-      let passwordHash: string | null = null;
-      if (data.password && data.password.trim().length > 0) {
-        const saltRounds = 10;
-        passwordHash = await bcrypt.hash(data.password, saltRounds);
-      }
+      // Hash password for User table (authentication)
+      const saltRounds = 10;
+      const passwordHash = await bcrypt.hash(data.password, saltRounds);
 
       // Get CLIENT_OWNER role
       const clientOwnerRole = await prisma.role.findUnique({

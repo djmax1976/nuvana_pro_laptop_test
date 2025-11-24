@@ -361,27 +361,6 @@ test.describe("Client Form Email and Password E2E", () => {
         page.locator('[data-testid="client-create-button"]'),
       ).toBeVisible();
     });
-
-    test("[P0] Should successfully create client with email but no password", async ({
-      page,
-    }) => {
-      // WHEN: Creating client without password (optional)
-      await page.fill(
-        '[data-testid="create-client-name-input"]',
-        "Client Without Password",
-      );
-      await page.fill(
-        '[data-testid="create-client-email-input"]',
-        "nopass@example.com",
-      );
-      // Leave password empty
-      await page.click('[data-testid="create-client-submit-button"]');
-
-      // THEN: Client is created successfully
-      await expect(
-        page.locator("text=Client created successfully").first(),
-      ).toBeVisible({ timeout: 30000 });
-    });
   });
 
   test.describe("Edit Client Form", () => {
