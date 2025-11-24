@@ -157,8 +157,11 @@ test.describe("Client Form Email and Password E2E", () => {
         assigned_by: superadminUser.user_id,
       },
     });
+  });
 
-    // Create a test client with user for editing tests
+  test.beforeEach(async ({ page }) => {
+    // CRITICAL FIX: Recreate test client before each test
+    // This ensures the client exists even after database cleanup between burn-in iterations
     const passwordHash = await bcrypt.hash("password123", 10);
 
     // Get CLIENT_OWNER role
@@ -168,6 +171,30 @@ test.describe("Client Form Email and Password E2E", () => {
 
     if (!clientOwnerRole) {
       throw new Error("CLIENT_OWNER role not found - run RBAC seed first");
+    }
+
+    // Clean up any existing test client/user
+    const existingTestUser = await prisma.user.findUnique({
+      where: { email: "test-client-edit@example.com" },
+    });
+
+    if (existingTestUser) {
+      await prisma.userRole.deleteMany({
+        where: { user_id: existingTestUser.user_id },
+      });
+      await prisma.user.delete({
+        where: { user_id: existingTestUser.user_id },
+      });
+    }
+
+    const existingTestClient = await prisma.client.findFirst({
+      where: { email: "test-client-edit@example.com" },
+    });
+
+    if (existingTestClient) {
+      await prisma.client.delete({
+        where: { client_id: existingTestClient.client_id },
+      });
     }
 
     // Create User
@@ -200,9 +227,7 @@ test.describe("Client Form Email and Password E2E", () => {
         assigned_by: testUser.user_id,
       },
     });
-  });
 
-  test.beforeEach(async ({ page }) => {
     // Login before each test as superadmin
     await page.goto("http://localhost:3000/login");
     await page.fill(
@@ -216,8 +241,9 @@ test.describe("Client Form Email and Password E2E", () => {
     await page.waitForURL("**/dashboard");
   });
 
-  test.afterAll(async () => {
-    // Clean up test data
+  test.afterEach(async () => {
+    // Clean up test client and user after each test
+    // This keeps the database clean between tests
     if (testClient) {
       await prisma.userRole
         .deleteMany({
@@ -237,7 +263,9 @@ test.describe("Client Form Email and Password E2E", () => {
         })
         .catch(() => {});
     }
+  });
 
+  test.afterAll(async () => {
     // Clean up superadmin user
     if (superadminUser) {
       await prisma.userRole
