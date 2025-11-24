@@ -91,7 +91,7 @@ test.describe("Client Unified Authentication - Create Operations", () => {
     expect(userRole?.client_id).toBe(client?.client_id);
   });
 
-  test("[P0] POST /api/clients - should require password for client creation", async ({
+  test("[P0] POST /api/clients - should allow client creation without password", async ({
     superadminApiRequest,
   }) => {
     const email = uniqueEmail("nopassword");
@@ -109,11 +109,12 @@ test.describe("Client Unified Authentication - Create Operations", () => {
       clientData,
     );
 
-    // THEN: Validation error is returned (password is required)
-    expect(response.status()).toBe(400);
+    // THEN: Client is created successfully (password is optional)
+    expect(response.status()).toBe(201);
     const body = await response.json();
-    expect(body.success).toBe(false);
-    expect(body.message).toContain("Password is required");
+    expect(body.success).toBe(true);
+    expect(body.data.email).toBe(email);
+    expect(body.data.name).toBe("Test Client No Password");
   });
 
   test("[P0] POST /api/clients - should reject missing email", async ({
