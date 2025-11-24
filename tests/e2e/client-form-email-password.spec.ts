@@ -557,16 +557,33 @@ test.describe("Client Form Email and Password E2E", () => {
 
       // WHEN: Updating password with matching confirmation
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
-      // Wait for loading state to complete - the edit form section should be visible
+
+      // Wait for page to fully load
+      await page.waitForLoadState("networkidle", { timeout: 30000 });
+
+      // Wait for the edit form section to be visible
       await page.waitForSelector('[data-testid="client-edit-button"]', {
         state: "visible",
+        timeout: 30000,
       });
+
+      // Wait for form fields to be ready
       await page.waitForSelector('[data-testid="client-password-input"]', {
         state: "visible",
+        timeout: 15000,
       });
-      // Extra wait to ensure form is fully interactive
-      await page.waitForTimeout(500);
+      await page.waitForSelector(
+        '[data-testid="client-confirm-password-input"]',
+        {
+          state: "visible",
+          timeout: 15000,
+        },
+      );
 
+      // Stabilization wait
+      await page.waitForTimeout(1000);
+
+      // Fill password fields
       await page.fill(
         '[data-testid="client-password-input"]',
         "newPassword456",
@@ -576,33 +593,49 @@ test.describe("Client Form Email and Password E2E", () => {
         "newPassword456",
       );
 
-      // Set up response listener before clicking
-      const responsePromise = page.waitForResponse(
-        (response) =>
-          response.url().includes("/api/clients/") &&
-          response.request().method() === "PUT" &&
-          response.status() === 200,
-        { timeout: 20000 },
-      );
+      // Verify submit button is ready
+      const submitButton = page.locator('[data-testid="client-submit-button"]');
+      await expect(submitButton).toBeVisible();
+      await expect(submitButton).toBeEnabled();
 
-      await page.click('[data-testid="client-submit-button"]');
+      // Click and wait for network
+      await Promise.all([
+        page
+          .waitForResponse(
+            (response) =>
+              response.url().includes("/api/clients/") &&
+              response.request().method() === "PUT",
+            { timeout: 30000 },
+          )
+          .catch(() => {
+            console.log("API response timeout - continuing with DB check");
+          }),
+        submitButton.click(),
+      ]);
 
-      // Wait for the API response
-      try {
-        await responsePromise;
-      } catch (e) {
-        console.error("API response timeout or error:", e);
-      }
+      // Wait for async operations
+      await page.waitForTimeout(2000);
+      await page
+        .waitForLoadState("networkidle", { timeout: 10000 })
+        .catch(() => {});
 
-      // Wait a bit for toast to render
-      await page.waitForTimeout(1000);
-
-      // THEN: Update is successful - verify database was updated
+      // THEN: Verify database was updated
       const updatedUser = await prisma.user.findUnique({
         where: { user_id: (testClient as any).user.user_id },
       });
-      expect(updatedUser?.password_hash).not.toBe(originalHash);
+
+      expect(updatedUser).toBeDefined();
       expect(updatedUser?.password_hash).toBeDefined();
+      expect(updatedUser?.password_hash).not.toBe(originalHash);
+
+      // Verify new password works
+      if (updatedUser?.password_hash) {
+        const passwordMatch = bcrypt.compare(
+          "newPassword456",
+          updatedUser.password_hash,
+        );
+        expect(await passwordMatch).toBe(true);
+      }
     });
 
     test("[P0] Should show validation error when updating password with mismatched confirmation", async ({
