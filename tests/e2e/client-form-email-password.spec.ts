@@ -713,8 +713,12 @@ test.describe("Client Form Email and Password E2E", () => {
     test("[P0] Should keep existing password when field is left blank", async ({
       page,
     }) => {
-      // Get original password hash from User record
-      const originalHash = (testClient as any).user.password_hash;
+      // IMPORTANT: Fetch current password hash from DB to avoid stale in-memory value
+      // This ensures the test works correctly even if the password update test ran first
+      const currentUser = await prisma.user.findUnique({
+        where: { user_id: (testClient as any).user.user_id },
+      });
+      const originalHash = currentUser!.password_hash;
 
       // WHEN: Updating client without touching password field
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
@@ -745,6 +749,10 @@ test.describe("Client Form Email and Password E2E", () => {
       ).toBeVisible({ timeout: 10000 });
 
       // AND: Password hash remains unchanged in User record
+      // Disconnect and reconnect to bypass any Prisma caching and ensure fresh data
+      await prisma.$disconnect();
+      await prisma.$connect();
+
       const updatedUser = await prisma.user.findUnique({
         where: { user_id: (testClient as any).user.user_id },
       });
