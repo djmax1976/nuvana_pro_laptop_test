@@ -49,6 +49,20 @@ class ClientDetailPage {
       state: "visible",
       timeout: 15000,
     });
+
+    // CRITICAL FIX: Wait for any ongoing data fetches to complete
+    // This ensures form has fresh data, not stale cache
+    await this.page.waitForSelector('[data-is-fetching="false"]', {
+      timeout: 10000,
+    });
+
+    // Extra safety: wait for network to be idle
+    await this.page
+      .waitForLoadState("networkidle", { timeout: 5000 })
+      .catch(() => {});
+
+    // Small buffer for React rendering and form state sync
+    await this.page.waitForTimeout(500);
   }
 
   async fillPassword(password: string) {
@@ -79,7 +93,14 @@ class ClientDetailPage {
     await this.page
       .waitForLoadState("networkidle", { timeout: 10000 })
       .catch(() => {});
-    // Extra wait for database transaction
+
+    // CRITICAL FIX: Wait for React Query to refetch fresh data after mutation
+    // This ensures the form has synced with server state before test assertions
+    await this.page.waitForSelector('[data-is-fetching="false"]', {
+      timeout: 10000,
+    });
+
+    // Extra wait for database transaction and form state sync
     await this.page.waitForTimeout(2000);
   }
 }
@@ -87,8 +108,56 @@ class ClientDetailPage {
 test.describe("Client Form Email and Password E2E", () => {
   let testClient: any;
   let testUser: any;
+  let superadminUser: any;
 
   test.beforeAll(async () => {
+    // Clean up any existing superadmin user
+    const existingUsers = await prisma.user.findMany({
+      where: { email: "superadmin-client-form-e2e@test.com" },
+      select: { user_id: true },
+    });
+
+    for (const user of existingUsers) {
+      await prisma.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+    }
+
+    await prisma.user.deleteMany({
+      where: { email: "superadmin-client-form-e2e@test.com" },
+    });
+
+    // Create superadmin user for testing
+    const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+
+    const superadminRole = await prisma.role.findUnique({
+      where: { code: "SUPERADMIN" },
+    });
+
+    if (!superadminRole) {
+      throw new Error(
+        "SUPERADMIN role not found - run: npx ts-node tests/support/seed-roles.ts",
+      );
+    }
+
+    superadminUser = await prisma.user.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        email: "superadmin-client-form-e2e@test.com",
+        name: "Superadmin Client Form E2E",
+        password_hash: hashedPassword,
+        status: "ACTIVE",
+      },
+    });
+
+    await prisma.userRole.create({
+      data: {
+        user_id: superadminUser.user_id,
+        role_id: superadminRole.role_id,
+        assigned_by: superadminUser.user_id,
+      },
+    });
+
     // Create a test client with user for editing tests
     const passwordHash = await bcrypt.hash("password123", 10);
 
@@ -133,6 +202,20 @@ test.describe("Client Form Email and Password E2E", () => {
     });
   });
 
+  test.beforeEach(async ({ page }) => {
+    // Login before each test as superadmin
+    await page.goto("http://localhost:3000/login");
+    await page.fill(
+      'input[type="email"]',
+      "superadmin-client-form-e2e@test.com",
+    );
+    await page.fill('input[type="password"]', "TestPassword123!");
+    await page.click('button[type="submit"]');
+
+    // Wait for redirect to dashboard
+    await page.waitForURL("**/dashboard");
+  });
+
   test.afterAll(async () => {
     // Clean up test data
     if (testClient) {
@@ -151,6 +234,21 @@ test.describe("Client Form Email and Password E2E", () => {
       await prisma.client
         .delete({
           where: { client_id: testClient.client_id },
+        })
+        .catch(() => {});
+    }
+
+    // Clean up superadmin user
+    if (superadminUser) {
+      await prisma.userRole
+        .deleteMany({
+          where: { user_id: superadminUser.user_id },
+        })
+        .catch(() => {});
+
+      await prisma.user
+        .delete({
+          where: { user_id: superadminUser.user_id },
         })
         .catch(() => {});
     }

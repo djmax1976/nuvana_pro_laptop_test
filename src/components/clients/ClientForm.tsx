@@ -30,7 +30,7 @@ import {
 } from "@/lib/api/clients";
 import { Client, ClientStatus } from "@/types/client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Trash2, Eye, EyeOff } from "lucide-react";
@@ -127,6 +127,24 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
     },
   });
 
+  // CRITICAL FIX: Sync form state when client prop changes
+  // This ensures form updates after React Query refetches fresh data
+  useEffect(() => {
+    if (client) {
+      form.reset({
+        name: client.name || "",
+        email: client.email || "",
+        password: "", // Always clear password fields for security
+        confirmPassword: "",
+        status: client.status || ClientStatus.ACTIVE,
+        metadata: client.metadata
+          ? JSON.stringify(client.metadata, null, 2)
+          : "",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client]); // Only depend on client, form.reset is stable
+
   const onSubmit = async (values: ClientFormValues) => {
     setIsSubmitting(true);
     try {
@@ -153,9 +171,21 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
           clientId: client.public_id,
           data: updateData,
         });
+
         toast({
           title: "Success",
           description: "Client updated successfully",
+        });
+
+        // CRITICAL FIX: Reset form immediately to clear password fields (security + UX)
+        // This prevents password from staying visible and provides immediate feedback
+        form.reset({
+          name: values.name,
+          email: values.email,
+          password: "", // Clear password fields immediately for security
+          confirmPassword: "",
+          status: values.status,
+          metadata: values.metadata,
         });
       } else {
         // Create new client
@@ -166,18 +196,17 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
           status: values.status,
           metadata,
         });
+
         toast({
           title: "Success",
           description: "Client created successfully",
         });
-      }
 
-      // Reset form if creating
-      if (!client) {
+        // Reset form for next creation
         form.reset();
       }
 
-      // Call onSuccess callback if provided, otherwise do nothing (stay on page)
+      // Call onSuccess callback if provided
       if (onSuccess) {
         onSuccess();
       }
@@ -258,7 +287,19 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <form
+        onSubmit={form.handleSubmit(onSubmit)}
+        className="space-y-6 relative"
+      >
+        {/* Loading overlay during submission */}
+        {isSubmitting && (
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 rounded-lg">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+              <p className="text-sm text-muted-foreground">Saving changes...</p>
+            </div>
+          </div>
+        )}
         <FormField
           control={form.control}
           name="name"

@@ -21,7 +21,7 @@ interface ClientDetailPageProps {
  */
 export default function ClientDetailPage({ params }: ClientDetailPageProps) {
   const { clientId } = params;
-  const { data, isLoading, error } = useClient(clientId);
+  const { data, isLoading, error, isFetching } = useClient(clientId);
   const [showCompanyDialog, setShowCompanyDialog] = useState(false);
 
   if (isLoading) {
@@ -75,7 +75,11 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
   }
 
   return (
-    <div className="space-y-6" data-testid="client-detail-page-loaded">
+    <div
+      className="space-y-6"
+      data-testid="client-detail-page-loaded"
+      data-is-fetching={isFetching ? "true" : "false"}
+    >
       <div
         className="flex items-center justify-between"
         data-testid="breadcrumb-navigation"
