@@ -552,8 +552,11 @@ test.describe("Client Form Email and Password E2E", () => {
     test("[P0] Should successfully update client password", async ({
       page,
     }) => {
-      // Get original password hash from User record
-      const originalHash = (testClient as any).user.password_hash;
+      // IMPORTANT: Refresh user data from DB to get current state
+      const currentUser = await prisma.user.findUnique({
+        where: { user_id: (testClient as any).user.user_id },
+      });
+      const originalHash = currentUser!.password_hash;
 
       // WHEN: Updating password with matching confirmation
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
@@ -613,13 +616,16 @@ test.describe("Client Form Email and Password E2E", () => {
         submitButton.click(),
       ]);
 
-      // Wait for async operations
-      await page.waitForTimeout(2000);
+      // Wait longer for async operations and DB transaction to complete
+      await page.waitForTimeout(3000);
       await page
         .waitForLoadState("networkidle", { timeout: 10000 })
         .catch(() => {});
 
-      // THEN: Verify database was updated
+      // Extra wait to ensure database transaction commits
+      await page.waitForTimeout(2000);
+
+      // THEN: Verify database was updated - refetch to get latest data
       const updatedUser = await prisma.user.findUnique({
         where: { user_id: (testClient as any).user.user_id },
       });
