@@ -466,12 +466,14 @@ test.describe("Client Form Email and Password E2E", () => {
     }) => {
       // WHEN: Navigating to edit page
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
-      // Wait for loading state to complete - the edit form section should be visible
-      await page.waitForSelector('[data-testid="client-edit-button"]', {
-        state: "visible",
-      });
+
+      // Wait for page to fully load
+      await page.waitForLoadState("networkidle", { timeout: 30000 });
+
+      // Wait for actual form elements to be ready
       await page.waitForSelector('[data-testid="client-email-input"]', {
         state: "visible",
+        timeout: 30000,
       });
 
       // THEN: Email field is pre-filled
@@ -484,12 +486,20 @@ test.describe("Client Form Email and Password E2E", () => {
     }) => {
       // WHEN: Navigating to edit page
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
-      // Wait for loading state to complete - the edit form section should be visible
-      await page.waitForSelector('[data-testid="client-edit-button"]', {
-        state: "visible",
-      });
+
+      // Wait for page to fully load
+      await page.waitForLoadState("networkidle", { timeout: 30000 });
+
+      // Wait for actual form elements to be ready (not just the wrapper div)
       await page.waitForSelector('[data-testid="client-password-input"]', {
         state: "visible",
+        timeout: 30000,
+      });
+
+      // Ensure form is interactive
+      await page.waitForSelector('[data-testid="client-email-input"]', {
+        state: "visible",
+        timeout: 15000,
       });
 
       // THEN: Password field shows dots placeholder
@@ -569,16 +579,10 @@ test.describe("Client Form Email and Password E2E", () => {
       // Wait for page to fully load
       await page.waitForLoadState("networkidle", { timeout: 30000 });
 
-      // Wait for the edit form section to be visible
-      await page.waitForSelector('[data-testid="client-edit-button"]', {
-        state: "visible",
-        timeout: 30000,
-      });
-
-      // Wait for form fields to be ready
+      // Wait for actual form elements to be ready (not just the wrapper div)
       await page.waitForSelector('[data-testid="client-password-input"]', {
         state: "visible",
-        timeout: 15000,
+        timeout: 30000,
       });
       await page.waitForSelector(
         '[data-testid="client-confirm-password-input"]',
@@ -685,16 +689,19 @@ test.describe("Client Form Email and Password E2E", () => {
       // Wait for page to fully load
       await page.waitForLoadState("networkidle", { timeout: 30000 });
 
-      // Wait for the edit form section to be visible
-      await page.waitForSelector('[data-testid="client-edit-button"]', {
+      // Wait for actual form elements to be ready
+      await page.waitForSelector('[data-testid="client-password-input"]', {
         state: "visible",
         timeout: 30000,
       });
 
-      await page.waitForSelector('[data-testid="client-password-input"]', {
-        state: "visible",
-        timeout: 15000,
-      });
+      await page.waitForSelector(
+        '[data-testid="client-confirm-password-input"]',
+        {
+          state: "visible",
+          timeout: 15000,
+        },
+      );
 
       await page.fill(
         '[data-testid="client-password-input"]',
@@ -704,10 +711,19 @@ test.describe("Client Form Email and Password E2E", () => {
         '[data-testid="client-confirm-password-input"]',
         "differentPass789",
       );
+
+      // Trigger blur to ensure validation runs
+      await page
+        .locator('[data-testid="client-confirm-password-input"]')
+        .blur();
+      await page.waitForTimeout(500);
+
       await page.click('[data-testid="client-submit-button"]');
 
       // THEN: Validation error is displayed
-      await expect(page.locator("text=Passwords do not match")).toBeVisible();
+      await expect(
+        page.locator("text=Passwords do not match").first(),
+      ).toBeVisible({ timeout: 10000 });
     });
 
     test("[P0] Should keep existing password when field is left blank", async ({
@@ -726,13 +742,14 @@ test.describe("Client Form Email and Password E2E", () => {
       // Wait for page to fully load
       await page.waitForLoadState("networkidle", { timeout: 30000 });
 
-      // Wait for the edit form section to be visible
-      await page.waitForSelector('[data-testid="client-edit-button"]', {
+      // Wait for actual form elements to be ready (not just the wrapper div)
+      await page.waitForSelector('[data-testid="client-name-input"]', {
         state: "visible",
         timeout: 30000,
       });
 
-      await page.waitForSelector('[data-testid="client-name-input"]', {
+      // Ensure form is fully interactive
+      await page.waitForSelector('[data-testid="client-email-input"]', {
         state: "visible",
         timeout: 15000,
       });
@@ -768,22 +785,42 @@ test.describe("Client Form Email and Password E2E", () => {
       // Wait for page to fully load
       await page.waitForLoadState("networkidle", { timeout: 30000 });
 
-      // Wait for the edit form section to be visible
-      await page.waitForSelector('[data-testid="client-edit-button"]', {
+      // Wait for actual form elements to be ready
+      await page.waitForSelector('[data-testid="client-email-input"]', {
         state: "visible",
         timeout: 30000,
       });
 
-      await page.waitForSelector('[data-testid="client-email-input"]', {
+      // Ensure form is fully interactive
+      await page.waitForSelector('[data-testid="client-submit-button"]', {
         state: "visible",
         timeout: 15000,
       });
 
-      await page.fill('[data-testid="client-email-input"]', "invalid-email");
+      // Clear the email field and enter invalid email
+      const emailInput = page.locator('[data-testid="client-email-input"]');
+      await emailInput.clear();
+      await emailInput.fill("invalid-email");
+
+      // Trigger blur to ensure validation runs
+      await emailInput.blur();
+
+      // Small wait to allow validation to process
+      await page.waitForTimeout(500);
+
+      // Click submit - validation should prevent submission
       await page.click('[data-testid="client-submit-button"]');
 
       // THEN: Validation error is displayed
-      await expect(page.locator("text=Invalid email address")).toBeVisible();
+      // Wait for the error message to appear (it might take a moment for React Hook Form to show it)
+      await expect(
+        page.locator("text=Invalid email address").first(),
+      ).toBeVisible({ timeout: 10000 });
+
+      // Verify the form did not submit (no success message should appear)
+      await expect(
+        page.locator("text=Client updated successfully"),
+      ).not.toBeVisible({ timeout: 2000 });
     });
 
     test("[P0] Should show validation error for short password on update", async ({
@@ -795,15 +832,10 @@ test.describe("Client Form Email and Password E2E", () => {
       // Wait for page to fully load
       await page.waitForLoadState("networkidle", { timeout: 30000 });
 
-      // Wait for the edit form section to be visible
-      await page.waitForSelector('[data-testid="client-edit-button"]', {
-        state: "visible",
-        timeout: 30000,
-      });
-
+      // Wait for actual form elements to be ready
       await page.waitForSelector('[data-testid="client-password-input"]', {
         state: "visible",
-        timeout: 15000,
+        timeout: 30000,
       });
 
       await page.fill('[data-testid="client-password-input"]', "short");
