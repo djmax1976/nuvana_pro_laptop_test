@@ -351,14 +351,15 @@ export function useUpdateClient() {
       clientId: string;
       data: UpdateClientInput;
     }) => updateClient(clientId, data),
-    onSuccess: (response) => {
+    onSuccess: (response, variables) => {
       // Invalidate both list and detail queries
       queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
-      if (response.data?.client_id) {
-        queryClient.invalidateQueries({
-          queryKey: clientKeys.detail(response.data.client_id),
-        });
-      }
+
+      // CRITICAL FIX: Use the public_id from variables (what we sent) instead of response
+      // This matches the query key used by the detail page which uses public_id in URL
+      queryClient.invalidateQueries({
+        queryKey: clientKeys.detail(variables.clientId),
+      });
     },
   });
 }

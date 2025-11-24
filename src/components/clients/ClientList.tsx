@@ -40,6 +40,8 @@ import { useDebounce } from "@/hooks/useDebounce";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CompanyListDialog } from "@/components/clients/CompanyListDialog";
+import { CreateClientModal } from "@/components/clients/CreateClientModal";
+import { useQueryClient } from "@tanstack/react-query";
 
 /**
  * ClientList component
@@ -63,9 +65,13 @@ export function ClientList() {
   const [selectedClientForCompanies, setSelectedClientForCompanies] =
     useState<Client | null>(null);
 
+  // Create client modal state
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
   // Debounce search to avoid excessive API calls
   const debouncedSearch = useDebounce(search, 300);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data, isLoading, error } = useClients({
     page,
@@ -181,6 +187,12 @@ export function ClientList() {
     setShowCompanyDialog(true);
   };
 
+  // Handle successful client creation
+  const handleClientCreated = () => {
+    // Invalidate and refetch the clients query to show the new client
+    queryClient.invalidateQueries({ queryKey: ["clients"] });
+  };
+
   if (isLoading) {
     return <ClientListSkeleton />;
   }
@@ -205,12 +217,13 @@ export function ClientList() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Clients</h1>
-        <Link href="/clients/new">
-          <Button data-testid="client-create-button">
-            <Plus className="mr-2 h-4 w-4" />
-            Create Client
-          </Button>
-        </Link>
+        <Button
+          onClick={() => setShowCreateModal(true)}
+          data-testid="client-create-button"
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Create Client
+        </Button>
       </div>
 
       {/* Search and Filter Controls */}
@@ -440,6 +453,13 @@ export function ClientList() {
           clientName={selectedClientForCompanies.name}
         />
       )}
+
+      {/* Create Client Modal */}
+      <CreateClientModal
+        open={showCreateModal}
+        onOpenChange={setShowCreateModal}
+        onSuccess={handleClientCreated}
+      />
     </div>
   );
 }
