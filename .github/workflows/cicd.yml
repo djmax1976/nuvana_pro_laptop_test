@@ -57,9 +57,10 @@ jobs:
     permissions:
       contents: read
     outputs:
+      component: ${{ steps.select_tests.outputs.component }}
       api: ${{ steps.select_tests.outputs.api }}
       e2e: ${{ steps.select_tests.outputs.e2e }}
-      any: ${{ steps.select_tests.outputs.api == 'true' || steps.select_tests.outputs.e2e == 'true' }}
+      any: ${{ steps.calculate_any.outputs.any }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
@@ -76,6 +77,14 @@ jobs:
         run: |
           # Determine which tests to run based on changed files
           bash nuvana_control/workflows/11-ci_pipeline/scripts/test-changed.sh --select-only
+      - name: Calculate if any tests should run
+        id: calculate_any
+        run: |
+          if [[ "${{ steps.select_tests.outputs.api }}" == "true" ]] || [[ "${{ steps.select_tests.outputs.e2e }}" == "true" ]]; then
+            echo "any=true" >> $GITHUB_OUTPUT
+          else
+            echo "any=false" >> $GITHUB_OUTPUT
+          fi
 
   selective_tests:
     name: Selective Tests
