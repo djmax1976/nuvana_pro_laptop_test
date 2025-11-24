@@ -29,7 +29,14 @@ class ClientDetailPage {
   constructor(private page: Page) {}
 
   async goto(clientPublicId: string) {
-    await this.page.goto(`http://localhost:3000/clients/${clientPublicId}`);
+    // Navigate and wait for the page to fully load (not just HTML, but network too)
+    await this.page.goto(`http://localhost:3000/clients/${clientPublicId}`, {
+      waitUntil: "networkidle",
+      timeout: 30000,
+    });
+
+    // Extra safety: wait a bit for React hydration
+    await this.page.waitForTimeout(1000);
   }
 
   async waitForPageLoad() {
@@ -227,6 +234,10 @@ test.describe("Client Form Email and Password E2E", () => {
         assigned_by: testUser.user_id,
       },
     });
+
+    // CRITICAL: Ensure database operations are fully committed
+    // Small delay to prevent race conditions where API reads before commit completes
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Login before each test as superadmin
     await page.goto("http://localhost:3000/login");
