@@ -80,7 +80,7 @@ jobs:
       - name: Calculate if any tests should run
         id: calculate_any
         run: |
-          if [[ "${{ steps.select_tests.outputs.api }}" == "true" ]] || [[ "${{ steps.select_tests.outputs.e2e }}" == "true" ]]; then
+          if [[ "${{ steps.select_tests.outputs.component }}" == "true" ]] || [[ "${{ steps.select_tests.outputs.api }}" == "true" ]] || [[ "${{ steps.select_tests.outputs.e2e }}" == "true" ]]; then
             echo "any=true" >> $GITHUB_OUTPUT
           else
             echo "any=false" >> $GITHUB_OUTPUT

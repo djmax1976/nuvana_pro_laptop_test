@@ -441,7 +441,12 @@ export class ClientService {
     }
 
     // Validate password if provided
-    if (data.password !== undefined && data.password.length < 8) {
+    // Empty string means "don't update password", so only validate non-empty passwords
+    if (
+      data.password !== undefined &&
+      data.password !== "" &&
+      data.password.length < 8
+    ) {
       throw new Error("Password must be at least 8 characters");
     }
 

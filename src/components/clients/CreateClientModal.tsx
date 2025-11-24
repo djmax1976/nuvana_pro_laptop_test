@@ -132,10 +132,13 @@ export function CreateClientModal({
           ? JSON.parse(values.metadata)
           : undefined;
 
+      const password =
+        values.password && values.password.trim() ? values.password : undefined;
+
       await createMutation.mutateAsync({
         name: values.name,
         email: values.email,
-        password: values.password,
+        password,
         status: values.status,
         metadata,
       });
@@ -172,8 +175,19 @@ export function CreateClientModal({
     onOpenChange(false);
   };
 
+  const handleOpenChange = (newOpen: boolean) => {
+    // If the dialog is being closed (not opened), reset the form
+    if (!newOpen && open) {
+      form.reset();
+      // Also reset password visibility states
+      setShowPassword(false);
+      setShowConfirmPassword(false);
+    }
+    onOpenChange(newOpen);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Create Client</DialogTitle>
