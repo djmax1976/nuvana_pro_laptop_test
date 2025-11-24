@@ -214,10 +214,10 @@ jobs:
         run: |
           if [ -f backend.log ]; then
             sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' backend.log
-            sed -i 's/\"token\":\"[^\"]*\"/\"token\":\"[REDACTED]\"/g' backend.log
-            sed -i 's/\"password\":\"[^\"]*\"/\"password\":\"[REDACTED]\"/g' backend.log
-            sed -i 's/\"secret\":\"[^\"]*\"/\"secret\":\"[REDACTED]\"/g' backend.log
-            sed -i 's/postgresql:\\/\\/[^@]*@/postgresql:\\/\\/[REDACTED]@/g' backend.log
+            sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' backend.log
+            sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' backend.log
+            sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' backend.log
+            sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' backend.log
           fi
       - name: Upload backend logs
         if: failure()
