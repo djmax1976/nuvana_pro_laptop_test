@@ -132,30 +132,57 @@ test.describe("Client Form Email and Password E2E", () => {
 
   test.describe("Create Client Form", () => {
     test.beforeEach(async ({ page }) => {
-      // Navigate to clients page
-      await page.goto("http://localhost:3000/clients", {
-        waitUntil: "networkidle",
-      });
+      // Close any existing modals first (press Escape key)
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(500);
 
-      // Wait for the page to fully load - check for the heading first
-      await page.waitForSelector("h1:has-text('Clients')", {
-        timeout: 30000,
-        state: "visible",
-      });
+      // Navigate to clients page with a simple wait
+      await page.goto("http://localhost:3000/clients");
 
-      // Wait for the create button to be visible and enabled
-      const createButton = page.locator('[data-testid="client-create-button"]');
-      await createButton.waitFor({ state: "visible", timeout: 30000 });
-      await createButton.waitFor({ state: "attached", timeout: 5000 });
+      // Wait for page to load - use simple timeout
+      await page.waitForLoadState("domcontentloaded");
+      await page.waitForTimeout(2000);
 
-      // Click the button
-      await createButton.click();
+      // Try to find and click the create button with retry logic
+      let modalOpened = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          // Check if modal is already open
+          const nameInput = await page
+            .locator('[data-testid="create-client-name-input"]')
+            .isVisible();
+          if (nameInput) {
+            modalOpened = true;
+            break;
+          }
 
-      // Wait for the modal/form to appear
-      await page.waitForSelector('[data-testid="create-client-name-input"]', {
-        timeout: 10000,
-        state: "visible",
-      });
+          // Try to click the create button
+          await page.click('[data-testid="client-create-button"]', {
+            timeout: 10000,
+          });
+
+          // Wait for modal to appear
+          await page.waitForSelector(
+            '[data-testid="create-client-name-input"]',
+            { timeout: 5000, state: "visible" },
+          );
+          modalOpened = true;
+          break;
+        } catch (e) {
+          if (attempt === 2) throw e;
+          await page.waitForTimeout(2000);
+        }
+      }
+
+      if (!modalOpened) {
+        throw new Error("Failed to open create client modal after 3 attempts");
+      }
+    });
+
+    test.afterEach(async ({ page }) => {
+      // Close modal after each test
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(500);
     });
 
     test("[P0] Should display email and password fields in create form", async ({
