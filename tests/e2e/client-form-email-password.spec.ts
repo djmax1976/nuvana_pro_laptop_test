@@ -681,12 +681,19 @@ test.describe("Client Form Email and Password E2E", () => {
     }) => {
       // WHEN: Updating password with mismatched confirmation
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
-      // Wait for loading state to complete - the edit form section should be visible
+
+      // Wait for page to fully load
+      await page.waitForLoadState("networkidle", { timeout: 30000 });
+
+      // Wait for the edit form section to be visible
       await page.waitForSelector('[data-testid="client-edit-button"]', {
         state: "visible",
+        timeout: 30000,
       });
+
       await page.waitForSelector('[data-testid="client-password-input"]', {
         state: "visible",
+        timeout: 15000,
       });
 
       await page.fill(
@@ -711,12 +718,19 @@ test.describe("Client Form Email and Password E2E", () => {
 
       // WHEN: Updating client without touching password field
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
-      // Wait for loading state to complete - the edit form section should be visible
+
+      // Wait for page to fully load
+      await page.waitForLoadState("networkidle", { timeout: 30000 });
+
+      // Wait for the edit form section to be visible
       await page.waitForSelector('[data-testid="client-edit-button"]', {
         state: "visible",
+        timeout: 30000,
       });
+
       await page.waitForSelector('[data-testid="client-name-input"]', {
         state: "visible",
+        timeout: 15000,
       });
 
       await page.fill(
@@ -742,12 +756,19 @@ test.describe("Client Form Email and Password E2E", () => {
     }) => {
       // WHEN: Updating with invalid email
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
-      // Wait for loading state to complete - the edit form section should be visible
+
+      // Wait for page to fully load
+      await page.waitForLoadState("networkidle", { timeout: 30000 });
+
+      // Wait for the edit form section to be visible
       await page.waitForSelector('[data-testid="client-edit-button"]', {
         state: "visible",
+        timeout: 30000,
       });
+
       await page.waitForSelector('[data-testid="client-email-input"]', {
         state: "visible",
+        timeout: 15000,
       });
 
       await page.fill('[data-testid="client-email-input"]', "invalid-email");
@@ -762,12 +783,19 @@ test.describe("Client Form Email and Password E2E", () => {
     }) => {
       // WHEN: Updating with short password
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
-      // Wait for loading state to complete - the edit form section should be visible
+
+      // Wait for page to fully load
+      await page.waitForLoadState("networkidle", { timeout: 30000 });
+
+      // Wait for the edit form section to be visible
       await page.waitForSelector('[data-testid="client-edit-button"]', {
         state: "visible",
+        timeout: 30000,
       });
+
       await page.waitForSelector('[data-testid="client-password-input"]', {
         state: "visible",
+        timeout: 15000,
       });
 
       await page.fill('[data-testid="client-password-input"]', "short");
