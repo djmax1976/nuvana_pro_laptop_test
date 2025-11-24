@@ -467,13 +467,16 @@ test.describe("Client Form Email and Password E2E", () => {
       // WHEN: Navigating to edit page
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
 
-      // Wait for page to fully load
-      await page.waitForLoadState("networkidle", { timeout: 30000 });
+      // Wait for the page to be fully loaded (data fetched and rendered)
+      await page.waitForSelector('[data-testid="client-detail-page-loaded"]', {
+        state: "visible",
+        timeout: 30000,
+      });
 
       // Wait for actual form elements to be ready
       await page.waitForSelector('[data-testid="client-email-input"]', {
         state: "visible",
-        timeout: 30000,
+        timeout: 15000,
       });
 
       // THEN: Email field is pre-filled
@@ -487,19 +490,22 @@ test.describe("Client Form Email and Password E2E", () => {
       // WHEN: Navigating to edit page
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
 
-      // Wait for page to fully load
-      await page.waitForLoadState("networkidle", { timeout: 30000 });
+      // Wait for the page to be fully loaded (data fetched and rendered)
+      await page.waitForSelector('[data-testid="client-detail-page-loaded"]', {
+        state: "visible",
+        timeout: 30000,
+      });
 
       // Wait for actual form elements to be ready (not just the wrapper div)
       await page.waitForSelector('[data-testid="client-password-input"]', {
         state: "visible",
-        timeout: 30000,
+        timeout: 15000,
       });
 
       // Ensure form is interactive
       await page.waitForSelector('[data-testid="client-email-input"]', {
         state: "visible",
-        timeout: 15000,
+        timeout: 10000,
       });
 
       // THEN: Password field shows dots placeholder
@@ -576,19 +582,22 @@ test.describe("Client Form Email and Password E2E", () => {
       // WHEN: Updating password with matching confirmation
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
 
-      // Wait for page to fully load
-      await page.waitForLoadState("networkidle", { timeout: 30000 });
+      // Wait for the page to be fully loaded (data fetched and rendered)
+      await page.waitForSelector('[data-testid="client-detail-page-loaded"]', {
+        state: "visible",
+        timeout: 30000,
+      });
 
       // Wait for actual form elements to be ready (not just the wrapper div)
       await page.waitForSelector('[data-testid="client-password-input"]', {
         state: "visible",
-        timeout: 30000,
+        timeout: 15000,
       });
       await page.waitForSelector(
         '[data-testid="client-confirm-password-input"]',
         {
           state: "visible",
-          timeout: 15000,
+          timeout: 10000,
         },
       );
 
@@ -686,20 +695,23 @@ test.describe("Client Form Email and Password E2E", () => {
       // WHEN: Updating password with mismatched confirmation
       await page.goto(`http://localhost:3000/clients/${testClient.public_id}`);
 
-      // Wait for page to fully load
-      await page.waitForLoadState("networkidle", { timeout: 30000 });
+      // Wait for the page to be fully loaded (data fetched and rendered)
+      await page.waitForSelector('[data-testid="client-detail-page-loaded"]', {
+        state: "visible",
+        timeout: 30000,
+      });
 
       // Wait for actual form elements to be ready
       await page.waitForSelector('[data-testid="client-password-input"]', {
         state: "visible",
-        timeout: 30000,
+        timeout: 15000,
       });
 
       await page.waitForSelector(
         '[data-testid="client-confirm-password-input"]',
         {
           state: "visible",
-          timeout: 15000,
+          timeout: 10000,
         },
       );
 

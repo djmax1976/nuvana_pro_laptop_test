@@ -75,7 +75,7 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="client-detail-page-loaded">
       <div
         className="flex items-center justify-between"
         data-testid="breadcrumb-navigation"
@@ -145,7 +145,10 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
         </div>
 
         {/* Edit Form */}
-        <div className="rounded-lg border p-6" data-testid="client-edit-button">
+        <div
+          className="rounded-lg border p-6"
+          data-testid="client-edit-section"
+        >
           <h2 className="mb-4 text-lg font-semibold">Edit Client</h2>
           <ClientForm client={client} />
         </div>
