@@ -133,29 +133,29 @@ test.describe("Client Form Email and Password E2E", () => {
   test.describe("Create Client Form", () => {
     test.beforeEach(async ({ page }) => {
       // Navigate to clients page
-      await page.goto("http://localhost:3000/clients");
-
-      // Wait for either API response or button to appear (more resilient)
-      await Promise.race([
-        page
-          .waitForResponse(
-            (response) =>
-              response.url().includes("/api/clients") &&
-              response.status() === 200,
-            { timeout: 30000 },
-          )
-          .catch(() => {}), // Ignore timeout
-        page.waitForSelector('[data-testid="client-create-button"]', {
-          timeout: 30000,
-        }),
-      ]);
-
-      // Ensure button is visible and click
-      await page.waitForSelector('[data-testid="client-create-button"]', {
-        timeout: 30000,
+      await page.goto("http://localhost:3000/clients", {
+        waitUntil: "networkidle",
       });
-      await page.click('[data-testid="client-create-button"]');
-      await page.waitForSelector('[data-testid="create-client-name-input"]');
+
+      // Wait for the page to fully load - check for the heading first
+      await page.waitForSelector("h1:has-text('Clients')", {
+        timeout: 30000,
+        state: "visible",
+      });
+
+      // Wait for the create button to be visible and enabled
+      const createButton = page.locator('[data-testid="client-create-button"]');
+      await createButton.waitFor({ state: "visible", timeout: 30000 });
+      await createButton.waitFor({ state: "attached", timeout: 5000 });
+
+      // Click the button
+      await createButton.click();
+
+      // Wait for the modal/form to appear
+      await page.waitForSelector('[data-testid="create-client-name-input"]', {
+        timeout: 10000,
+        state: "visible",
+      });
     });
 
     test("[P0] Should display email and password fields in create form", async ({
