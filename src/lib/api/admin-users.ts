@@ -199,6 +199,22 @@ export async function revokeRole(
 }
 
 /**
+ * Delete a user (System Admin only)
+ * User must be INACTIVE before deletion (soft delete)
+ * @param userId - User UUID
+ * @returns Deleted user with roles
+ */
+export async function deleteUser(userId: string): Promise<UserResponse> {
+  if (!userId) {
+    throw new Error("User ID is required");
+  }
+
+  return apiRequest<UserResponse>(`/api/admin/users/${userId}`, {
+    method: "DELETE",
+  });
+}
+
+/**
  * Get available roles for dropdown selection (System Admin only)
  * @returns List of roles with scope information
  */
@@ -353,6 +369,22 @@ export function useRevokeRole() {
       queryClient.invalidateQueries({
         queryKey: adminUserKeys.detail(variables.userId),
       });
+    },
+  });
+}
+
+/**
+ * Hook to delete a user
+ * @returns TanStack Query mutation for user deletion
+ */
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (userId: string) => deleteUser(userId),
+    onSuccess: () => {
+      // Invalidate users list to refetch after deletion
+      queryClient.invalidateQueries({ queryKey: adminUserKeys.lists() });
     },
   });
 }

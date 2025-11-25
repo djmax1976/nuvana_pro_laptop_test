@@ -29,9 +29,59 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-// Mock the API hook
+// Mock the API hooks
 vi.mock("@/lib/api/companies", () => ({
   useCompanies: vi.fn(),
+  useUpdateCompany: vi.fn(() => ({
+    mutateAsync: vi.fn(),
+    isLoading: false,
+    isError: false,
+    error: null,
+  })),
+  useDeleteCompany: vi.fn(() => ({
+    mutateAsync: vi.fn(),
+    isLoading: false,
+    isError: false,
+    error: null,
+  })),
+}));
+
+// Mock the clients API hook
+vi.mock("@/lib/api/clients", () => ({
+  useClientsDropdown: vi.fn(() => ({
+    data: { data: [] },
+    isLoading: false,
+    isError: false,
+    error: null,
+  })),
+}));
+
+// Mock the toast hook
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({
+    toast: vi.fn(),
+  }),
+}));
+
+// Mock TanStack Query client
+vi.mock("@tanstack/react-query", async () => {
+  const actual = await vi.importActual("@tanstack/react-query");
+  return {
+    ...actual,
+    useQueryClient: () => ({
+      invalidateQueries: vi.fn(),
+    }),
+  };
+});
+
+// Mock the EditCompanyModal component
+vi.mock("@/components/companies/EditCompanyModal", () => ({
+  EditCompanyModal: () => null,
+}));
+
+// Mock the ConfirmDialog component
+vi.mock("@/components/ui/confirm-dialog", () => ({
+  ConfirmDialog: () => null,
 }));
 
 describe("2.4-COMPONENT: CompanyList Component", () => {
@@ -155,7 +205,7 @@ describe("2.4-COMPONENT: CompanyList Component", () => {
     });
 
     // Verify table headers
-    expect(screen.getByText("ID")).toBeInTheDocument();
+    expect(screen.getByText("Client")).toBeInTheDocument();
     expect(screen.getByText("Name")).toBeInTheDocument();
     expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.getByText("Created At")).toBeInTheDocument();
@@ -183,7 +233,7 @@ describe("2.4-COMPONENT: CompanyList Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("[P1] 2.4-COMPONENT-017: should display View and Edit action buttons for each company", async () => {
+  it("[P1] 2.4-COMPONENT-017: should display Edit action buttons for each company", async () => {
     // GIVEN: Companies API returns data
     vi.mocked(companiesApi.useCompanies).mockReturnValue({
       data: mockResponse,
@@ -197,16 +247,12 @@ describe("2.4-COMPONENT: CompanyList Component", () => {
     // WHEN: Component is rendered
     renderWithProviders(<CompanyList />);
 
-    // THEN: View and Edit buttons should be present for each company
+    // THEN: Edit buttons should be present for each company
     // Buttons use sr-only spans for accessibility, so we query by role and accessible name
     await waitFor(() => {
-      const viewButtons = screen.getAllByRole("link", {
-        name: /View details/i,
-      });
-      const editButtons = screen.getAllByRole("link", {
+      const editButtons = screen.getAllByRole("button", {
         name: /Edit/i,
       });
-      expect(viewButtons).toHaveLength(2);
       expect(editButtons).toHaveLength(2);
     });
   });

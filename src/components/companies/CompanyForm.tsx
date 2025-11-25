@@ -40,7 +40,12 @@ const companyFormSchema = z.object({
     .string()
     .min(1, "Company name is required")
     .max(255, "Company name must be 255 characters or less"),
-  status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"], {
+  address: z
+    .string()
+    .max(500, "Address must be 500 characters or less")
+    .optional()
+    .or(z.literal("")),
+  status: z.enum(["ACTIVE", "INACTIVE"], {
     message: "Please select a status",
   }),
 });
@@ -73,7 +78,11 @@ export function CompanyForm({ company, onSuccess }: CompanyFormProps) {
     defaultValues: {
       client_id: company?.client_id || "",
       name: company?.name || "",
-      status: company?.status || "ACTIVE",
+      address: company?.address || "",
+      status:
+        company?.status === "ACTIVE" || company?.status === "INACTIVE"
+          ? company.status
+          : "ACTIVE",
     },
   });
 
@@ -110,7 +119,9 @@ export function CompanyForm({ company, onSuccess }: CompanyFormProps) {
         onSuccess();
       } else {
         // Default: navigate to companies list
+        // Use replace to avoid back button issues and refresh to ensure data is loaded
         router.push("/companies");
+        router.refresh();
       }
     } catch (error) {
       toast({
@@ -192,6 +203,28 @@ export function CompanyForm({ company, onSuccess }: CompanyFormProps) {
 
         <FormField
           control={form.control}
+          name="address"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Address</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder="Enter company address (optional)"
+                  {...field}
+                  disabled={isSubmitting}
+                />
+              </FormControl>
+              <FormDescription>
+                The physical address of the company (optional, max 500
+                characters)
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
           name="status"
           render={({ field }) => (
             <FormItem>
@@ -209,8 +242,6 @@ export function CompanyForm({ company, onSuccess }: CompanyFormProps) {
                 <SelectContent>
                   <SelectItem value="ACTIVE">Active</SelectItem>
                   <SelectItem value="INACTIVE">Inactive</SelectItem>
-                  <SelectItem value="SUSPENDED">Suspended</SelectItem>
-                  <SelectItem value="PENDING">Pending</SelectItem>
                 </SelectContent>
               </Select>
               <FormDescription>

@@ -6,7 +6,10 @@
 /**
  * User status enum
  */
-export type UserStatus = "ACTIVE" | "INACTIVE";
+export enum UserStatus {
+  ACTIVE = "ACTIVE",
+  INACTIVE = "INACTIVE",
+}
 
 /**
  * Scope type for role assignments

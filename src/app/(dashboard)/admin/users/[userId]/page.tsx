@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useAdminUser, useUpdateUserStatus } from "@/lib/api/admin-users";
+import { UserStatus } from "@/types/admin-user";
 import { RoleAssignmentDialog } from "@/components/admin/RoleAssignmentDialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -25,7 +26,10 @@ export default function UserDetailPage() {
   const handleStatusToggle = async () => {
     if (!data?.data) return;
 
-    const newStatus = data.data.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    const newStatus =
+      data.data.status === UserStatus.ACTIVE
+        ? UserStatus.INACTIVE
+        : UserStatus.ACTIVE;
 
     try {
       await updateStatusMutation.mutateAsync({
@@ -35,7 +39,7 @@ export default function UserDetailPage() {
 
       toast({
         title: "Status updated",
-        description: `User has been ${newStatus === "ACTIVE" ? "activated" : "deactivated"}`,
+        description: `User has been ${newStatus === UserStatus.ACTIVE ? "activated" : "deactivated"}`,
       });
     } catch (error) {
       toast({

@@ -21,6 +21,7 @@ export interface Company {
   client_id: string | null;
   client_name?: string;
   name: string;
+  address?: string | null;
   status: CompanyStatus;
   created_at: string;
   updated_at: string;
@@ -32,6 +33,7 @@ export interface Company {
 export interface CreateCompanyInput {
   client_id: string;
   name: string;
+  address?: string;
   status?: CompanyStatus;
 }
 
@@ -41,6 +43,7 @@ export interface CreateCompanyInput {
 export interface UpdateCompanyInput {
   client_id?: string;
   name?: string;
+  address?: string;
   status?: CompanyStatus;
 }
 
@@ -96,13 +99,19 @@ async function apiRequest<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+
+  // Only set Content-Type header if there's a body
+  const headers: Record<string, string> = {
+    ...((options.headers as Record<string, string>) || {}),
+  };
+  if (options.body) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const response = await fetch(url, {
     ...options,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -184,6 +193,10 @@ export async function createCompany(
     throw new Error("Company name must be 255 characters or less");
   }
 
+  if (data.address && data.address.length > 500) {
+    throw new Error("Address must be 500 characters or less");
+  }
+
   return apiRequest<Company>("/api/companies", {
     method: "POST",
     body: JSON.stringify(data),
@@ -210,6 +223,10 @@ export async function updateCompany(
 
   if (data.name !== undefined && data.name.length > 255) {
     throw new Error("Company name must be 255 characters or less");
+  }
+
+  if (data.address !== undefined && data.address.length > 500) {
+    throw new Error("Address must be 500 characters or less");
   }
 
   return apiRequest<Company>(`/api/companies/${companyId}`, {
@@ -255,6 +272,8 @@ export function useCompanies(params?: ListCompaniesParams) {
   return useQuery({
     queryKey: companyKeys.list(params),
     queryFn: () => getCompanies(params),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 

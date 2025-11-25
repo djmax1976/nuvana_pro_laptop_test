@@ -16,9 +16,73 @@ vi.mock("next/link", () => ({
   }) => <a href={href}>{children}</a>,
 }));
 
-// Mock the API hook
+// Mock Next.js navigation
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    refresh: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+// Mock the API hooks
 vi.mock("@/lib/api/companies", () => ({
   useCompanies: vi.fn(),
+  useUpdateCompany: vi.fn(() => ({
+    mutateAsync: vi.fn(),
+    isLoading: false,
+    isError: false,
+    error: null,
+  })),
+  useDeleteCompany: vi.fn(() => ({
+    mutateAsync: vi.fn(),
+    isLoading: false,
+    isError: false,
+    error: null,
+  })),
+}));
+
+// Mock the clients API hook
+vi.mock("@/lib/api/clients", () => ({
+  useClientsDropdown: vi.fn(() => ({
+    data: { data: [] },
+    isLoading: false,
+    isError: false,
+    error: null,
+  })),
+}));
+
+// Mock the toast hook
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({
+    toast: vi.fn(),
+  }),
+}));
+
+// Mock TanStack Query client
+vi.mock("@tanstack/react-query", async () => {
+  const actual = await vi.importActual("@tanstack/react-query");
+  return {
+    ...actual,
+    useQueryClient: () => ({
+      invalidateQueries: vi.fn(),
+    }),
+  };
+});
+
+// Mock the EditCompanyModal component
+vi.mock("@/components/companies/EditCompanyModal", () => ({
+  EditCompanyModal: () => null,
+}));
+
+// Mock the ConfirmDialog component
+vi.mock("@/components/ui/confirm-dialog", () => ({
+  ConfirmDialog: () => null,
 }));
 
 describe("2.4-COMPONENT: CompanyList - List Refresh After Operations", () => {

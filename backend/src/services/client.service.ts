@@ -183,7 +183,13 @@ export class ClientService {
             },
             include: {
               _count: {
-                select: { companies: true },
+                select: {
+                  companies: {
+                    where: {
+                      deleted_at: null,
+                    },
+                  },
+                },
               },
               companies: {
                 where: {
@@ -294,7 +300,13 @@ export class ClientService {
           orderBy: { created_at: "desc" },
           include: {
             _count: {
-              select: { companies: true },
+              select: {
+                companies: {
+                  where: {
+                    deleted_at: null,
+                  },
+                },
+              },
             },
             companies: {
               where: {
@@ -359,7 +371,13 @@ export class ClientService {
         },
         include: {
           _count: {
-            select: { companies: true },
+            select: {
+              companies: {
+                where: {
+                  deleted_at: null,
+                },
+              },
+            },
           },
           companies: {
             where: {
@@ -461,7 +479,13 @@ export class ClientService {
         where: { client_id: clientId },
         include: {
           _count: {
-            select: { companies: true },
+            select: {
+              companies: {
+                where: {
+                  deleted_at: null,
+                },
+              },
+            },
           },
           companies: {
             where: {
@@ -562,7 +586,13 @@ export class ClientService {
             data: clientUpdateData,
             include: {
               _count: {
-                select: { companies: true },
+                select: {
+                  companies: {
+                    where: {
+                      deleted_at: null,
+                    },
+                  },
+                },
               },
               companies: {
                 where: {
@@ -579,6 +609,68 @@ export class ClientService {
               },
             },
           });
+
+          // CASCADE: If client status changed to INACTIVE, cascade to all companies and stores
+          if (
+            data.status === "INACTIVE" &&
+            existingClient.status === "ACTIVE"
+          ) {
+            // Update all companies under this client to INACTIVE
+            await tx.company.updateMany({
+              where: {
+                client_id: clientId,
+                deleted_at: null,
+              },
+              data: {
+                status: "INACTIVE",
+              },
+            });
+
+            // Update all stores under companies belonging to this client to INACTIVE
+            await tx.store.updateMany({
+              where: {
+                company: {
+                  client_id: clientId,
+                  deleted_at: null,
+                },
+                deleted_at: null,
+              },
+              data: {
+                status: "INACTIVE",
+              },
+            });
+          }
+
+          // CASCADE: If client status changed to ACTIVE, cascade to all companies and stores
+          if (
+            data.status === "ACTIVE" &&
+            existingClient.status === "INACTIVE"
+          ) {
+            // Update all companies under this client to ACTIVE
+            await tx.company.updateMany({
+              where: {
+                client_id: clientId,
+                deleted_at: null,
+              },
+              data: {
+                status: "ACTIVE",
+              },
+            });
+
+            // Update all stores under companies belonging to this client to ACTIVE
+            await tx.store.updateMany({
+              where: {
+                company: {
+                  client_id: clientId,
+                  deleted_at: null,
+                },
+                deleted_at: null,
+              },
+              data: {
+                status: "ACTIVE",
+              },
+            });
+          }
 
           return client;
         },

@@ -41,6 +41,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CompanyListDialog } from "@/components/clients/CompanyListDialog";
 import { CreateClientModal } from "@/components/clients/CreateClientModal";
+import { EditClientModal } from "@/components/clients/EditClientModal";
 import { useQueryClient } from "@tanstack/react-query";
 
 /**
@@ -67,6 +68,11 @@ export function ClientList() {
 
   // Create client modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
+
+  // Edit client modal state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedClientForEdit, setSelectedClientForEdit] =
+    useState<Client | null>(null);
 
   // Debounce search to avoid excessive API calls
   const debouncedSearch = useDebounce(search, 300);
@@ -193,6 +199,18 @@ export function ClientList() {
     queryClient.invalidateQueries({ queryKey: ["clients"] });
   };
 
+  // Handle edit click
+  const handleEditClick = (client: Client) => {
+    setSelectedClientForEdit(client);
+    setShowEditModal(true);
+  };
+
+  // Handle successful client edit
+  const handleClientUpdated = () => {
+    // Invalidate and refetch the clients query to show the updated client
+    queryClient.invalidateQueries({ queryKey: ["clients"] });
+  };
+
   if (isLoading) {
     return <ClientListSkeleton />;
   }
@@ -310,16 +328,16 @@ export function ClientList() {
                       data-testid={`client-actions-${client.client_id}`}
                     >
                       <div className="flex justify-end gap-2">
-                        <Link href={`/clients/${client.public_id}`}>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            data-testid={`client-edit-${client.client_id}`}
-                          >
-                            <Pencil className="h-4 w-4" />
-                            <span className="sr-only">Edit</span>
-                          </Button>
-                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEditClick(client)}
+                          disabled={actionInProgress === client.client_id}
+                          data-testid={`client-edit-${client.client_id}`}
+                        >
+                          <Pencil className="h-4 w-4" />
+                          <span className="sr-only">Edit</span>
+                        </Button>
 
                         <Button
                           variant="ghost"
@@ -459,6 +477,14 @@ export function ClientList() {
         open={showCreateModal}
         onOpenChange={setShowCreateModal}
         onSuccess={handleClientCreated}
+      />
+
+      {/* Edit Client Modal */}
+      <EditClientModal
+        open={showEditModal}
+        onOpenChange={setShowEditModal}
+        client={selectedClientForEdit}
+        onSuccess={handleClientUpdated}
       />
     </div>
   );

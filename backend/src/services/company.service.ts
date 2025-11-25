@@ -71,6 +71,16 @@ export class CompanyService {
       throw new Error("Company name cannot exceed 255 characters");
     }
 
+    // Validate address if provided
+    if (data.address) {
+      if (typeof data.address !== "string") {
+        throw new Error("Address must be a string");
+      }
+      if (data.address.trim().length > 500) {
+        throw new Error("Address cannot exceed 500 characters");
+      }
+    }
+
     if (
       data.status &&
       !["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"].includes(data.status)
@@ -86,6 +96,7 @@ export class CompanyService {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
           client_id: data.client_id,
           name: data.name.trim(),
+          address: data.address ? data.address.trim() : null,
           status: data.status || "ACTIVE",
         },
         include: {
@@ -125,6 +136,7 @@ export class CompanyService {
         client_id: company.client_id,
         client_name: company.client?.name,
         name: company.name,
+        address: company.address,
         status: company.status,
         created_at: company.created_at,
         updated_at: company.updated_at,
@@ -171,6 +183,7 @@ export class CompanyService {
         client_id: company.client_id,
         client_name: company.client?.name,
         name: company.name,
+        address: company.address,
         status: company.status,
         created_at: company.created_at,
         updated_at: company.updated_at,
@@ -199,7 +212,10 @@ export class CompanyService {
     const skip = (page - 1) * limit;
 
     // Build where clause
-    const where: any = {};
+    const where: any = {
+      // Exclude soft-deleted companies
+      deleted_at: null,
+    };
 
     // Filter by status
     if (status) {
@@ -236,6 +252,7 @@ export class CompanyService {
           client_id: company.client_id,
           client_name: company.client?.name,
           name: company.name,
+          address: company.address,
           status: company.status,
           created_at: company.created_at,
           updated_at: company.updated_at,
@@ -282,6 +299,16 @@ export class CompanyService {
       throw new Error("Company name cannot exceed 255 characters");
     }
 
+    // Validate address if provided
+    if (data.address !== undefined) {
+      if (data.address !== null && typeof data.address !== "string") {
+        throw new Error("Address must be a string or null");
+      }
+      if (data.address && data.address.trim().length > 500) {
+        throw new Error("Address cannot exceed 500 characters");
+      }
+    }
+
     if (
       data.status &&
       !["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"].includes(data.status)
@@ -307,6 +334,7 @@ export class CompanyService {
             select: {
               client_id: true,
               name: true,
+              status: true,
             },
           },
         },
@@ -316,10 +344,25 @@ export class CompanyService {
         throw new Error(`Company with ID ${companyId} not found`);
       }
 
+      // Prevent activating a company if its client is inactive
+      if (
+        data.status === "ACTIVE" &&
+        existingCompany.status === "INACTIVE" &&
+        existingCompany.client &&
+        existingCompany.client.status === "INACTIVE"
+      ) {
+        throw new Error(
+          "Cannot activate company because its parent client is inactive. Please activate the client first.",
+        );
+      }
+
       // Prepare update data
       const updateData: any = {};
       if (data.name !== undefined) {
         updateData.name = data.name.trim();
+      }
+      if (data.address !== undefined) {
+        updateData.address = data.address ? data.address.trim() : null;
       }
       if (data.status !== undefined) {
         updateData.status = data.status;
@@ -340,6 +383,7 @@ export class CompanyService {
             select: {
               client_id: true,
               name: true,
+              status: true,
             },
           },
         },
@@ -373,6 +417,7 @@ export class CompanyService {
         client_id: company.client_id,
         client_name: company.client?.name,
         name: company.name,
+        address: company.address,
         status: company.status,
         created_at: company.created_at,
         updated_at: company.updated_at,
@@ -504,6 +549,7 @@ export class CompanyService {
         client_id: company.client_id,
         client_name: company.client?.name,
         name: company.name,
+        address: company.address,
         status: company.status,
         created_at: company.created_at,
         updated_at: company.updated_at,

@@ -614,6 +614,14 @@ test.describe("2.1-API: Company Management API - Validation Edge Cases", () => {
     expect(response.status()).toBe(201);
     const body = await response.json();
     expect(body.status).toBe("PENDING");
+
+    // Cleanup
+    await prismaClient.company.delete({
+      where: { company_id: body.company_id },
+    });
+    await prismaClient.client.delete({
+      where: { client_id: client.client_id },
+    });
   });
 
   test("[P0] 2.1-API-019: PUT /api/companies/:companyId - should allow status transitions", async ({
@@ -643,6 +651,52 @@ test.describe("2.1-API: Company Management API - Validation Edge Cases", () => {
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.status).toBe("ACTIVE");
+  });
+
+  test("[P0] 2.1-API-019a: PUT /api/companies/:companyId - should prevent activating company when client is inactive", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a System Admin and an INACTIVE client exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Inactive Client", status: "INACTIVE" }),
+    });
+
+    // AND: An INACTIVE company exists under this client
+    const company = await prismaClient.company.create({
+      data: {
+        ...createCompany({ name: "Inactive Company", status: "INACTIVE" }),
+        client_id: client.client_id,
+      },
+    });
+
+    // WHEN: Attempting to activate the company while client is inactive
+    const response = await superadminApiRequest.put(
+      `/api/companies/${company.company_id}`,
+      {
+        status: "ACTIVE",
+      },
+    );
+
+    // THEN: Request is rejected with 400 Bad Request
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.message).toContain("Cannot activate company");
+    expect(body.message).toContain("parent client is inactive");
+
+    // AND: Company remains INACTIVE in database
+    const unchangedCompany = await prismaClient.company.findUnique({
+      where: { company_id: company.company_id },
+    });
+    expect(unchangedCompany?.status).toBe("INACTIVE");
+
+    // Cleanup
+    await prismaClient.company.delete({
+      where: { company_id: company.company_id },
+    });
+    await prismaClient.client.delete({
+      where: { client_id: client.client_id },
+    });
   });
 
   test("[P0] 2.1-API-020: PUT /api/companies/:companyId - should reject whitespace-only name update", async ({
