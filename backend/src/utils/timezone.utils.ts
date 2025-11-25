@@ -9,11 +9,7 @@
  * Display layer converts to store timezone for user-facing output.
  */
 
-import {
-  utcToZonedTime,
-  zonedTimeToUtc,
-  format as formatTz,
-} from "date-fns-tz";
+import { toZonedTime, fromZonedTime, format as formatTz } from "date-fns-tz";
 import { differenceInHours, differenceInMinutes, parseISO } from "date-fns";
 
 /**
@@ -28,7 +24,7 @@ import { differenceInHours, differenceInMinutes, parseISO } from "date-fns";
  * const denver = toStoreTime(utc, 'America/Denver'); // 10 PM previous day MST
  */
 export function toStoreTime(utcDate: Date, storeTimezone: string): Date {
-  return utcToZonedTime(utcDate, storeTimezone);
+  return toZonedTime(utcDate, storeTimezone);
 }
 
 /**
@@ -43,7 +39,7 @@ export function toStoreTime(utcDate: Date, storeTimezone: string): Date {
  * // Returns: 2025-11-26T05:00:00Z (10 PM Denver = 5 AM UTC next day)
  */
 export function toUTC(localDate: Date | string, storeTimezone: string): Date {
-  return zonedTimeToUtc(localDate, storeTimezone);
+  return fromZonedTime(localDate, storeTimezone);
 }
 
 /**

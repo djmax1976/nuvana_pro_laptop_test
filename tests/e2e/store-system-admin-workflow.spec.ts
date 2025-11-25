@@ -61,13 +61,11 @@ test.describe("Store System Admin Workflow - E2E (API-based)", () => {
     });
 
     const testCompany = await prismaClient.company.create({
-      data: {
-        ...createCompany({
-          name: `E2E Test Company ${Date.now()}`,
-          status: "ACTIVE",
-        }),
+      data: createCompany({
+        name: `E2E Test Company ${Date.now()}`,
+        status: "ACTIVE",
         owner_user_id: ownerUser.user_id,
-      },
+      }),
     });
 
     // STEP 1: System admin creates store for the company

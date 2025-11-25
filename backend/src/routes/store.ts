@@ -630,8 +630,9 @@ export async function storeRoutes(fastify: FastifyInstance) {
           (role) => role.scope === "SYSTEM",
         );
 
+        let userCompanyId: string | null = null;
         if (!hasSystemScope) {
-          const userCompanyId = await getUserCompanyId(user.id);
+          userCompanyId = await getUserCompanyId(user.id);
           if (!userCompanyId) {
             reply.code(403);
             return {
@@ -654,7 +655,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
         const hasPermission = await rbacService.checkPermission(
           user.id,
           PERMISSIONS.STORE_READ,
-          { storeId: params.storeId, companyId: userCompanyId },
+          { storeId: params.storeId, companyId: userCompanyId || undefined },
         );
 
         if (!hasPermission) {
@@ -828,8 +829,9 @@ export async function storeRoutes(fastify: FastifyInstance) {
           (role) => role.scope === "SYSTEM",
         );
 
+        let userCompanyId: string | null = null;
         if (!hasSystemScope) {
-          const userCompanyId = await getUserCompanyId(user.id);
+          userCompanyId = await getUserCompanyId(user.id);
           if (!userCompanyId) {
             reply.code(403);
             return {
@@ -851,7 +853,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
         // Update store (service will verify company isolation)
         const store = await storeService.updateStore(
           params.storeId,
-          userCompanyId,
+          userCompanyId || oldStore.company_id,
           {
             name: body.name,
             location_json: body.location_json,
@@ -884,12 +886,16 @@ export async function storeRoutes(fastify: FastifyInstance) {
           });
         } catch (auditError) {
           // If audit log fails, revert the update and fail the request
-          await storeService.updateStore(params.storeId, userCompanyId, {
-            name: oldStore.name,
-            location_json: oldStore.location_json as any,
-            timezone: oldStore.timezone,
-            status: oldStore.status as any,
-          });
+          await storeService.updateStore(
+            params.storeId,
+            userCompanyId || oldStore.company_id,
+            {
+              name: oldStore.name,
+              location_json: oldStore.location_json as any,
+              timezone: oldStore.timezone,
+              status: oldStore.status as any,
+            },
+          );
           throw new Error("Failed to create audit log - operation rolled back");
         }
 
@@ -1168,8 +1174,9 @@ export async function storeRoutes(fastify: FastifyInstance) {
           (role) => role.scope === "SYSTEM",
         );
 
+        let userCompanyId: string | null = null;
         if (!hasSystemScope) {
-          const userCompanyId = await getUserCompanyId(user.id);
+          userCompanyId = await getUserCompanyId(user.id);
           if (!userCompanyId) {
             reply.code(403);
             return {
@@ -1193,7 +1200,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
         const hasPermission = await rbacService.checkPermission(
           user.id,
           PERMISSIONS.STORE_UPDATE,
-          { storeId: params.storeId, companyId: userCompanyId },
+          { storeId: params.storeId, companyId: userCompanyId || undefined },
         );
 
         if (!hasPermission) {
@@ -1207,7 +1214,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
         // Update store configuration (service will verify company isolation and validate)
         const store = await storeService.updateStoreConfiguration(
           params.storeId,
-          userCompanyId,
+          userCompanyId || oldStore.company_id,
           {
             timezone: body.timezone,
             location: body.location,

@@ -27,6 +27,7 @@ export type CompanyData = {
   public_id: string;
   name: string;
   status: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
+  owner_user_id: string;
 };
 
 export type StoreData = {
@@ -54,9 +55,10 @@ export const createUser = (overrides: Partial<UserData> = {}): UserData => ({
 /**
  * Creates a Company test data object
  * Name format: Test <random> (identifiable for cleanup)
+ * Requires owner_user_id to be provided
  */
 export const createCompany = (
-  overrides: Partial<CompanyData> = {},
+  overrides: Partial<CompanyData> & { owner_user_id: string },
 ): CompanyData => ({
   public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
   name: `Test ${faker.company.name()}`,
@@ -90,10 +92,11 @@ export const createUsers = (
 
 /**
  * Creates multiple Company test data objects
+ * Requires owner_user_id to be provided
  */
 export const createCompanies = (
   count: number,
-  overrides: Partial<CompanyData> = {},
+  overrides: Partial<CompanyData> & { owner_user_id: string },
 ): CompanyData[] =>
   Array.from({ length: count }, () => createCompany(overrides));
 

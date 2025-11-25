@@ -20,7 +20,7 @@ test.describe.configure({ mode: "serial" });
 
 test.describe("Mobile Alert Dialog Responsiveness", () => {
   let superadminUser: any;
-  let inactiveClient: any;
+  let inactiveCompany: any;
 
   test.beforeAll(async () => {
     // Clean up any existing test data (delete userRoles before users to avoid FK violations)
@@ -66,13 +66,13 @@ test.describe("Mobile Alert Dialog Responsiveness", () => {
       });
     }
 
-    // Create an INACTIVE client for delete dialog testing
-    inactiveClient = await prisma.client.create({
+    // Create an INACTIVE company for delete dialog testing
+    inactiveCompany = await prisma.company.create({
       data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
-        email: `test-${Date.now()}@example.com`,
-        name: "Mobile Test Client",
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: "Mobile Test Company",
         status: "INACTIVE",
+        owner_user_id: superadminUser.user_id,
       },
     });
   });
@@ -80,7 +80,7 @@ test.describe("Mobile Alert Dialog Responsiveness", () => {
   test.afterAll(async () => {
     // Cleanup: Delete test data using helper (respects FK constraints)
     await cleanupTestData(prisma, {
-      clients: inactiveClient ? [inactiveClient.client_id] : [],
+      companies: inactiveCompany ? [inactiveCompany.company_id] : [],
       users: superadminUser ? [superadminUser.user_id] : [],
     });
 
@@ -113,15 +113,15 @@ test.describe("Mobile Alert Dialog Responsiveness", () => {
         height: viewport.height,
       });
 
-      // AND: I navigate to the client edit page
+      // AND: I navigate to the company edit page
       await page.goto(
-        `http://localhost:3000/clients/${inactiveClient.client_id}`,
+        `http://localhost:3000/companies/${inactiveCompany.company_id}`,
       );
       await page.waitForLoadState("networkidle");
 
       // WHEN: I click the delete button to open the AlertDialog
       const deleteButton = page.locator(
-        'button[data-testid="client-delete-button"]',
+        'button[data-testid="company-delete-button"]',
       );
       await expect(deleteButton).toBeVisible();
       await expect(deleteButton).toBeEnabled();
@@ -200,9 +200,9 @@ test.describe("Mobile Alert Dialog Responsiveness", () => {
     // GIVEN: I am on the smallest common mobile viewport
     await page.setViewportSize({ width: 320, height: 568 }); // iPhone 5/SE (old)
 
-    // AND: I navigate to the client edit page
+    // AND: I navigate to the company edit page
     await page.goto(
-      `http://localhost:3000/clients/${inactiveClient.client_id}`,
+      `http://localhost:3000/companies/${inactiveCompany.company_id}`,
     );
 
     // WHEN: I open the delete dialog
@@ -239,9 +239,9 @@ test.describe("Mobile Alert Dialog Responsiveness", () => {
     // GIVEN: I am on a short mobile viewport
     await page.setViewportSize({ width: 375, height: 500 });
 
-    // AND: I navigate to the client edit page
+    // AND: I navigate to the company edit page
     await page.goto(
-      `http://localhost:3000/clients/${inactiveClient.client_id}`,
+      `http://localhost:3000/companies/${inactiveCompany.company_id}`,
     );
 
     // WHEN: I open the delete dialog

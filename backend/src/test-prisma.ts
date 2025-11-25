@@ -16,6 +16,18 @@ async function testPrismaClient() {
     await prisma.$connect();
     console.log("✅ Database connection successful");
 
+    // Test creating a User record first (needed for company owner)
+    console.log("Testing User creation...");
+    const testUser = await prisma.user.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        email: `test-${Date.now()}@test.nuvana.local`,
+        name: "Test User",
+        status: "ACTIVE",
+      },
+    });
+    console.log("✅ User created:", testUser);
+
     // Test creating a Company record
     console.log("Testing Company creation...");
     const company = await prisma.company.create({
@@ -23,6 +35,7 @@ async function testPrismaClient() {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
         name: "Test Company",
         status: "ACTIVE",
+        owner_user_id: testUser.user_id,
       },
     });
     console.log("✅ Company created:", company);
@@ -37,6 +50,9 @@ async function testPrismaClient() {
     // Clean up test data
     await prisma.company.delete({
       where: { company_id: company.company_id },
+    });
+    await prisma.user.delete({
+      where: { user_id: testUser.user_id },
     });
     console.log("✅ Test data cleaned up");
 

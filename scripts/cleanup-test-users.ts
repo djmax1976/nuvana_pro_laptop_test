@@ -33,14 +33,12 @@ async function cleanupTestUsers() {
     // Step 2: Count current database state
     const totalUsers = await prisma.user.count();
     const totalUserRoles = await prisma.userRole.count();
-    const totalClients = await prisma.client.count();
     const totalCompanies = await prisma.company.count();
     const totalStores = await prisma.store.count();
 
     console.log("📊 Current database state:");
     console.log(`   Users: ${totalUsers}`);
     console.log(`   User Roles: ${totalUserRoles}`);
-    console.log(`   Clients: ${totalClients}`);
     console.log(`   Companies: ${totalCompanies}`);
     console.log(`   Stores: ${totalStores}\n`);
 
@@ -54,7 +52,6 @@ async function cleanupTestUsers() {
 
     let deletedRoles = 0;
     let deletedUsers = 0;
-    let deletedClients = 0;
     let deletedShifts = 0;
     let deletedTransactions = 0;
 
@@ -138,24 +135,17 @@ async function cleanupTestUsers() {
     const companiesResult = await prisma.company.deleteMany({});
     const deletedCompanies = companiesResult.count;
 
-    // Step 7: Delete all clients (they're separate from users)
-    console.log("🗑️  Cleaning up all client records...");
-    const clientsResult = await prisma.client.deleteMany({});
-    deletedClients = clientsResult.count;
-
-    // Step 8: Final verification
+    // Step 7: Final verification
     console.log("\n📊 Cleanup completed!");
     console.log(`   Deleted ${deletedShifts} shifts`);
     console.log(`   Deleted ${deletedTransactions} transactions`);
     console.log(`   Deleted ${deletedRoles} user roles`);
     console.log(`   Deleted ${deletedUsers} users`);
     console.log(`   Deleted ${deletedStores} stores`);
-    console.log(`   Deleted ${deletedCompanies} companies`);
-    console.log(`   Deleted ${deletedClients} clients\n`);
+    console.log(`   Deleted ${deletedCompanies} companies\n`);
 
     const remainingUsers = await prisma.user.count();
     const remainingUserRoles = await prisma.userRole.count();
-    const remainingClients = await prisma.client.count();
     const remainingCompanies = await prisma.company.count();
     const remainingStores = await prisma.store.count();
 
@@ -164,7 +154,6 @@ async function cleanupTestUsers() {
       `   Users: ${remainingUsers} (should be 1 - admin@nuvana.com only)`,
     );
     console.log(`   User Roles: ${remainingUserRoles}`);
-    console.log(`   Clients: ${remainingClients} (should be 0)`);
     console.log(`   Companies: ${remainingCompanies} (should be 0)`);
     console.log(`   Stores: ${remainingStores} (should be 0)`);
 

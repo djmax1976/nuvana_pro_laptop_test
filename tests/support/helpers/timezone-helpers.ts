@@ -6,7 +6,7 @@
  * test scenarios like cross-midnight shifts and DST transitions.
  */
 
-import { zonedTimeToUtc } from "date-fns-tz";
+import { fromZonedTime } from "date-fns-tz";
 
 /**
  * Create a UTC Date from a date/time string in a specific timezone
@@ -23,7 +23,7 @@ export function createDateInTimezone(
   dateTimeString: string,
   timezone: string,
 ): Date {
-  return zonedTimeToUtc(dateTimeString, timezone);
+  return fromZonedTime(dateTimeString, timezone);
 }
 
 /**

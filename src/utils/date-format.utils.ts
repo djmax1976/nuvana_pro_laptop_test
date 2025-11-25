@@ -7,7 +7,7 @@
  */
 
 import { format } from "date-fns";
-import { formatInTimeZone, utcToZonedTime } from "date-fns-tz";
+import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 
 /**
  * Format date in store timezone with custom format string
@@ -227,7 +227,7 @@ export function toStoreTimezone(
   storeTimezone: string,
 ): Date {
   const dateObj = typeof date === "string" ? new Date(date) : date;
-  return utcToZonedTime(dateObj, storeTimezone);
+  return toZonedTime(dateObj, storeTimezone);
 }
 
 /**

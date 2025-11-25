@@ -158,14 +158,6 @@ export class UserAdminService {
       throw new Error("User must be assigned at least one role");
     }
 
-    // Check if CLIENT_OWNER role is being assigned
-    const clientOwnerRoleAssignment = data.roles.find(async (r) => {
-      const role = await prisma.role.findUnique({
-        where: { role_id: r.role_id },
-      });
-      return role?.code === "CLIENT_OWNER";
-    });
-
     // For CLIENT_OWNER role, we need to check if company details are provided
     // We'll verify this after fetching the roles
     let hasClientOwnerRole = false;

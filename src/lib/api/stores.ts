@@ -18,6 +18,7 @@ export type StoreStatus = "ACTIVE" | "INACTIVE" | "CLOSED";
  */
 export interface LocationJson {
   address?: string;
+  gps?: { lat: number; lng: number };
 }
 
 /**
@@ -176,9 +177,7 @@ async function apiRequest<T>(
  * @param params - Query parameters for pagination
  * @returns List of all stores with company info
  */
-export async function getAllStores(
-  params?: ListStoresParams,
-): Promise<{
+export async function getAllStores(params?: ListStoresParams): Promise<{
   data: StoreWithCompany[];
   meta: { total: number; limit: number; offset: number };
 }> {

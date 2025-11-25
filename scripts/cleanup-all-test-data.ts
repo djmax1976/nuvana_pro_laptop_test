@@ -49,10 +49,7 @@ async function cleanupAllTestData() {
     const deletedCompanies = await prisma.company.deleteMany({});
     console.log(`   Deleted ${deletedCompanies.count} companies`);
 
-    // 6. Delete all clients
-    console.log("\n👥 Deleting clients...");
-    const deletedClients = await prisma.client.deleteMany({});
-    console.log(`   Deleted ${deletedClients.count} clients`);
+    // 6. Clients removed - no longer needed
 
     // 7. Delete all user roles except superadmin's roles
     console.log("\n🔐 Deleting user roles (except superadmin)...");

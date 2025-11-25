@@ -57,56 +57,11 @@ export async function cleanupAllTestData() {
       },
     });
 
-    // 2. Delete lottery data
-    await prisma.lotteryTicketSerial.deleteMany({
-      where: {
-        pack: {
-          store: {
-            OR: [
-              { name: { contains: "test", mode: "insensitive" } },
-              { name: { contains: "demo", mode: "insensitive" } },
-            ],
-          },
-        },
-      },
-    });
-
-    await prisma.lotteryShiftClosing.deleteMany({
-      where: {
-        shift: {
-          store: {
-            OR: [
-              { name: { contains: "test", mode: "insensitive" } },
-              { name: { contains: "demo", mode: "insensitive" } },
-            ],
-          },
-        },
-      },
-    });
-
-    await prisma.lotteryShiftOpening.deleteMany({
-      where: {
-        shift: {
-          store: {
-            OR: [
-              { name: { contains: "test", mode: "insensitive" } },
-              { name: { contains: "demo", mode: "insensitive" } },
-            ],
-          },
-        },
-      },
-    });
-
-    await prisma.lotteryPack.deleteMany({
-      where: {
-        store: {
-          OR: [
-            { name: { contains: "test", mode: "insensitive" } },
-            { name: { contains: "demo", mode: "insensitive" } },
-          ],
-        },
-      },
-    });
+    // 2. Delete lottery data (commented out - models not yet in schema)
+    // await prisma.lotteryTicketSerial.deleteMany({...});
+    // await prisma.lotteryShiftClosing.deleteMany({...});
+    // await prisma.lotteryShiftOpening.deleteMany({...});
+    // await prisma.lotteryPack.deleteMany({...});
 
     // 3. Delete shifts
     await prisma.shift.deleteMany({
@@ -120,17 +75,8 @@ export async function cleanupAllTestData() {
       },
     });
 
-    // 4. Delete inventory data
-    await prisma.stockMovement.deleteMany({
-      where: {
-        store: {
-          OR: [
-            { name: { contains: "test", mode: "insensitive" } },
-            { name: { contains: "demo", mode: "insensitive" } },
-          ],
-        },
-      },
-    });
+    // 4. Delete inventory data (commented out - models not yet in schema)
+    // await prisma.stockMovement.deleteMany({...});
 
     // 5. Delete stores
     const deletedStores = await prisma.store.deleteMany({
@@ -201,29 +147,18 @@ export async function cleanupByStoreIds(storeIds: string[]) {
     where: { store_id: { in: storeIds } },
   });
 
-  await prisma.lotteryTicketSerial.deleteMany({
-    where: { pack: { store_id: { in: storeIds } } },
-  });
-
-  await prisma.lotteryShiftClosing.deleteMany({
-    where: { shift: { store_id: { in: storeIds } } },
-  });
-
-  await prisma.lotteryShiftOpening.deleteMany({
-    where: { shift: { store_id: { in: storeIds } } },
-  });
-
-  await prisma.lotteryPack.deleteMany({
-    where: { store_id: { in: storeIds } },
-  });
+  // Lottery models not yet in schema
+  // await prisma.lotteryTicketSerial.deleteMany({...});
+  // await prisma.lotteryShiftClosing.deleteMany({...});
+  // await prisma.lotteryShiftOpening.deleteMany({...});
+  // await prisma.lotteryPack.deleteMany({...});
 
   await prisma.shift.deleteMany({
     where: { store_id: { in: storeIds } },
   });
 
-  await prisma.stockMovement.deleteMany({
-    where: { store_id: { in: storeIds } },
-  });
+  // Stock models not yet in schema
+  // await prisma.stockMovement.deleteMany({...});
 
   await prisma.store.deleteMany({
     where: { store_id: { in: storeIds } },
@@ -294,30 +229,31 @@ export async function resetDatabase() {
   console.log("⚠️  RESETTING DATABASE - ALL DATA WILL BE DELETED");
 
   // Delete all data in correct order
+  // Note: Lottery, stock, purchase, vendor, product, category, department models not yet in schema
   await prisma.$transaction([
     prisma.transactionPayment.deleteMany(),
     prisma.transactionLineItem.deleteMany(),
     prisma.transaction.deleteMany(),
-    prisma.lotteryTicketSerial.deleteMany(),
-    prisma.lotteryShiftClosing.deleteMany(),
-    prisma.lotteryShiftOpening.deleteMany(),
-    prisma.lotteryVariance.deleteMany(),
-    prisma.lotteryPack.deleteMany(),
-    prisma.lotteryBin.deleteMany(),
-    prisma.lotteryGame.deleteMany(),
+    // prisma.lotteryTicketSerial.deleteMany(),
+    // prisma.lotteryShiftClosing.deleteMany(),
+    // prisma.lotteryShiftOpening.deleteMany(),
+    // prisma.lotteryVariance.deleteMany(),
+    // prisma.lotteryPack.deleteMany(),
+    // prisma.lotteryBin.deleteMany(),
+    // prisma.lotteryGame.deleteMany(),
     prisma.shift.deleteMany(),
-    prisma.stockMovement.deleteMany(),
-    prisma.inventorySnapshot.deleteMany(),
-    prisma.purchaseInvoiceLine.deleteMany(),
-    prisma.purchaseInvoice.deleteMany(),
-    prisma.purchaseOrderLine.deleteMany(),
-    prisma.purchaseOrder.deleteMany(),
-    prisma.vendorProduct.deleteMany(),
-    prisma.vendor.deleteMany(),
-    prisma.productBarcode.deleteMany(),
-    prisma.product.deleteMany(),
-    prisma.category.deleteMany(),
-    prisma.department.deleteMany(),
+    // prisma.stockMovement.deleteMany(),
+    // prisma.inventorySnapshot.deleteMany(),
+    // prisma.purchaseInvoiceLine.deleteMany(),
+    // prisma.purchaseInvoice.deleteMany(),
+    // prisma.purchaseOrderLine.deleteMany(),
+    // prisma.purchaseOrder.deleteMany(),
+    // prisma.vendorProduct.deleteMany(),
+    // prisma.vendor.deleteMany(),
+    // prisma.productBarcode.deleteMany(),
+    // prisma.product.deleteMany(),
+    // prisma.category.deleteMany(),
+    // prisma.department.deleteMany(),
     prisma.store.deleteMany(),
     prisma.company.deleteMany(),
     prisma.userRole.deleteMany(),
