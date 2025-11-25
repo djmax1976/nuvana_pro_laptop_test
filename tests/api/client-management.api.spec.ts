@@ -657,6 +657,146 @@ test.describe("Client Management API - Business Logic", () => {
     expect(deletedUserRole?.status).toBe("INACTIVE");
   });
 
+  test("[P0] PUT /api/clients/:clientId - should cascade status change to INACTIVE for companies and stores", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An ACTIVE client exists with companies and stores
+    const { client } = await createClientWithUser(prismaClient, {
+      name: "Client for Cascade Test",
+      status: "ACTIVE",
+    });
+
+    // Create a company under the client
+    const companyData = createCompany({
+      name: "Test Company for Cascade",
+      status: "ACTIVE",
+    });
+    const company = await prismaClient.company.create({
+      data: {
+        ...companyData,
+        client_id: client.client_id,
+      },
+    });
+
+    // Create a store under the company
+    const store = await prismaClient.store.create({
+      data: {
+        public_id: `ST_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        company_id: company.company_id,
+        name: "Test Store for Cascade",
+        status: "ACTIVE",
+      },
+    });
+
+    // WHEN: Deactivating the client
+    const response = await superadminApiRequest.put(
+      `/api/clients/${client.client_id}`,
+      {
+        status: "INACTIVE",
+      },
+    );
+
+    // THEN: Client is deactivated successfully
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.status).toBe("INACTIVE");
+
+    // AND: Associated companies are also deactivated
+    const updatedCompany = await prismaClient.company.findUnique({
+      where: { company_id: company.company_id },
+    });
+    expect(updatedCompany?.status).toBe("INACTIVE");
+
+    // AND: Associated stores are also deactivated
+    const updatedStore = await prismaClient.store.findUnique({
+      where: { store_id: store.store_id },
+    });
+    expect(updatedStore?.status).toBe("INACTIVE");
+
+    // Cleanup
+    await prismaClient.store.delete({
+      where: { store_id: store.store_id },
+    });
+    await prismaClient.company.delete({
+      where: { company_id: company.company_id },
+    });
+    await prismaClient.client.delete({
+      where: { client_id: client.client_id },
+    });
+  });
+
+  test("[P0] PUT /api/clients/:clientId - should cascade status change to ACTIVE for companies and stores", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An INACTIVE client exists with inactive companies and stores
+    const { client } = await createClientWithUser(prismaClient, {
+      name: "Inactive Client for Reactivation",
+      status: "INACTIVE",
+    });
+
+    // Create a company under the client
+    const companyData = createCompany({
+      name: "Inactive Company for Reactivation",
+      status: "INACTIVE",
+    });
+    const company = await prismaClient.company.create({
+      data: {
+        ...companyData,
+        client_id: client.client_id,
+      },
+    });
+
+    // Create a store under the company
+    const store = await prismaClient.store.create({
+      data: {
+        public_id: `ST_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        company_id: company.company_id,
+        name: "Inactive Store for Reactivation",
+        status: "INACTIVE",
+      },
+    });
+
+    // WHEN: Reactivating the client
+    const response = await superadminApiRequest.put(
+      `/api/clients/${client.client_id}`,
+      {
+        status: "ACTIVE",
+      },
+    );
+
+    // THEN: Client is reactivated successfully
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.status).toBe("ACTIVE");
+
+    // AND: Associated companies are also reactivated
+    const updatedCompany = await prismaClient.company.findUnique({
+      where: { company_id: company.company_id },
+    });
+    expect(updatedCompany?.status).toBe("ACTIVE");
+
+    // AND: Associated stores are also reactivated
+    const updatedStore = await prismaClient.store.findUnique({
+      where: { store_id: store.store_id },
+    });
+    expect(updatedStore?.status).toBe("ACTIVE");
+
+    // Cleanup
+    await prismaClient.store.delete({
+      where: { store_id: store.store_id },
+    });
+    await prismaClient.company.delete({
+      where: { company_id: company.company_id },
+    });
+    await prismaClient.client.delete({
+      where: { client_id: client.client_id },
+    });
+  });
+
   test("[P1] PUT /api/clients/:clientId - should allow reactivation from INACTIVE to ACTIVE", async ({
     superadminApiRequest,
     prismaClient,

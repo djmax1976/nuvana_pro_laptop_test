@@ -610,6 +610,68 @@ export class ClientService {
             },
           });
 
+          // CASCADE: If client status changed to INACTIVE, cascade to all companies and stores
+          if (
+            data.status === "INACTIVE" &&
+            existingClient.status === "ACTIVE"
+          ) {
+            // Update all companies under this client to INACTIVE
+            await tx.company.updateMany({
+              where: {
+                client_id: clientId,
+                deleted_at: null,
+              },
+              data: {
+                status: "INACTIVE",
+              },
+            });
+
+            // Update all stores under companies belonging to this client to INACTIVE
+            await tx.store.updateMany({
+              where: {
+                company: {
+                  client_id: clientId,
+                  deleted_at: null,
+                },
+                deleted_at: null,
+              },
+              data: {
+                status: "INACTIVE",
+              },
+            });
+          }
+
+          // CASCADE: If client status changed to ACTIVE, cascade to all companies and stores
+          if (
+            data.status === "ACTIVE" &&
+            existingClient.status === "INACTIVE"
+          ) {
+            // Update all companies under this client to ACTIVE
+            await tx.company.updateMany({
+              where: {
+                client_id: clientId,
+                deleted_at: null,
+              },
+              data: {
+                status: "ACTIVE",
+              },
+            });
+
+            // Update all stores under companies belonging to this client to ACTIVE
+            await tx.store.updateMany({
+              where: {
+                company: {
+                  client_id: clientId,
+                  deleted_at: null,
+                },
+                deleted_at: null,
+              },
+              data: {
+                status: "ACTIVE",
+              },
+            });
+          }
+
           return client;
         },
       );

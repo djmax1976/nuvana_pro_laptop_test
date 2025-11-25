@@ -81,8 +81,13 @@ export class CompanyService {
       }
     }
 
-    if (data.status && !["ACTIVE", "INACTIVE"].includes(data.status)) {
-      throw new Error("Invalid status. Must be ACTIVE or INACTIVE");
+    if (
+      data.status &&
+      !["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"].includes(data.status)
+    ) {
+      throw new Error(
+        "Invalid status. Must be ACTIVE, INACTIVE, SUSPENDED, or PENDING",
+      );
     }
 
     try {
@@ -304,8 +309,13 @@ export class CompanyService {
       }
     }
 
-    if (data.status && !["ACTIVE", "INACTIVE"].includes(data.status)) {
-      throw new Error("Invalid status. Must be ACTIVE or INACTIVE");
+    if (
+      data.status &&
+      !["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"].includes(data.status)
+    ) {
+      throw new Error(
+        "Invalid status. Must be ACTIVE, INACTIVE, SUSPENDED, or PENDING",
+      );
     }
 
     // Validate client_id if provided
@@ -324,6 +334,7 @@ export class CompanyService {
             select: {
               client_id: true,
               name: true,
+              status: true,
             },
           },
         },
@@ -331,6 +342,17 @@ export class CompanyService {
 
       if (!existingCompany) {
         throw new Error(`Company with ID ${companyId} not found`);
+      }
+
+      // Prevent activating a company if its client is inactive
+      if (
+        data.status === "ACTIVE" &&
+        existingCompany.status === "INACTIVE" &&
+        existingCompany.client.status === "INACTIVE"
+      ) {
+        throw new Error(
+          "Cannot activate company because its parent client is inactive. Please activate the client first.",
+        );
       }
 
       // Prepare update data
@@ -360,6 +382,7 @@ export class CompanyService {
             select: {
               client_id: true,
               name: true,
+              status: true,
             },
           },
         },

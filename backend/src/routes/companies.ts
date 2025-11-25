@@ -519,7 +519,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
         }
         if (
           error.message.includes("cannot be empty") ||
-          error.message.includes("Invalid")
+          error.message.includes("Invalid") ||
+          error.message.includes("Cannot activate")
         ) {
           reply.code(400);
           return {
