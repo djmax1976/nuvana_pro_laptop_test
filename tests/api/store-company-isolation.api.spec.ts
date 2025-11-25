@@ -1,5 +1,5 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createStore, createCompany, createUser } from "../support/factories";
+import { createStore, createCompany, createUser } from "../support/helpers";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
@@ -89,8 +89,10 @@ test.describe("Store-Company Isolation & Integrity", () => {
     });
 
     // AND: Another company with stores
+    const otherOwner = await createUser(prismaClient);
     const otherCompany = await createCompany(prismaClient, {
       name: "Other Company",
+      owner_user_id: otherOwner.user_id,
     });
     const otherStore = await createStore(prismaClient, {
       company_id: otherCompany.company_id,
@@ -130,9 +132,11 @@ test.describe("Store-Company Isolation & Integrity", () => {
     prismaClient,
   }) => {
     // GIVEN: ACTIVE company with store
+    const activeOwner = await createUser(prismaClient);
     const activeCompany = await createCompany(prismaClient, {
       name: "Active Company",
       status: "ACTIVE",
+      owner_user_id: activeOwner.user_id,
     });
     const activeStore = await createStore(prismaClient, {
       company_id: activeCompany.company_id,
@@ -140,9 +144,11 @@ test.describe("Store-Company Isolation & Integrity", () => {
     });
 
     // AND: INACTIVE company with store
+    const inactiveOwner = await createUser(prismaClient);
     const inactiveCompany = await createCompany(prismaClient, {
       name: "Inactive Company",
       status: "INACTIVE",
+      owner_user_id: inactiveOwner.user_id,
     });
     const inactiveStore = await createStore(prismaClient, {
       company_id: inactiveCompany.company_id,
@@ -175,8 +181,10 @@ test.describe("Store-Company Isolation & Integrity", () => {
     prismaClient,
   }) => {
     // GIVEN: Company with store
+    const companyOwner = await createUser(prismaClient);
     const company = await createCompany(prismaClient, {
       name: "To Be Deleted Company",
+      owner_user_id: companyOwner.user_id,
     });
     const store = await createStore(prismaClient, {
       company_id: company.company_id,
@@ -219,8 +227,10 @@ test.describe("Store-Company Isolation & Integrity", () => {
     prismaClient,
   }) => {
     // GIVEN: Company with store
+    const companyOwner = await createUser(prismaClient);
     const company = await createCompany(prismaClient, {
       name: "Company to Hard Delete",
+      owner_user_id: companyOwner.user_id,
     });
     const store = await createStore(prismaClient, {
       company_id: company.company_id,

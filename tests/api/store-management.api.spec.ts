@@ -146,8 +146,14 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Another company exists
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Other Company Owner" }),
+    });
     const otherCompany = await prismaClient.company.create({
-      data: createCompany({ name: "Other Company" }),
+      data: createCompany({
+        name: "Other Company",
+        owner_user_id: otherOwner.user_id,
+      }),
     });
 
     // WHEN: Trying to create store for different company
@@ -204,8 +210,14 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Store exists for another company
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Other Company Owner" }),
+    });
     const otherCompany = await prismaClient.company.create({
-      data: createCompany({ name: "Other Company" }),
+      data: createCompany({
+        name: "Other Company",
+        owner_user_id: otherOwner.user_id,
+      }),
     });
     const otherStoreData = createStore({
       company_id: otherCompany.company_id,
@@ -320,8 +332,14 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Store from another company
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Other Company Owner" }),
+    });
     const otherCompany = await prismaClient.company.create({
-      data: createCompany({ name: "Other Company" }),
+      data: createCompany({
+        name: "Other Company",
+        owner_user_id: otherOwner.user_id,
+      }),
     });
     const otherStoreData = createStore({
       company_id: otherCompany.company_id,
@@ -501,8 +519,14 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Store from another company
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Other Company Owner" }),
+    });
     const otherCompany = await prismaClient.company.create({
-      data: createCompany({ name: "Other Company" }),
+      data: createCompany({
+        name: "Other Company",
+        owner_user_id: otherOwner.user_id,
+      }),
     });
     const otherStoreData = createStore({
       company_id: otherCompany.company_id,
@@ -1062,8 +1086,14 @@ test.describe.skip("Store Configuration API", () => {
     });
 
     // AND: Company 2 and admin user exist
+    const company2Owner = await prismaClient.user.create({
+      data: createUser({ name: "Company 2 Owner" }),
+    });
     const company2 = await prismaClient.company.create({
-      data: createCompany({ name: "Company 2" }),
+      data: createCompany({
+        name: "Company 2",
+        owner_user_id: company2Owner.user_id,
+      }),
     });
     const user2Data = createUser();
     const user2 = await prismaClient.user.create({ data: user2Data });
@@ -1689,8 +1719,14 @@ test.describe.skip("Store Configuration API", () => {
     prismaClient,
   }) => {
     // GIVEN: A store exists
+    const companyOwner = await prismaClient.user.create({
+      data: createUser({ name: "Test Company Owner" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany({ name: "Test Company" }),
+      data: createCompany({
+        name: "Test Company",
+        owner_user_id: companyOwner.user_id,
+      }),
     });
     const storeData = createStore({
       company_id: company.company_id,

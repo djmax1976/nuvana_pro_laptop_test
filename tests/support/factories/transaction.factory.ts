@@ -17,6 +17,7 @@ import {
 // Type definitions for transaction data
 
 export type TransactionData = {
+  transaction_id?: string;
   public_id: string;
   store_id: string;
   shift_id: string;
@@ -27,6 +28,7 @@ export type TransactionData = {
   tax: number;
   discount: number;
   total: number;
+  total_amount?: number; // Alias for total for backward compatibility
 };
 
 export type TransactionLineItemData = {

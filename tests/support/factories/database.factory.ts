@@ -15,6 +15,7 @@ import {
 
 export type UserData = {
   id?: string;
+  user_id?: string;
   public_id: string;
   email: string;
   name: string;
@@ -24,6 +25,7 @@ export type UserData = {
 };
 
 export type CompanyData = {
+  company_id?: string;
   public_id: string;
   name: string;
   status: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
@@ -31,6 +33,7 @@ export type CompanyData = {
 };
 
 export type StoreData = {
+  store_id?: string;
   public_id: string;
   company_id: string;
   name: string;

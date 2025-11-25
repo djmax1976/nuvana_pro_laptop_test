@@ -16,9 +16,11 @@ import {
   createDSTSpringForwardShift,
   TEST_TIMEZONES,
 } from "../support/helpers/timezone-helpers";
-import { createStore } from "../support/factories/store.factory";
-import { createShift } from "../support/factories/shift.factory";
-import { createTransaction } from "../support/factories/transaction.factory";
+import {
+  createStore,
+  createShift,
+  createTransaction,
+} from "../support/helpers";
 
 test.describe("Timezone-Aware Shift Management", () => {
   test.describe("Cross-Midnight Shift Assignment", () => {
@@ -108,9 +110,21 @@ test.describe("Timezone-Aware Shift Management", () => {
         ),
       });
 
-      // Transaction before shift
+      // Transaction before shift (create a dummy shift for transactions outside shift boundaries)
+      const dummyShiftBefore = await createShift({
+        store_id: store.store_id,
+        start_time: createDateInTimezone(
+          "2025-11-25 20:00:00",
+          TEST_TIMEZONES.DENVER,
+        ),
+        end_time: createDateInTimezone(
+          "2025-11-25 21:00:00",
+          TEST_TIMEZONES.DENVER,
+        ),
+      });
       const txBefore = await createTransaction({
         store_id: store.store_id,
+        shift_id: dummyShiftBefore.shift_id,
         timestamp: createDateInTimezone(
           "2025-11-25 21:30:00",
           TEST_TIMEZONES.DENVER,
@@ -118,9 +132,21 @@ test.describe("Timezone-Aware Shift Management", () => {
         total_amount: 10.0,
       });
 
-      // Transaction after shift
+      // Transaction after shift (create a dummy shift for transactions outside shift boundaries)
+      const dummyShiftAfter = await createShift({
+        store_id: store.store_id,
+        start_time: createDateInTimezone(
+          "2025-11-26 07:00:00",
+          TEST_TIMEZONES.DENVER,
+        ),
+        end_time: createDateInTimezone(
+          "2025-11-26 08:00:00",
+          TEST_TIMEZONES.DENVER,
+        ),
+      });
       const txAfter = await createTransaction({
         store_id: store.store_id,
+        shift_id: dummyShiftAfter.shift_id,
         timestamp: createDateInTimezone(
           "2025-11-26 06:30:00",
           TEST_TIMEZONES.DENVER,
@@ -299,7 +325,7 @@ test.describe("Timezone-Aware Shift Management", () => {
           "2024-11-03 06:00:00",
           TEST_TIMEZONES.DENVER,
         ),
-        opening_cash: 100.0,
+        opening_amount: 100.0,
       });
 
       // Add transactions totaling $200
@@ -421,9 +447,23 @@ test.describe("Timezone-Aware Shift Management", () => {
         timezone: TEST_TIMEZONES.DENVER,
       });
 
+      // Create a shift for the transactions
+      const shift = await createShift({
+        store_id: store.store_id,
+        start_time: createDateInTimezone(
+          "2025-11-25 19:00:00",
+          TEST_TIMEZONES.DENVER,
+        ),
+        end_time: createDateInTimezone(
+          "2025-11-25 22:00:00",
+          TEST_TIMEZONES.DENVER,
+        ),
+      });
+
       // Create transactions at different hours (Denver time)
       await createTransaction({
         store_id: store.store_id,
+        shift_id: shift.shift_id,
         timestamp: createDateInTimezone(
           "2025-11-25 20:00:00",
           TEST_TIMEZONES.DENVER,
@@ -433,6 +473,7 @@ test.describe("Timezone-Aware Shift Management", () => {
 
       await createTransaction({
         store_id: store.store_id,
+        shift_id: shift.shift_id,
         timestamp: createDateInTimezone(
           "2025-11-25 20:30:00",
           TEST_TIMEZONES.DENVER,
@@ -442,6 +483,7 @@ test.describe("Timezone-Aware Shift Management", () => {
 
       await createTransaction({
         store_id: store.store_id,
+        shift_id: shift.shift_id,
         timestamp: createDateInTimezone(
           "2025-11-25 21:00:00",
           TEST_TIMEZONES.DENVER,

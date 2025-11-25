@@ -159,6 +159,7 @@ type RBACFixture = {
   };
   prismaClient: PrismaClient;
   rlsPrismaClient: PrismaClient;
+  superadminPage: import("@playwright/test").Page;
 };
 
 export const test = base.extend<RBACFixture>({
@@ -397,8 +398,11 @@ export const test = base.extend<RBACFixture>({
 
   corporateAdminUser: async ({ prismaClient }, use) => {
     // Setup: Create corporate admin user with COMPANY scope role
-    const userData = createUser();
-    const companyData = createCompany();
+    const userData = createUser({});
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner" }),
+    });
+    const companyData = createCompany({ owner_user_id: ownerUser.user_id });
 
     // Create company
     const company = await prismaClient.company.create({ data: companyData });
@@ -527,8 +531,11 @@ export const test = base.extend<RBACFixture>({
 
   storeManagerUser: async ({ prismaClient }, use) => {
     // Setup: Create store manager user with STORE scope role
-    const userData = createUser();
-    const companyData = createCompany();
+    const userData = createUser({});
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Store Company Owner" }),
+    });
+    const companyData = createCompany({ owner_user_id: ownerUser.user_id });
 
     // Create company
     const company = await prismaClient.company.create({ data: companyData });
@@ -832,6 +839,26 @@ export const test = base.extend<RBACFixture>({
     };
 
     await use(storeManagerApiRequest);
+  },
+
+  superadminPage: async ({ page, superadminUser }, use) => {
+    // Login as superadmin
+    await page.goto(
+      `${process.env.FRONTEND_URL || "http://localhost:3000"}/login`,
+    );
+    await page.context().addCookies([
+      {
+        name: "access_token",
+        value: superadminUser.token,
+        domain: "localhost",
+        path: "/",
+        url: process.env.FRONTEND_URL || "http://localhost:3000",
+      },
+    ]);
+    await page.goto(
+      `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
+    );
+    await use(page);
   },
 });
 

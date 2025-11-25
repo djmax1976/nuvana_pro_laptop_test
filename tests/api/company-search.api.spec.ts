@@ -1,5 +1,5 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createCompany, createUser } from "../support/factories";
+import { createCompany, createUser } from "../support/helpers";
 
 /**
  * Company Search API Tests

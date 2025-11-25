@@ -89,7 +89,6 @@ async function cleanupAllTestData() {
     console.log(`   - POS Terminals: ${deletedPOSTerminals.count}`);
     console.log(`   - Stores: ${deletedStores.count}`);
     console.log(`   - Companies: ${deletedCompanies.count}`);
-    console.log(`   - Clients: ${deletedClients.count}`);
     console.log(`   - User Roles: ${deletedUserRoles.count}`);
     console.log(`   - Users: ${deletedUsers.count}`);
     console.log(`   - Audit Logs: ${deletedAuditLogs.count}`);

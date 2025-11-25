@@ -470,12 +470,10 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     const companyData = createCompany({
       name: "Test Company",
       status: "ACTIVE",
+      owner_user_id: ownerUser.user_id,
     });
     const company = await prismaClient.company.create({
-      data: {
-        ...companyData,
-        owner_user_id: ownerUser.user_id,
-      },
+      data: companyData,
     });
 
     const role = await prismaClient.role.findFirst({
@@ -555,12 +553,10 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     const companyData = createCompany({
       name: "Test Company for Store",
       status: "ACTIVE",
+      owner_user_id: ownerUser.user_id,
     });
     const company = await prismaClient.company.create({
-      data: {
-        ...companyData,
-        owner_user_id: ownerUser.user_id,
-      },
+      data: companyData,
     });
 
     const storeData = createStore({
@@ -627,12 +623,10 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     const companyData = createCompany({
       name: "Test Company",
       status: "ACTIVE",
+      owner_user_id: ownerUser.user_id,
     });
     const company = await prismaClient.company.create({
-      data: {
-        ...companyData,
-        owner_user_id: ownerUser.user_id,
-      },
+      data: companyData,
     });
 
     const role = await prismaClient.role.findFirst({
@@ -680,23 +674,19 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     const companyData1 = createCompany({
       name: "Company One",
       status: "ACTIVE",
+      owner_user_id: ownerUser1.user_id,
     });
     const company1 = await prismaClient.company.create({
-      data: {
-        ...companyData1,
-        owner_user_id: ownerUser1.user_id,
-      },
+      data: companyData1,
     });
 
     const companyData2 = createCompany({
       name: "Company Two",
       status: "ACTIVE",
+      owner_user_id: ownerUser2.user_id,
     });
     const company2 = await prismaClient.company.create({
-      data: {
-        ...companyData2,
-        owner_user_id: ownerUser2.user_id,
-      },
+      data: companyData2,
     });
 
     const storeData = createStore({

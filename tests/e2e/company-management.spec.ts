@@ -1,5 +1,9 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createCompany, createStore, createUser } from "../support/factories";
+import { createCompany } from "../support/helpers";
+import {
+  createUser as createUserFactory,
+  createStore,
+} from "../support/factories";
 
 /**
  * Company Management E2E Tests
@@ -22,21 +26,16 @@ test.describe("2.4-E2E: Company List - Display and Owner Information", () => {
   }) => {
     // GIVEN: A company exists with an owner
     const ownerUser = await prismaClient.user.create({
-      data: createUser({
+      data: createUserFactory({
         name: "Test Owner",
         email: "owner@test.nuvana.local",
       }),
     });
 
-    const companyData = createCompany({
+    await createCompany(prismaClient, {
       name: "Test Company With Owner",
       status: "ACTIVE",
-    });
-    await prismaClient.company.create({
-      data: {
-        ...companyData,
-        owner_user_id: ownerUser.user_id,
-      },
+      owner_user_id: ownerUser.user_id,
     });
 
     // WHEN: Navigating to the company list page
@@ -59,18 +58,13 @@ test.describe("2.4-E2E: Company List - Display and Owner Information", () => {
   }) => {
     // GIVEN: A company exists
     const ownerUser = await prismaClient.user.create({
-      data: createUser({ name: "Column Test Owner" }),
+      data: createUserFactory({ name: "Column Test Owner" }),
     });
 
-    const companyData = createCompany({
+    await createCompany(prismaClient, {
       name: "Column Test Company",
       status: "ACTIVE",
-    });
-    await prismaClient.company.create({
-      data: {
-        ...companyData,
-        owner_user_id: ownerUser.user_id,
-      },
+      owner_user_id: ownerUser.user_id,
     });
 
     // WHEN: Navigating to the company list page
@@ -95,18 +89,13 @@ test.describe("2.4-E2E: Company List - Display and Owner Information", () => {
   }) => {
     // GIVEN: A company exists
     const ownerUser = await prismaClient.user.create({
-      data: createUser({ name: "No Create Button Owner" }),
+      data: createUserFactory({ name: "No Create Button Owner" }),
     });
 
-    const companyData = createCompany({
+    await createCompany(prismaClient, {
       name: "No Create Button Company",
       status: "ACTIVE",
-    });
-    await prismaClient.company.create({
-      data: {
-        ...companyData,
-        owner_user_id: ownerUser.user_id,
-      },
+      owner_user_id: ownerUser.user_id,
     });
 
     // WHEN: Navigating to the company list page
@@ -151,18 +140,13 @@ test.describe("2.4-E2E: Company Editing", () => {
   }) => {
     // GIVEN: A company exists
     const ownerUser = await prismaClient.user.create({
-      data: createUser({ name: "Edit Test Owner" }),
+      data: createUserFactory({ name: "Edit Test Owner" }),
     });
 
-    const companyData = createCompany({
+    const company = await createCompany(prismaClient, {
       name: "Company To Edit",
       status: "ACTIVE",
-    });
-    await prismaClient.company.create({
-      data: {
-        ...companyData,
-        owner_user_id: ownerUser.user_id,
-      },
+      owner_user_id: ownerUser.user_id,
     });
 
     // WHEN: Navigating to the company list and clicking edit
@@ -186,21 +170,16 @@ test.describe("2.4-E2E: Company Editing", () => {
   }) => {
     // GIVEN: A company exists with owner
     const ownerUser = await prismaClient.user.create({
-      data: createUser({
+      data: createUserFactory({
         name: "Owner For Modal",
         email: "modal-owner@test.nuvana.local",
       }),
     });
 
-    const companyData = createCompany({
+    const company = await createCompany(prismaClient, {
       name: "Company For Modal Test",
       status: "ACTIVE",
-    });
-    await prismaClient.company.create({
-      data: {
-        ...companyData,
-        owner_user_id: ownerUser.user_id,
-      },
+      owner_user_id: ownerUser.user_id,
     });
 
     // WHEN: Opening the edit modal
@@ -228,18 +207,13 @@ test.describe("2.4-E2E: Company Status Management", () => {
   }) => {
     // GIVEN: An ACTIVE company exists
     const ownerUser = await prismaClient.user.create({
-      data: createUser({ name: "Deactivate Test Owner" }),
+      data: createUserFactory({ name: "Deactivate Test Owner" }),
     });
 
-    const companyData = createCompany({
+    const company = await createCompany(prismaClient, {
       name: "Company To Deactivate",
       status: "ACTIVE",
-    });
-    const company = await prismaClient.company.create({
-      data: {
-        ...companyData,
-        owner_user_id: ownerUser.user_id,
-      },
+      owner_user_id: ownerUser.user_id,
     });
 
     // WHEN: Clicking the status toggle button
@@ -274,18 +248,13 @@ test.describe("2.4-E2E: Company Status Management", () => {
   }) => {
     // GIVEN: An ACTIVE company exists
     const ownerUser = await prismaClient.user.create({
-      data: createUser({ name: "Delete Block Test Owner" }),
+      data: createUserFactory({ name: "Delete Block Test Owner" }),
     });
 
-    const companyData = createCompany({
+    await createCompany(prismaClient, {
       name: "Active Company Cannot Delete",
       status: "ACTIVE",
-    });
-    await prismaClient.company.create({
-      data: {
-        ...companyData,
-        owner_user_id: ownerUser.user_id,
-      },
+      owner_user_id: ownerUser.user_id,
     });
 
     // WHEN: Viewing the company list
@@ -307,18 +276,13 @@ test.describe("2.4-E2E: Company Status Management", () => {
   }) => {
     // GIVEN: An INACTIVE company exists
     const ownerUser = await prismaClient.user.create({
-      data: createUser({ name: "Delete Test Owner" }),
+      data: createUserFactory({ name: "Delete Test Owner" }),
     });
 
-    const companyData = createCompany({
+    const company = await createCompany(prismaClient, {
       name: "Inactive Company To Delete",
       status: "INACTIVE",
-    });
-    const company = await prismaClient.company.create({
-      data: {
-        ...companyData,
-        owner_user_id: ownerUser.user_id,
-      },
+      owner_user_id: ownerUser.user_id,
     });
 
     // WHEN: Clicking delete for the inactive company
@@ -347,18 +311,13 @@ test.describe("2.4-E2E: Company List - Stores Relationship", () => {
   }) => {
     // GIVEN: A company exists with stores
     const ownerUser = await prismaClient.user.create({
-      data: createUser({ name: "Store Test Owner" }),
+      data: createUserFactory({ name: "Store Test Owner" }),
     });
 
-    const companyData = createCompany({
+    const company = await createCompany(prismaClient, {
       name: "Company With Stores",
       status: "ACTIVE",
-    });
-    const company = await prismaClient.company.create({
-      data: {
-        ...companyData,
-        owner_user_id: ownerUser.user_id,
-      },
+      owner_user_id: ownerUser.user_id,
     });
 
     // Create stores for this company

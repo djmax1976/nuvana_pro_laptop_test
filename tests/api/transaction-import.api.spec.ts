@@ -3,6 +3,7 @@ import {
   createTransactionPayload,
   createCompany,
   createStore,
+  createUser,
 } from "../support/factories";
 import {
   generatePublicId,
@@ -161,10 +162,14 @@ test.describe("Transaction Import API - Authentication", () => {
     prismaClient,
   }) => {
     // GIVEN: A store belonging to a different company
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Other Company Owner" }),
+    });
     const otherCompany = await prismaClient.company.create({
       data: createCompany({
         name: `Other Company ${Date.now()}`,
         status: "ACTIVE",
+        owner_user_id: otherOwner.user_id,
       }),
     });
 

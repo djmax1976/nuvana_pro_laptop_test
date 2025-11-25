@@ -1,5 +1,9 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createStore, createCompany, createUser } from "../support/factories";
+import { createStore, createCompany, createUser } from "../support/helpers";
+import {
+  createUser as createUserFactory,
+  createCompany as createCompanyFactory,
+} from "../support/factories";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
@@ -50,13 +54,16 @@ test.describe("System Admin Store Access Control", () => {
   test("[P0-BR-001] System admin can view ALL stores across multiple companies", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: Multiple companies with stores
     const company1 = await createCompany(prismaClient, {
       name: "Company Alpha",
+      owner_user_id: superadminUser.user_id,
     });
     const company2 = await createCompany(prismaClient, {
       name: "Company Beta",
+      owner_user_id: superadminUser.user_id,
     });
 
     const store1 = await createStore(prismaClient, {
@@ -176,6 +183,7 @@ test.describe("System Admin Store Access Control", () => {
     // GIVEN: A company that is NOT owned by the superadmin
     const differentCompany = await createCompany(prismaClient, {
       name: "Different Company",
+      owner_user_id: superadminUser.user_id,
     });
 
     // WHEN: System admin creates store for different company
@@ -220,8 +228,11 @@ test.describe("System Admin Store Access Control", () => {
     prismaClient,
   }) => {
     // GIVEN: A different company (not the corporate admin's company)
+    // Create a user to own this company
+    const ownerUser = await createUser(prismaClient);
     const differentCompany = await createCompany(prismaClient, {
       name: "Competitor Company",
+      owner_user_id: ownerUser.user_id,
     });
 
     // WHEN: Corporate admin attempts to create store for different company
@@ -354,10 +365,12 @@ test.describe("System Admin Store Access Control", () => {
   test("[P0-BR-008] GET /api/stores returns stores with company names", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: Company with a store
     const company = await createCompany(prismaClient, {
       name: "Test Company with Name",
+      owner_user_id: superadminUser.user_id,
     });
 
     const store = await createStore(prismaClient, {
@@ -393,10 +406,12 @@ test.describe("System Admin Store Access Control", () => {
   test("[P0-BR-009] GET /api/stores respects pagination parameters", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: Multiple stores (at least 5)
     const company = await createCompany(prismaClient, {
       name: "Pagination Test Company",
+      owner_user_id: superadminUser.user_id,
     });
 
     const stores = await Promise.all([
@@ -465,10 +480,12 @@ test.describe("System Admin Store Access Control", () => {
   test("[P0-BR-010] GET /api/stores sorts by created_at DESC (newest first)", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: Stores created in sequence
     const company = await createCompany(prismaClient, {
       name: "Sorting Test Company",
+      owner_user_id: superadminUser.user_id,
     });
 
     const store1 = await createStore(prismaClient, {
@@ -558,10 +575,12 @@ test.describe("System Admin Store Access Control", () => {
   test("[P0-BR-013] System admin can view store from any company", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: A company and store
     const company = await createCompany(prismaClient, {
       name: "Test Company",
+      owner_user_id: superadminUser.user_id,
     });
     const store = await createStore(prismaClient, {
       company_id: company.company_id,
@@ -595,10 +614,12 @@ test.describe("System Admin Store Access Control", () => {
   test("[P0-BR-014] System admin can update store from any company", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: A company and store
     const company = await createCompany(prismaClient, {
       name: "Test Company",
+      owner_user_id: superadminUser.user_id,
     });
     const store = await createStore(prismaClient, {
       company_id: company.company_id,
@@ -642,10 +663,12 @@ test.describe("System Admin Store Access Control", () => {
   test("[P0-BR-015] System admin can delete store from any company", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: A company and INACTIVE store (deletable)
     const company = await createCompany(prismaClient, {
       name: "Test Company",
+      owner_user_id: superadminUser.user_id,
     });
     const store = await createStore(prismaClient, {
       company_id: company.company_id,
@@ -678,10 +701,12 @@ test.describe("System Admin Store Access Control", () => {
   test("[P0-BR-016] System admin can update store configuration for any company", async ({
     superadminApiRequest,
     prismaClient,
+    superadminUser,
   }) => {
     // GIVEN: A company and store
     const company = await createCompany(prismaClient, {
       name: "Test Company",
+      owner_user_id: superadminUser.user_id,
     });
     const store = await createStore(prismaClient, {
       company_id: company.company_id,
