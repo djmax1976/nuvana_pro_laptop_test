@@ -84,7 +84,7 @@ async function createAuditLogSafely(
 
 /**
  * Client service for managing client CRUD operations
- * Handles client creation, retrieval, updates, and soft deletion
+ * Handles client creation, retrieval, updates, and hard deletion
  * with audit logging for compliance
  */
 export class ClientService {
@@ -184,17 +184,10 @@ export class ClientService {
             include: {
               _count: {
                 select: {
-                  companies: {
-                    where: {
-                      deleted_at: null,
-                    },
-                  },
+                  companies: true,
                 },
               },
               companies: {
-                where: {
-                  deleted_at: null,
-                },
                 select: {
                   company_id: true,
                   public_id: true,
@@ -242,11 +235,23 @@ export class ClientService {
         metadata: client.metadata as Record<string, unknown> | null,
         created_at: client.created_at,
         updated_at: client.updated_at,
-        deleted_at: client.deleted_at,
         companyCount: client._count.companies,
         companies: client.companies,
       };
     } catch (error) {
+      // Handle Prisma unique constraint violation
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        const target = (error.meta?.target as string[]) || [];
+        if (target.includes("email")) {
+          throw new Error(
+            "A user with this email already exists. Please use a different email address.",
+          );
+        }
+        throw new Error("A record with this value already exists.");
+      }
       console.error("Error creating client:", error);
       throw error;
     }
@@ -260,23 +265,12 @@ export class ClientService {
   async getClients(
     options: ClientListOptions = {},
   ): Promise<PaginatedClientResult> {
-    const {
-      page = 1,
-      limit = 20,
-      search,
-      status,
-      includeDeleted = false,
-    } = options;
+    const { page = 1, limit = 20, search, status } = options;
 
     const skip = (page - 1) * limit;
 
     // Build where clause
     const where: any = {};
-
-    // Exclude soft-deleted by default
-    if (!includeDeleted) {
-      where.deleted_at = null;
-    }
 
     // Filter by status
     if (status) {
@@ -301,17 +295,10 @@ export class ClientService {
           include: {
             _count: {
               select: {
-                companies: {
-                  where: {
-                    deleted_at: null,
-                  },
-                },
+                companies: true,
               },
             },
             companies: {
-              where: {
-                deleted_at: null,
-              },
               select: {
                 company_id: true,
                 public_id: true,
@@ -336,7 +323,6 @@ export class ClientService {
           metadata: client.metadata as Record<string, unknown> | null,
           created_at: client.created_at,
           updated_at: client.updated_at,
-          deleted_at: client.deleted_at,
           companyCount: client._count.companies,
           companies: client.companies,
         }),
@@ -372,17 +358,10 @@ export class ClientService {
         include: {
           _count: {
             select: {
-              companies: {
-                where: {
-                  deleted_at: null,
-                },
-              },
+              companies: true,
             },
           },
           companies: {
-            where: {
-              deleted_at: null,
-            },
             select: {
               company_id: true,
               public_id: true,
@@ -399,11 +378,6 @@ export class ClientService {
         throw new Error(`Client with ID ${clientId} not found`);
       }
 
-      // Don't return soft-deleted clients
-      if (client.deleted_at) {
-        throw new Error(`Client with ID ${clientId} not found`);
-      }
-
       return {
         client_id: client.client_id,
         public_id: client.public_id,
@@ -413,7 +387,6 @@ export class ClientService {
         metadata: client.metadata as Record<string, unknown> | null,
         created_at: client.created_at,
         updated_at: client.updated_at,
-        deleted_at: client.deleted_at,
         companyCount: client._count.companies,
         companies: client.companies,
       };
@@ -474,23 +447,16 @@ export class ClientService {
     }
 
     try {
-      // Check if client exists and is not deleted
+      // Check if client exists
       const existingClient = await prisma.client.findUnique({
         where: { client_id: clientId },
         include: {
           _count: {
             select: {
-              companies: {
-                where: {
-                  deleted_at: null,
-                },
-              },
+              companies: true,
             },
           },
           companies: {
-            where: {
-              deleted_at: null,
-            },
             select: {
               company_id: true,
               public_id: true,
@@ -508,7 +474,7 @@ export class ClientService {
         },
       });
 
-      if (!existingClient || existingClient.deleted_at) {
+      if (!existingClient) {
         throw new Error(`Client with ID ${clientId} not found`);
       }
 
@@ -587,17 +553,10 @@ export class ClientService {
             include: {
               _count: {
                 select: {
-                  companies: {
-                    where: {
-                      deleted_at: null,
-                    },
-                  },
+                  companies: true,
                 },
               },
               companies: {
-                where: {
-                  deleted_at: null,
-                },
                 select: {
                   company_id: true,
                   public_id: true,
@@ -619,7 +578,6 @@ export class ClientService {
             await tx.company.updateMany({
               where: {
                 client_id: clientId,
-                deleted_at: null,
               },
               data: {
                 status: "INACTIVE",
@@ -631,9 +589,7 @@ export class ClientService {
               where: {
                 company: {
                   client_id: clientId,
-                  deleted_at: null,
                 },
-                deleted_at: null,
               },
               data: {
                 status: "INACTIVE",
@@ -650,7 +606,6 @@ export class ClientService {
             await tx.company.updateMany({
               where: {
                 client_id: clientId,
-                deleted_at: null,
               },
               data: {
                 status: "ACTIVE",
@@ -662,9 +617,7 @@ export class ClientService {
               where: {
                 company: {
                   client_id: clientId,
-                  deleted_at: null,
                 },
-                deleted_at: null,
               },
               data: {
                 status: "ACTIVE",
@@ -697,7 +650,6 @@ export class ClientService {
         metadata: client.metadata as Record<string, unknown> | null,
         created_at: client.created_at,
         updated_at: client.updated_at,
-        deleted_at: client.deleted_at,
         companyCount: client._count.companies,
         companies: client.companies,
       };
@@ -711,19 +663,18 @@ export class ClientService {
   }
 
   /**
-   * Soft delete client and associated user (set deleted_at timestamp)
-   * Also deactivates the associated User account
+   * Hard delete client and all associated data
+   * Permanently removes client, associated user, companies, stores, and user roles
    * @param clientId - Client UUID
    * @param auditContext - Audit context for logging
-   * @returns Updated client record with deleted_at set
    * @throws Error if client not found or if client is ACTIVE
    */
-  async softDeleteClient(
+  async deleteClient(
     clientId: string,
     auditContext: AuditContext,
-  ): Promise<ClientWithCompanyCount> {
+  ): Promise<void> {
     try {
-      // Check if client exists and is not already deleted
+      // Check if client exists
       const existingClient = await prisma.client.findUnique({
         where: { client_id: clientId },
         include: {
@@ -731,9 +682,6 @@ export class ClientService {
             select: { companies: true },
           },
           companies: {
-            where: {
-              deleted_at: null,
-            },
             select: {
               company_id: true,
               public_id: true,
@@ -751,7 +699,7 @@ export class ClientService {
         },
       });
 
-      if (!existingClient || existingClient.deleted_at) {
+      if (!existingClient) {
         throw new Error(`Client with ID ${clientId} not found`);
       }
 
@@ -762,99 +710,50 @@ export class ClientService {
         );
       }
 
+      // Check for associated companies - cannot delete client with companies
+      const companiesCount = await prisma.company.count({
+        where: {
+          client_id: clientId,
+        },
+      });
+
+      if (companiesCount > 0) {
+        throw new Error(
+          `Cannot delete client with ${companiesCount} associated company/companies. Delete all companies first.`,
+        );
+      }
+
       // Find the associated user via UserRole (may not exist for test data)
       const userRole = existingClient.user_roles.find(
         (ur: any) => ur.client_id === clientId,
       );
       const userId = userRole?.user_id;
 
-      // Soft delete by setting deleted_at timestamp
-      const deletedAt = new Date();
-
-      // Use transaction to soft delete Client, User, Companies, Stores, and UserRoles atomically
+      // Use transaction to hard delete Client, User, and UserRoles atomically
       await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        // Deactivate the associated User account (if exists)
+        // Delete all UserRoles associated with this client
+        await tx.userRole.deleteMany({
+          where: {
+            client_id: clientId,
+          },
+        });
+
+        // Delete the client record
+        await tx.client.delete({
+          where: { client_id: clientId },
+        });
+
+        // Delete the associated User account (if exists)
         if (userId) {
-          await tx.user.update({
+          // First delete any remaining user roles for this user
+          await tx.userRole.deleteMany({
             where: { user_id: userId },
-            data: { status: "INACTIVE" },
+          });
+          // Then delete the user
+          await tx.user.delete({
+            where: { user_id: userId },
           });
         }
-
-        // Get all companies for this client
-        const companies = await tx.company.findMany({
-          where: {
-            client_id: clientId,
-            deleted_at: null,
-          },
-          select: { company_id: true },
-        });
-
-        const companyIds = companies.map((c: any) => c.company_id);
-
-        // Cascade soft delete to associated companies
-        await tx.company.updateMany({
-          where: {
-            client_id: clientId,
-            deleted_at: null,
-          },
-          data: {
-            deleted_at: deletedAt,
-            status: "INACTIVE",
-          },
-        });
-
-        // Cascade soft delete to all stores under those companies
-        if (companyIds.length > 0) {
-          await tx.store.updateMany({
-            where: {
-              company_id: { in: companyIds },
-              deleted_at: null,
-            },
-            data: {
-              deleted_at: deletedAt,
-              status: "INACTIVE",
-            },
-          });
-        }
-
-        // Cascade soft delete to all UserRoles associated with this client hierarchy
-        // This includes roles at client, company, and store levels
-        await tx.userRole.updateMany({
-          where: {
-            client_id: clientId,
-            deleted_at: null,
-          },
-          data: {
-            status: "INACTIVE",
-            deleted_at: deletedAt,
-          },
-        });
-      });
-
-      const client = await prisma.client.update({
-        where: { client_id: clientId },
-        data: {
-          deleted_at: deletedAt,
-        },
-        include: {
-          _count: {
-            select: { companies: true },
-          },
-          companies: {
-            where: {
-              deleted_at: null,
-            },
-            select: {
-              company_id: true,
-              public_id: true,
-              name: true,
-            },
-            orderBy: {
-              name: "asc",
-            },
-          },
-        },
       });
 
       // Create audit log entry (non-blocking - don't fail the deletion if audit fails)
@@ -862,29 +761,16 @@ export class ClientService {
         auditContext,
         "DELETE",
         "clients",
-        client.client_id,
+        clientId,
         existingClient as unknown as Record<string, any>,
-        client as unknown as Record<string, any>,
+        null,
       );
-
-      return {
-        client_id: client.client_id,
-        public_id: client.public_id,
-        name: client.name,
-        email: client.email,
-        status: client.status as ClientStatus,
-        metadata: client.metadata as Record<string, unknown> | null,
-        created_at: client.created_at,
-        updated_at: client.updated_at,
-        deleted_at: client.deleted_at,
-        companyCount: client._count.companies,
-        companies: client.companies,
-      };
     } catch (error: unknown) {
       if (
         error instanceof Error &&
         (error.message.includes("not found") ||
-          error.message.includes("ACTIVE client"))
+          error.message.includes("ACTIVE client") ||
+          error.message.includes("associated company"))
       ) {
         throw error;
       }

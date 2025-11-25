@@ -535,14 +535,13 @@ export class StoreService {
   }
 
   /**
-   * Soft delete store (set status to INACTIVE and deleted_at timestamp) with company isolation check
-   * Cascades to all user roles associated with this store
+   * Hard delete store with company isolation check
+   * Permanently removes the store and cascades to all user roles associated with this store
    * @param storeId - Store UUID
    * @param userCompanyId - User's assigned company ID (for isolation check)
-   * @returns Updated store record with INACTIVE status
-   * @throws Error if store not found or user tries to delete store from different company
+   * @throws Error if store not found, store is ACTIVE, or user tries to delete store from different company
    */
-  async deleteStore(storeId: string, userCompanyId: string) {
+  async deleteStore(storeId: string, userCompanyId: string): Promise<void> {
     try {
       // Check if store exists and verify company isolation
       const existingStore = await prisma.store.findUnique({
@@ -562,39 +561,34 @@ export class StoreService {
         );
       }
 
-      // Soft delete by setting status to INACTIVE and deleted_at timestamp
-      const deletedAt = new Date();
+      // Prevent deletion of ACTIVE stores - they must be set to INACTIVE first
+      if (existingStore.status === "ACTIVE") {
+        throw new Error(
+          "Cannot delete ACTIVE store. Set status to INACTIVE first.",
+        );
+      }
 
-      // Use transaction to cascade soft delete to user roles
+      // Use transaction to hard delete store and cascade to user roles
       await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        // Cascade soft delete to all UserRoles associated with this store
-        await tx.userRole.updateMany({
+        // Delete all UserRoles associated with this store
+        await tx.userRole.deleteMany({
           where: {
             store_id: storeId,
-            deleted_at: null,
           },
-          data: {
-            status: "INACTIVE",
-            deleted_at: deletedAt,
+        });
+
+        // Delete the store
+        await tx.store.delete({
+          where: {
+            store_id: storeId,
           },
         });
       });
-
-      const store = await prisma.store.update({
-        where: {
-          store_id: storeId,
-        },
-        data: {
-          status: "INACTIVE",
-          deleted_at: deletedAt,
-        },
-      });
-
-      return store;
     } catch (error: any) {
       if (
         error.message.includes("not found") ||
-        error.message.includes("Forbidden")
+        error.message.includes("Forbidden") ||
+        error.message.includes("ACTIVE store")
       ) {
         throw error;
       }

@@ -185,7 +185,8 @@ export async function clientRoutes(fastify: FastifyInstance) {
         if (
           message.includes("required") ||
           message.includes("Invalid") ||
-          message.includes("cannot exceed")
+          message.includes("cannot exceed") ||
+          message.includes("already exists")
         ) {
           reply.code(400);
           return {
@@ -431,15 +432,12 @@ export async function clientRoutes(fastify: FastifyInstance) {
 
         const auditContext = getAuditContext(request, user);
 
-        const client = await clientService.softDeleteClient(
-          clientId,
-          auditContext,
-        );
+        await clientService.deleteClient(clientId, auditContext);
 
         reply.code(200);
         return {
           success: true,
-          data: client,
+          message: "Client permanently deleted",
         };
       } catch (error: unknown) {
         const message =
@@ -467,6 +465,15 @@ export async function clientRoutes(fastify: FastifyInstance) {
           };
         }
 
+        if (message.includes("associated company")) {
+          reply.code(400);
+          return {
+            success: false,
+            error: "Cannot delete client with associated companies",
+            message,
+          };
+        }
+
         reply.code(500);
         return {
           success: false,
@@ -480,7 +487,7 @@ export async function clientRoutes(fastify: FastifyInstance) {
   /**
    * GET /api/clients/dropdown
    * Get minimal client data for dropdown selection
-   * Returns only active, non-deleted clients with public_id and name
+   * Returns only active clients with public_id and name
    */
   fastify.get(
     "/api/clients/dropdown",
@@ -495,7 +502,6 @@ export async function clientRoutes(fastify: FastifyInstance) {
         const clients = await prisma.client.findMany({
           where: {
             status: "ACTIVE",
-            deleted_at: null,
           },
           select: {
             client_id: true,

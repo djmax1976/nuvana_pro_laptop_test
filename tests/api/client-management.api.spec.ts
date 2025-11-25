@@ -13,7 +13,7 @@ import { createClientViaAPI } from "../support/helpers";
  * - Create, read, update, delete clients (CRUD operations)
  * - Permission enforcement (only System Admins can manage clients)
  * - Audit logging for all client operations
- * - Soft delete functionality (deleted_at timestamp, not hard delete)
+ * - Hard delete functionality (permanent removal from database)
  * - Validation and error handling
  *
  * Priority: P0 (Critical - Multi-tenant hierarchy foundation)
@@ -348,21 +348,22 @@ test.describe("Client Management API - CRUD Operations", () => {
       status: "INACTIVE",
     });
 
-    // WHEN: I attempt soft delete
+    // WHEN: I attempt delete
     const response = await superadminApiRequest.delete(
       `/api/clients/${client.client_id}`,
     );
 
-    // THEN: The client is marked as deleted (soft delete)
+    // THEN: The client is permanently deleted (hard delete)
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
+    expect(body.message).toContain("permanently deleted");
 
-    // AND: deleted_at is set
+    // AND: Client no longer exists in database
     const deletedClient = await prismaClient.client.findUnique({
       where: { client_id: client.client_id },
     });
-    expect(deletedClient?.deleted_at).not.toBeNull();
+    expect(deletedClient).toBeNull();
 
     // AND: The deletion is logged in AuditLog
     const auditLog = await prismaClient.auditLog.findFirst({
@@ -373,31 +374,6 @@ test.describe("Client Management API - CRUD Operations", () => {
       },
     });
     expect(auditLog).not.toBeNull();
-  });
-
-  test("[P1] GET /api/clients - should exclude soft-deleted clients by default (AC #5)", async ({
-    superadminApiRequest,
-    prismaClient,
-  }) => {
-    // GIVEN: A client has been soft-deleted
-    const { client } = await createClientWithUser(prismaClient, {
-      name: "Deleted Client",
-    });
-    // Manually soft-delete it
-    await prismaClient.client.update({
-      where: { client_id: client.client_id },
-      data: { deleted_at: new Date() },
-    });
-
-    // WHEN: Listing clients
-    const response = await superadminApiRequest.get("/api/clients");
-
-    // THEN: Soft-deleted clients are excluded from list
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
-    const clientIds = body.data.map((c: any) => c.client_id);
-    expect(clientIds).not.toContain(client.client_id);
   });
 
   test("[P1] DELETE /api/clients/:clientId - should reject deleting ACTIVE client (AC #5)", async ({
@@ -461,13 +437,13 @@ test.describe("Client Management API - Permission Enforcement", () => {
 });
 
 test.describe("Client Management API - Business Logic", () => {
-  test("[P0] GET /api/clients - should exclude deleted companies from company count", async ({
+  test("[P0] GET /api/clients - should include all companies in company count", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A client exists with both active and deleted companies
+    // GIVEN: A client exists with multiple companies (active and inactive)
     const { client } = await createClientWithUser(prismaClient, {
-      name: "Client With Mixed Companies",
+      name: "Client With Multiple Companies",
       status: "ACTIVE",
     });
 
@@ -499,58 +475,56 @@ test.describe("Client Management API - Business Logic", () => {
       },
     });
 
-    // Create 2 deleted companies
-    const deletedCompany1 = await prismaClient.company.create({
+    // Create 2 inactive companies (no soft delete - just INACTIVE status)
+    const inactiveCompany1 = await prismaClient.company.create({
       data: {
         public_id: `COM_${Date.now()}_4`,
         client_id: client.client_id,
-        name: "Deleted Company 1",
+        name: "Inactive Company 1",
         status: "INACTIVE",
-        deleted_at: new Date(),
       },
     });
 
-    const deletedCompany2 = await prismaClient.company.create({
+    const inactiveCompany2 = await prismaClient.company.create({
       data: {
         public_id: `COM_${Date.now()}_5`,
         client_id: client.client_id,
-        name: "Deleted Company 2",
+        name: "Inactive Company 2",
         status: "INACTIVE",
-        deleted_at: new Date(),
       },
     });
 
     // WHEN: Retrieving clients list
     const listResponse = await superadminApiRequest.get("/api/clients");
 
-    // THEN: Client's company count should only include active companies (3, not 5)
+    // THEN: Client's company count should include ALL companies (5 total - no soft delete filtering)
     expect(listResponse.status()).toBe(200);
     const listBody = await listResponse.json();
     const clientInList = listBody.data.find(
       (c: any) => c.client_id === client.client_id,
     );
     expect(clientInList).toBeDefined();
-    expect(clientInList.companyCount).toBe(3);
-    expect(clientInList.companies).toHaveLength(3);
+    expect(clientInList.companyCount).toBe(5);
+    expect(clientInList.companies).toHaveLength(5);
 
-    // Verify that deleted companies are not in the companies array
+    // Verify all companies are in the companies array
     const companyNames = clientInList.companies.map((c: any) => c.name);
     expect(companyNames).toContain("Active Company 1");
     expect(companyNames).toContain("Active Company 2");
     expect(companyNames).toContain("Active Company 3");
-    expect(companyNames).not.toContain("Deleted Company 1");
-    expect(companyNames).not.toContain("Deleted Company 2");
+    expect(companyNames).toContain("Inactive Company 1");
+    expect(companyNames).toContain("Inactive Company 2");
 
     // WHEN: Retrieving client by ID
     const getResponse = await superadminApiRequest.get(
       `/api/clients/${client.client_id}`,
     );
 
-    // THEN: Company count should still only include active companies
+    // THEN: Company count should include all companies
     expect(getResponse.status()).toBe(200);
     const getBody = await getResponse.json();
-    expect(getBody.data.companyCount).toBe(3);
-    expect(getBody.data.companies).toHaveLength(3);
+    expect(getBody.data.companyCount).toBe(5);
+    expect(getBody.data.companies).toHaveLength(5);
 
     // Cleanup
     await prismaClient.company.deleteMany({
@@ -560,8 +534,8 @@ test.describe("Client Management API - Business Logic", () => {
             activeCompany1.company_id,
             activeCompany2.company_id,
             activeCompany3.company_id,
-            deletedCompany1.company_id,
-            deletedCompany2.company_id,
+            inactiveCompany1.company_id,
+            inactiveCompany2.company_id,
           ],
         },
       },
@@ -571,11 +545,51 @@ test.describe("Client Management API - Business Logic", () => {
     });
   });
 
-  test("[P0] DELETE /api/clients/:clientId - should cascade soft delete to companies, stores, and user roles (AC #5)", async ({
+  test("[P0] DELETE /api/clients/:clientId - should hard delete client and associated user (AC #5)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A client exists with companies, stores, and user roles
+    // GIVEN: A client exists WITHOUT companies (companies must be deleted first)
+    const { client, user } = await createClientWithUser(prismaClient, {
+      name: "Client Without Companies",
+      status: "INACTIVE",
+    });
+
+    // WHEN: Deleting the client (hard delete)
+    const response = await superadminApiRequest.delete(
+      `/api/clients/${client.client_id}`,
+    );
+
+    // THEN: Client is permanently deleted
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.message).toContain("permanently deleted");
+
+    // AND: Client record no longer exists
+    const deletedClient = await prismaClient.client.findUnique({
+      where: { client_id: client.client_id },
+    });
+    expect(deletedClient).toBeNull();
+
+    // AND: Associated user is also deleted
+    const deletedUser = await prismaClient.user.findUnique({
+      where: { user_id: user.user_id },
+    });
+    expect(deletedUser).toBeNull();
+
+    // AND: Associated user roles are also deleted
+    const userRoles = await prismaClient.userRole.findMany({
+      where: { client_id: client.client_id },
+    });
+    expect(userRoles).toHaveLength(0);
+  });
+
+  test("[P0] DELETE /api/clients/:clientId - should prevent deletion of client with associated companies", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client exists with companies
     const { client } = await createClientWithUser(prismaClient, {
       name: "Client With Companies",
       status: "INACTIVE",
@@ -585,76 +599,30 @@ test.describe("Client Management API - Business Logic", () => {
       name: "Associated Company",
       status: "ACTIVE",
     });
-    const company = await prismaClient.company.create({
+    await prismaClient.company.create({
       data: {
         ...companyData,
         client_id: client.client_id,
       },
     });
 
-    // Create a store under the company
-    const storeData = {
-      public_id: `ST_${Date.now()}`,
-      company_id: company.company_id,
-      name: "Test Store",
-      status: "ACTIVE",
-    };
-    const store = await prismaClient.store.create({
-      data: storeData,
-    });
-
-    // Create a user and assign roles at different levels
-    const testUser = await prismaClient.user.create({
-      data: {
-        public_id: `USR_${Date.now()}`,
-        email: `testuser_${Date.now()}@example.com`,
-        name: "Test User",
-        status: "ACTIVE",
-      },
-    });
-
-    const clientOwnerRole = await prismaClient.role.findUnique({
-      where: { code: "CLIENT_OWNER" },
-    });
-
-    // Create UserRole at client level
-    const clientUserRole = await prismaClient.userRole.create({
-      data: {
-        user_id: testUser.user_id,
-        role_id: clientOwnerRole!.role_id,
-        client_id: client.client_id,
-        status: "ACTIVE",
-      },
-    });
-
-    // WHEN: Soft deleting the client
+    // WHEN: Attempting to delete client with companies
     const response = await superadminApiRequest.delete(
       `/api/clients/${client.client_id}`,
     );
 
-    // THEN: Client is soft deleted
-    expect(response.status()).toBe(200);
+    // THEN: Deletion is rejected with 400 Bad Request
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.message).toContain("associated company");
+    expect(body.message).toContain("Delete all companies first");
 
-    // AND: Associated companies are also soft deleted
-    const deletedCompany = await prismaClient.company.findUnique({
-      where: { company_id: company.company_id },
+    // AND: Client still exists
+    const stillExistingClient = await prismaClient.client.findUnique({
+      where: { client_id: client.client_id },
     });
-    expect(deletedCompany?.deleted_at).not.toBeNull();
-    expect(deletedCompany?.status).toBe("INACTIVE");
-
-    // AND: Associated stores are also soft deleted
-    const deletedStore = await prismaClient.store.findUnique({
-      where: { store_id: store.store_id },
-    });
-    expect(deletedStore?.deleted_at).not.toBeNull();
-    expect(deletedStore?.status).toBe("INACTIVE");
-
-    // AND: Associated user roles are also soft deleted
-    const deletedUserRole = await prismaClient.userRole.findUnique({
-      where: { user_role_id: clientUserRole.user_role_id },
-    });
-    expect(deletedUserRole?.deleted_at).not.toBeNull();
-    expect(deletedUserRole?.status).toBe("INACTIVE");
+    expect(stillExistingClient).not.toBeNull();
   });
 
   test("[P0] PUT /api/clients/:clientId - should cascade status change to INACTIVE for companies and stores", async ({
@@ -904,36 +872,64 @@ test.describe("Client Management API - Edge Cases", () => {
 
     test("[P2] POST /api/clients - should handle special characters in name", async ({
       superadminApiRequest,
+      prismaClient,
     }) => {
-      // WHEN: Creating client with special characters
-      const response = await superadminApiRequest.post("/api/clients", {
-        name: "Test @#$%^&* Corp",
-        email: "specialchars@example.com",
-        password: "TestPass123!",
-        status: "ACTIVE",
-      });
+      const uniqueEmail = `specialchars-${Date.now()}@example.com`;
+      let createdClientId: string | null = null;
 
-      // THEN: Client is created successfully
-      expect(response.status()).toBe(201);
-      const body = await response.json();
-      expect(body.data.name).toBe("Test @#$%^&* Corp");
+      try {
+        // WHEN: Creating client with special characters
+        const response = await superadminApiRequest.post("/api/clients", {
+          name: "Test @#$%^&* Corp",
+          email: uniqueEmail,
+          password: "TestPass123!",
+          status: "ACTIVE",
+        });
+
+        // THEN: Client is created successfully
+        expect(response.status()).toBe(201);
+        const body = await response.json();
+        expect(body.data.name).toBe("Test @#$%^&* Corp");
+        createdClientId = body.data.client_id;
+      } finally {
+        // Cleanup: Delete created client
+        if (createdClientId) {
+          await prismaClient.client.delete({
+            where: { client_id: createdClientId },
+          });
+        }
+      }
     });
 
     test("[P2] POST /api/clients - should handle unicode/emoji characters in name", async ({
       superadminApiRequest,
+      prismaClient,
     }) => {
-      // WHEN: Creating client with unicode/emoji
-      const response = await superadminApiRequest.post("/api/clients", {
-        name: "Test 日本語 Corp 🏢",
-        email: "unicode@example.com",
-        password: "TestPass123!",
-        status: "ACTIVE",
-      });
+      const uniqueEmail = `unicode-${Date.now()}@example.com`;
+      let createdClientId: string | null = null;
 
-      // THEN: Client is created successfully
-      expect(response.status()).toBe(201);
-      const body = await response.json();
-      expect(body.data.name).toBe("Test 日本語 Corp 🏢");
+      try {
+        // WHEN: Creating client with unicode/emoji
+        const response = await superadminApiRequest.post("/api/clients", {
+          name: "Test 日本語 Corp 🏢",
+          email: uniqueEmail,
+          password: "TestPass123!",
+          status: "ACTIVE",
+        });
+
+        // THEN: Client is created successfully
+        expect(response.status()).toBe(201);
+        const body = await response.json();
+        expect(body.data.name).toBe("Test 日本語 Corp 🏢");
+        createdClientId = body.data.client_id;
+      } finally {
+        // Cleanup: Delete created client
+        if (createdClientId) {
+          await prismaClient.client.delete({
+            where: { client_id: createdClientId },
+          });
+        }
+      }
     });
 
     test("[P1] POST /api/clients - should reject whitespace-only name", async ({
@@ -955,101 +951,177 @@ test.describe("Client Management API - Edge Cases", () => {
 
     test("[P2] POST /api/clients - should trim leading/trailing whitespace", async ({
       superadminApiRequest,
+      prismaClient,
     }) => {
-      // WHEN: Creating client with leading/trailing whitespace
-      const response = await superadminApiRequest.post("/api/clients", {
-        name: "  Trimmed Corp  ",
-        email: "trimmed@example.com",
-        password: "TestPass123!",
-        status: "ACTIVE",
-      });
+      const uniqueEmail = `trimmed-${Date.now()}@example.com`;
+      let createdClientId: string | null = null;
 
-      // THEN: Client is created with trimmed name
-      expect(response.status()).toBe(201);
-      const body = await response.json();
-      // Name should be trimmed or stored as-is depending on implementation
-      expect(body.data.name.trim()).toBe("Trimmed Corp");
+      try {
+        // WHEN: Creating client with leading/trailing whitespace
+        const response = await superadminApiRequest.post("/api/clients", {
+          name: "  Trimmed Corp  ",
+          email: uniqueEmail,
+          password: "TestPass123!",
+          status: "ACTIVE",
+        });
+
+        // THEN: Client is created with trimmed name
+        expect(response.status()).toBe(201);
+        const body = await response.json();
+        // Name should be trimmed or stored as-is depending on implementation
+        expect(body.data.name.trim()).toBe("Trimmed Corp");
+        createdClientId = body.data.client_id;
+      } finally {
+        // Cleanup: Delete created client
+        if (createdClientId) {
+          await prismaClient.client.delete({
+            where: { client_id: createdClientId },
+          });
+        }
+      }
     });
   });
 
   test.describe("Metadata Field Edge Cases", () => {
     test("[P2] POST /api/clients - should accept empty metadata object", async ({
       superadminApiRequest,
+      prismaClient,
     }) => {
-      // WHEN: Creating client with empty metadata
-      const response = await superadminApiRequest.post("/api/clients", {
-        name: "Empty Metadata Corp",
-        email: "emptymetadata@example.com",
-        password: "TestPass123!",
-        status: "ACTIVE",
-        metadata: {},
-      });
+      const uniqueEmail = `emptymetadata-${Date.now()}@example.com`;
+      let createdClientId: string | null = null;
 
-      // THEN: Client is created successfully
-      expect(response.status()).toBe(201);
+      try {
+        // WHEN: Creating client with empty metadata
+        const response = await superadminApiRequest.post("/api/clients", {
+          name: "Empty Metadata Corp",
+          email: uniqueEmail,
+          password: "TestPass123!",
+          status: "ACTIVE",
+          metadata: {},
+        });
+
+        // THEN: Client is created successfully
+        expect(response.status()).toBe(201);
+        const body = await response.json();
+        createdClientId = body.data.client_id;
+      } finally {
+        // Cleanup: Delete created client
+        if (createdClientId) {
+          await prismaClient.client.delete({
+            where: { client_id: createdClientId },
+          });
+        }
+      }
     });
 
     test("[P2] POST /api/clients - should accept null metadata", async ({
       superadminApiRequest,
+      prismaClient,
     }) => {
-      // WHEN: Creating client with null metadata
-      const response = await superadminApiRequest.post("/api/clients", {
-        name: "Null Metadata Corp",
-        email: "nullmetadata@example.com",
-        password: "TestPass123!",
-        status: "ACTIVE",
-        metadata: null,
-      });
+      const uniqueEmail = `nullmetadata-${Date.now()}@example.com`;
+      let createdClientId: string | null = null;
 
-      // THEN: Client is created successfully
-      expect(response.status()).toBe(201);
+      try {
+        // WHEN: Creating client with null metadata
+        const response = await superadminApiRequest.post("/api/clients", {
+          name: "Null Metadata Corp",
+          email: uniqueEmail,
+          password: "TestPass123!",
+          status: "ACTIVE",
+          metadata: null,
+        });
+
+        // THEN: Client is created successfully
+        expect(response.status()).toBe(201);
+        const body = await response.json();
+        createdClientId = body.data.client_id;
+      } finally {
+        // Cleanup: Delete created client
+        if (createdClientId) {
+          await prismaClient.client.delete({
+            where: { client_id: createdClientId },
+          });
+        }
+      }
     });
 
     test("[P2] POST /api/clients - should handle deeply nested metadata", async ({
       superadminApiRequest,
+      prismaClient,
     }) => {
-      // WHEN: Creating client with deeply nested metadata
-      const deepMetadata = {
-        level1: {
-          level2: {
-            level3: {
-              level4: {
-                level5: { value: "deep" },
+      const uniqueEmail = `deepmetadata-${Date.now()}@example.com`;
+      let createdClientId: string | null = null;
+
+      try {
+        // WHEN: Creating client with deeply nested metadata
+        const deepMetadata = {
+          level1: {
+            level2: {
+              level3: {
+                level4: {
+                  level5: { value: "deep" },
+                },
               },
             },
           },
-        },
-      };
-      const response = await superadminApiRequest.post("/api/clients", {
-        name: "Deep Metadata Corp",
-        email: "deepmetadata@example.com",
-        password: "TestPass123!",
-        status: "ACTIVE",
-        metadata: deepMetadata,
-      });
+        };
+        const response = await superadminApiRequest.post("/api/clients", {
+          name: "Deep Metadata Corp",
+          email: uniqueEmail,
+          password: "TestPass123!",
+          status: "ACTIVE",
+          metadata: deepMetadata,
+        });
 
-      // THEN: Client is created successfully
-      expect(response.status()).toBe(201);
+        // THEN: Client is created successfully
+        expect(response.status()).toBe(201);
+        const body = await response.json();
+        createdClientId = body.data.client_id;
+      } finally {
+        // Cleanup: Delete created client
+        if (createdClientId) {
+          await prismaClient.client.delete({
+            where: { client_id: createdClientId },
+          });
+        }
+      }
     });
 
     test("[P2] POST /api/clients - should handle large metadata object", async ({
       superadminApiRequest,
+      prismaClient,
     }) => {
-      // WHEN: Creating client with large metadata (100+ keys)
-      const largeMetadata: Record<string, string> = {};
-      for (let i = 0; i < 100; i++) {
-        largeMetadata[`key${i}`] = `value${i}`;
-      }
-      const response = await superadminApiRequest.post("/api/clients", {
-        name: "Large Metadata Corp",
-        email: "largemetadata@example.com",
-        password: "TestPass123!",
-        status: "ACTIVE",
-        metadata: largeMetadata,
-      });
+      const uniqueEmail = `largemetadata-${Date.now()}@example.com`;
+      let createdClientId: string | null = null;
 
-      // THEN: Client is created successfully or rejected with size limit error
-      expect([201, 400]).toContain(response.status());
+      try {
+        // WHEN: Creating client with large metadata (100+ keys)
+        const largeMetadata: Record<string, string> = {};
+        for (let i = 0; i < 100; i++) {
+          largeMetadata[`key${i}`] = `value${i}`;
+        }
+        const response = await superadminApiRequest.post("/api/clients", {
+          name: "Large Metadata Corp",
+          email: uniqueEmail,
+          password: "TestPass123!",
+          status: "ACTIVE",
+          metadata: largeMetadata,
+        });
+
+        // THEN: Client is created successfully or rejected with size limit error
+        expect([201, 400]).toContain(response.status());
+        if (response.status() === 201) {
+          const body = await response.json();
+          createdClientId = body.data.client_id;
+        }
+      } finally {
+        // Cleanup: Delete created client if it was created
+        if (createdClientId) {
+          await prismaClient.client.delete({
+            where: { client_id: createdClientId },
+          });
+        }
+      }
     });
   });
 
@@ -1074,8 +1146,10 @@ test.describe("Client Management API - Edge Cases", () => {
       // WHEN: Requesting with empty ID (this typically matches the list route)
       const response = await superadminApiRequest.get("/api/clients/");
 
-      // THEN: Returns list or 400 depending on routing
-      expect([200, 400]).toContain(response.status());
+      // THEN: Returns list (200), redirect (301), 400, or 404 depending on routing
+      // 301 occurs because trailing slash is redirected to non-trailing slash
+      // 404 may occur if the route treats empty string as a non-existent resource
+      expect([200, 301, 400, 404]).toContain(response.status());
     });
 
     test("[P1] PUT /api/clients/:clientId - should reject invalid UUID format", async ({
@@ -1244,74 +1318,93 @@ test.describe("Client Management API - Public ID Support", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
-    // WHEN: Creating a new client
-    const response = await superadminApiRequest.post("/api/clients", {
-      name: "Auto Public ID Test",
-      email: "autopublicid@example.com",
-      password: "TestPass123!",
-      status: "ACTIVE",
-    });
+    const uniqueEmail = `autopublicid-${Date.now()}@example.com`;
+    let createdClientId: string | null = null;
 
-    // THEN: Response includes valid public_id
-    expect(response.status()).toBe(201);
-    const body = await response.json();
+    try {
+      // WHEN: Creating a new client
+      const response = await superadminApiRequest.post("/api/clients", {
+        name: "Auto Public ID Test",
+        email: uniqueEmail,
+        password: "TestPass123!",
+        status: "ACTIVE",
+      });
 
-    expect(body.data).toHaveProperty("public_id");
-    expect(body.data.public_id).toMatch(/^clt_[a-z0-9]{10,}$/);
-    expect(body.data.public_id).not.toBe(body.data.client_id);
+      // THEN: Response includes valid public_id
+      expect(response.status()).toBe(201);
+      const body = await response.json();
+      createdClientId = body.data.client_id;
 
-    // Verify uniqueness in database
-    const dbClient = await prismaClient.client.findUnique({
-      where: { public_id: body.data.public_id },
-    });
-    expect(dbClient).not.toBeNull();
-    expect(dbClient?.client_id).toBe(body.data.client_id);
+      expect(body.data).toHaveProperty("public_id");
+      expect(body.data.public_id).toMatch(/^clt_[a-z0-9]{10,}$/);
+      expect(body.data.public_id).not.toBe(body.data.client_id);
 
-    // Cleanup
-    await prismaClient.client.delete({
-      where: { client_id: body.data.client_id },
-    });
+      // Verify uniqueness in database
+      const dbClient = await prismaClient.client.findUnique({
+        where: { public_id: body.data.public_id },
+      });
+      expect(dbClient).not.toBeNull();
+      expect(dbClient?.client_id).toBe(body.data.client_id);
+    } finally {
+      // Cleanup: Delete created client
+      if (createdClientId) {
+        await prismaClient.client.delete({
+          where: { client_id: createdClientId },
+        });
+      }
+    }
   });
 
   test("[P0] POST /api/clients - should generate unique public_ids for multiple clients", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: Creating multiple clients
-    const responses = await Promise.all([
-      superadminApiRequest.post("/api/clients", {
-        name: "Client 1",
-        email: "client1@example.com",
-        password: "TestPass123!",
-        status: "ACTIVE",
-      }),
-      superadminApiRequest.post("/api/clients", {
-        name: "Client 2",
-        email: "client2@example.com",
-        password: "TestPass123!",
-        status: "ACTIVE",
-      }),
-      superadminApiRequest.post("/api/clients", {
-        name: "Client 3",
-        email: "client3@example.com",
-        password: "TestPass123!",
-        status: "ACTIVE",
-      }),
-    ]);
+    const timestamp = Date.now();
+    const createdClientIds: string[] = [];
 
-    // THEN: All public_ids are unique
-    const bodies = await Promise.all(responses.map((r) => r.json()));
-    const publicIds = bodies.map((b) => b.data.public_id);
-    const uniqueIds = new Set(publicIds);
+    try {
+      // GIVEN: Creating multiple clients with unique emails
+      const responses = await Promise.all([
+        superadminApiRequest.post("/api/clients", {
+          name: "Client 1",
+          email: `client1-${timestamp}@example.com`,
+          password: "TestPass123!",
+          status: "ACTIVE",
+        }),
+        superadminApiRequest.post("/api/clients", {
+          name: "Client 2",
+          email: `client2-${timestamp}@example.com`,
+          password: "TestPass123!",
+          status: "ACTIVE",
+        }),
+        superadminApiRequest.post("/api/clients", {
+          name: "Client 3",
+          email: `client3-${timestamp}@example.com`,
+          password: "TestPass123!",
+          status: "ACTIVE",
+        }),
+      ]);
 
-    expect(uniqueIds.size).toBe(3);
+      // THEN: All public_ids are unique
+      const bodies = await Promise.all(responses.map((r) => r.json()));
 
-    // Cleanup
-    await Promise.all(
-      bodies.map((b) =>
-        prismaClient.client.delete({ where: { client_id: b.data.client_id } }),
-      ),
-    );
+      // Collect created client IDs for cleanup
+      for (const body of bodies) {
+        if (body.data?.client_id) {
+          createdClientIds.push(body.data.client_id);
+        }
+      }
+
+      const publicIds = bodies.map((b) => b.data?.public_id).filter(Boolean);
+      const uniqueIds = new Set(publicIds);
+
+      expect(uniqueIds.size).toBe(3);
+    } finally {
+      // Cleanup: Delete all created clients
+      for (const clientId of createdClientIds) {
+        await prismaClient.client.delete({ where: { client_id: clientId } });
+      }
+    }
   });
 });
 

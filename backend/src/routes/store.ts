@@ -1156,7 +1156,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
 
   /**
    * DELETE /api/stores/:storeId
-   * Soft delete store (set status to INACTIVE or CLOSED)
+   * Hard delete store (permanently removes the store)
    * Protected route - requires STORE_DELETE permission
    */
   fastify.delete(
@@ -1167,7 +1167,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
         permissionMiddleware(PERMISSIONS.STORE_DELETE),
       ],
       schema: {
-        description: "Soft delete store",
+        description: "Hard delete store",
         tags: ["stores"],
         params: {
           type: "object",
@@ -1184,11 +1184,15 @@ export async function storeRoutes(fastify: FastifyInstance) {
           200: {
             type: "object",
             properties: {
-              store_id: { type: "string", format: "uuid" },
-              company_id: { type: "string", format: "uuid" },
-              name: { type: "string" },
-              status: { type: "string" },
-              updated_at: { type: "string", format: "date-time" },
+              success: { type: "boolean" },
+              message: { type: "string" },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
             },
           },
           403: {
@@ -1253,13 +1257,10 @@ export async function storeRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Soft delete store (service will verify company isolation)
-        const store = await storeService.deleteStore(
-          params.storeId,
-          userCompanyId,
-        );
+        // Hard delete store (service will verify company isolation and ACTIVE status)
+        await storeService.deleteStore(params.storeId, userCompanyId);
 
-        // Log store deletion to AuditLog (BLOCKING)
+        // Log store deletion to AuditLog (non-blocking - don't fail the deletion if audit fails)
         const ipAddress =
           (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
           request.ip ||
@@ -1273,29 +1274,26 @@ export async function storeRoutes(fastify: FastifyInstance) {
               user_id: user.id,
               action: "DELETE",
               table_name: "stores",
-              record_id: store.store_id,
+              record_id: params.storeId,
               old_values: JSON.stringify(oldStore) as any,
-              new_values: JSON.stringify(store) as any,
+              new_values: {} as any,
               ip_address: ipAddress,
               user_agent: userAgent,
-              reason: `Store deleted by ${user.email} (roles: ${user.roles.join(", ")})`,
+              reason: `Store permanently deleted by ${user.email} (roles: ${user.roles.join(", ")})`,
             },
           });
         } catch (auditError) {
-          // If audit log fails, revert the soft delete and fail the request
-          await storeService.updateStore(params.storeId, userCompanyId, {
-            status: oldStore.status as any,
-          });
-          throw new Error("Failed to create audit log - operation rolled back");
+          // Log the audit failure but don't fail the deletion operation
+          console.error(
+            "Failed to create audit log for store deletion:",
+            auditError,
+          );
         }
 
         reply.code(200);
         return {
-          store_id: store.store_id,
-          company_id: store.company_id,
-          name: store.name,
-          status: store.status,
-          updated_at: store.updated_at,
+          success: true,
+          message: "Store permanently deleted",
         };
       } catch (error: any) {
         fastify.log.error({ error }, "Error deleting store");
@@ -1310,6 +1308,13 @@ export async function storeRoutes(fastify: FastifyInstance) {
           reply.code(403);
           return {
             error: "Forbidden",
+            message: error.message,
+          };
+        }
+        if (error.message.includes("ACTIVE store")) {
+          reply.code(400);
+          return {
+            error: "Bad Request",
             message: error.message,
           };
         }

@@ -17,7 +17,6 @@ export interface Client {
   metadata?: Record<string, unknown> | null;
   created_at: Date;
   updated_at: Date;
-  deleted_at?: Date | null;
 }
 
 export interface ClientWithCompanyCount extends Client {
@@ -53,7 +52,6 @@ export interface ClientListOptions {
   limit?: number;
   search?: string;
   status?: ClientStatus;
-  includeDeleted?: boolean;
 }
 
 export interface PaginatedClientResult {

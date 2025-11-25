@@ -13,13 +13,13 @@ const prisma = new PrismaClient();
 
 /**
  * Company service for managing company CRUD operations
- * Handles company creation, retrieval, updates, and soft deletion
+ * Handles company creation, retrieval, updates, and hard deletion
  */
 export class CompanyService {
   /**
    * Validate that a client exists
    * @param clientId - Client UUID to validate
-   * @throws Error if client does not exist or is deleted
+   * @throws Error if client does not exist
    */
   private async validateClientExists(clientId: string): Promise<void> {
     const client = await prisma.client.findUnique({
@@ -28,10 +28,6 @@ export class CompanyService {
 
     if (!client) {
       throw new Error(`Client with ID ${clientId} not found`);
-    }
-
-    if (client.deleted_at) {
-      throw new Error(`Client with ID ${clientId} has been deleted`);
     }
   }
 
@@ -140,7 +136,6 @@ export class CompanyService {
         status: company.status,
         created_at: company.created_at,
         updated_at: company.updated_at,
-        deleted_at: company.deleted_at,
         client: company.client,
       };
     } catch (error: unknown) {
@@ -187,7 +182,6 @@ export class CompanyService {
         status: company.status,
         created_at: company.created_at,
         updated_at: company.updated_at,
-        deleted_at: company.deleted_at,
         client: company.client,
       };
     } catch (error: unknown) {
@@ -212,10 +206,7 @@ export class CompanyService {
     const skip = (page - 1) * limit;
 
     // Build where clause
-    const where: any = {
-      // Exclude soft-deleted companies
-      deleted_at: null,
-    };
+    const where: any = {};
 
     // Filter by status
     if (status) {
@@ -256,7 +247,6 @@ export class CompanyService {
           status: company.status,
           created_at: company.created_at,
           updated_at: company.updated_at,
-          deleted_at: company.deleted_at,
           client: company.client,
         }),
       );
@@ -421,7 +411,6 @@ export class CompanyService {
         status: company.status,
         created_at: company.created_at,
         updated_at: company.updated_at,
-        deleted_at: company.deleted_at,
         client: company.client,
       };
     } catch (error: unknown) {
@@ -434,17 +423,16 @@ export class CompanyService {
   }
 
   /**
-   * Soft delete company (set status to INACTIVE and deleted_at timestamp)
-   * Cascades to all stores and user roles under this company
+   * Hard delete company and all associated data
+   * Permanently removes company, stores, and user roles under this company
    * @param companyId - Company UUID
    * @param auditContext - Audit context for logging
-   * @returns Updated company record with INACTIVE status
    * @throws Error if company not found or if company is ACTIVE
    */
   async deleteCompany(
     companyId: string,
     auditContext: AuditContext,
-  ): Promise<CompanyWithClient> {
+  ): Promise<void> {
     try {
       // Check if company exists
       const existingCompany = await prisma.company.findUnique({
@@ -472,53 +460,56 @@ export class CompanyService {
         );
       }
 
-      // Soft delete by setting status to INACTIVE and deleted_at timestamp
-      const deletedAt = new Date();
-
-      // Use transaction to cascade soft delete to stores and user roles
-      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        // Cascade soft delete to all stores under this company
-        await tx.store.updateMany({
-          where: {
-            company_id: companyId,
-            deleted_at: null,
-          },
-          data: {
-            deleted_at: deletedAt,
-            status: "INACTIVE",
-          },
-        });
-
-        // Cascade soft delete to all UserRoles associated with this company
-        // This includes company-level and store-level roles
-        await tx.userRole.updateMany({
-          where: {
-            company_id: companyId,
-            deleted_at: null,
-          },
-          data: {
-            status: "INACTIVE",
-            deleted_at: deletedAt,
-          },
-        });
-      });
-
-      const company = await prisma.company.update({
+      // Check for active stores - cannot delete company with active stores
+      const activeStoresCount = await prisma.store.count({
         where: {
           company_id: companyId,
+          status: "ACTIVE",
         },
-        data: {
-          status: "INACTIVE",
-          deleted_at: deletedAt,
-        },
-        include: {
-          client: {
-            select: {
-              client_id: true,
-              name: true,
+      });
+
+      if (activeStoresCount > 0) {
+        throw new Error(
+          `Cannot delete company with ${activeStoresCount} active store(s). Deactivate all stores first.`,
+        );
+      }
+
+      // Use transaction to hard delete company, stores, and user roles
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        // Get all stores for this company to delete their user roles
+        const stores = await tx.store.findMany({
+          where: { company_id: companyId },
+          select: { store_id: true },
+        });
+        const storeIds = stores.map((s: any) => s.store_id);
+
+        // Delete all UserRoles associated with stores under this company
+        if (storeIds.length > 0) {
+          await tx.userRole.deleteMany({
+            where: {
+              store_id: { in: storeIds },
             },
+          });
+        }
+
+        // Delete all UserRoles associated with this company (company-level roles)
+        await tx.userRole.deleteMany({
+          where: {
+            company_id: companyId,
           },
-        },
+        });
+
+        // Delete all stores under this company
+        await tx.store.deleteMany({
+          where: {
+            company_id: companyId,
+          },
+        });
+
+        // Delete the company
+        await tx.company.delete({
+          where: { company_id: companyId },
+        });
       });
 
       // Create audit log entry (non-blocking - don't fail the deletion if audit fails)
@@ -528,12 +519,12 @@ export class CompanyService {
             user_id: auditContext.userId,
             action: "DELETE",
             table_name: "companies",
-            record_id: company.company_id,
+            record_id: companyId,
             old_values: existingCompany as unknown as Record<string, any>,
-            new_values: company as unknown as Record<string, any>,
+            new_values: {} as any,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
-            reason: `Company soft deleted by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+            reason: `Company permanently deleted by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
           },
         });
       } catch (auditError) {
@@ -543,24 +534,12 @@ export class CompanyService {
           auditError,
         );
       }
-
-      return {
-        company_id: company.company_id,
-        client_id: company.client_id,
-        client_name: company.client?.name,
-        name: company.name,
-        address: company.address,
-        status: company.status,
-        created_at: company.created_at,
-        updated_at: company.updated_at,
-        deleted_at: company.deleted_at,
-        client: company.client,
-      };
     } catch (error: unknown) {
       if (
         error instanceof Error &&
         (error.message.includes("not found") ||
-          error.message.includes("ACTIVE company"))
+          error.message.includes("ACTIVE company") ||
+          error.message.includes("active store"))
       ) {
         throw error;
       }

@@ -539,7 +539,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
 
   /**
    * DELETE /api/companies/:companyId
-   * Soft delete company (set status to INACTIVE)
+   * Hard delete company - permanently removes the company
    * Protected route - requires ADMIN_SYSTEM_CONFIG permission
    */
   fastify.delete(
@@ -550,7 +550,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
         permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
       ],
       schema: {
-        description: "Soft delete company",
+        description: "Permanently delete company",
         tags: ["companies"],
         params: {
           type: "object",
@@ -567,14 +567,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
           200: {
             type: "object",
             properties: {
-              company_id: { type: "string", format: "uuid" },
-              client_id: { type: "string", format: "uuid" },
-              client_name: { type: "string" },
-              name: { type: "string" },
-              address: { type: "string", nullable: true },
-              status: { type: "string" },
-              created_at: { type: "string", format: "date-time" },
-              updated_at: { type: "string", format: "date-time" },
+              success: { type: "boolean" },
+              message: { type: "string" },
             },
           },
           404: {
@@ -612,18 +606,12 @@ export async function companyRoutes(fastify: FastifyInstance) {
           userAgent: request.headers["user-agent"] || null,
         };
 
-        const company = await companyService.deleteCompany(
-          params.companyId,
-          auditContext,
-        );
+        await companyService.deleteCompany(params.companyId, auditContext);
 
         reply.code(200);
         return {
-          ...company,
-          request_metadata: {
-            timestamp: new Date().toISOString(),
-            request_id: request.id,
-          },
+          success: true,
+          message: "Company permanently deleted",
         };
       } catch (error: any) {
         fastify.log.error({ error }, "Error deleting company");
@@ -638,6 +626,13 @@ export async function companyRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             error: "Cannot delete ACTIVE company",
+            message: error.message,
+          };
+        }
+        if (error.message.includes("active store")) {
+          reply.code(400);
+          return {
+            error: "Cannot delete company with active store(s)",
             message: error.message,
           };
         }

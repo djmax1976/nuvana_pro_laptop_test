@@ -332,6 +332,8 @@ export function useCreateClient() {
     onSuccess: () => {
       // Invalidate clients list to refetch after creation
       queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+      // Invalidate dropdown so new client appears immediately in company forms
+      queryClient.invalidateQueries({ queryKey: clientKeys.dropdown() });
     },
   });
 }
@@ -360,6 +362,9 @@ export function useUpdateClient() {
       queryClient.invalidateQueries({
         queryKey: clientKeys.detail(variables.clientId),
       });
+
+      // Invalidate dropdown in case client name changed
+      queryClient.invalidateQueries({ queryKey: clientKeys.dropdown() });
     },
   });
 }
@@ -376,6 +381,8 @@ export function useDeleteClient() {
     onSuccess: () => {
       // Invalidate clients list to refetch after deletion
       queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+      // Invalidate dropdown to remove deleted client from company forms
+      queryClient.invalidateQueries({ queryKey: clientKeys.dropdown() });
     },
   });
 }

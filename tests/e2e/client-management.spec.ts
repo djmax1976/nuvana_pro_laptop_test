@@ -888,6 +888,88 @@ test.describe("Client Management E2E", () => {
     });
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CACHE SYNCHRONIZATION TESTS - Cross-page data freshness
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  test("[P0] Should show newly created client in company form dropdown without page refresh", async ({
+    page,
+  }) => {
+    // This test verifies the fix for cache invalidation bug where newly created
+    // clients weren't appearing in the company creation dropdown until manual refresh
+    // Related: useCreateClient must invalidate clientKeys.dropdown() cache
+
+    // GIVEN: I am on the clients page
+    await page.goto("http://localhost:3000/clients");
+
+    // WHEN: I create a new client via the Create Client modal
+    const newClientName = `Dropdown Test Client ${Date.now()}`;
+    const newClientEmail = `dropdown-test-${Date.now()}@example.com`;
+
+    const createButton = page.getByRole("button", {
+      name: /new client|create client/i,
+    });
+    await createButton.click();
+
+    // Wait for modal to be visible
+    await expect(page.locator('[role="dialog"]')).toBeVisible();
+
+    // Fill in the create client form (modal uses create-client-* test IDs)
+    await page
+      .locator('input[data-testid="create-client-name-input"]')
+      .fill(newClientName);
+    await page
+      .locator('input[data-testid="create-client-email-input"]')
+      .fill(newClientEmail);
+    await page
+      .locator('input[data-testid="create-client-password-input"]')
+      .fill("TestPassword123!");
+    await page
+      .locator('input[data-testid="create-client-confirm-password-input"]')
+      .fill("TestPassword123!");
+
+    // Status defaults to Active, so we don't need to change it
+
+    // Submit the form
+    await page
+      .locator('button[data-testid="create-client-submit-button"]')
+      .click();
+
+    // Wait for success toast and modal to close
+    await expect(
+      page.getByText("Client created successfully", { exact: true }),
+    ).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.locator('[role="dialog"]')).not.toBeVisible();
+
+    // AND: I navigate to the companies/new page (this is a separate page, not a modal)
+    await page.goto("http://localhost:3000/companies/new");
+
+    // THEN: The newly created client should appear in the client dropdown
+    // The CompanyForm uses a Select component with label "Client"
+    const clientSelectTrigger = page.getByRole("combobox").first();
+    await expect(clientSelectTrigger).toBeVisible({ timeout: 5000 });
+    await clientSelectTrigger.click();
+
+    // The new client should be visible in the dropdown options
+    const newClientOption = page.getByRole("option", { name: newClientName });
+    await expect(newClientOption).toBeVisible({ timeout: 5000 });
+
+    // Close the dropdown
+    await page.keyboard.press("Escape");
+
+    // Cleanup: Delete the test client
+    const createdClient = await prisma.client.findFirst({
+      where: { name: newClientName },
+    });
+    if (createdClient) {
+      await prisma.client.delete({
+        where: { client_id: createdClient.client_id },
+      });
+    }
+  });
+
   test("[P1] Should prevent wrong text in delete confirmation", async ({
     page,
   }) => {

@@ -8,7 +8,7 @@ import { createCompany, createClient } from "../support/factories";
  * - Create, read, update, delete companies (CRUD operations)
  * - Permission enforcement (only System Admins can manage companies)
  * - Audit logging for all company operations
- * - Soft delete functionality (status update, not hard delete)
+ * - Hard delete functionality with cascade to stores and user roles
  * - Validation and error handling
  *
  * Priority: P0 (Critical - Multi-tenant foundation)
@@ -222,7 +222,7 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
     expect(auditLog).not.toBeNull();
   });
 
-  test("[P0] 2.1-API-006: DELETE /api/companies/:companyId - should soft delete non-ACTIVE company (AC #4)", async ({
+  test("[P0] 2.1-API-006: DELETE /api/companies/:companyId - should hard delete non-ACTIVE company (AC #4)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -237,22 +237,22 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
       },
     });
 
-    // WHEN: Deleting company (soft delete)
+    // WHEN: Deleting company (hard delete)
     const response = await superadminApiRequest.delete(
       `/api/companies/${company.company_id}`,
     );
 
-    // THEN: Company is soft-deleted (status updated to INACTIVE)
+    // THEN: Company is permanently deleted
     expect(response.status()).toBe(200);
     const body = await response.json();
-    expect(body.status).toBe("INACTIVE");
+    expect(body.success).toBe(true);
+    expect(body.message).toContain("permanently deleted");
 
-    // AND: Company record still exists in database (soft delete)
+    // AND: Company record no longer exists in database (hard delete)
     const deletedCompany = await prismaClient.company.findUnique({
       where: { company_id: company.company_id },
     });
-    expect(deletedCompany).not.toBeNull();
-    expect(deletedCompany?.status).toBe("INACTIVE");
+    expect(deletedCompany).toBeNull();
 
     // AND: Audit log entry is created
     const auditLog = await prismaClient.auditLog.findFirst({
@@ -265,7 +265,7 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
     expect(auditLog).not.toBeNull();
   });
 
-  test("[P0] DELETE /api/companies/:companyId - should cascade soft delete to stores and user roles", async ({
+  test("[P0] DELETE /api/companies/:companyId - should cascade hard delete to stores and user roles", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -283,13 +283,13 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
       },
     });
 
-    // Create a store under the company
+    // Create a store under the company (INACTIVE to allow company deletion)
     const store = await prismaClient.store.create({
       data: {
         public_id: `ST_${Date.now()}`,
         company_id: company.company_id,
         name: "Test Store",
-        status: "ACTIVE",
+        status: "INACTIVE",
       },
     });
 
@@ -316,34 +316,39 @@ test.describe("2.1-API: Company Management API - CRUD Operations", () => {
       },
     });
 
-    // WHEN: Soft deleting the company
+    // WHEN: Hard deleting the company
     const response = await superadminApiRequest.delete(
       `/api/companies/${company.company_id}`,
     );
 
-    // THEN: Company is soft deleted
+    // THEN: Company is permanently deleted
     expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.message).toContain("permanently deleted");
 
-    // AND: Company has deleted_at set
+    // AND: Company record no longer exists
     const deletedCompany = await prismaClient.company.findUnique({
       where: { company_id: company.company_id },
     });
-    expect(deletedCompany?.deleted_at).not.toBeNull();
-    expect(deletedCompany?.status).toBe("INACTIVE");
+    expect(deletedCompany).toBeNull();
 
-    // AND: Associated stores are also soft deleted
+    // AND: Associated stores are also deleted
     const deletedStore = await prismaClient.store.findUnique({
       where: { store_id: store.store_id },
     });
-    expect(deletedStore?.deleted_at).not.toBeNull();
-    expect(deletedStore?.status).toBe("INACTIVE");
+    expect(deletedStore).toBeNull();
 
-    // AND: Associated user roles are also soft deleted
+    // AND: Associated user roles are also deleted
     const deletedUserRole = await prismaClient.userRole.findUnique({
       where: { user_role_id: companyUserRole.user_role_id },
     });
-    expect(deletedUserRole?.deleted_at).not.toBeNull();
-    expect(deletedUserRole?.status).toBe("INACTIVE");
+    expect(deletedUserRole).toBeNull();
+
+    // Cleanup: Delete the test user (was not deleted by cascade)
+    await prismaClient.user.delete({
+      where: { user_id: testUser.user_id },
+    });
   });
 });
 
@@ -479,6 +484,58 @@ test.describe("2.1-API: Company Management API - Error Handling", () => {
       where: { company_id: company.company_id },
     });
     expect(stillActiveCompany?.status).toBe("ACTIVE");
+  });
+
+  test("[P0] 2.1-API-028: DELETE /api/companies/:companyId - should prevent deletion of company with active stores", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a System Admin and a company with active stores exists
+    const client = await prismaClient.client.create({
+      data: createClient({ name: "Test Client for Active Store Delete" }),
+    });
+    const company = await prismaClient.company.create({
+      data: {
+        ...createCompany({
+          name: "Company With Active Stores",
+          status: "INACTIVE",
+        }),
+        client_id: client.client_id,
+      },
+    });
+
+    // Create an ACTIVE store under the company
+    const store = await prismaClient.store.create({
+      data: {
+        public_id: `ST_${Date.now()}`,
+        company_id: company.company_id,
+        name: "Active Store",
+        status: "ACTIVE",
+      },
+    });
+
+    // WHEN: Attempting to delete company with active stores
+    const response = await superadminApiRequest.delete(
+      `/api/companies/${company.company_id}`,
+    );
+
+    // THEN: Deletion is rejected with 400 Bad Request
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.error).toContain("active store");
+    expect(body.message).toContain("Deactivate all stores first");
+
+    // AND: Company still exists in database
+    const stillExistingCompany = await prismaClient.company.findUnique({
+      where: { company_id: company.company_id },
+    });
+    expect(stillExistingCompany).not.toBeNull();
+
+    // AND: Store still exists and is active
+    const stillActiveStore = await prismaClient.store.findUnique({
+      where: { store_id: store.store_id },
+    });
+    expect(stillActiveStore?.status).toBe("ACTIVE");
   });
 });
 
