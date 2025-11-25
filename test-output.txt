@@ -1,0 +1,56 @@
+
+> nuvana-pro@0.1.0 test:e2e
+> playwright test --project=e2e tests/e2e/company-management.spec.ts --reporter=list
+
+
+Running 9 tests using 1 worker
+
+  ok 1 [e2e] › tests\e2e\company-management.spec.ts:135:7 › Company Management E2E › [P0] Should load companies list page (4.2s)
+  ok 2 [e2e] › tests\e2e\company-management.spec.ts:148:7 › Company Management E2E › [P0] Should open edit modal when clicking Edit button (4.0s)
+  x  3 [e2e] › tests\e2e\company-management.spec.ts:167:7 › Company Management E2E › [P0] Should verify company name is read-only and successfully edit status (20.7s)
+  -  4 [e2e] › tests\e2e\company-management.spec.ts:216:7 › Company Management E2E › [P0] Should verify company's client assignment is read-only
+  -  5 [e2e] › tests\e2e\company-management.spec.ts:248:7 › Company Management E2E › [P0] Should create a new company
+  -  6 [e2e] › tests\e2e\company-management.spec.ts:283:7 › Company Management E2E › [P1] Should show validation error when creating company with empty name
+  -  7 [e2e] › tests\e2e\company-management.spec.ts:306:7 › Company Management E2E › [P0] Should prevent deletion of ACTIVE company
+  -  8 [e2e] › tests\e2e\company-management.spec.ts:325:7 › Company Management E2E › [P1] Should successfully delete INACTIVE company
+  -  9 [e2e] › tests\e2e\company-management.spec.ts:362:7 › Company Management E2E › [P1] Should display properly on mobile screens
+
+
+  1) [e2e] › tests\e2e\company-management.spec.ts:167:7 › Company Management E2E › [P0] Should verify company name is read-only and successfully edit status 
+
+    TimeoutError: locator.click: Timeout 15000ms exceeded.
+    Call log:
+    [2m  - waiting for locator('[role="dialog"]').getByRole('button', { name: 'Update Company' })[22m
+
+
+      197 |     // Submit the form - use force to bypass backdrop animation
+      198 |     const submitButton = modal.getByRole('button', { name: 'Update Company' });
+    > 199 |     await submitButton.click({ force: true });
+          |                        ^
+      200 |     await page.waitForTimeout(1500);
+      201 |
+      202 |     // Verify status was updated
+        at c:\bmad\tests\e2e\company-management.spec.ts:199:24
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\artifacts\e2e-company-management-Com-dd158-nd-successfully-edit-status-e2e\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\artifacts\e2e-company-management-Com-dd158-nd-successfully-edit-status-e2e\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\artifacts\e2e-company-management-Com-dd158-nd-successfully-edit-status-e2e\error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\artifacts\e2e-company-management-Com-dd158-nd-successfully-edit-status-e2e\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\artifacts\e2e-company-management-Com-dd158-nd-successfully-edit-status-e2e\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [e2e] › tests\e2e\company-management.spec.ts:167:7 › Company Management E2E › [P0] Should verify company name is read-only and successfully edit status 
+  6 did not run
+  2 passed (32.1s)

@@ -183,7 +183,13 @@ export class ClientService {
             },
             include: {
               _count: {
-                select: { companies: true },
+                select: {
+                  companies: {
+                    where: {
+                      deleted_at: null,
+                    },
+                  },
+                },
               },
               companies: {
                 where: {
@@ -294,7 +300,13 @@ export class ClientService {
           orderBy: { created_at: "desc" },
           include: {
             _count: {
-              select: { companies: true },
+              select: {
+                companies: {
+                  where: {
+                    deleted_at: null,
+                  },
+                },
+              },
             },
             companies: {
               where: {
@@ -359,7 +371,13 @@ export class ClientService {
         },
         include: {
           _count: {
-            select: { companies: true },
+            select: {
+              companies: {
+                where: {
+                  deleted_at: null,
+                },
+              },
+            },
           },
           companies: {
             where: {
@@ -461,7 +479,13 @@ export class ClientService {
         where: { client_id: clientId },
         include: {
           _count: {
-            select: { companies: true },
+            select: {
+              companies: {
+                where: {
+                  deleted_at: null,
+                },
+              },
+            },
           },
           companies: {
             where: {
@@ -562,7 +586,13 @@ export class ClientService {
             data: clientUpdateData,
             include: {
               _count: {
-                select: { companies: true },
+                select: {
+                  companies: {
+                    where: {
+                      deleted_at: null,
+                    },
+                  },
+                },
               },
               companies: {
                 where: {

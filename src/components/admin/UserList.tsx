@@ -1,8 +1,12 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useAdminUsers } from "@/lib/api/admin-users";
-import { UserStatus } from "@/types/admin-user";
+import {
+  useAdminUsers,
+  useUpdateUserStatus,
+  useDeleteUser,
+} from "@/lib/api/admin-users";
+import { AdminUser, UserStatus } from "@/types/admin-user";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,15 +26,20 @@ import {
 } from "@/components/ui/table";
 import {
   Plus,
-  Eye,
   Pencil,
   Search,
   ChevronLeft,
   ChevronRight,
+  Power,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useToast } from "@/hooks/use-toast";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EditUserModal } from "@/components/admin/EditUserModal";
+import { useQueryClient } from "@tanstack/react-query";
 
 /**
  * UserList component
@@ -42,6 +51,24 @@ export function UserList() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+
+  // Confirmation dialog states
+  const [showStatusDialog, setShowStatusDialog] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
+  const [pendingStatus, setPendingStatus] = useState<UserStatus | null>(null);
+
+  // Delete confirmation dialog state
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<AdminUser | null>(null);
+
+  // Edit user modal state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedUserForEdit, setSelectedUserForEdit] =
+    useState<AdminUser | null>(null);
+
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   // Debounce search to avoid excessive API calls
   const debouncedSearch = useDebounce(search, 300);
@@ -53,10 +80,102 @@ export function UserList() {
     status: statusFilter !== "all" ? (statusFilter as UserStatus) : undefined,
   });
 
+  const updateMutation = useUpdateUserStatus();
+  const deleteMutation = useDeleteUser();
+
   // Reset to page 1 when filters change
   useMemo(() => {
     setPage(1);
   }, [debouncedSearch, statusFilter]);
+
+  // Handle status toggle request
+  const handleStatusToggle = (user: AdminUser) => {
+    setSelectedUser(user);
+    const newStatus: UserStatus =
+      user.status === UserStatus.ACTIVE
+        ? UserStatus.INACTIVE
+        : UserStatus.ACTIVE;
+    setPendingStatus(newStatus);
+    setShowStatusDialog(true);
+  };
+
+  // Confirm and execute status change
+  const confirmStatusChange = async () => {
+    if (!selectedUser || !pendingStatus) return;
+
+    setActionInProgress(selectedUser.user_id);
+    try {
+      await updateMutation.mutateAsync({
+        userId: selectedUser.user_id,
+        data: { status: pendingStatus },
+      });
+
+      toast({
+        title: "Success",
+        description: `User ${pendingStatus === UserStatus.ACTIVE ? "activated" : "deactivated"} successfully`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to update user status",
+        variant: "destructive",
+      });
+    } finally {
+      setActionInProgress(null);
+      setShowStatusDialog(false);
+      setSelectedUser(null);
+      setPendingStatus(null);
+    }
+  };
+
+  // Handle edit click
+  const handleEditClick = (user: AdminUser) => {
+    setSelectedUserForEdit(user);
+    setShowEditModal(true);
+  };
+
+  // Handle successful user edit
+  const handleUserUpdated = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+  };
+
+  // Handle delete click
+  const handleDeleteClick = (user: AdminUser) => {
+    setUserToDelete(user);
+    setShowDeleteDialog(true);
+  };
+
+  // Confirm and execute user deletion
+  const confirmDelete = async () => {
+    if (!userToDelete) return;
+
+    setActionInProgress(userToDelete.user_id);
+    try {
+      console.log("Deleting user:", userToDelete.user_id);
+      const result = await deleteMutation.mutateAsync(userToDelete.user_id);
+      console.log("Delete result:", result);
+
+      toast({
+        title: "Success",
+        description: `User "${userToDelete.name}" deleted successfully`,
+      });
+    } catch (error) {
+      console.error("Delete error:", error);
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error ? error.message : "Failed to delete user",
+        variant: "destructive",
+      });
+    } finally {
+      setActionInProgress(null);
+      setShowDeleteDialog(false);
+      setUserToDelete(null);
+    }
+  };
 
   if (isLoading) {
     return <UserListSkeleton />;
@@ -175,18 +294,48 @@ export function UserList() {
                       data-testid={`user-actions-${user.user_id}`}
                     >
                       <div className="flex justify-end gap-2">
-                        <Link href={`/admin/users/${user.user_id}`}>
-                          <Button variant="ghost" size="icon">
-                            <Eye className="h-4 w-4" />
-                            <span className="sr-only">View details</span>
-                          </Button>
-                        </Link>
-                        <Link href={`/admin/users/${user.user_id}`}>
-                          <Button variant="ghost" size="icon">
-                            <Pencil className="h-4 w-4" />
-                            <span className="sr-only">Edit</span>
-                          </Button>
-                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEditClick(user)}
+                          disabled={actionInProgress === user.user_id}
+                        >
+                          <Pencil className="h-4 w-4" />
+                          <span className="sr-only">Edit</span>
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleStatusToggle(user)}
+                          disabled={actionInProgress === user.user_id}
+                          className={
+                            user.status === UserStatus.ACTIVE
+                              ? "text-green-600 hover:text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950"
+                              : "text-gray-400 hover:text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-900"
+                          }
+                        >
+                          <Power className="h-4 w-4" />
+                          <span className="sr-only">
+                            {user.status === UserStatus.ACTIVE
+                              ? "Deactivate"
+                              : "Activate"}
+                          </span>
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteClick(user)}
+                          disabled={
+                            actionInProgress === user.user_id ||
+                            user.status === UserStatus.ACTIVE
+                          }
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          <span className="sr-only">Delete</span>
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -234,6 +383,52 @@ export function UserList() {
             </div>
           )}
         </>
+      )}
+
+      {/* Status Change Confirmation Dialog */}
+      {selectedUser && (
+        <ConfirmDialog
+          open={showStatusDialog}
+          onOpenChange={setShowStatusDialog}
+          title={`${pendingStatus === UserStatus.ACTIVE ? "Activate" : "Deactivate"} User?`}
+          description={`Are you sure you want to ${pendingStatus === UserStatus.ACTIVE ? "activate" : "deactivate"} "${selectedUser.name}"? ${
+            pendingStatus === UserStatus.INACTIVE
+              ? "This will disable their access immediately."
+              : "This will enable their access."
+          }`}
+          confirmText={
+            pendingStatus === UserStatus.ACTIVE ? "Activate" : "Deactivate"
+          }
+          cancelText="Cancel"
+          onConfirm={confirmStatusChange}
+          destructive={pendingStatus === UserStatus.INACTIVE}
+          isLoading={actionInProgress === selectedUser.user_id}
+        />
+      )}
+
+      {/* Edit User Modal */}
+      <EditUserModal
+        open={showEditModal}
+        onOpenChange={setShowEditModal}
+        user={selectedUserForEdit}
+        onSuccess={handleUserUpdated}
+      />
+
+      {/* Delete User Confirmation Dialog */}
+      {userToDelete && (
+        <ConfirmDialog
+          open={showDeleteDialog}
+          onOpenChange={setShowDeleteDialog}
+          title="Delete User?"
+          description={`Are you sure you want to delete "${userToDelete.name}"? This action cannot be undone.`}
+          confirmText="Delete Permanently"
+          cancelText="Cancel"
+          onConfirm={confirmDelete}
+          destructive={true}
+          isLoading={actionInProgress === userToDelete.user_id}
+          requiresTextConfirmation={true}
+          confirmationText="DELETE"
+        />
       )}
     </div>
   );

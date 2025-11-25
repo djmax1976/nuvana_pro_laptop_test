@@ -41,6 +41,11 @@ export async function companyRoutes(fastify: FastifyInstance) {
               maxLength: 255,
               description: "Company name",
             },
+            address: {
+              type: "string",
+              maxLength: 500,
+              description: "Company address (optional)",
+            },
             status: {
               type: "string",
               enum: ["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"],
@@ -56,6 +61,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
               client_id: { type: "string", format: "uuid" },
               client_name: { type: "string" },
               name: { type: "string" },
+              address: { type: "string", nullable: true },
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
               updated_at: { type: "string", format: "date-time" },
@@ -83,6 +89,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
         const body = request.body as {
           client_id: string;
           name: string;
+          address?: string;
           status?: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
         };
         const user = (request as any).user as UserIdentity;
@@ -105,6 +112,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
           {
             client_id: body.client_id,
             name: body.name,
+            address: body.address,
             status: body.status,
           },
           auditContext,
@@ -200,6 +208,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
                     client_id: { type: "string", format: "uuid" },
                     client_name: { type: "string" },
                     name: { type: "string" },
+                    address: { type: "string", nullable: true },
                     status: { type: "string" },
                     created_at: { type: "string", format: "date-time" },
                     updated_at: { type: "string", format: "date-time" },
@@ -313,6 +322,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
               client_id: { type: "string", format: "uuid" },
               client_name: { type: "string" },
               name: { type: "string" },
+              address: { type: "string", nullable: true },
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
               updated_at: { type: "string", format: "date-time" },
@@ -406,6 +416,11 @@ export async function companyRoutes(fastify: FastifyInstance) {
               maxLength: 255,
               description: "Company name",
             },
+            address: {
+              type: "string",
+              maxLength: 500,
+              description: "Company address (optional)",
+            },
             status: {
               type: "string",
               enum: ["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"],
@@ -456,6 +471,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
         const body = request.body as {
           client_id?: string;
           name?: string;
+          address?: string;
           status?: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
         };
         const user = (request as any).user as UserIdentity;
@@ -478,6 +494,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
           {
             client_id: body.client_id,
             name: body.name,
+            address: body.address,
             status: body.status,
           },
           auditContext,
@@ -553,6 +570,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
               client_id: { type: "string", format: "uuid" },
               client_name: { type: "string" },
               name: { type: "string" },
+              address: { type: "string", nullable: true },
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
               updated_at: { type: "string", format: "date-time" },

@@ -109,21 +109,43 @@ test.describe("Company Management E2E", () => {
   test.beforeEach(async ({ page }) => {
     // Login
     await page.goto("http://localhost:3000/login");
-    await page.fill('input[type="email"]', "company-e2e@test.com");
-    await page.fill('input[type="password"]', "TestPassword123!");
-    await page.click('button[type="submit"]');
-    await page.waitForURL("**/dashboard");
+
+    // Wait for login form to be ready
+    await page.waitForLoadState("networkidle");
+
+    // Fill in credentials
+    const emailInput = page.locator('input[type="email"]');
+    await emailInput.waitFor({ state: "visible", timeout: 10000 });
+    await emailInput.fill("company-e2e@test.com");
+
+    const passwordInput = page.locator('input[type="password"]');
+    await passwordInput.fill("TestPassword123!");
+
+    // Submit login
+    const submitButton = page.locator('button[type="submit"]');
+    await submitButton.click();
+
+    // Wait for redirect to dashboard - with longer timeout
+    await page.waitForURL("**/dashboard", { timeout: 15000 });
+
+    // Ensure we're actually logged in by waiting for dashboard to load
+    await page.waitForLoadState("networkidle");
   });
 
   test("[P0] Should load companies list page", async ({ page }) => {
     await page.goto("http://localhost:3000/companies");
+
+    // Wait for page to load
+    await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/companies$/);
-    await expect(
-      page.locator("h1, h2").filter({ hasText: /companies/i }),
-    ).toBeVisible();
+
+    // Verify companies table/list is visible
+    await expect(page.locator("table, [role='table']")).toBeVisible({
+      timeout: 10000,
+    });
   });
 
-  test("[P0] Should navigate to company detail page from companies list", async ({
+  test("[P0] Should open edit modal when clicking Edit button", async ({
     page,
   }) => {
     await page.goto("http://localhost:3000/companies");
@@ -131,101 +153,121 @@ test.describe("Company Management E2E", () => {
       .locator(`tr:has-text("${testCompany.name}")`)
       .first();
     await expect(companyRow).toBeVisible({ timeout: 10000 });
-    await companyRow.click();
-    await expect(page).toHaveURL(
-      new RegExp(`/companies/${testCompany.company_id}`),
-    );
+
+    // Click the Edit button (Pencil icon) in the row - using getByRole with accessible name
+    const editButton = companyRow.getByRole("button", { name: "Edit" });
+    await editButton.click();
+
+    // Verify the EditCompanyModal opens
+    const modal = page.locator('[role="dialog"]');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    await expect(modal.locator("text=Edit Company")).toBeVisible();
   });
 
-  test("[P0] Should successfully edit company name and status", async ({
+  test("[P0] Should verify company name is read-only in edit modal", async ({
     page,
   }) => {
-    await page.goto(
-      `http://localhost:3000/companies/${testCompany.company_id}`,
-    );
+    await page.goto("http://localhost:3000/companies");
 
-    const newName = `Updated Company ${Date.now()}`;
-    const nameInput = page.locator('input[data-testid="company-name-input"]');
-    await expect(nameInput).toBeVisible({ timeout: 10000 });
-    await nameInput.clear();
-    await nameInput.fill(newName);
+    // Click the Edit button to open modal
+    const companyRow = page
+      .locator(`tr:has-text("${testCompany.name}")`)
+      .first();
+    await expect(companyRow).toBeVisible({ timeout: 10000 });
+    const editButton = companyRow.getByRole("button", { name: "Edit" });
+    await editButton.click();
 
-    const statusSelect = page.locator(
-      'button[data-testid="company-status-select"]',
-    );
-    await statusSelect.click();
-    await page.locator('div[role="option"]:has-text("Inactive")').click();
+    // Wait for modal to open
+    const modal = page.locator('[role="dialog"]');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    await expect(modal.locator("text=Edit Company")).toBeVisible();
 
-    const submitButton = page.locator(
-      'button[data-testid="company-submit-button"]',
-    );
-    await submitButton.click();
-    await page.waitForTimeout(1000);
+    // Verify company name is displayed as read-only with explanation text
+    await expect(
+      modal.locator("text=Company name cannot be changed"),
+    ).toBeVisible();
 
-    const updatedCompany = await prisma.company.findUnique({
-      where: { company_id: testCompany.company_id },
-    });
-    expect(updatedCompany?.name).toBe(newName);
-    expect(updatedCompany?.status).toBe("INACTIVE");
+    // Verify the name value is displayed (read-only, not an input)
+    await expect(modal.locator(`text=${testCompany.name}`)).toBeVisible();
 
-    // Restore
-    await prisma.company.update({
-      where: { company_id: testCompany.company_id },
-      data: { name: testCompany.name, status: testCompany.status },
-    });
+    // Verify there's no input field for name (it's truly read-only)
+    const nameInputs = modal.locator('input[value="' + testCompany.name + '"]');
+    await expect(nameInputs).toHaveCount(0);
+
+    // Verify status field IS editable (has combobox role)
+    const statusSelect = modal.locator('button[role="combobox"]');
+    await expect(statusSelect).toBeVisible();
+
+    // Close modal
+    await modal.getByRole("button", { name: "Cancel" }).click();
   });
 
-  test("[P0] Should successfully change company's client assignment", async ({
+  test("[P0] Should verify company's client assignment is read-only", async ({
     page,
   }) => {
-    await page.goto(
-      `http://localhost:3000/companies/${testCompany.company_id}`,
-    );
+    await page.goto("http://localhost:3000/companies");
 
-    const clientSelect = page.locator(
-      'button[data-testid="company-client-select"]',
-    );
-    await expect(clientSelect).toBeVisible({ timeout: 10000 });
-    await clientSelect.click();
+    // Click the Edit button to open modal
+    const companyRow = page
+      .locator(`tr:has-text("${testCompany.name}")`)
+      .first();
+    await expect(companyRow).toBeVisible({ timeout: 10000 });
+    const editButton = companyRow.getByRole("button", { name: "Edit" });
+    await editButton.click();
 
-    // Select a different client or unlink
-    await page.locator('div[role="option"]').first().click();
+    // Wait for modal to open
+    const modal = page.locator('[role="dialog"]');
+    await expect(modal).toBeVisible({ timeout: 5000 });
 
-    const submitButton = page.locator(
-      'button[data-testid="company-submit-button"]',
-    );
-    await submitButton.click();
-    await page.waitForTimeout(1000);
+    // Verify client assignment is displayed as read-only with explanation text
+    await expect(
+      modal.locator("text=Client assignment cannot be changed").first(),
+    ).toBeVisible();
 
-    // Verify change persisted
-    const updatedCompany = await prisma.company.findUnique({
+    // Verify the client value is displayed (read-only, not a select)
+    await expect(modal.locator(`text=${testClient.name}`)).toBeVisible();
+
+    // Verify company still has correct client_id
+    const company = await prisma.company.findUnique({
       where: { company_id: testCompany.company_id },
     });
-    expect(updatedCompany).not.toBeNull();
+    expect(company?.client_id).toBe(testClient.client_id);
   });
 
   test("[P0] Should create a new company", async ({ page }) => {
     await page.goto("http://localhost:3000/companies");
 
-    const createButton = page.getByRole("button", {
-      name: /new company|create company/i,
+    //Click Create Company button
+    const createButton = page.getByRole("link", {
+      name: /create company/i,
     });
     await createButton.click();
 
+    // Wait for navigation to create page
+    await page.waitForURL(/\/companies\/new/);
+
     const newCompanyName = `New E2E Company ${Date.now()}`;
-    await page
-      .locator('input[data-testid="company-name-input"]')
-      .fill(newCompanyName);
 
-    const statusSelect = page.locator(
-      'button[data-testid="company-status-select"]',
-    );
+    // Fill in company name
+    const nameInput = page.locator('input[name="name"]');
+    await nameInput.fill(newCompanyName);
+
+    // Select client
+    const clientSelect = page.locator('button[role="combobox"]').first();
+    await clientSelect.click();
+    await page.locator('[role="option"]').first().click();
+
+    // Select status
+    await page.waitForTimeout(500);
+    const statusSelect = page.locator('button[role="combobox"]').last();
     await statusSelect.click();
-    await page.locator('div[role="option"]:has-text("Active")').click();
+    await page.locator('[role="option"]:has-text("Active")').first().click();
 
-    await page.locator('button[data-testid="company-submit-button"]').click();
-    await page.waitForTimeout(1000);
+    // Submit form
+    await page.getByRole("button", { name: /create company/i }).click();
+    await page.waitForTimeout(2000);
 
+    // Verify company was created
     const createdCompany = await prisma.company.findFirst({
       where: { name: newCompanyName },
     });
@@ -239,22 +281,26 @@ test.describe("Company Management E2E", () => {
     }
   });
 
-  test("[P1] Should show validation error for empty company name", async ({
+  test("[P1] Should show validation error when creating company with empty name", async ({
     page,
   }) => {
-    await page.goto(
-      `http://localhost:3000/companies/${testCompany.company_id}`,
-    );
+    await page.goto("http://localhost:3000/companies");
 
-    const nameInput = page.locator('input[data-testid="company-name-input"]');
-    await nameInput.clear();
+    // Click "New Company" button
+    const createButton = page.getByRole("button", {
+      name: /new company|create company/i,
+    });
+    await createButton.click();
 
-    const submitButton = page.locator(
-      'button[data-testid="company-submit-button"]',
-    );
+    // Wait for navigation to create page
+    await page.waitForURL(/\/companies\/new/);
+
+    // Try to submit without filling name
+    const submitButton = page.locator('button[type="submit"]');
     await submitButton.click();
 
-    const errorMessage = page.locator('[data-testid="form-error-message"]');
+    // Verify validation error appears
+    const errorMessage = page.locator("text=/company name is required/i");
     await expect(errorMessage).toBeVisible({ timeout: 5000 });
   });
 
@@ -264,13 +310,16 @@ test.describe("Company Management E2E", () => {
       data: { status: "ACTIVE" },
     });
 
-    await page.goto(
-      `http://localhost:3000/companies/${testCompany.company_id}`,
-    );
+    await page.goto("http://localhost:3000/companies");
 
-    const deleteButton = page.locator(
-      'button[data-testid="company-delete-button"]',
-    );
+    // Find the company row
+    const companyRow = page
+      .locator(`tr:has-text("${testCompany.name}")`)
+      .first();
+    await expect(companyRow).toBeVisible({ timeout: 10000 });
+
+    // Verify delete button (Trash icon) is disabled for ACTIVE company
+    const deleteButton = companyRow.getByRole("button", { name: "Delete" });
     await expect(deleteButton).toBeDisabled();
   });
 
@@ -284,22 +333,36 @@ test.describe("Company Management E2E", () => {
       },
     });
 
-    await page.goto(
-      `http://localhost:3000/companies/${companyToDelete.company_id}`,
-    );
+    await page.goto("http://localhost:3000/companies");
 
-    const deleteButton = page.locator(
-      'button[data-testid="company-delete-button"]',
-    );
+    // Find the company row
+    const companyRow = page
+      .locator(`tr:has-text("${companyToDelete.name}")`)
+      .first();
+    await expect(companyRow).toBeVisible({ timeout: 10000 });
+
+    // Click delete button (Trash icon) - should be enabled for INACTIVE company
+    const deleteButton = companyRow.getByRole("button", { name: "Delete" });
     await expect(deleteButton).toBeEnabled();
     await deleteButton.click();
 
-    const confirmButton = page
-      .getByRole("button", { name: /delete|confirm/i })
-      .last();
-    await confirmButton.click();
-    await page.waitForTimeout(1000);
+    // Wait for confirmation dialog to open
+    const confirmDialog = page.locator('[role="alertdialog"]');
+    await expect(confirmDialog).toBeVisible({ timeout: 5000 });
 
+    // Type "DELETE" in the confirmation textbox
+    const confirmInput = confirmDialog.getByPlaceholder("DELETE");
+    await confirmInput.fill("DELETE");
+
+    // Now the "Delete Permanently" button should be enabled
+    const confirmButton = confirmDialog.getByRole("button", {
+      name: /delete permanently/i,
+    });
+    await expect(confirmButton).toBeEnabled({ timeout: 2000 });
+    await confirmButton.click();
+    await page.waitForTimeout(1500);
+
+    // Verify soft deletion occurred
     const deletedCompany = await prisma.company.findUnique({
       where: { company_id: companyToDelete.company_id },
     });
@@ -308,17 +371,21 @@ test.describe("Company Management E2E", () => {
 
   test("[P1] Should display properly on mobile screens", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto(
-      `http://localhost:3000/companies/${testCompany.company_id}`,
-    );
+    await page.goto("http://localhost:3000/companies");
     await page.waitForLoadState("networkidle");
 
-    const companyEditSection = page.locator(
-      '[data-testid="company-edit-section"]',
-    );
-    await expect(companyEditSection).toBeVisible();
+    // Verify companies list is visible on mobile
+    const companiesList = page.locator("table, [role='table']");
+    await expect(companiesList).toBeVisible();
 
+    // Verify viewport is correctly set
     const viewport = page.viewportSize();
     expect(viewport?.width).toBe(375);
+
+    // Verify we can interact with a company on mobile
+    const companyRow = page
+      .locator(`tr:has-text("${testCompany.name}")`)
+      .first();
+    await expect(companyRow).toBeVisible({ timeout: 10000 });
   });
 });

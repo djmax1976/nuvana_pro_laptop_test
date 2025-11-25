@@ -18,7 +18,10 @@ export interface AuditContext {
 /**
  * User status enum
  */
-export type UserStatus = "ACTIVE" | "INACTIVE";
+export enum UserStatus {
+  ACTIVE = "ACTIVE",
+  INACTIVE = "INACTIVE",
+}
 
 /**
  * Scope type for role assignments
@@ -686,6 +689,122 @@ export class UserAdminService {
       }
     } catch (error) {
       console.error("Error revoking role:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Soft delete user (set status to INACTIVE and deleted_at timestamp)
+   * @param userId - User UUID
+   * @param auditContext - Audit context for logging
+   * @returns Updated user with INACTIVE status
+   * @throws Error if user not found or if user is ACTIVE
+   */
+  async deleteUser(
+    userId: string,
+    auditContext: AuditContext,
+  ): Promise<UserWithRoles> {
+    try {
+      // Check if user exists
+      const existingUser = await prisma.user.findUnique({
+        where: { user_id: userId },
+        include: {
+          userRoles: {
+            where: { deleted_at: null },
+            include: {
+              role: true,
+              company: {
+                include: {
+                  client: true,
+                },
+              },
+              store: true,
+            },
+          },
+        },
+      });
+
+      if (!existingUser) {
+        throw new Error(`User with ID ${userId} not found`);
+      }
+
+      // Prevent deletion of ACTIVE users - they must be set to INACTIVE first
+      if (existingUser.status === "ACTIVE") {
+        throw new Error(
+          "Cannot delete ACTIVE user. Set status to INACTIVE first.",
+        );
+      }
+
+      // Soft delete by setting deleted_at timestamp
+      const deletedAt = new Date();
+
+      // Soft delete all user roles
+      await prisma.userRole.updateMany({
+        where: {
+          user_id: userId,
+          deleted_at: null,
+        },
+        data: {
+          deleted_at: deletedAt,
+          status: "INACTIVE",
+        },
+      });
+
+      // Soft delete the user
+      const user = await prisma.user.update({
+        where: { user_id: userId },
+        data: {
+          deleted_at: deletedAt,
+          status: "INACTIVE",
+        },
+        include: {
+          userRoles: {
+            include: {
+              role: true,
+              company: {
+                include: {
+                  client: true,
+                },
+              },
+              store: true,
+            },
+          },
+        },
+      });
+
+      // Create audit log (non-blocking)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "DELETE",
+            table_name: "users",
+            record_id: user.user_id,
+            old_values: existingUser as unknown as Record<string, any>,
+            new_values: user as unknown as Record<string, any>,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `User ${user.email} soft deleted by ${auditContext.userEmail}`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the deletion
+        console.error(
+          "Failed to create audit log for user deletion:",
+          auditError,
+        );
+      }
+
+      return this.mapUserWithRoles(user);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message.includes("not found") ||
+          error.message.includes("ACTIVE user"))
+      ) {
+        throw error;
+      }
+      console.error("Error deleting user:", error);
       throw error;
     }
   }

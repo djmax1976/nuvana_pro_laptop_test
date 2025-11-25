@@ -576,6 +576,89 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * DELETE /api/admin/users/:userId
+   * Soft delete a user (must be INACTIVE first)
+   */
+  fastify.delete(
+    "/api/admin/users/:userId",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { userId } = request.params as { userId: string };
+        const user = (request as unknown as { user: UserIdentity }).user;
+
+        // Validate UUID format
+        if (!isValidUUID(userId)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: "Invalid user ID",
+            message: "User ID must be a valid UUID",
+          };
+        }
+
+        // Prevent self-deletion
+        if (userId === user.id) {
+          reply.code(400);
+          return {
+            success: false,
+            error: "Validation error",
+            message: "You cannot delete your own account",
+          };
+        }
+
+        const auditContext = getAuditContext(request, user);
+
+        const deletedUser = await userAdminService.deleteUser(
+          userId,
+          auditContext,
+        );
+
+        reply.code(200);
+        return {
+          success: true,
+          data: deletedUser,
+          message: "User deleted successfully",
+        };
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        fastify.log.error({ error }, "Error deleting user");
+
+        if (message.includes("not found")) {
+          reply.code(404);
+          return {
+            success: false,
+            error: "Not found",
+            message: "User not found",
+          };
+        }
+
+        if (message.includes("ACTIVE user")) {
+          reply.code(400);
+          return {
+            success: false,
+            error: "Validation error",
+            message,
+          };
+        }
+
+        reply.code(500);
+        return {
+          success: false,
+          error: "Internal server error",
+          message: "Failed to delete user",
+        };
+      }
+    },
+  );
+
+  /**
    * GET /api/admin/roles
    * Get available roles for dropdown selection
    */

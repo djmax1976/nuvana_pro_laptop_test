@@ -6,7 +6,7 @@
 /**
  * Company status type
  */
-export type CompanyStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
+export type CompanyStatus = "ACTIVE" | "INACTIVE";
 
 /**
  * Company entity with all fields
@@ -15,6 +15,7 @@ export interface Company {
   company_id: string;
   client_id: string | null;
   name: string;
+  address: string | null;
   status: string;
   created_at: Date;
   updated_at: Date;
@@ -38,6 +39,7 @@ export interface CompanyWithClient extends Company {
 export interface CreateCompanyInput {
   client_id: string; // Required for new companies
   name: string;
+  address?: string;
   status?: CompanyStatus;
 }
 
@@ -47,6 +49,7 @@ export interface CreateCompanyInput {
 export interface UpdateCompanyInput {
   client_id?: string;
   name?: string;
+  address?: string;
   status?: CompanyStatus;
 }
 
