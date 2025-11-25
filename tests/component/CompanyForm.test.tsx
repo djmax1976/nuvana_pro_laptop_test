@@ -195,6 +195,7 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
       expect(mockCreateMutation.mutateAsync).toHaveBeenCalledWith({
         client_id: "223e4567-e89b-12d3-a456-426614174001",
         name: "Test Company",
+        address: "", // Default empty address
         status: "ACTIVE", // Default value
       });
     });
@@ -239,6 +240,7 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
       expect(mockCreateMutation.mutateAsync).toHaveBeenCalledWith({
         client_id: "223e4567-e89b-12d3-a456-426614174001",
         name: "New Company",
+        address: "", // Default empty address
         status: "ACTIVE",
       });
     });
@@ -264,6 +266,7 @@ describe("2.4-COMPONENT: CompanyForm Component", () => {
         companyId: mockCompany.company_id,
         data: {
           name: "Updated Company",
+          address: "", // Default empty address
           status: "ACTIVE",
         },
       });
