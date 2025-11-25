@@ -27,8 +27,6 @@ export interface UserRoleDetail {
     description: string | null;
     scope: string;
   };
-  client_id: string | null;
-  client_name: string | null;
   company_id: string | null;
   company_name: string | null;
   store_id: string | null;
@@ -55,19 +53,21 @@ export interface AdminUser {
 export interface AssignRoleRequest {
   role_id: string;
   scope_type: ScopeType;
-  client_id?: string;
   company_id?: string;
   store_id?: string;
 }
 
 /**
  * Create user input
+ * When roles include CLIENT_OWNER, companyName and companyAddress are required
  */
 export interface CreateUserInput {
   email: string;
   name: string;
   password: string;
   roles: AssignRoleRequest[];
+  companyName?: string;
+  companyAddress?: string;
 }
 
 /**

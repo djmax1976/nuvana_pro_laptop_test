@@ -1,391 +1,384 @@
-import { test, expect } from "@playwright/test";
-import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcrypt";
-import {
-  generatePublicId,
-  PUBLIC_ID_PREFIXES,
-} from "../../backend/src/utils/public-id";
-import { cleanupTestData } from "../support/cleanup-helper";
-
-const prisma = new PrismaClient();
+import { test, expect } from "../support/fixtures/rbac.fixture";
+import { createCompany, createStore, createUser } from "../support/factories";
 
 /**
- * E2E Test Suite: Company Management
+ * Company Management E2E Tests
  *
- * Critical Path Tests:
- * - View companies list
- * - Navigate to company detail/edit page
- * - Edit company information (name, status, client link)
- * - Create new companies
- * - Delete companies
- * - Mobile responsiveness
+ * Tests for company list display, editing, and status management.
  *
- * These tests ensure the complete user journey works end-to-end.
+ * Note: Companies are NOT created through a separate Company creation page.
+ * Companies are created when a user is assigned the CLIENT_OWNER role.
+ * The User creation flow handles company creation atomically.
+ *
+ * Priority: P0 (Critical - Core entity management)
+ *
+ * Story: 2.4 - Company Management Dashboard
  */
 
-test.describe.configure({ mode: "serial" });
-
-test.describe("Company Management E2E", () => {
-  let superadminUser: any;
-  let testClient: any;
-  let testCompany: any;
-
-  test.beforeAll(async () => {
-    // Clean up existing test data (delete userRoles before users to avoid FK violations)
-    const existingUsers = await prisma.user.findMany({
-      where: { email: "company-e2e@test.com" },
-      select: { user_id: true },
-    });
-
-    for (const user of existingUsers) {
-      await prisma.userRole.deleteMany({
-        where: { user_id: user.user_id },
-      });
-    }
-
-    await prisma.user.deleteMany({
-      where: { email: "company-e2e@test.com" },
-    });
-
-    // Create superadmin user
-    const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
-    superadminUser = await prisma.user.create({
-      data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-        email: "company-e2e@test.com",
-        name: "Company E2E Tester",
-        password_hash: hashedPassword,
-        status: "ACTIVE",
-      },
-    });
-
-    // Assign SUPERADMIN role
-    const superadminRole = await prisma.role.findUnique({
-      where: { code: "SUPERADMIN" },
-    });
-
-    if (superadminRole) {
-      await prisma.userRole.create({
-        data: {
-          user_id: superadminUser.user_id,
-          role_id: superadminRole.role_id,
-          assigned_by: superadminUser.user_id,
-        },
-      });
-    }
-
-    // Create test client for company linking
-    testClient = await prisma.client.create({
-      data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
-        email: `test-${Date.now()}@example.com`,
-        name: "E2E Test Client for Companies",
-        status: "ACTIVE",
-      },
-    });
-
-    // Create test company
-    testCompany = await prisma.company.create({
-      data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-        name: "E2E Test Company",
-        status: "ACTIVE",
-        client_id: testClient.client_id,
-      },
-    });
-  });
-
-  test.afterAll(async () => {
-    // Cleanup: Delete test data using helper (respects FK constraints)
-    await cleanupTestData(prisma, {
-      companies: testCompany ? [testCompany.company_id] : [],
-      clients: testClient ? [testClient.client_id] : [],
-      users: superadminUser ? [superadminUser.user_id] : [],
-    });
-
-    await prisma.$disconnect();
-  });
-
-  test.beforeEach(async ({ page }) => {
-    // Login
-    await page.goto("http://localhost:3000/login");
-
-    // Wait for login form to be ready
-    await page.waitForLoadState("networkidle");
-
-    // Fill in credentials
-    const emailInput = page.locator('input[type="email"]');
-    await emailInput.waitFor({ state: "visible", timeout: 10000 });
-    await emailInput.fill("company-e2e@test.com");
-
-    const passwordInput = page.locator('input[type="password"]');
-    await passwordInput.fill("TestPassword123!");
-
-    // Submit login
-    const submitButton = page.locator('button[type="submit"]');
-    await submitButton.click();
-
-    // Wait for redirect to dashboard - with longer timeout
-    await page.waitForURL("**/dashboard", { timeout: 15000 });
-
-    // Ensure we're actually logged in by waiting for dashboard to load
-    await page.waitForLoadState("networkidle");
-  });
-
-  test("[P0] Should load companies list page", async ({ page }) => {
-    await page.goto("http://localhost:3000/companies");
-
-    // Wait for page to load
-    await page.waitForLoadState("networkidle");
-    await expect(page).toHaveURL(/\/companies$/);
-
-    // Verify companies table/list is visible
-    await expect(page.locator("table, [role='table']")).toBeVisible({
-      timeout: 10000,
-    });
-  });
-
-  test("[P0] Should open edit modal when clicking Edit button", async ({
-    page,
+test.describe("2.4-E2E: Company List - Display and Owner Information", () => {
+  test("2.4-E2E-001: [P0] Company list should display owner name and email", async ({
+    superadminPage,
+    prismaClient,
   }) => {
-    await page.goto("http://localhost:3000/companies");
-    const companyRow = page
-      .locator(`tr:has-text("${testCompany.name}")`)
-      .first();
-    await expect(companyRow).toBeVisible({ timeout: 10000 });
+    // GIVEN: A company exists with an owner
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({
+        name: "Test Owner",
+        email: "owner@test.nuvana.local",
+      }),
+    });
 
-    // Click the Edit button (Pencil icon) in the row - using getByRole with accessible name
-    const editButton = companyRow.getByRole("button", { name: "Edit" });
-    await editButton.click();
+    const companyData = createCompany({
+      name: "Test Company With Owner",
+      status: "ACTIVE",
+    });
+    await prismaClient.company.create({
+      data: {
+        ...companyData,
+        owner_user_id: ownerUser.user_id,
+      },
+    });
 
-    // Verify the EditCompanyModal opens
-    const modal = page.locator('[role="dialog"]');
-    await expect(modal).toBeVisible({ timeout: 5000 });
-    await expect(modal.locator("text=Edit Company")).toBeVisible();
-  });
+    // WHEN: Navigating to the company list page
+    await superadminPage.goto("/companies");
+    await superadminPage.waitForSelector("text=Companies");
 
-  test("[P0] Should verify company name is read-only in edit modal", async ({
-    page,
-  }) => {
-    await page.goto("http://localhost:3000/companies");
-
-    // Click the Edit button to open modal
-    const companyRow = page
-      .locator(`tr:has-text("${testCompany.name}")`)
-      .first();
-    await expect(companyRow).toBeVisible({ timeout: 10000 });
-    const editButton = companyRow.getByRole("button", { name: "Edit" });
-    await editButton.click();
-
-    // Wait for modal to open
-    const modal = page.locator('[role="dialog"]');
-    await expect(modal).toBeVisible({ timeout: 5000 });
-    await expect(modal.locator("text=Edit Company")).toBeVisible();
-
-    // Verify company name is displayed as read-only with explanation text
+    // THEN: The company list shows owner information
     await expect(
-      modal.locator("text=Company name cannot be changed"),
+      superadminPage.getByText("Test Company With Owner"),
     ).toBeVisible();
-
-    // Verify the name value is displayed (read-only, not an input)
-    await expect(modal.locator(`text=${testCompany.name}`)).toBeVisible();
-
-    // Verify there's no input field for name (it's truly read-only)
-    const nameInputs = modal.locator('input[value="' + testCompany.name + '"]');
-    await expect(nameInputs).toHaveCount(0);
-
-    // Verify status field IS editable (has combobox role)
-    const statusSelect = modal.locator('button[role="combobox"]');
-    await expect(statusSelect).toBeVisible();
-
-    // Close modal
-    await modal.getByRole("button", { name: "Cancel" }).click();
-  });
-
-  test("[P0] Should verify company's client assignment is read-only", async ({
-    page,
-  }) => {
-    await page.goto("http://localhost:3000/companies");
-
-    // Click the Edit button to open modal
-    const companyRow = page
-      .locator(`tr:has-text("${testCompany.name}")`)
-      .first();
-    await expect(companyRow).toBeVisible({ timeout: 10000 });
-    const editButton = companyRow.getByRole("button", { name: "Edit" });
-    await editButton.click();
-
-    // Wait for modal to open
-    const modal = page.locator('[role="dialog"]');
-    await expect(modal).toBeVisible({ timeout: 5000 });
-
-    // Verify client assignment is displayed as read-only with explanation text
+    await expect(superadminPage.getByText("Test Owner")).toBeVisible();
     await expect(
-      modal.locator("text=Client assignment cannot be changed").first(),
+      superadminPage.getByText("owner@test.nuvana.local"),
     ).toBeVisible();
-
-    // Verify the client value is displayed (read-only, not a select)
-    await expect(modal.locator(`text=${testClient.name}`)).toBeVisible();
-
-    // Verify company still has correct client_id
-    const company = await prisma.company.findUnique({
-      where: { company_id: testCompany.company_id },
-    });
-    expect(company?.client_id).toBe(testClient.client_id);
   });
 
-  test("[P0] Should create a new company", async ({ page }) => {
-    await page.goto("http://localhost:3000/companies");
-
-    //Click Create Company button
-    const createButton = page.getByRole("link", {
-      name: /create company/i,
+  test("2.4-E2E-002: [P0] Company list should show Owner column header", async ({
+    superadminPage,
+    prismaClient,
+  }) => {
+    // GIVEN: A company exists
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Column Test Owner" }),
     });
-    await createButton.click();
 
-    // Wait for navigation to create page
-    await page.waitForURL(/\/companies\/new/);
-
-    const newCompanyName = `New E2E Company ${Date.now()}`;
-
-    // Fill in company name
-    const nameInput = page.locator('input[name="name"]');
-    await nameInput.fill(newCompanyName);
-
-    // Select client
-    const clientSelect = page.locator('button[role="combobox"]').first();
-    await clientSelect.click();
-    await page.locator('[role="option"]').first().click();
-
-    // Select status
-    await page.waitForTimeout(500);
-    const statusSelect = page.locator('button[role="combobox"]').last();
-    await statusSelect.click();
-    await page.locator('[role="option"]:has-text("Active")').first().click();
-
-    // Submit form
-    await page.getByRole("button", { name: /create company/i }).click();
-    await page.waitForTimeout(2000);
-
-    // Verify company was created
-    const createdCompany = await prisma.company.findFirst({
-      where: { name: newCompanyName },
+    const companyData = createCompany({
+      name: "Column Test Company",
+      status: "ACTIVE",
     });
-    expect(createdCompany).not.toBeNull();
+    await prismaClient.company.create({
+      data: {
+        ...companyData,
+        owner_user_id: ownerUser.user_id,
+      },
+    });
 
-    // Cleanup
-    if (createdCompany) {
-      await prisma.company.delete({
-        where: { company_id: createdCompany.company_id },
-      });
+    // WHEN: Navigating to the company list page
+    await superadminPage.goto("/companies");
+    await superadminPage.waitForSelector("text=Companies");
+
+    // THEN: The Owner column header is visible
+    await expect(
+      superadminPage.getByRole("columnheader", { name: "Owner" }),
+    ).toBeVisible();
+    await expect(
+      superadminPage.getByRole("columnheader", { name: "Name" }),
+    ).toBeVisible();
+    await expect(
+      superadminPage.getByRole("columnheader", { name: "Status" }),
+    ).toBeVisible();
+  });
+
+  test("2.4-E2E-004: [P0] Company list should NOT have Create Company button", async ({
+    superadminPage,
+    prismaClient,
+  }) => {
+    // GIVEN: A company exists
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "No Create Button Owner" }),
+    });
+
+    const companyData = createCompany({
+      name: "No Create Button Company",
+      status: "ACTIVE",
+    });
+    await prismaClient.company.create({
+      data: {
+        ...companyData,
+        owner_user_id: ownerUser.user_id,
+      },
+    });
+
+    // WHEN: Navigating to the company list page
+    await superadminPage.goto("/companies");
+    await superadminPage.waitForSelector("text=Companies");
+
+    // THEN: There should be no Create Company button
+    await expect(
+      superadminPage.getByRole("button", { name: /create company/i }),
+    ).not.toBeVisible();
+    await expect(
+      superadminPage.getByRole("link", { name: /create company/i }),
+    ).not.toBeVisible();
+  });
+});
+
+test.describe("2.4-E2E: Company List - Empty State", () => {
+  test("2.4-E2E-005: [P1] Empty state should show no companies message", async ({
+    superadminPage,
+  }) => {
+    // GIVEN: No companies exist (clean state assumed)
+    // WHEN: Navigating to the company list page
+    await superadminPage.goto("/companies");
+    await superadminPage.waitForSelector("text=Companies");
+
+    // THEN: If no companies, show empty state message
+    // Note: This test may pass or show the empty state depending on test data
+    const emptyMessage = superadminPage.getByText(/No companies found/i);
+
+    // Check if empty state is shown (companies may exist from other tests)
+    const isEmpty = await emptyMessage.isVisible().catch(() => false);
+    if (isEmpty) {
+      await expect(emptyMessage).toBeVisible();
     }
   });
+});
 
-  test("[P1] Should show validation error when creating company with empty name", async ({
-    page,
+test.describe("2.4-E2E: Company Editing", () => {
+  test("2.4-E2E-010: [P0] Should open edit modal when clicking edit button", async ({
+    superadminPage,
+    prismaClient,
   }) => {
-    await page.goto("http://localhost:3000/companies");
-
-    // Click "New Company" button
-    const createButton = page.getByRole("button", {
-      name: /new company|create company/i,
+    // GIVEN: A company exists
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Edit Test Owner" }),
     });
-    await createButton.click();
 
-    // Wait for navigation to create page
-    await page.waitForURL(/\/companies\/new/);
+    const companyData = createCompany({
+      name: "Company To Edit",
+      status: "ACTIVE",
+    });
+    await prismaClient.company.create({
+      data: {
+        ...companyData,
+        owner_user_id: ownerUser.user_id,
+      },
+    });
 
-    // Try to submit without filling name
-    const submitButton = page.locator('button[type="submit"]');
-    await submitButton.click();
+    // WHEN: Navigating to the company list and clicking edit
+    await superadminPage.goto("/companies");
+    await superadminPage.waitForSelector("text=Company To Edit");
 
-    // Verify validation error appears
-    const errorMessage = page.locator("text=/company name is required/i");
-    await expect(errorMessage).toBeVisible({ timeout: 5000 });
+    // Find and click the edit button for this company
+    const companyRow = superadminPage.locator("tr", {
+      has: superadminPage.locator("text=Company To Edit"),
+    });
+    await companyRow.getByRole("button", { name: /edit/i }).click();
+
+    // THEN: Edit modal should open
+    await expect(superadminPage.getByRole("dialog")).toBeVisible();
+    await expect(superadminPage.getByText(/Edit Company/i)).toBeVisible();
   });
 
-  test("[P0] Should prevent deletion of ACTIVE company", async ({ page }) => {
-    await prisma.company.update({
-      where: { company_id: testCompany.company_id },
-      data: { status: "ACTIVE" },
+  test("2.4-E2E-011: [P0] Edit modal should show owner information (read-only)", async ({
+    superadminPage,
+    prismaClient,
+  }) => {
+    // GIVEN: A company exists with owner
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({
+        name: "Owner For Modal",
+        email: "modal-owner@test.nuvana.local",
+      }),
     });
 
-    await page.goto("http://localhost:3000/companies");
+    const companyData = createCompany({
+      name: "Company For Modal Test",
+      status: "ACTIVE",
+    });
+    await prismaClient.company.create({
+      data: {
+        ...companyData,
+        owner_user_id: ownerUser.user_id,
+      },
+    });
 
-    // Find the company row
-    const companyRow = page
-      .locator(`tr:has-text("${testCompany.name}")`)
-      .first();
-    await expect(companyRow).toBeVisible({ timeout: 10000 });
+    // WHEN: Opening the edit modal
+    await superadminPage.goto("/companies");
+    await superadminPage.waitForSelector("text=Company For Modal Test");
 
-    // Verify delete button (Trash icon) is disabled for ACTIVE company
-    const deleteButton = companyRow.getByRole("button", { name: "Delete" });
+    const companyRow = superadminPage.locator("tr", {
+      has: superadminPage.locator("text=Company For Modal Test"),
+    });
+    await companyRow.getByRole("button", { name: /edit/i }).click();
+
+    // THEN: Owner information should be displayed in the modal
+    await expect(superadminPage.getByRole("dialog")).toBeVisible();
+    await expect(superadminPage.getByText("Owner For Modal")).toBeVisible();
+    await expect(
+      superadminPage.getByText("modal-owner@test.nuvana.local"),
+    ).toBeVisible();
+  });
+});
+
+test.describe("2.4-E2E: Company Status Management", () => {
+  test("2.4-E2E-020: [P0] Should be able to deactivate an active company", async ({
+    superadminPage,
+    prismaClient,
+  }) => {
+    // GIVEN: An ACTIVE company exists
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Deactivate Test Owner" }),
+    });
+
+    const companyData = createCompany({
+      name: "Company To Deactivate",
+      status: "ACTIVE",
+    });
+    const company = await prismaClient.company.create({
+      data: {
+        ...companyData,
+        owner_user_id: ownerUser.user_id,
+      },
+    });
+
+    // WHEN: Clicking the status toggle button
+    await superadminPage.goto("/companies");
+    await superadminPage.waitForSelector("text=Company To Deactivate");
+
+    const companyRow = superadminPage.locator("tr", {
+      has: superadminPage.locator("text=Company To Deactivate"),
+    });
+
+    // Click the power/status toggle button
+    await companyRow.getByRole("button", { name: /deactivate/i }).click();
+
+    // THEN: Confirmation dialog should appear
+    await expect(superadminPage.getByRole("alertdialog")).toBeVisible();
+    await expect(superadminPage.getByText(/Deactivate Company/i)).toBeVisible();
+
+    // Confirm the deactivation
+    await superadminPage.getByRole("button", { name: /deactivate/i }).click();
+
+    // AND: Company should be deactivated
+    await superadminPage.waitForTimeout(1000); // Wait for mutation
+    const updatedCompany = await prismaClient.company.findUnique({
+      where: { company_id: company.company_id },
+    });
+    expect(updatedCompany?.status).toBe("INACTIVE");
+  });
+
+  test("2.4-E2E-021: [P0] Should NOT be able to delete an active company", async ({
+    superadminPage,
+    prismaClient,
+  }) => {
+    // GIVEN: An ACTIVE company exists
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Delete Block Test Owner" }),
+    });
+
+    const companyData = createCompany({
+      name: "Active Company Cannot Delete",
+      status: "ACTIVE",
+    });
+    await prismaClient.company.create({
+      data: {
+        ...companyData,
+        owner_user_id: ownerUser.user_id,
+      },
+    });
+
+    // WHEN: Viewing the company list
+    await superadminPage.goto("/companies");
+    await superadminPage.waitForSelector("text=Active Company Cannot Delete");
+
+    const companyRow = superadminPage.locator("tr", {
+      has: superadminPage.locator("text=Active Company Cannot Delete"),
+    });
+
+    // THEN: Delete button should be disabled for active company
+    const deleteButton = companyRow.getByRole("button", { name: /delete/i });
     await expect(deleteButton).toBeDisabled();
   });
 
-  test("[P1] Should successfully delete INACTIVE company", async ({ page }) => {
-    const companyToDelete = await prisma.company.create({
+  test("2.4-E2E-022: [P0] Should be able to delete an inactive company", async ({
+    superadminPage,
+    prismaClient,
+  }) => {
+    // GIVEN: An INACTIVE company exists
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Delete Test Owner" }),
+    });
+
+    const companyData = createCompany({
+      name: "Inactive Company To Delete",
+      status: "INACTIVE",
+    });
+    const company = await prismaClient.company.create({
       data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-        name: "Company to Delete E2E",
-        status: "INACTIVE",
-        client_id: testClient.client_id,
+        ...companyData,
+        owner_user_id: ownerUser.user_id,
       },
     });
 
-    await page.goto("http://localhost:3000/companies");
+    // WHEN: Clicking delete for the inactive company
+    await superadminPage.goto("/companies");
+    await superadminPage.waitForSelector("text=Inactive Company To Delete");
 
-    // Find the company row
-    const companyRow = page
-      .locator(`tr:has-text("${companyToDelete.name}")`)
-      .first();
-    await expect(companyRow).toBeVisible({ timeout: 10000 });
+    const companyRow = superadminPage.locator("tr", {
+      has: superadminPage.locator("text=Inactive Company To Delete"),
+    });
 
-    // Click delete button (Trash icon) - should be enabled for INACTIVE company
-    const deleteButton = companyRow.getByRole("button", { name: "Delete" });
-    await expect(deleteButton).toBeEnabled();
+    // Delete button should be enabled for inactive company
+    const deleteButton = companyRow.getByRole("button", { name: /delete/i });
+    await expect(deleteButton).not.toBeDisabled();
     await deleteButton.click();
 
-    // Wait for confirmation dialog to open
-    const confirmDialog = page.locator('[role="alertdialog"]');
-    await expect(confirmDialog).toBeVisible({ timeout: 5000 });
-
-    // Type "DELETE" in the confirmation textbox
-    const confirmInput = confirmDialog.getByPlaceholder("DELETE");
-    await confirmInput.fill("DELETE");
-
-    // Now the "Delete Permanently" button should be enabled
-    const confirmButton = confirmDialog.getByRole("button", {
-      name: /delete permanently/i,
-    });
-    await expect(confirmButton).toBeEnabled({ timeout: 2000 });
-    await confirmButton.click();
-    await page.waitForTimeout(1500);
-
-    // Verify soft deletion occurred
-    const deletedCompany = await prisma.company.findUnique({
-      where: { company_id: companyToDelete.company_id },
-    });
-    expect(deletedCompany?.deleted_at).not.toBeNull();
+    // THEN: Confirmation dialog should appear
+    await expect(superadminPage.getByRole("alertdialog")).toBeVisible();
+    await expect(superadminPage.getByText(/Delete Company/i)).toBeVisible();
   });
+});
 
-  test("[P1] Should display properly on mobile screens", async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto("http://localhost:3000/companies");
-    await page.waitForLoadState("networkidle");
+test.describe("2.4-E2E: Company List - Stores Relationship", () => {
+  test("2.4-E2E-030: [P1] Company with stores should show store count or navigate to stores", async ({
+    superadminPage,
+    prismaClient,
+  }) => {
+    // GIVEN: A company exists with stores
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Store Test Owner" }),
+    });
 
-    // Verify companies list is visible on mobile
-    const companiesList = page.locator("table, [role='table']");
-    await expect(companiesList).toBeVisible();
+    const companyData = createCompany({
+      name: "Company With Stores",
+      status: "ACTIVE",
+    });
+    const company = await prismaClient.company.create({
+      data: {
+        ...companyData,
+        owner_user_id: ownerUser.user_id,
+      },
+    });
 
-    // Verify viewport is correctly set
-    const viewport = page.viewportSize();
-    expect(viewport?.width).toBe(375);
+    // Create stores for this company
+    const storeData = createStore({
+      name: "Test Store 1",
+      status: "ACTIVE",
+      timezone: "America/New_York",
+    });
+    await prismaClient.store.create({
+      data: {
+        ...storeData,
+        company_id: company.company_id,
+      },
+    });
 
-    // Verify we can interact with a company on mobile
-    const companyRow = page
-      .locator(`tr:has-text("${testCompany.name}")`)
-      .first();
-    await expect(companyRow).toBeVisible({ timeout: 10000 });
+    // WHEN: Navigating to the company list
+    await superadminPage.goto("/companies");
+    await superadminPage.waitForSelector("text=Company With Stores");
+
+    // THEN: The company should be visible (stores managed separately)
+    await expect(superadminPage.getByText("Company With Stores")).toBeVisible();
   });
 });

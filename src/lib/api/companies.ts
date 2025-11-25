@@ -18,8 +18,9 @@ export type CompanyStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
  */
 export interface Company {
   company_id: string;
-  client_id: string | null;
-  client_name?: string;
+  owner_user_id: string;
+  owner_name?: string;
+  owner_email?: string;
   name: string;
   address?: string | null;
   status: CompanyStatus;
@@ -28,20 +29,11 @@ export interface Company {
 }
 
 /**
- * Create company input
- */
-export interface CreateCompanyInput {
-  client_id: string;
-  name: string;
-  address?: string;
-  status?: CompanyStatus;
-}
-
-/**
  * Update company input
+ * Note: Companies are now created through the User creation flow (CLIENT_OWNER role)
+ * owner_user_id cannot be changed after creation
  */
 export interface UpdateCompanyInput {
-  client_id?: string;
   name?: string;
   address?: string;
   status?: CompanyStatus;
@@ -87,7 +79,8 @@ export interface ListCompaniesParams {
   page?: number;
   limit?: number;
   status?: CompanyStatus;
-  clientId?: string;
+  ownerUserId?: string;
+  search?: string;
 }
 
 /**
@@ -146,8 +139,11 @@ export async function getCompanies(
   if (params?.status) {
     queryParams.append("status", params.status);
   }
-  if (params?.clientId) {
-    queryParams.append("clientId", params.clientId);
+  if (params?.ownerUserId) {
+    queryParams.append("ownerUserId", params.ownerUserId);
+  }
+  if (params?.search) {
+    queryParams.append("search", params.search);
   }
 
   const queryString = queryParams.toString();
@@ -173,35 +169,8 @@ export async function getCompanyById(companyId: string): Promise<Company> {
   });
 }
 
-/**
- * Create a new company (System Admin only)
- * @param data - Company creation data
- * @returns Created company
- */
-export async function createCompany(
-  data: CreateCompanyInput,
-): Promise<Company> {
-  if (!data.client_id) {
-    throw new Error("Client is required");
-  }
-
-  if (!data.name || data.name.trim().length === 0) {
-    throw new Error("Company name is required");
-  }
-
-  if (data.name.length > 255) {
-    throw new Error("Company name must be 255 characters or less");
-  }
-
-  if (data.address && data.address.length > 500) {
-    throw new Error("Address must be 500 characters or less");
-  }
-
-  return apiRequest<Company>("/api/companies", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-}
+// Note: createCompany has been removed - companies are now created
+// through the User creation flow when assigning the CLIENT_OWNER role
 
 /**
  * Update company (System Admin only)
@@ -266,14 +235,19 @@ export const companyKeys = {
 /**
  * Hook to fetch companies list with pagination
  * @param params - Query parameters for pagination and filtering
+ * @param options - Query options (enabled, etc.)
  * @returns TanStack Query result with companies data
  */
-export function useCompanies(params?: ListCompaniesParams) {
+export function useCompanies(
+  params?: ListCompaniesParams,
+  options?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: companyKeys.list(params),
     queryFn: () => getCompanies(params),
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    enabled: options?.enabled !== false,
   });
 }
 
@@ -294,21 +268,8 @@ export function useCompany(
   });
 }
 
-/**
- * Hook to create a new company
- * @returns TanStack Query mutation for creating a company
- */
-export function useCreateCompany() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (data: CreateCompanyInput) => createCompany(data),
-    onSuccess: () => {
-      // Invalidate companies list to refetch after creation
-      queryClient.invalidateQueries({ queryKey: companyKeys.lists() });
-    },
-  });
-}
+// Note: useCreateCompany has been removed - companies are now created
+// through the User creation flow when assigning the CLIENT_OWNER role
 
 /**
  * Hook to update a company

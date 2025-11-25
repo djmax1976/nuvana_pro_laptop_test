@@ -39,13 +39,19 @@ async function apiRequest<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+
+  // Only set Content-Type header if there's a body
+  const headers: Record<string, string> = {
+    ...((options.headers as Record<string, string>) || {}),
+  };
+  if (options.body) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const response = await fetch(url, {
     ...options,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers,
   });
 
   const data = await response.json();
@@ -200,9 +206,9 @@ export async function revokeRole(
 
 /**
  * Delete a user (System Admin only)
- * User must be INACTIVE before deletion (soft delete)
+ * User must be INACTIVE before deletion (permanent deletion)
  * @param userId - User UUID
- * @returns Deleted user with roles
+ * @returns Deleted user data (before deletion)
  */
 export async function deleteUser(userId: string): Promise<UserResponse> {
   if (!userId) {

@@ -39,7 +39,6 @@ describe("2.4-COMPONENT: StoreForm Component", () => {
     name: "Existing Store",
     location_json: {
       address: "123 Main St",
-      gps: { lat: 40.7128, lng: -74.006 },
     },
     timezone: "America/New_York",
     status: "ACTIVE",
@@ -79,8 +78,6 @@ describe("2.4-COMPONENT: StoreForm Component", () => {
     expect(screen.getByLabelText(/Store Name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Timezone/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Address/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/GPS Latitude/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/GPS Longitude/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Status/i)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Create Store/i }),
@@ -157,79 +154,6 @@ describe("2.4-COMPONENT: StoreForm Component", () => {
     // THEN: Form should submit successfully
     await waitFor(() => {
       expect(mockCreateMutation.mutateAsync).toHaveBeenCalled();
-    });
-  });
-
-  it("[P0] 2.4-COMPONENT-023: should display validation error for GPS latitude out of bounds", async () => {
-    // GIVEN: Form is rendered
-    const user = userEvent.setup();
-    renderWithProviders(<StoreForm companyId={companyId} />);
-
-    // WHEN: User enters invalid latitude
-    const nameInput = screen.getByLabelText(/Store Name/i);
-    await user.type(nameInput, "Test Store");
-    const latInput = screen.getByLabelText(/GPS Latitude/i);
-    await user.type(latInput, "91"); // Invalid: > 90
-    const submitButton = screen.getByRole("button", { name: /Create Store/i });
-    await user.click(submitButton);
-
-    // THEN: Validation error should be displayed
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Latitude must be between -90 and 90/i),
-      ).toBeInTheDocument();
-    });
-  });
-
-  it("[P0] 2.4-COMPONENT-024: should display validation error for GPS longitude out of bounds", async () => {
-    // GIVEN: Form is rendered
-    const user = userEvent.setup();
-    renderWithProviders(<StoreForm companyId={companyId} />);
-
-    // WHEN: User enters invalid longitude
-    const nameInput = screen.getByLabelText(/Store Name/i);
-    await user.type(nameInput, "Test Store");
-    const lngInput = screen.getByLabelText(/GPS Longitude/i);
-    await user.type(lngInput, "181"); // Invalid: > 180
-    const submitButton = screen.getByRole("button", { name: /Create Store/i });
-    await user.click(submitButton);
-
-    // THEN: Validation error should be displayed
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Longitude must be between -180 and 180/i),
-      ).toBeInTheDocument();
-    });
-  });
-
-  it("[P1] 2.4-COMPONENT-025: should accept valid GPS coordinates", async () => {
-    // GIVEN: Form is rendered
-    const user = userEvent.setup();
-    renderWithProviders(<StoreForm companyId={companyId} />);
-
-    // WHEN: User enters valid GPS coordinates
-    const nameInput = screen.getByLabelText(/Store Name/i);
-    await user.type(nameInput, "Test Store");
-    const latInput = screen.getByLabelText(/GPS Latitude/i);
-    await user.clear(latInput);
-    await user.type(latInput, "40.7128");
-    const lngInput = screen.getByLabelText(/GPS Longitude/i);
-    await user.clear(lngInput);
-    await user.type(lngInput, "-74.006");
-    const submitButton = screen.getByRole("button", { name: /Create Store/i });
-    await user.click(submitButton);
-
-    // THEN: Form should submit with GPS coordinates
-    await waitFor(() => {
-      expect(mockCreateMutation.mutateAsync).toHaveBeenCalledWith({
-        companyId,
-        data: expect.objectContaining({
-          name: "Test Store",
-          location_json: {
-            gps: { lat: 40.7128, lng: -74.006 },
-          },
-        }),
-      });
     });
   });
 

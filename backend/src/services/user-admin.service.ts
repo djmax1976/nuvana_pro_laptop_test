@@ -34,7 +34,6 @@ export type ScopeType = "SYSTEM" | "COMPANY" | "STORE";
 export interface AssignRoleRequest {
   role_id: string;
   scope_type: ScopeType;
-  client_id?: string;
   company_id?: string;
   store_id?: string;
 }
@@ -47,6 +46,9 @@ export interface CreateUserInput {
   name: string;
   password?: string;
   roles?: AssignRoleRequest[];
+  // Company fields for CLIENT_OWNER role
+  companyName?: string;
+  companyAddress?: string;
 }
 
 /**
@@ -83,8 +85,6 @@ export interface UserRoleDetail {
     description: string | null;
     scope: string;
   };
-  client_id: string | null;
-  client_name: string | null;
   company_id: string | null;
   company_name: string | null;
   store_id: string | null;
@@ -113,6 +113,7 @@ export interface PaginatedUserResult {
 export class UserAdminService {
   /**
    * Create a new user with optional initial role assignments
+   * If CLIENT_OWNER role is assigned, also creates a company owned by this user
    * @param data - User creation data
    * @param auditContext - Audit context for logging
    * @returns Created user with roles
@@ -134,9 +135,6 @@ export class UserAdminService {
     }
 
     // Check for whitespace-only name
-    if (data.name.trim() !== data.name.trim().replace(/\s+/g, " ")) {
-      // Allow spaces but check if it's not just whitespace
-    }
     if (data.name.trim().length === 0) {
       throw new Error("Name cannot be whitespace only");
     }
@@ -160,21 +158,106 @@ export class UserAdminService {
       throw new Error("User must be assigned at least one role");
     }
 
+    // Check if CLIENT_OWNER role is being assigned
+    const clientOwnerRoleAssignment = data.roles.find(async (r) => {
+      const role = await prisma.role.findUnique({
+        where: { role_id: r.role_id },
+      });
+      return role?.code === "CLIENT_OWNER";
+    });
+
+    // For CLIENT_OWNER role, we need to check if company details are provided
+    // We'll verify this after fetching the roles
+    let hasClientOwnerRole = false;
+    for (const roleAssignment of data.roles) {
+      const role = await prisma.role.findUnique({
+        where: { role_id: roleAssignment.role_id },
+      });
+      if (role?.code === "CLIENT_OWNER") {
+        hasClientOwnerRole = true;
+        break;
+      }
+    }
+
+    // Validate company fields if CLIENT_OWNER role is being assigned
+    if (hasClientOwnerRole) {
+      if (!data.companyName || data.companyName.trim().length === 0) {
+        throw new Error("Company name is required for Client Owner role");
+      }
+      if (data.companyName.trim().length > 255) {
+        throw new Error("Company name cannot exceed 255 characters");
+      }
+      if (!data.companyAddress || data.companyAddress.trim().length === 0) {
+        throw new Error("Company address is required for Client Owner role");
+      }
+      if (data.companyAddress.trim().length > 500) {
+        throw new Error("Company address cannot exceed 500 characters");
+      }
+    }
+
     try {
       // Hash password if provided
       const passwordHash = data.password
         ? await bcrypt.hash(data.password, 10)
         : null;
 
-      // Create user
-      const user = await prisma.user.create({
-        data: {
-          public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-          email: data.email.toLowerCase().trim(),
-          name: data.name.trim(),
-          password_hash: passwordHash,
-          status: "ACTIVE",
-        },
+      // Use transaction to create user and company atomically
+      const result = await prisma.$transaction(async (tx) => {
+        // Create user
+        const user = await tx.user.create({
+          data: {
+            public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+            email: data.email.toLowerCase().trim(),
+            name: data.name.trim(),
+            password_hash: passwordHash,
+            status: "ACTIVE",
+          },
+        });
+
+        // If CLIENT_OWNER, create a company owned by this user
+        let createdCompany = null;
+        if (hasClientOwnerRole && data.companyName && data.companyAddress) {
+          createdCompany = await tx.company.create({
+            data: {
+              public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+              name: data.companyName.trim(),
+              address: data.companyAddress.trim(),
+              owner_user_id: user.user_id,
+              status: "ACTIVE",
+            },
+          });
+        }
+
+        // Create role assignments
+        for (const roleAssignment of data.roles!) {
+          const role = await tx.role.findUnique({
+            where: { role_id: roleAssignment.role_id },
+          });
+
+          if (!role) {
+            throw new Error(`Role with ID ${roleAssignment.role_id} not found`);
+          }
+
+          // For CLIENT_OWNER role, we don't need company_id in user_roles
+          // The ownership is tracked via company.owner_user_id
+          await tx.userRole.create({
+            data: {
+              user_id: user.user_id,
+              role_id: roleAssignment.role_id,
+              company_id:
+                roleAssignment.scope_type === "SYSTEM"
+                  ? null
+                  : roleAssignment.company_id,
+              store_id:
+                roleAssignment.scope_type === "STORE"
+                  ? roleAssignment.store_id
+                  : null,
+              assigned_by: auditContext.userId,
+            },
+          });
+        }
+
+        return { user, company: createdCompany };
       });
 
       // Create audit log for user creation (non-blocking)
@@ -184,16 +267,19 @@ export class UserAdminService {
             user_id: auditContext.userId,
             action: "CREATE",
             table_name: "users",
-            record_id: user.user_id,
+            record_id: result.user.user_id,
             new_values: {
-              user_id: user.user_id,
-              email: user.email,
-              name: user.name,
-              status: user.status,
+              user_id: result.user.user_id,
+              email: result.user.email,
+              name: result.user.name,
+              status: result.user.status,
+              company_created: result.company
+                ? result.company.company_id
+                : null,
             } as unknown as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
-            reason: `User created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+            reason: `User created by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})${result.company ? ` with company ${result.company.name}` : ""}`,
           },
         });
       } catch (auditError) {
@@ -204,15 +290,15 @@ export class UserAdminService {
         );
       }
 
-      // Assign initial roles (required, already validated)
-      for (const roleAssignment of data.roles) {
-        await this.assignRole(user.user_id, roleAssignment, auditContext);
-      }
-
       // Return user with roles
-      return this.getUserById(user.user_id);
+      return this.getUserById(result.user.user_id);
     } catch (error: unknown) {
-      if (error instanceof Error && error.message.includes("already exists")) {
+      if (
+        error instanceof Error &&
+        (error.message.includes("already exists") ||
+          error.message.includes("required") ||
+          error.message.includes("not found"))
+      ) {
         throw error;
       }
       console.error("Error creating user:", error);
@@ -257,11 +343,7 @@ export class UserAdminService {
             user_roles: {
               include: {
                 role: true,
-                company: {
-                  include: {
-                    client: true,
-                  },
-                },
+                company: true,
                 store: true,
               },
             },
@@ -285,8 +367,6 @@ export class UserAdminService {
             description: ur.role.description,
             scope: ur.role.scope,
           },
-          client_id: ur.company?.client_id || null,
-          client_name: ur.company?.client?.name || null,
           company_id: ur.company_id,
           company_name: ur.company?.name || null,
           store_id: ur.store_id,
@@ -324,11 +404,7 @@ export class UserAdminService {
           user_roles: {
             include: {
               role: true,
-              company: {
-                include: {
-                  client: true,
-                },
-              },
+              company: true,
               store: true,
             },
           },
@@ -354,8 +430,6 @@ export class UserAdminService {
             description: ur.role.description,
             scope: ur.role.scope,
           },
-          client_id: ur.company?.client_id || null,
-          client_name: ur.company?.client?.name || null,
           company_id: ur.company_id,
           company_name: ur.company?.name || null,
           store_id: ur.store_id,
@@ -374,6 +448,7 @@ export class UserAdminService {
 
   /**
    * Update user status (activate/deactivate)
+   * Cascades status changes to owned companies and their stores if user is a CLIENT_OWNER
    * @param userId - User UUID
    * @param status - New status (ACTIVE or INACTIVE)
    * @param auditContext - Audit context for logging
@@ -391,38 +466,76 @@ export class UserAdminService {
     }
 
     try {
-      // Check if user exists
+      // Check if user exists and get their roles
       const existingUser = await prisma.user.findUnique({
         where: { user_id: userId },
+        include: {
+          user_roles: {
+            include: {
+              role: true,
+            },
+          },
+          owned_companies: true,
+        },
       });
 
       if (!existingUser) {
         throw new Error(`User with ID ${userId} not found`);
       }
 
-      // Update user status
-      const user = await prisma.user.update({
-        where: { user_id: userId },
-        data: { status },
+      // Check if user has CLIENT_OWNER role
+      const hasClientOwnerRole = existingUser.user_roles.some(
+        (ur: any) => ur.role?.code === "CLIENT_OWNER",
+      );
+
+      // Use transaction to update user and cascade to owned companies if applicable
+      await prisma.$transaction(async (tx) => {
+        // Update user status
+        await tx.user.update({
+          where: { user_id: userId },
+          data: { status },
+        });
+
+        // CASCADE: If user is a CLIENT_OWNER with owned companies, update them
+        if (hasClientOwnerRole && existingUser.owned_companies.length > 0) {
+          // Update all companies owned by this user
+          await tx.company.updateMany({
+            where: { owner_user_id: userId },
+            data: { status },
+          });
+
+          // Update all stores under companies owned by this user
+          await tx.store.updateMany({
+            where: {
+              company: { owner_user_id: userId },
+            },
+            data: { status },
+          });
+        }
       });
 
       // Create audit log (non-blocking)
       try {
+        const auditReason =
+          hasClientOwnerRole && existingUser.owned_companies.length > 0
+            ? `User ${status === "INACTIVE" ? "deactivated" : "activated"} by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")}). ${existingUser.owned_companies.length} owned company/companies also ${status === "INACTIVE" ? "deactivated" : "activated"}.`
+            : `User ${status === "INACTIVE" ? "deactivated" : "activated"} by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`;
+
         await prisma.auditLog.create({
           data: {
             user_id: auditContext.userId,
             action: "UPDATE",
             table_name: "users",
-            record_id: user.user_id,
+            record_id: userId,
             old_values: {
               status: existingUser.status,
             } as unknown as Record<string, any>,
             new_values: {
-              status: user.status,
+              status: status,
             } as unknown as Record<string, any>,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
-            reason: `User ${status === "INACTIVE" ? "deactivated" : "activated"} by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+            reason: auditReason,
           },
         });
       } catch (auditError) {
@@ -456,8 +569,7 @@ export class UserAdminService {
     roleAssignment: AssignRoleRequest,
     auditContext: AuditContext,
   ): Promise<UserRoleDetail> {
-    const { role_id, scope_type, client_id, company_id, store_id } =
-      roleAssignment;
+    const { role_id, scope_type, company_id, store_id } = roleAssignment;
 
     // Verify user exists
     const user = await prisma.user.findUnique({
@@ -480,44 +592,33 @@ export class UserAdminService {
     // Validate scope requirements
     if (scope_type === "SYSTEM") {
       // SYSTEM scope - no additional IDs required
-      // But we should not have company_id or store_id
     } else if (scope_type === "COMPANY") {
-      // COMPANY scope - requires client_id and company_id
-      if (!client_id || !company_id) {
-        throw new Error("COMPANY scope requires both client_id and company_id");
+      // COMPANY scope - requires company_id
+      if (!company_id) {
+        throw new Error("COMPANY scope requires company_id");
       }
 
-      // Validate company exists and belongs to client
+      // Validate company exists
       const company = await prisma.company.findUnique({
         where: { company_id },
       });
 
       if (!company) {
         throw new Error(`Company with ID ${company_id} not found`);
-      }
-
-      if (company.client_id !== client_id) {
-        throw new Error("Company does not belong to the specified client");
       }
     } else if (scope_type === "STORE") {
-      // STORE scope - requires client_id, company_id, and store_id
-      if (!client_id || !company_id || !store_id) {
-        throw new Error(
-          "STORE scope requires client_id, company_id, and store_id",
-        );
+      // STORE scope - requires company_id and store_id
+      if (!company_id || !store_id) {
+        throw new Error("STORE scope requires company_id and store_id");
       }
 
-      // Validate company exists and belongs to client
+      // Validate company exists
       const company = await prisma.company.findUnique({
         where: { company_id },
       });
 
       if (!company) {
         throw new Error(`Company with ID ${company_id} not found`);
-      }
-
-      if (company.client_id !== client_id) {
-        throw new Error("Company does not belong to the specified client");
       }
 
       // Validate store exists and belongs to company
@@ -548,11 +649,7 @@ export class UserAdminService {
         },
         include: {
           role: true,
-          company: {
-            include: {
-              client: true,
-            },
-          },
+          company: true,
           store: true,
         },
       });
@@ -595,8 +692,6 @@ export class UserAdminService {
           description: userRole.role.description,
           scope: userRole.role.scope,
         },
-        client_id: userRole.company?.client_id || null,
-        client_name: userRole.company?.client?.name || null,
         company_id: userRole.company_id,
         company_name: userRole.company?.name || null,
         store_id: userRole.store_id,
@@ -694,10 +789,11 @@ export class UserAdminService {
   }
 
   /**
-   * Soft delete user (set status to INACTIVE and deleted_at timestamp)
+   * Hard delete user (permanently remove from database)
+   * Cascades deletion to owned companies if user is a CLIENT_OWNER
    * @param userId - User UUID
    * @param auditContext - Audit context for logging
-   * @returns Updated user with INACTIVE status
+   * @returns Deleted user data (before deletion)
    * @throws Error if user not found or if user is ACTIVE
    */
   async deleteUser(
@@ -705,20 +801,20 @@ export class UserAdminService {
     auditContext: AuditContext,
   ): Promise<UserWithRoles> {
     try {
-      // Check if user exists
+      // Check if user exists and get full user data including owned companies
       const existingUser = await prisma.user.findUnique({
         where: { user_id: userId },
         include: {
           user_roles: {
-            where: { deleted_at: null },
             include: {
               role: true,
-              company: {
-                include: {
-                  client: true,
-                },
-              },
+              company: true,
               store: true,
+            },
+          },
+          owned_companies: {
+            include: {
+              stores: true,
             },
           },
         },
@@ -735,55 +831,109 @@ export class UserAdminService {
         );
       }
 
-      // Soft delete by setting deleted_at timestamp
-      const deletedAt = new Date();
+      // Check if user has CLIENT_OWNER role
+      const hasClientOwnerRole = existingUser.user_roles.some(
+        (ur: any) => ur.role?.code === "CLIENT_OWNER",
+      );
 
-      // Soft delete all user roles
-      await prisma.userRole.updateMany({
-        where: {
-          user_id: userId,
-          deleted_at: null,
-        },
-        data: {
-          deleted_at: deletedAt,
-          status: "INACTIVE",
-        },
-      });
+      // If user owns companies, check if they can be deleted
+      if (hasClientOwnerRole && existingUser.owned_companies.length > 0) {
+        // Check for active companies
+        const activeCompanies = existingUser.owned_companies.filter(
+          (c: any) => c.status === "ACTIVE",
+        );
+        if (activeCompanies.length > 0) {
+          throw new Error(
+            `Cannot delete user with ${activeCompanies.length} active company/companies. Deactivate all companies first.`,
+          );
+        }
+      }
 
-      // Soft delete the user (set status to INACTIVE)
-      const user = await prisma.user.update({
-        where: { user_id: userId },
-        data: {
-          status: "INACTIVE",
-        },
-        include: {
-          user_roles: {
-            include: {
-              role: true,
-              company: {
-                include: {
-                  client: true,
-                },
-              },
-              store: true,
-            },
+      // Prepare user data for return (before deletion)
+      const userData: UserWithRoles = {
+        user_id: existingUser.user_id,
+        email: existingUser.email,
+        name: existingUser.name,
+        status: existingUser.status as UserStatus,
+        created_at: existingUser.created_at,
+        updated_at: existingUser.updated_at,
+        roles: existingUser.user_roles.map((ur: any) => ({
+          user_role_id: ur.user_role_id,
+          role: {
+            role_id: ur.role.role_id,
+            code: ur.role.code,
+            description: ur.role.description,
+            scope: ur.role.scope,
           },
-        },
+          company_id: ur.company_id,
+          company_name: ur.company?.name || null,
+          store_id: ur.store_id,
+          store_name: ur.store?.name || null,
+          assigned_at: ur.assigned_at,
+        })),
+      };
+
+      // Use transaction to delete user and cascade to owned companies
+      await prisma.$transaction(async (tx) => {
+        // If user owns companies, delete them and their stores
+        if (existingUser.owned_companies.length > 0) {
+          for (const company of existingUser.owned_companies) {
+            // Get store IDs for this company
+            const storeIds = company.stores.map((s: any) => s.store_id);
+
+            // Delete user roles for stores
+            if (storeIds.length > 0) {
+              await tx.userRole.deleteMany({
+                where: { store_id: { in: storeIds } },
+              });
+            }
+
+            // Delete user roles for company
+            await tx.userRole.deleteMany({
+              where: { company_id: company.company_id },
+            });
+
+            // Delete stores (cascade should handle this, but being explicit)
+            await tx.store.deleteMany({
+              where: { company_id: company.company_id },
+            });
+          }
+
+          // Delete all owned companies
+          await tx.company.deleteMany({
+            where: { owner_user_id: userId },
+          });
+        }
+
+        // Delete all remaining user roles for this user
+        await tx.userRole.deleteMany({
+          where: { user_id: userId },
+        });
+
+        // Hard delete the user
+        await tx.user.delete({
+          where: { user_id: userId },
+        });
       });
 
       // Create audit log (non-blocking)
       try {
+        const auditReason =
+          existingUser.owned_companies.length > 0
+            ? `User ${existingUser.email} and ${existingUser.owned_companies.length} owned company/companies permanently deleted by ${auditContext.userEmail}`
+            : `User ${existingUser.email} permanently deleted by ${auditContext.userEmail}`;
+
         await prisma.auditLog.create({
           data: {
             user_id: auditContext.userId,
             action: "DELETE",
             table_name: "users",
-            record_id: user.user_id,
+            record_id: existingUser.user_id,
             old_values: existingUser as unknown as Record<string, any>,
-            new_values: user as unknown as Record<string, any>,
+            new_values: undefined,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
-            reason: `User ${user.email} soft deleted by ${auditContext.userEmail}`,
+            reason: auditReason,
           },
         });
       } catch (auditError) {
@@ -794,35 +944,13 @@ export class UserAdminService {
         );
       }
 
-      return {
-        user_id: user.user_id,
-        email: user.email,
-        name: user.name,
-        status: user.status as UserStatus,
-        created_at: user.created_at,
-        updated_at: user.updated_at,
-        roles: user.user_roles.map((ur: any) => ({
-          user_role_id: ur.user_role_id,
-          role: {
-            role_id: ur.role.role_id,
-            code: ur.role.code,
-            description: ur.role.description,
-            scope: ur.role.scope,
-          },
-          client_id: ur.company?.client_id || null,
-          client_name: ur.company?.client?.name || null,
-          company_id: ur.company_id,
-          company_name: ur.company?.name || null,
-          store_id: ur.store_id,
-          store_name: ur.store?.name || null,
-          assigned_at: ur.assigned_at,
-        })),
-      };
+      return userData;
     } catch (error) {
       if (
         error instanceof Error &&
         (error.message.includes("not found") ||
-          error.message.includes("ACTIVE user"))
+          error.message.includes("ACTIVE user") ||
+          error.message.includes("active company"))
       ) {
         throw error;
       }

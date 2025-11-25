@@ -39,7 +39,6 @@ export interface AdminUserData {
 export interface AssignRoleRequest {
   role_id: string;
   scope_type: ScopeType;
-  client_id?: string;
   company_id?: string;
   store_id?: string;
 }
@@ -70,8 +69,8 @@ export const createAdminUser = (
   overrides: Partial<AdminUserData> = {},
 ): AdminUserData => ({
   public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-  email: faker.internet.email().toLowerCase(),
-  name: faker.person.fullName(),
+  email: `test_${faker.string.alphanumeric(8).toLowerCase()}@test.nuvana.local`,
+  name: `Test ${faker.person.fullName()}`,
   status: "ACTIVE",
   ...overrides,
 });
@@ -103,10 +102,8 @@ export const createAdminUsers = (count: number): AdminUserData[] =>
 export const createUserRequest = (
   overrides: Partial<CreateUserRequest> = {},
 ): CreateUserRequest => ({
-  // Add timestamp to ensure uniqueness across burn-in iterations
-  email:
-    `test-${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase(),
-  name: `${faker.person.fullName()} ${Date.now()}`,
+  email: `test_${faker.string.alphanumeric(8).toLowerCase()}@test.nuvana.local`,
+  name: `Test ${faker.person.fullName()}`,
   ...overrides,
 });
 
@@ -130,21 +127,18 @@ export const createSystemScopeAssignment = (
  * Create a COMPANY scope role assignment request
  *
  * @param role_id - The role ID to assign
- * @param client_id - The client ID for scope
  * @param company_id - The company ID for scope
  * @returns AssignRoleRequest for COMPANY scope
  *
  * @example
- * const assignment = createCompanyScopeAssignment('role-uuid', 'client-uuid', 'company-uuid');
+ * const assignment = createCompanyScopeAssignment('role-uuid', 'company-uuid');
  */
 export const createCompanyScopeAssignment = (
   role_id: string,
-  client_id: string,
   company_id: string,
 ): AssignRoleRequest => ({
   role_id,
   scope_type: "COMPANY",
-  client_id,
   company_id,
 });
 
@@ -152,23 +146,20 @@ export const createCompanyScopeAssignment = (
  * Create a STORE scope role assignment request
  *
  * @param role_id - The role ID to assign
- * @param client_id - The client ID for scope
  * @param company_id - The company ID for scope
  * @param store_id - The store ID for scope
  * @returns AssignRoleRequest for STORE scope
  *
  * @example
- * const assignment = createStoreScopeAssignment('role-uuid', 'client-uuid', 'company-uuid', 'store-uuid');
+ * const assignment = createStoreScopeAssignment('role-uuid', 'company-uuid', 'store-uuid');
  */
 export const createStoreScopeAssignment = (
   role_id: string,
-  client_id: string,
   company_id: string,
   store_id: string,
 ): AssignRoleRequest => ({
   role_id,
   scope_type: "STORE",
-  client_id,
   company_id,
   store_id,
 });
@@ -189,5 +180,5 @@ export const createInvalidScopeAssignment = (
 ): AssignRoleRequest => ({
   role_id,
   scope_type,
-  // Missing required client_id, company_id, store_id based on scope_type
+  // Missing required company_id, store_id based on scope_type
 });

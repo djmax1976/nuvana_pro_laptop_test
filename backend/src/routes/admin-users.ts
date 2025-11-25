@@ -1,5 +1,4 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { z } from "zod";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
@@ -9,6 +8,12 @@ import {
   UserStatus,
   ScopeType,
 } from "../services/user-admin.service";
+import {
+  createUserSchema,
+  roleAssignmentSchema,
+  updateUserStatusSchema,
+  listUsersQuerySchema,
+} from "../schemas/user.schema";
 
 // UUID validation helper - accepts standard UUIDs including nil UUID
 const UUID_REGEX =
@@ -16,54 +21,6 @@ const UUID_REGEX =
 function isValidUUID(id: string): boolean {
   return UUID_REGEX.test(id);
 }
-
-// Zod validation schemas for role assignment
-const roleAssignmentSchema = z.object({
-  role_id: z.string().uuid("Invalid role ID format"),
-  scope_type: z.enum(["SYSTEM", "COMPANY", "STORE"]),
-  client_id: z.string().uuid("Invalid client ID format").optional(),
-  company_id: z.string().uuid("Invalid company ID format").optional(),
-  store_id: z.string().uuid("Invalid store ID format").optional(),
-});
-
-// Zod validation schemas
-const createUserSchema = z.object({
-  email: z
-    .string()
-    .email("Invalid email format")
-    .max(255, "Email cannot exceed 255 characters"),
-  name: z
-    .string()
-    .min(1, "Name is required")
-    .max(255, "Name cannot exceed 255 characters")
-    .refine((val) => val.trim().length > 0, {
-      message: "Name cannot be whitespace only",
-    }),
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .max(255, "Password cannot exceed 255 characters")
-    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
-    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
-    .regex(/[0-9]/, "Password must contain at least one number")
-    .regex(
-      /[^A-Za-z0-9]/,
-      "Password must contain at least one special character",
-    )
-    .optional(),
-  roles: z.array(roleAssignmentSchema).min(1, "At least one role is required"),
-});
-
-const updateUserStatusSchema = z.object({
-  status: z.enum(["ACTIVE", "INACTIVE"]),
-});
-
-const listUsersQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
-  search: z.string().optional(),
-  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
-});
 
 /**
  * Helper to extract audit context from request
@@ -121,7 +78,8 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           };
         }
 
-        const { email, name, password, roles } = parseResult.data;
+        const { email, name, password, roles, companyName, companyAddress } =
+          parseResult.data;
 
         const auditContext = getAuditContext(request, user);
 
@@ -133,10 +91,11 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
             roles: roles as Array<{
               role_id: string;
               scope_type: ScopeType;
-              client_id?: string;
               company_id?: string;
               store_id?: string;
             }>,
+            companyName,
+            companyAddress,
           },
           auditContext,
         );
@@ -432,7 +391,6 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           {
             role_id: roleAssignment.role_id,
             scope_type: roleAssignment.scope_type as ScopeType,
-            client_id: roleAssignment.client_id,
             company_id: roleAssignment.company_id,
             store_id: roleAssignment.store_id,
           },
@@ -577,7 +535,7 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
 
   /**
    * DELETE /api/admin/users/:userId
-   * Soft delete a user (must be INACTIVE first)
+   * Permanently delete a user (must be INACTIVE first)
    */
   fastify.delete(
     "/api/admin/users/:userId",

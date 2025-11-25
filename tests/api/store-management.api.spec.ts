@@ -62,7 +62,6 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
       timezone: "America/New_York",
       location_json: {
         address: "123 Main St",
-        gps: { lat: 40.7128, lng: -74.006 },
       },
     });
 
@@ -942,7 +941,6 @@ test.describe.skip("Store Configuration API", () => {
       timezone: "America/Los_Angeles",
       location: {
         address: "456 Test Ave",
-        gps: { lat: 34.0522, lng: -118.2437 },
       },
       operating_hours: {
         monday: { open: "09:00", close: "17:00" },

@@ -23,10 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  useUpdateStoreConfiguration,
-  type Store,
-} from "@/lib/api/stores";
+import { useUpdateStoreConfiguration, type Store } from "@/lib/api/stores";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -106,22 +103,6 @@ const storeConfigurationFormSchema = z.object({
       "Timezone must be in IANA format (e.g., America/New_York, Europe/London)",
     ),
   address: z.string().optional(),
-  gpsLat: z
-    .string()
-    .optional()
-    .refine((val) => {
-      if (!val) return true;
-      const num = parseFloat(val);
-      return !isNaN(num) && num >= -90 && num <= 90;
-    }, "Latitude must be between -90 and 90"),
-  gpsLng: z
-    .string()
-    .optional()
-    .refine((val) => {
-      if (!val) return true;
-      const num = parseFloat(val);
-      return !isNaN(num) && num >= -180 && num <= 180;
-    }, "Longitude must be between -180 and 180"),
   monday: dayOperatingHoursSchema.optional(),
   tuesday: dayOperatingHoursSchema.optional(),
   wednesday: dayOperatingHoursSchema.optional(),
@@ -166,17 +147,24 @@ export function StoreConfigurationForm({
     defaultValues: {
       timezone: config.timezone || store.timezone || "",
       address: locationData.address || "",
-      gpsLat: locationData.gps?.lat?.toString() || "",
-      gpsLng: locationData.gps?.lng?.toString() || "",
       monday: operatingHours.monday || { open: "", close: "", closed: false },
       tuesday: operatingHours.tuesday || { open: "", close: "", closed: false },
-      wednesday:
-        operatingHours.wednesday || { open: "", close: "", closed: false },
-      thursday:
-        operatingHours.thursday || { open: "", close: "", closed: false },
+      wednesday: operatingHours.wednesday || {
+        open: "",
+        close: "",
+        closed: false,
+      },
+      thursday: operatingHours.thursday || {
+        open: "",
+        close: "",
+        closed: false,
+      },
       friday: operatingHours.friday || { open: "", close: "", closed: false },
-      saturday:
-        operatingHours.saturday || { open: "", close: "", closed: false },
+      saturday: operatingHours.saturday || {
+        open: "",
+        close: "",
+        closed: false,
+      },
       sunday: operatingHours.sunday || { open: "", close: "", closed: false },
     },
   });
@@ -184,21 +172,13 @@ export function StoreConfigurationForm({
   const onSubmit = async (values: StoreConfigurationFormValues) => {
     setIsSubmitting(true);
     try {
-      // Build location object
+      // Build location object (address only, no GPS)
       const location: {
         address?: string;
-        gps?: { lat: number; lng: number };
       } = {};
 
       if (values.address) {
         location.address = values.address;
-      }
-
-      if (values.gpsLat && values.gpsLng) {
-        location.gps = {
-          lat: parseFloat(values.gpsLat),
-          lng: parseFloat(values.gpsLng),
-        };
       }
 
       // Build operating hours object
@@ -383,75 +363,27 @@ export function StoreConfigurationForm({
           )}
         />
 
-        <div className="space-y-4 rounded-lg border p-4">
-          <h3 className="text-sm font-medium">Location</h3>
-
-          <FormField
-            control={form.control}
-            name="address"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Address</FormLabel>
-                <FormControl>
-                  <Textarea
-                    placeholder="Enter store address"
-                    {...field}
-                    disabled={isSubmitting}
-                    rows={3}
-                  />
-                </FormControl>
-                <FormDescription>
-                  Physical address of the store (optional)
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <div className="grid grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="gpsLat"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>GPS Latitude</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      step="any"
-                      placeholder="-90 to 90"
-                      {...field}
-                      disabled={isSubmitting}
-                    />
-                  </FormControl>
-                  <FormDescription>Latitude (-90 to 90)</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="gpsLng"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>GPS Longitude</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      step="any"
-                      placeholder="-180 to 180"
-                      {...field}
-                      disabled={isSubmitting}
-                    />
-                  </FormControl>
-                  <FormDescription>Longitude (-180 to 180)</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-        </div>
+        <FormField
+          control={form.control}
+          name="address"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Address</FormLabel>
+              <FormControl>
+                <Textarea
+                  placeholder="Enter store address"
+                  {...field}
+                  disabled={isSubmitting}
+                  rows={3}
+                />
+              </FormControl>
+              <FormDescription>
+                Physical address of the store (optional)
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <div className="space-y-4">
           <h3 className="text-sm font-medium">Operating Hours</h3>
@@ -473,4 +405,3 @@ export function StoreConfigurationForm({
     </Form>
   );
 }
-

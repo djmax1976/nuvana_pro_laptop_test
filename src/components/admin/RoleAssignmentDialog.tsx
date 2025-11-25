@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useRoles, useAssignRole, useRevokeRole } from "@/lib/api/admin-users";
-import { useClientsDropdown } from "@/lib/api/clients";
+import { useCompanies } from "@/lib/api/companies";
 import { AdminUser, UserRoleDetail, ScopeType } from "@/types/admin-user";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,19 +40,18 @@ const roleAssignmentSchema = z
   .object({
     role_id: z.string().min(1, "Role is required"),
     scope_type: z.enum(["SYSTEM", "COMPANY", "STORE"]),
-    client_id: z.string().optional(),
     company_id: z.string().optional(),
     store_id: z.string().optional(),
   })
   .refine(
     (data) => {
       if (data.scope_type === "COMPANY" || data.scope_type === "STORE") {
-        return data.client_id && data.company_id;
+        return data.company_id;
       }
       return true;
     },
     {
-      message: "Client and Company are required for this scope",
+      message: "Company is required for this scope",
       path: ["company_id"],
     },
   )
@@ -79,7 +78,7 @@ interface RoleAssignmentDialogProps {
 /**
  * RoleAssignmentDialog component
  * Dialog for assigning and revoking roles to/from users
- * Includes cascading selectors for client -> company -> store
+ * Includes cascading selectors for company -> store
  */
 export function RoleAssignmentDialog({
   user,
@@ -88,16 +87,13 @@ export function RoleAssignmentDialog({
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
   const { data: rolesData, isLoading: rolesLoading } = useRoles();
-  const { data: clientsData } = useClientsDropdown();
+  const { data: companiesData } = useCompanies();
   const assignRoleMutation = useAssignRole();
   const revokeRoleMutation = useRevokeRole();
 
   // State for cascading selectors
   const [selectedScopeType, setSelectedScopeType] =
     useState<ScopeType>("SYSTEM");
-  const [companies, setCompanies] = useState<
-    Array<{ company_id: string; name: string }>
-  >([]);
   const [stores, setStores] = useState<
     Array<{ store_id: string; name: string }>
   >([]);
@@ -107,7 +103,6 @@ export function RoleAssignmentDialog({
     defaultValues: {
       role_id: "",
       scope_type: "SYSTEM",
-      client_id: "",
       company_id: "",
       store_id: "",
     },
@@ -124,27 +119,23 @@ export function RoleAssignmentDialog({
         setSelectedScopeType(selectedRole.scope as ScopeType);
         form.setValue("scope_type", selectedRole.scope as ScopeType);
         // Reset scope fields when role changes
-        form.setValue("client_id", "");
         form.setValue("company_id", "");
         form.setValue("store_id", "");
-        setCompanies([]);
         setStores([]);
       }
     }
   }, [watchRoleId, rolesData, form]);
 
-  // Fetch companies when client changes (simplified - in real app, fetch from API)
-  const watchClientId = form.watch("client_id");
+  // Reset stores when company changes
+  const watchCompanyId = form.watch("company_id");
   useEffect(() => {
-    if (watchClientId) {
-      // In a real implementation, fetch companies for this client
-      // For now, we'll need the companies API endpoint
-      setCompanies([]);
-      form.setValue("company_id", "");
+    if (watchCompanyId) {
+      // In a real implementation, fetch stores for this company
+      // For now, clear stores
       form.setValue("store_id", "");
       setStores([]);
     }
-  }, [watchClientId, form]);
+  }, [watchCompanyId, form]);
 
   async function onSubmit(data: RoleAssignmentFormValues) {
     try {
@@ -153,7 +144,6 @@ export function RoleAssignmentDialog({
         roleAssignment: {
           role_id: data.role_id,
           scope_type: data.scope_type,
-          client_id: data.client_id || undefined,
           company_id: data.company_id || undefined,
           store_id: data.store_id || undefined,
         },
@@ -300,47 +290,11 @@ export function RoleAssignmentDialog({
                   <p className="text-xs text-muted-foreground">
                     {selectedScopeType === "SYSTEM" &&
                       "No additional selection required"}
-                    {selectedScopeType === "COMPANY" &&
-                      "Select a client and company"}
+                    {selectedScopeType === "COMPANY" && "Select a company"}
                     {selectedScopeType === "STORE" &&
-                      "Select a client, company, and store"}
+                      "Select a company and store"}
                   </p>
                 </div>
-              )}
-
-              {/* Client Selector (for COMPANY and STORE scopes) */}
-              {(selectedScopeType === "COMPANY" ||
-                selectedScopeType === "STORE") && (
-                <FormField
-                  control={form.control}
-                  name="client_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Client</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger data-testid="client-select">
-                            <SelectValue placeholder="Select a client" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {clientsData?.data.map((client) => (
-                            <SelectItem
-                              key={client.client_id}
-                              value={client.client_id}
-                            >
-                              {client.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
               )}
 
               {/* Company Selector (for COMPANY and STORE scopes) */}
@@ -355,21 +309,14 @@ export function RoleAssignmentDialog({
                       <Select
                         onValueChange={field.onChange}
                         value={field.value}
-                        disabled={!watchClientId}
                       >
                         <FormControl>
                           <SelectTrigger data-testid="company-select">
-                            <SelectValue
-                              placeholder={
-                                watchClientId
-                                  ? "Select a company"
-                                  : "Select a client first"
-                              }
-                            />
+                            <SelectValue placeholder="Select a company" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {companies.map((company) => (
+                          {companiesData?.data?.map((company) => (
                             <SelectItem
                               key={company.company_id}
                               value={company.company_id}

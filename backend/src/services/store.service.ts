@@ -16,7 +16,6 @@ export interface CreateStoreInput {
   name: string;
   location_json?: {
     address?: string;
-    gps?: { lat: number; lng: number };
   };
   timezone?: string;
   status?: StoreStatus;
@@ -29,7 +28,6 @@ export interface UpdateStoreInput {
   name?: string;
   location_json?: {
     address?: string;
-    gps?: { lat: number; lng: number };
   };
   timezone?: string;
   status?: StoreStatus;
@@ -66,7 +64,6 @@ export interface StoreConfiguration {
   timezone?: string; // IANA timezone format (e.g., America/New_York)
   location?: {
     address?: string;
-    gps?: { lat: number; lng: number };
   };
   operating_hours?: OperatingHours;
 }
@@ -141,27 +138,6 @@ export class StoreService {
         typeof data.location_json.address !== "string"
       ) {
         throw new Error("location_json.address must be a string");
-      }
-      if (data.location_json.gps) {
-        if (
-          typeof data.location_json.gps.lat !== "number" ||
-          typeof data.location_json.gps.lng !== "number"
-        ) {
-          throw new Error("location_json.gps must have lat and lng as numbers");
-        }
-        // Validate GPS coordinates range
-        if (
-          data.location_json.gps.lat < -90 ||
-          data.location_json.gps.lat > 90
-        ) {
-          throw new Error("GPS latitude must be between -90 and 90");
-        }
-        if (
-          data.location_json.gps.lng < -180 ||
-          data.location_json.gps.lng > 180
-        ) {
-          throw new Error("GPS longitude must be between -180 and 180");
-        }
       }
     }
 
@@ -292,27 +268,6 @@ export class StoreService {
       ) {
         throw new Error("location_json.address must be a string");
       }
-      if (data.location_json.gps) {
-        if (
-          typeof data.location_json.gps.lat !== "number" ||
-          typeof data.location_json.gps.lng !== "number"
-        ) {
-          throw new Error("location_json.gps must have lat and lng as numbers");
-        }
-        // Validate GPS coordinates range
-        if (
-          data.location_json.gps.lat < -90 ||
-          data.location_json.gps.lat > 90
-        ) {
-          throw new Error("GPS latitude must be between -90 and 90");
-        }
-        if (
-          data.location_json.gps.lng < -180 ||
-          data.location_json.gps.lng > 180
-        ) {
-          throw new Error("GPS longitude must be between -180 and 180");
-        }
-      }
     }
 
     // Validate status
@@ -412,21 +367,6 @@ export class StoreService {
           throw new Error(
             "Invalid address: HTML tags and scripts are not allowed",
           );
-        }
-      }
-      if (config.location.gps) {
-        if (
-          typeof config.location.gps.lat !== "number" ||
-          typeof config.location.gps.lng !== "number"
-        ) {
-          throw new Error("location.gps must have lat and lng as numbers");
-        }
-        // Validate GPS coordinates range
-        if (config.location.gps.lat < -90 || config.location.gps.lat > 90) {
-          throw new Error("GPS latitude must be between -90 and 90");
-        }
-        if (config.location.gps.lng < -180 || config.location.gps.lng > 180) {
-          throw new Error("GPS longitude must be between -180 and 180");
         }
       }
     }

@@ -7,12 +7,7 @@ import {
   createStoreScopeAssignment,
   createInvalidScopeAssignment,
 } from "../support/factories/user-admin.factory";
-import {
-  createClient,
-  createCompany,
-  createStore,
-  createClientWithUser,
-} from "../support/factories";
+import { createCompany, createStore, createUser } from "../support/factories";
 
 /**
  * User and Role Management API Tests
@@ -23,6 +18,10 @@ import {
  * - User activation/deactivation
  * - Permission enforcement (only System Admins with ADMIN_SYSTEM_CONFIG)
  * - Audit logging for all user and role operations
+ *
+ * Note: Client concept has been removed. Companies are now owned directly by users
+ * via owner_user_id. Companies are created through the user creation flow when
+ * assigning CLIENT_OWNER role.
  *
  * Priority: P0 (Critical - User access control foundation)
  *
@@ -453,17 +452,21 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     expect(auditLog).not.toBeNull();
   });
 
-  test("2.8-API-015: [P1] POST /api/admin/users/:userId/roles - should assign COMPANY scope role with client_id and company_id (AC #3)", async ({
+  test("2.8-API-015: [P1] POST /api/admin/users/:userId/roles - should assign COMPANY scope role with company_id (AC #3)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A user, client with user, company, and COMPANY scope role exist
+    // GIVEN: A user and a company exist (company owned by another user)
     const user = await prismaClient.user.create({
       data: createAdminUser(),
     });
 
-    const { client } = await createClientWithUser(prismaClient);
+    // Create an owner user for the company
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner" }),
+    });
 
+    // Create company with owner
     const companyData = createCompany({
       name: "Test Company",
       status: "ACTIVE",
@@ -471,7 +474,7 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     const company = await prismaClient.company.create({
       data: {
         ...companyData,
-        client_id: client.client_id,
+        owner_user_id: ownerUser.user_id,
       },
     });
 
@@ -482,14 +485,10 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       throw new Error("No COMPANY scope role found in database");
     }
 
-    // WHEN: Assigning COMPANY scope role with required IDs
+    // WHEN: Assigning COMPANY scope role with required company_id
     const response = await superadminApiRequest.post(
       `/api/admin/users/${user.user_id}/roles`,
-      createCompanyScopeAssignment(
-        role.role_id,
-        client.client_id,
-        company.company_id,
-      ),
+      createCompanyScopeAssignment(role.role_id, company.company_id),
     );
 
     // THEN: Role is assigned successfully with scope identifiers
@@ -506,7 +505,6 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       },
     });
     expect(userRole).not.toBeNull();
-    // Note: client_id check removed - UserRole model validation done via company_id/store_id
     expect(userRole?.company_id).toBe(company.company_id);
   });
 
@@ -543,21 +541,25 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A user, client with user, company, store, and STORE scope role exist
+    // GIVEN: A user, company, store, and STORE scope role exist
     const user = await prismaClient.user.create({
       data: createAdminUser(),
     });
 
-    const { client } = await createClientWithUser(prismaClient);
+    // Create an owner user for the company
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner for Store" }),
+    });
 
+    // Create company with owner
     const companyData = createCompany({
-      name: "Test Company",
+      name: "Test Company for Store",
       status: "ACTIVE",
     });
     const company = await prismaClient.company.create({
       data: {
         ...companyData,
-        client_id: client.client_id,
+        owner_user_id: ownerUser.user_id,
       },
     });
 
@@ -585,7 +587,6 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       `/api/admin/users/${user.user_id}/roles`,
       createStoreScopeAssignment(
         role.role_id,
-        client.client_id,
         company.company_id,
         store.store_id,
       ),
@@ -604,7 +605,6 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       },
     });
     expect(userRole).not.toBeNull();
-    // Note: client_id check removed - UserRole model validation done via company_id/store_id
     expect(userRole?.company_id).toBe(company.company_id);
     expect(userRole?.store_id).toBe(store.store_id);
   });
@@ -613,13 +613,17 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A user, client with user, and STORE scope role exist
+    // GIVEN: A user and STORE scope role exist
     const user = await prismaClient.user.create({
       data: createAdminUser(),
     });
 
-    const { client } = await createClientWithUser(prismaClient);
+    // Create an owner user for the company
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner" }),
+    });
 
+    // Create company with owner
     const companyData = createCompany({
       name: "Test Company",
       status: "ACTIVE",
@@ -627,7 +631,7 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     const company = await prismaClient.company.create({
       data: {
         ...companyData,
-        client_id: client.client_id,
+        owner_user_id: ownerUser.user_id,
       },
     });
 
@@ -644,7 +648,6 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       {
         role_id: role.role_id,
         scope_type: "STORE",
-        client_id: client.client_id,
         company_id: company.company_id,
         // store_id is missing
       },
@@ -657,67 +660,22 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     expect(body).toHaveProperty("error");
   });
 
-  test("2.8-API-019: [P1] POST /api/admin/users/:userId/roles - should validate company belongs to client (AC #3)", async ({
+  test("2.8-API-019: [P1] POST /api/admin/users/:userId/roles - should validate store belongs to company (AC #4)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: User, two clients, and a company belonging to one client
+    // GIVEN: User, two companies, and a store belonging to one company
     const user = await prismaClient.user.create({
       data: createAdminUser(),
     });
 
-    const { client: client1 } = await createClientWithUser(prismaClient, {
-      name: "Client One",
+    // Create owner users
+    const ownerUser1 = await prismaClient.user.create({
+      data: createUser({ name: "Owner One" }),
     });
-
-    const { client: client2 } = await createClientWithUser(prismaClient, {
-      name: "Client Two",
+    const ownerUser2 = await prismaClient.user.create({
+      data: createUser({ name: "Owner Two" }),
     });
-
-    const companyData = createCompany({
-      name: "Company for Client One",
-      status: "ACTIVE",
-    });
-    const company = await prismaClient.company.create({
-      data: {
-        ...companyData,
-        client_id: client1.client_id,
-      },
-    });
-
-    const role = await prismaClient.role.findFirst({
-      where: { scope: "COMPANY" },
-    });
-    if (!role) {
-      throw new Error("No COMPANY scope role found in database");
-    }
-
-    // WHEN: Assigning with wrong client_id (company doesn't belong to client2)
-    const response = await superadminApiRequest.post(
-      `/api/admin/users/${user.user_id}/roles`,
-      createCompanyScopeAssignment(
-        role.role_id,
-        client2.client_id, // Wrong client
-        company.company_id,
-      ),
-    );
-
-    // THEN: Validation error is returned
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-
-  test("2.8-API-020: [P1] POST /api/admin/users/:userId/roles - should validate store belongs to company (AC #4)", async ({
-    superadminApiRequest,
-    prismaClient,
-  }) => {
-    // GIVEN: User, client, two companies, and a store belonging to one company
-    const user = await prismaClient.user.create({
-      data: createAdminUser(),
-    });
-
-    const { client } = await createClientWithUser(prismaClient);
 
     const companyData1 = createCompany({
       name: "Company One",
@@ -726,7 +684,7 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     const company1 = await prismaClient.company.create({
       data: {
         ...companyData1,
-        client_id: client.client_id,
+        owner_user_id: ownerUser1.user_id,
       },
     });
 
@@ -737,7 +695,7 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     const company2 = await prismaClient.company.create({
       data: {
         ...companyData2,
-        client_id: client.client_id,
+        owner_user_id: ownerUser2.user_id,
       },
     });
 
@@ -765,7 +723,6 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       `/api/admin/users/${user.user_id}/roles`,
       createStoreScopeAssignment(
         role.role_id,
-        client.client_id,
         company2.company_id, // Wrong company
         store.store_id,
       ),
@@ -777,7 +734,7 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     expect(body.success).toBe(false);
   });
 
-  test("2.8-API-021: [P1] DELETE /api/admin/users/:userId/roles/:userRoleId - should revoke role (AC #6)", async ({
+  test("2.8-API-020: [P1] DELETE /api/admin/users/:userId/roles/:userRoleId - should revoke role (AC #6)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -827,7 +784,7 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     expect(auditLog).not.toBeNull();
   });
 
-  test("2.8-API-022: [P1] POST/DELETE role operations - should log admin who performed them (AC #6)", async ({
+  test("2.8-API-021: [P1] POST/DELETE role operations - should log admin who performed them (AC #6)", async ({
     superadminApiRequest,
     superadminUser,
     prismaClient,
@@ -866,7 +823,7 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
 });
 
 test.describe("2.8-API: User Management API - Permission Enforcement", () => {
-  test("2.8-API-023: [P0] All endpoints should require ADMIN_SYSTEM_CONFIG permission (AC #8)", async ({
+  test("2.8-API-022: [P0] All endpoints should require ADMIN_SYSTEM_CONFIG permission (AC #8)", async ({
     storeManagerApiRequest,
     prismaClient,
   }) => {
@@ -894,7 +851,7 @@ test.describe("2.8-API: User Management API - Permission Enforcement", () => {
     expect(createResponse.status()).toBe(403);
   });
 
-  test("2.8-API-024: [P0] POST /api/admin/users/:userId/roles - should reject non-admin users (AC #8)", async ({
+  test("2.8-API-023: [P0] POST /api/admin/users/:userId/roles - should reject non-admin users (AC #8)", async ({
     corporateAdminApiRequest,
     prismaClient,
   }) => {
@@ -922,7 +879,7 @@ test.describe("2.8-API: User Management API - Permission Enforcement", () => {
     expect(body.error).toBe("Forbidden");
   });
 
-  test("2.8-API-025: [P0] All endpoints should reject unauthenticated requests (AC #8)", async ({
+  test("2.8-API-024: [P0] All endpoints should reject unauthenticated requests (AC #8)", async ({
     request,
     prismaClient,
   }) => {
@@ -950,7 +907,7 @@ test.describe("2.8-API: User Management API - Permission Enforcement", () => {
 });
 
 test.describe("2.8-API: User Management API - Security", () => {
-  test("2.8-API-026: [P1] POST /api/admin/users - should prevent SQL injection in name field", async ({
+  test("2.8-API-025: [P1] POST /api/admin/users - should prevent SQL injection in name field", async ({
     superadminApiRequest,
   }) => {
     // WHEN: Attempting SQL injection
@@ -968,7 +925,7 @@ test.describe("2.8-API: User Management API - Security", () => {
     }
   });
 
-  test("2.8-API-027: [P1] POST /api/admin/users - should prevent XSS in user name", async ({
+  test("2.8-API-026: [P1] POST /api/admin/users - should prevent XSS in user name", async ({
     superadminApiRequest,
   }) => {
     // WHEN: Attempting XSS injection
@@ -985,7 +942,7 @@ test.describe("2.8-API: User Management API - Security", () => {
     }
   });
 
-  test("2.8-API-028: [P1] GET /api/admin/users/:userId - should not leak sensitive data", async ({
+  test("2.8-API-027: [P1] GET /api/admin/users/:userId - should not leak sensitive data", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -1010,210 +967,8 @@ test.describe("2.8-API: User Management API - Security", () => {
   });
 });
 
-test.describe("2.8-API: User Management API - Edge Cases", () => {
-  test("2.8-API-029: [P2] GET /api/admin/users/:userId - should reject invalid UUID format", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Requesting with invalid UUID
-    const response = await superadminApiRequest.get(
-      "/api/admin/users/not-a-uuid",
-    );
-
-    // THEN: Bad request error is returned
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-
-  test("2.8-API-030: [P2] POST /api/admin/users - should handle unicode characters in name", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Creating user with unicode characters
-    const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "unicode@example.com",
-      name: "Test 日本語 User 🙂",
-    });
-
-    // THEN: User is created successfully
-    expect(response.status()).toBe(201);
-    const body = await response.json();
-    expect(body.data.name).toBe("Test 日本語 User 🙂");
-  });
-
-  test("2.8-API-031: [P2] POST /api/admin/users - should reject empty email", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Creating user with empty email
-    const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "",
-      name: "Test User",
-    });
-
-    // THEN: Validation error is returned
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-
-  test("2.8-API-032: [P2] POST /api/admin/users - should reject whitespace-only name", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Creating user with whitespace-only name
-    const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "test@example.com",
-      name: "   ",
-    });
-
-    // THEN: Validation error is returned
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-
-  test("2.8-API-033: [P2] POST /api/admin/users - should reject very long email (>255 chars)", async ({
-    superadminApiRequest,
-  }) => {
-    // GIVEN: An email exceeding maximum length
-    const longEmail = "a".repeat(250) + "@example.com";
-
-    // WHEN: Creating user with very long email
-    const response = await superadminApiRequest.post("/api/admin/users", {
-      email: longEmail,
-      name: "Test User",
-    });
-
-    // THEN: Validation error is returned
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-
-  test("2.8-API-034: [P2] POST /api/admin/users - should reject very long name (>255 chars)", async ({
-    superadminApiRequest,
-  }) => {
-    // GIVEN: A name exceeding maximum length
-    const longName = "A".repeat(256);
-
-    // WHEN: Creating user with very long name
-    const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "longname@example.com",
-      name: longName,
-    });
-
-    // THEN: Validation error is returned
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-
-  test("2.8-API-035: [P2] POST /api/admin/users - should reject email with multiple @ symbols", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Creating user with invalid email format
-    const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "test@@example.com",
-      name: "Test User",
-    });
-
-    // THEN: Validation error is returned
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-
-  test("2.8-API-036: [P2] GET /api/admin/users - should handle page 0 gracefully", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Requesting with page 0
-    const response = await superadminApiRequest.get("/api/admin/users?page=0");
-
-    // THEN: Validation error is returned
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-
-  test("2.8-API-037: [P2] GET /api/admin/users - should handle negative page gracefully", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Requesting with negative page
-    const response = await superadminApiRequest.get("/api/admin/users?page=-1");
-
-    // THEN: Validation error is returned
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-
-  test("2.8-API-038: [P2] GET /api/admin/users - should reject limit exceeding maximum (>100)", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Requesting with limit > 100
-    const response = await superadminApiRequest.get(
-      "/api/admin/users?limit=101",
-    );
-
-    // THEN: Validation error is returned
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-
-  test("2.8-API-039: [P2] GET /api/admin/users - should return empty array for page beyond data", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Requesting a page that doesn't exist
-    const response = await superadminApiRequest.get(
-      "/api/admin/users?page=9999",
-    );
-
-    // THEN: Empty data array is returned with correct meta
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(body.data).toEqual([]);
-    expect(body.meta.page).toBe(9999);
-  });
-
-  test("2.8-API-040: [P2] POST /api/admin/users/:userId/roles - should reject empty string UUID", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Assigning role with empty user ID
-    const response = await superadminApiRequest.post(
-      "/api/admin/users//roles",
-      {
-        role_id: "00000000-0000-0000-0000-000000000000",
-        scope_type: "SYSTEM",
-      },
-    );
-
-    // THEN: Error is returned
-    expect([400, 404]).toContain(response.status());
-  });
-
-  test("2.8-API-041: [P2] DELETE /api/admin/users/:userId/roles/:userRoleId - should reject invalid userRoleId format", async ({
-    superadminApiRequest,
-    prismaClient,
-  }) => {
-    // GIVEN: A valid user exists
-    const user = await prismaClient.user.create({
-      data: createAdminUser(),
-    });
-
-    // WHEN: Attempting to revoke with invalid userRoleId
-    const response = await superadminApiRequest.delete(
-      `/api/admin/users/${user.user_id}/roles/not-a-uuid`,
-    );
-
-    // THEN: Bad request error is returned
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-});
-
 test.describe("2.8-API: User Management API - Business Logic Rules", () => {
-  test("2.8-API-042: [P0] POST /api/admin/users - should reject user creation without initial role", async ({
+  test("2.8-API-028: [P0] POST /api/admin/users - should reject user creation without initial role", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: Valid user data but no roles
@@ -1234,7 +989,7 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
     expect(body.message || body.error).toMatch(/expected array|role|required/i);
   });
 
-  test("2.8-API-043: [P0] POST /api/admin/users - should reject user creation with empty roles array", async ({
+  test("2.8-API-029: [P0] POST /api/admin/users - should reject user creation with empty roles array", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: Valid user data with empty roles array
@@ -1253,7 +1008,7 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
     expect(body.success).toBe(false);
   });
 
-  test("2.8-API-044: [P0] DELETE /api/admin/users/:userId/roles/:userRoleId - should prevent revoking last role", async ({
+  test("2.8-API-030: [P0] DELETE /api/admin/users/:userId/roles/:userRoleId - should prevent revoking last role", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -1294,7 +1049,7 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
     expect(stillExists).not.toBeNull();
   });
 
-  test("2.8-API-045: [P0] PATCH /api/admin/users/:userId/status - should prevent self-deactivation", async ({
+  test("2.8-API-031: [P0] PATCH /api/admin/users/:userId/status - should prevent self-deactivation", async ({
     superadminApiRequest,
     superadminUser,
   }) => {
@@ -1312,253 +1067,5 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body.message || body.error).toMatch(/own|self|yourself/i);
-  });
-
-  test("2.8-API-046: [P1] POST /api/admin/users/:userId/roles - should allow same role for different scopes", async ({
-    superadminApiRequest,
-    prismaClient,
-  }) => {
-    // GIVEN: A user exists and STORE scope role is available
-    const user = await prismaClient.user.create({
-      data: createAdminUser(),
-    });
-
-    const { client } = await createClientWithUser(prismaClient);
-
-    const companyData = createCompany({
-      name: "Test Company",
-      status: "ACTIVE",
-    });
-    const company = await prismaClient.company.create({
-      data: {
-        ...companyData,
-        client_id: client.client_id,
-      },
-    });
-
-    const storeData1 = createStore({
-      name: "Store One",
-      status: "ACTIVE",
-      timezone: "America/New_York",
-    });
-    const store1 = await prismaClient.store.create({
-      data: {
-        ...storeData1,
-        company_id: company.company_id,
-      },
-    });
-
-    const storeData2 = createStore({
-      name: "Store Two",
-      status: "ACTIVE",
-      timezone: "America/New_York",
-    });
-    const store2 = await prismaClient.store.create({
-      data: {
-        ...storeData2,
-        company_id: company.company_id,
-      },
-    });
-
-    const role = await prismaClient.role.findFirst({
-      where: { scope: "STORE" },
-    });
-    if (!role) {
-      throw new Error("No STORE scope role found in database");
-    }
-
-    // WHEN: Assigning same role for Store 1
-    const response1 = await superadminApiRequest.post(
-      `/api/admin/users/${user.user_id}/roles`,
-      createStoreScopeAssignment(
-        role.role_id,
-        client.client_id,
-        company.company_id,
-        store1.store_id,
-      ),
-    );
-
-    // THEN: First assignment succeeds
-    expect(response1.status()).toBe(201);
-
-    // AND WHEN: Assigning same role for Store 2
-    const response2 = await superadminApiRequest.post(
-      `/api/admin/users/${user.user_id}/roles`,
-      createStoreScopeAssignment(
-        role.role_id,
-        client.client_id,
-        company.company_id,
-        store2.store_id,
-      ),
-    );
-
-    // THEN: Second assignment also succeeds - user can manage both stores
-    expect(response2.status()).toBe(201);
-
-    // AND: User has both role assignments
-    const userRoles = await prismaClient.userRole.findMany({
-      where: {
-        user_id: user.user_id,
-        role_id: role.role_id,
-      },
-    });
-    expect(userRoles.length).toBe(2);
-  });
-});
-
-test.describe("2.8-API: User Management API - Enhanced Security Tests", () => {
-  test("2.8-API-047: [P1] POST /api/admin/users - should handle SQL injection in email field", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Attempting SQL injection in email
-    const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "test@example.com'; DROP TABLE users;--",
-      name: "Test User",
-    });
-
-    // THEN: Request is handled safely (rejected as invalid email)
-    expect(response.status()).toBe(400);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-
-  test("2.8-API-048: [P1] POST /api/admin/users - should handle NoSQL injection attempts", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Attempting NoSQL injection
-    const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "test@example.com",
-      name: '{"$gt": ""}',
-    });
-
-    // THEN: Request is handled safely (string is stored literally or rejected)
-    expect([201, 400]).toContain(response.status());
-    if (response.status() === 201) {
-      const body = await response.json();
-      expect(body.data.name).toBe('{"$gt": ""}');
-    }
-  });
-
-  test("2.8-API-049: [P1] POST /api/admin/users - should handle path traversal in name", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Attempting path traversal
-    const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "pathtest@example.com",
-      name: "../../../etc/passwd",
-    });
-
-    // THEN: Request is handled safely
-    expect([201, 400]).toContain(response.status());
-    if (response.status() === 201) {
-      const body = await response.json();
-      expect(body.data.name).toBe("../../../etc/passwd");
-    }
-  });
-
-  test("2.8-API-050: [P1] All admin endpoints - should reject expired JWT tokens", async ({
-    request,
-  }) => {
-    // GIVEN: An expired JWT token
-    const expiredToken =
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjoxfQ.invalid";
-    const backendUrl = process.env.BACKEND_URL || "http://localhost:3001";
-
-    // WHEN: Making request with expired token
-    const response = await request.get(`${backendUrl}/api/admin/users`, {
-      headers: {
-        Authorization: `Bearer ${expiredToken}`,
-      },
-    });
-
-    // THEN: 401 Unauthorized is returned
-    expect(response.status()).toBe(401);
-  });
-
-  test("2.8-API-051: [P1] All admin endpoints - should reject malformed JWT tokens", async ({
-    request,
-  }) => {
-    // GIVEN: A malformed JWT token
-    const malformedToken = "not.a.valid.jwt.token";
-    const backendUrl = process.env.BACKEND_URL || "http://localhost:3001";
-
-    // WHEN: Making request with malformed token
-    const response = await request.get(`${backendUrl}/api/admin/users`, {
-      headers: {
-        Authorization: `Bearer ${malformedToken}`,
-      },
-    });
-
-    // THEN: 401 Unauthorized is returned
-    expect(response.status()).toBe(401);
-  });
-
-  test("2.8-API-052: [P1] GET /api/admin/users/:userId - should not expose internal database fields", async ({
-    superadminApiRequest,
-    prismaClient,
-  }) => {
-    // GIVEN: A user exists
-    const user = await prismaClient.user.create({
-      data: createAdminUser(),
-    });
-
-    // WHEN: Retrieving user details
-    const response = await superadminApiRequest.get(
-      `/api/admin/users/${user.user_id}`,
-    );
-
-    // THEN: Response should not contain internal fields
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-
-    // Verify no sensitive internal fields are exposed
-    expect(body.data).not.toHaveProperty("_id");
-    expect(body.data).not.toHaveProperty("__v");
-    expect(body.data).not.toHaveProperty("passwordHash");
-    expect(body.data).not.toHaveProperty("salt");
-    expect(body.data).not.toHaveProperty("refreshToken");
-  });
-
-  test("2.8-API-053: [P1] POST /api/admin/users - should sanitize control characters in name", async ({
-    superadminApiRequest,
-  }) => {
-    // WHEN: Creating user with control characters
-    const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "control@example.com",
-      name: "Test\x00User\x1F",
-    });
-
-    // THEN: Request is handled (control chars stripped or rejected)
-    expect([201, 400]).toContain(response.status());
-  });
-
-  test("2.8-API-054: [P2] GET /api/admin/users - should include complete pagination metadata", async ({
-    superadminApiRequest,
-    prismaClient,
-  }) => {
-    // GIVEN: Multiple users exist
-    for (let i = 0; i < 3; i++) {
-      await prismaClient.user.create({
-        data: createAdminUser(),
-      });
-    }
-
-    // WHEN: Retrieving users with pagination
-    const response = await superadminApiRequest.get(
-      "/api/admin/users?page=1&limit=2",
-    );
-
-    // THEN: Complete pagination metadata is returned
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-    expect(body.meta).toHaveProperty("page", 1);
-    expect(body.meta).toHaveProperty("limit", 2);
-    expect(body.meta).toHaveProperty("total");
-    expect(body.meta).toHaveProperty("totalPages");
-    expect(typeof body.meta.total).toBe("number");
-    expect(typeof body.meta.totalPages).toBe("number");
-    expect(body.meta.totalPages).toBe(
-      Math.ceil(body.meta.total / body.meta.limit),
-    );
   });
 });

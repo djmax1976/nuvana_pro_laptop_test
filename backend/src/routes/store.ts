@@ -50,6 +50,151 @@ async function getUserCompanyId(userId: string): Promise<string | null> {
  */
 export async function storeRoutes(fastify: FastifyInstance) {
   /**
+   * GET /api/stores
+   * List all stores (System Admin only)
+   * Protected route - requires STORE_READ permission and SYSTEM scope
+   */
+  fastify.get(
+    "/api/stores",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.STORE_READ),
+      ],
+      schema: {
+        description: "List all stores (System Admin only)",
+        tags: ["stores"],
+        querystring: {
+          type: "object",
+          properties: {
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 100,
+              default: 20,
+              description: "Items per page (max 100)",
+            },
+            offset: {
+              type: "integer",
+              minimum: 0,
+              default: 0,
+              description: "Pagination offset",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              data: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    store_id: { type: "string", format: "uuid" },
+                    company_id: { type: "string", format: "uuid" },
+                    name: { type: "string" },
+                    location_json: { type: "object" },
+                    timezone: { type: "string" },
+                    status: { type: "string" },
+                    created_at: { type: "string", format: "date-time" },
+                    updated_at: { type: "string", format: "date-time" },
+                    company: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+              meta: {
+                type: "object",
+                properties: {
+                  total: { type: "integer" },
+                  limit: { type: "integer" },
+                  offset: { type: "integer" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as any).user as UserIdentity;
+        const query = request.query as { limit?: number; offset?: number };
+
+        // Check if user has SYSTEM scope (System Admin)
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        if (!hasSystemScope) {
+          reply.code(403);
+          return {
+            error: "Forbidden",
+            message: "Only System Administrators can view all stores",
+          };
+        }
+
+        const limit = query.limit || 20;
+        const offset = query.offset || 0;
+
+        // Get all stores with company info
+        const [stores, total] = await Promise.all([
+          prisma.store.findMany({
+            skip: offset,
+            take: limit,
+            orderBy: { created_at: "desc" },
+            include: {
+              company: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          }),
+          prisma.store.count(),
+        ]);
+
+        reply.code(200);
+        return {
+          data: stores,
+          meta: {
+            total,
+            limit,
+            offset,
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error retrieving all stores");
+        reply.code(500);
+        return {
+          error: "Internal server error",
+          message: "Failed to retrieve stores",
+        };
+      }
+    },
+  );
+
+  /**
    * POST /api/companies/:companyId/stores
    * Create a new store
    * Protected route - requires STORE_CREATE permission
@@ -92,26 +237,8 @@ export async function storeRoutes(fastify: FastifyInstance) {
                   type: "string",
                   description: "Store address",
                 },
-                gps: {
-                  type: "object",
-                  properties: {
-                    lat: {
-                      type: "number",
-                      minimum: -90,
-                      maximum: 90,
-                      description: "GPS latitude",
-                    },
-                    lng: {
-                      type: "number",
-                      minimum: -180,
-                      maximum: 180,
-                      description: "GPS longitude",
-                    },
-                  },
-                  required: ["lat", "lng"],
-                },
               },
-              description: "Store location (address and/or GPS coordinates)",
+              description: "Store location (address only)",
             },
             timezone: {
               type: "string",
@@ -171,7 +298,6 @@ export async function storeRoutes(fastify: FastifyInstance) {
           name: string;
           location_json?: {
             address?: string;
-            gps?: { lat: number; lng: number };
           };
           timezone?: string;
           status?: "ACTIVE" | "INACTIVE" | "CLOSED";
@@ -179,14 +305,25 @@ export async function storeRoutes(fastify: FastifyInstance) {
         const user = (request as any).user as UserIdentity;
 
         // Verify user can create stores for this company (company isolation)
-        const userCompanyId = await getUserCompanyId(user.id);
-        if (!userCompanyId || userCompanyId !== params.companyId) {
-          reply.code(403);
-          return {
-            error: "Forbidden",
-            message: "You can only create stores for your assigned company",
-          };
+        // System Admins (SYSTEM scope) can create stores for ANY company
+        // Company Admins (COMPANY scope) can only create stores for their assigned company
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        if (!hasSystemScope) {
+          // Non-system admin: must create store for their assigned company only
+          const userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId || userCompanyId !== params.companyId) {
+            reply.code(403);
+            return {
+              error: "Forbidden",
+              message: "You can only create stores for your assigned company",
+            };
+          }
         }
+        // System admins bypass company isolation - they can create stores for any company
 
         // Create store (with validation from service)
         const store = await storeService.createStore({
@@ -360,13 +497,21 @@ export async function storeRoutes(fastify: FastifyInstance) {
         const user = (request as any).user as UserIdentity;
 
         // Verify user can view stores for this company (company isolation)
-        const userCompanyId = await getUserCompanyId(user.id);
-        if (!userCompanyId || userCompanyId !== params.companyId) {
-          reply.code(403);
-          return {
-            error: "Forbidden",
-            message: "You can only view stores for your assigned company",
-          };
+        // System Admins can view stores for ANY company
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        if (!hasSystemScope) {
+          const userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId || userCompanyId !== params.companyId) {
+            reply.code(403);
+            return {
+              error: "Forbidden",
+              message: "You can only view stores for your assigned company",
+            };
+          }
         }
 
         const stores = await storeService.getStoresByCompany(params.companyId);
@@ -479,22 +624,30 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
 
         // Get user's company_id for isolation check
-        const userCompanyId = await getUserCompanyId(user.id);
-        if (!userCompanyId) {
-          reply.code(403);
-          return {
-            error: "Forbidden",
-            message: "You must have a COMPANY scope role to access stores",
-          };
-        }
+        // System Admins can access ANY store
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
 
-        // Check company isolation
-        if (store.company_id !== userCompanyId) {
-          reply.code(403);
-          return {
-            error: "Forbidden",
-            message: "You can only access stores for your assigned company",
-          };
+        if (!hasSystemScope) {
+          const userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId) {
+            reply.code(403);
+            return {
+              error: "Forbidden",
+              message: "You must have a COMPANY scope role to access stores",
+            };
+          }
+
+          // Check company isolation
+          if (store.company_id !== userCompanyId) {
+            reply.code(403);
+            return {
+              error: "Forbidden",
+              message: "You can only access stores for your assigned company",
+            };
+          }
         }
 
         // Check permission (after existence and ownership checks)
@@ -581,26 +734,8 @@ export async function storeRoutes(fastify: FastifyInstance) {
                   type: "string",
                   description: "Store address",
                 },
-                gps: {
-                  type: "object",
-                  properties: {
-                    lat: {
-                      type: "number",
-                      minimum: -90,
-                      maximum: 90,
-                      description: "GPS latitude",
-                    },
-                    lng: {
-                      type: "number",
-                      minimum: -180,
-                      maximum: 180,
-                      description: "GPS longitude",
-                    },
-                  },
-                  required: ["lat", "lng"],
-                },
               },
-              description: "Store location (address and/or GPS coordinates)",
+              description: "Store location (address only)",
             },
             timezone: {
               type: "string",
@@ -666,7 +801,6 @@ export async function storeRoutes(fastify: FastifyInstance) {
           name?: string;
           location_json?: {
             address?: string;
-            gps?: { lat: number; lng: number };
           };
           timezone?: string;
           status?: "ACTIVE" | "INACTIVE" | "CLOSED";
@@ -688,22 +822,30 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
 
         // Get user's company_id for isolation check
-        const userCompanyId = await getUserCompanyId(user.id);
-        if (!userCompanyId) {
-          reply.code(403);
-          return {
-            error: "Forbidden",
-            message: "You must have a COMPANY scope role to update stores",
-          };
-        }
+        // System Admins can update ANY store
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
 
-        // Check company isolation
-        if (oldStore.company_id !== userCompanyId) {
-          reply.code(403);
-          return {
-            error: "Forbidden",
-            message: "You can only update stores for your assigned company",
-          };
+        if (!hasSystemScope) {
+          const userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId) {
+            reply.code(403);
+            return {
+              error: "Forbidden",
+              message: "You must have a COMPANY scope role to update stores",
+            };
+          }
+
+          // Check company isolation
+          if (oldStore.company_id !== userCompanyId) {
+            reply.code(403);
+            return {
+              error: "Forbidden",
+              message: "You can only update stores for your assigned company",
+            };
+          }
         }
 
         // Update store (service will verify company isolation)
@@ -829,26 +971,8 @@ export async function storeRoutes(fastify: FastifyInstance) {
                   type: "string",
                   description: "Store address",
                 },
-                gps: {
-                  type: "object",
-                  properties: {
-                    lat: {
-                      type: "number",
-                      minimum: -90,
-                      maximum: 90,
-                      description: "GPS latitude",
-                    },
-                    lng: {
-                      type: "number",
-                      minimum: -180,
-                      maximum: 180,
-                      description: "GPS longitude",
-                    },
-                  },
-                  required: ["lat", "lng"],
-                },
               },
-              description: "Store location (address and/or GPS coordinates)",
+              description: "Store location (address only)",
             },
             operating_hours: {
               type: "object",
@@ -1011,7 +1135,6 @@ export async function storeRoutes(fastify: FastifyInstance) {
           timezone?: string;
           location?: {
             address?: string;
-            gps?: { lat: number; lng: number };
           };
           operating_hours?: {
             monday?: { open?: string; close?: string; closed?: boolean };
@@ -1039,23 +1162,31 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
 
         // Get user's company_id for isolation check
-        const userCompanyId = await getUserCompanyId(user.id);
-        if (!userCompanyId) {
-          reply.code(403);
-          return {
-            error: "Forbidden",
-            message:
-              "You must have a COMPANY scope role to update store configuration",
-          };
-        }
+        // System Admins can update ANY store configuration
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
 
-        // Check company isolation
-        if (oldStore.company_id !== userCompanyId) {
-          reply.code(403);
-          return {
-            error: "Forbidden",
-            message: "You can only update stores for your assigned company",
-          };
+        if (!hasSystemScope) {
+          const userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId) {
+            reply.code(403);
+            return {
+              error: "Forbidden",
+              message:
+                "You must have a COMPANY scope role to update store configuration",
+            };
+          }
+
+          // Check company isolation
+          if (oldStore.company_id !== userCompanyId) {
+            reply.code(403);
+            return {
+              error: "Forbidden",
+              message: "You can only update stores for your assigned company",
+            };
+          }
         }
 
         // Check permission (after ownership check to give specific error)
@@ -1239,26 +1370,38 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
 
         // Get user's company_id for isolation check
-        const userCompanyId = await getUserCompanyId(user.id);
-        if (!userCompanyId) {
-          reply.code(403);
-          return {
-            error: "Forbidden",
-            message: "You must have a COMPANY scope role to delete stores",
-          };
-        }
+        // System Admins can delete ANY store
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
 
-        // Check company isolation
-        if (oldStore.company_id !== userCompanyId) {
-          reply.code(403);
-          return {
-            error: "Forbidden",
-            message: "You can only delete stores for your assigned company",
-          };
+        let userCompanyId: string | null = null;
+        if (!hasSystemScope) {
+          userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId) {
+            reply.code(403);
+            return {
+              error: "Forbidden",
+              message: "You must have a COMPANY scope role to delete stores",
+            };
+          }
+
+          // Check company isolation
+          if (oldStore.company_id !== userCompanyId) {
+            reply.code(403);
+            return {
+              error: "Forbidden",
+              message: "You can only delete stores for your assigned company",
+            };
+          }
+        } else {
+          // System admin: use the store's company_id for the service call
+          userCompanyId = oldStore.company_id;
         }
 
         // Hard delete store (service will verify company isolation and ACTIVE status)
-        await storeService.deleteStore(params.storeId, userCompanyId);
+        await storeService.deleteStore(params.storeId, userCompanyId!);
 
         // Log store deletion to AuditLog (non-blocking - don't fail the deletion if audit fails)
         const ipAddress =

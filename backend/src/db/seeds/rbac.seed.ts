@@ -117,17 +117,17 @@ export async function seedRBAC() {
       },
     });
 
-    // CLIENT_OWNER - CLIENT scope
+    // CLIENT_OWNER - COMPANY scope (owns and manages their own company and stores)
     const clientOwnerRole = await prisma.role.upsert({
       where: { code: "CLIENT_OWNER" },
       update: {
-        scope: "CLIENT",
+        scope: "COMPANY",
         description:
           "Client owner with full access to manage their companies, stores, and employees",
       },
       create: {
         code: "CLIENT_OWNER",
-        scope: "CLIENT",
+        scope: "COMPANY",
         description:
           "Client owner with full access to manage their companies, stores, and employees",
       },

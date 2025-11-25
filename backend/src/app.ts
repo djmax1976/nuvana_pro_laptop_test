@@ -16,7 +16,6 @@ import { authRoutes } from "./routes/auth";
 import { adminRoutes } from "./routes/admin";
 import { userRoutes } from "./routes/users";
 import { companyRoutes } from "./routes/companies";
-import { clientRoutes } from "./routes/clients";
 import { storeRoutes } from "./routes/store";
 import { transactionRoutes } from "./routes/transactions";
 import { contactRoutes } from "./routes/contact";
@@ -120,9 +119,6 @@ app.register(userRoutes);
 
 // Register company routes
 app.register(companyRoutes);
-
-// Register client routes
-app.register(clientRoutes);
 
 // Register store routes
 app.register(storeRoutes);

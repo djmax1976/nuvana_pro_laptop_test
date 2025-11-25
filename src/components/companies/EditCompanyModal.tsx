@@ -64,7 +64,7 @@ interface EditCompanyModalProps {
  * EditCompanyModal component
  * Modal dialog for editing an existing company
  * Uses Shadcn/ui Dialog and Form components with Zod validation
- * Note: client_id cannot be changed after company creation
+ * Note: owner (user) cannot be changed after company creation
  */
 export function EditCompanyModal({
   open,
@@ -179,8 +179,8 @@ export function EditCompanyModal({
           <DialogHeader>
             <DialogTitle>Edit Company</DialogTitle>
             <DialogDescription>
-              Update company information. The client assignment cannot be
-              changed after creation.
+              Update company information. The owner assignment cannot be changed
+              after creation.
             </DialogDescription>
           </DialogHeader>
 
@@ -190,15 +190,20 @@ export function EditCompanyModal({
               className="space-y-6"
               noValidate
             >
-              {/* Display client name (read-only) */}
+              {/* Display owner name (read-only) */}
               {company && (
                 <div>
-                  <label className="text-sm font-medium">Client</label>
+                  <label className="text-sm font-medium">Owner</label>
                   <div className="mt-2 rounded-md border bg-muted px-3 py-2 text-sm">
-                    {company.client_name || "N/A"}
+                    <div>{company.owner_name || "N/A"}</div>
+                    {company.owner_email && (
+                      <div className="text-xs text-muted-foreground">
+                        {company.owner_email}
+                      </div>
+                    )}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Client assignment cannot be changed
+                    Owner assignment cannot be changed
                   </p>
                 </div>
               )}

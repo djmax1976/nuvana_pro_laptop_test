@@ -12,9 +12,3 @@ export {
   validateSecurityHeaders,
   type HealthCheckResponse,
 } from "./server-helpers";
-
-export {
-  createClientViaAPI,
-  createClientsViaAPI,
-  createClientWithStatusViaAPI,
-} from "./client-helpers";
