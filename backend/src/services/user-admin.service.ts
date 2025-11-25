@@ -709,7 +709,7 @@ export class UserAdminService {
       const existingUser = await prisma.user.findUnique({
         where: { user_id: userId },
         include: {
-          userRoles: {
+          user_roles: {
             where: { deleted_at: null },
             include: {
               role: true,
@@ -750,15 +750,14 @@ export class UserAdminService {
         },
       });
 
-      // Soft delete the user
+      // Soft delete the user (set status to INACTIVE)
       const user = await prisma.user.update({
         where: { user_id: userId },
         data: {
-          deleted_at: deletedAt,
           status: "INACTIVE",
         },
         include: {
-          userRoles: {
+          user_roles: {
             include: {
               role: true,
               company: {
@@ -795,7 +794,30 @@ export class UserAdminService {
         );
       }
 
-      return this.mapUserWithRoles(user);
+      return {
+        user_id: user.user_id,
+        email: user.email,
+        name: user.name,
+        status: user.status as UserStatus,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
+        roles: user.user_roles.map((ur: any) => ({
+          user_role_id: ur.user_role_id,
+          role: {
+            role_id: ur.role.role_id,
+            code: ur.role.code,
+            description: ur.role.description,
+            scope: ur.role.scope,
+          },
+          client_id: ur.company?.client_id || null,
+          client_name: ur.company?.client?.name || null,
+          company_id: ur.company_id,
+          company_name: ur.company?.name || null,
+          store_id: ur.store_id,
+          store_name: ur.store?.name || null,
+          assigned_at: ur.assigned_at,
+        })),
+      };
     } catch (error) {
       if (
         error instanceof Error &&

@@ -6,7 +6,7 @@
 /**
  * Company status type
  */
-export type CompanyStatus = "ACTIVE" | "INACTIVE";
+export type CompanyStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
 
 /**
  * Company entity with all fields

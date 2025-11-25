@@ -348,6 +348,7 @@ export class CompanyService {
       if (
         data.status === "ACTIVE" &&
         existingCompany.status === "INACTIVE" &&
+        existingCompany.client &&
         existingCompany.client.status === "INACTIVE"
       ) {
         throw new Error(
