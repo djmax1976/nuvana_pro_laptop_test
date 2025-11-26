@@ -9,153 +9,16 @@ import { AuditContext } from "../types/company.types";
  * Company management routes
  * Provides CRUD operations for companies with RBAC enforcement
  * All routes require ADMIN_SYSTEM_CONFIG permission
+ *
+ * NOTE: Companies are now created through the user creation flow when
+ * CLIENT_OWNER role is assigned. Direct company creation via POST is disabled.
  */
 export async function companyRoutes(fastify: FastifyInstance) {
-  /**
-   * POST /api/companies
-   * Create a new company
-   * Protected route - requires ADMIN_SYSTEM_CONFIG permission
-   */
-  fastify.post(
-    "/api/companies",
-    {
-      preHandler: [
-        authMiddleware,
-        permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
-      ],
-      schema: {
-        description: "Create a new company",
-        tags: ["companies"],
-        body: {
-          type: "object",
-          required: ["name", "client_id"],
-          properties: {
-            client_id: {
-              type: "string",
-              format: "uuid",
-              description: "Client UUID (required)",
-            },
-            name: {
-              type: "string",
-              minLength: 1,
-              maxLength: 255,
-              description: "Company name",
-            },
-            address: {
-              type: "string",
-              maxLength: 500,
-              description: "Company address (optional)",
-            },
-            status: {
-              type: "string",
-              enum: ["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"],
-              description: "Company status (defaults to ACTIVE)",
-            },
-          },
-        },
-        response: {
-          201: {
-            type: "object",
-            properties: {
-              company_id: { type: "string", format: "uuid" },
-              client_id: { type: "string", format: "uuid" },
-              client_name: { type: "string" },
-              name: { type: "string" },
-              address: { type: "string", nullable: true },
-              status: { type: "string" },
-              created_at: { type: "string", format: "date-time" },
-              updated_at: { type: "string", format: "date-time" },
-            },
-          },
-          400: {
-            type: "object",
-            properties: {
-              error: { type: "string" },
-              message: { type: "string" },
-            },
-          },
-          500: {
-            type: "object",
-            properties: {
-              error: { type: "string" },
-              message: { type: "string" },
-            },
-          },
-        },
-      },
-    },
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const body = request.body as {
-          client_id: string;
-          name: string;
-          address?: string;
-          status?: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
-        };
-        const user = (request as any).user as UserIdentity;
-
-        // Build audit context
-        const auditContext: AuditContext = {
-          userId: user.id,
-          userEmail: user.email,
-          userRoles: user.roles,
-          ipAddress:
-            (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
-            request.ip ||
-            request.socket.remoteAddress ||
-            null,
-          userAgent: request.headers["user-agent"] || null,
-        };
-
-        // Create company (with validation from service)
-        const company = await companyService.createCompany(
-          {
-            client_id: body.client_id,
-            name: body.name,
-            address: body.address,
-            status: body.status,
-          },
-          auditContext,
-        );
-
-        reply.code(201);
-        return {
-          ...company,
-          request_metadata: {
-            timestamp: new Date().toISOString(),
-            request_id: request.id,
-          },
-        };
-      } catch (error: any) {
-        fastify.log.error({ error }, "Error creating company");
-        if (
-          error.message.includes("required") ||
-          error.message.includes("Invalid") ||
-          error.message.includes("not found") ||
-          error.message.includes("deleted") ||
-          error.message.includes("cannot") ||
-          error.message.includes("exceed")
-        ) {
-          reply.code(400);
-          return {
-            error: "Validation error",
-            message: error.message,
-          };
-        }
-        reply.code(500);
-        return {
-          error: "Internal server error",
-          message: "Failed to create company",
-        };
-      }
-    },
-  );
-
   /**
    * GET /api/companies
    * List all companies with pagination (System Admin only)
    * Protected route - requires ADMIN_SYSTEM_CONFIG permission
-   * Query params: page (default 1), limit (default 20, max 100), status (optional filter), clientId (optional filter)
+   * Query params: page (default 1), limit (default 20, max 100), status (optional filter), ownerUserId (optional filter), search (optional filter by name)
    */
   fastify.get(
     "/api/companies",
@@ -188,10 +51,15 @@ export async function companyRoutes(fastify: FastifyInstance) {
               enum: ["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"],
               description: "Filter by status",
             },
-            clientId: {
+            ownerUserId: {
               type: "string",
               format: "uuid",
-              description: "Filter by client UUID",
+              description: "Filter by owner user UUID",
+            },
+            search: {
+              type: "string",
+              description:
+                "Search by company name (case-insensitive partial match)",
             },
           },
         },
@@ -205,8 +73,9 @@ export async function companyRoutes(fastify: FastifyInstance) {
                   type: "object",
                   properties: {
                     company_id: { type: "string", format: "uuid" },
-                    client_id: { type: "string", format: "uuid" },
-                    client_name: { type: "string" },
+                    owner_user_id: { type: "string", format: "uuid" },
+                    owner_name: { type: "string" },
+                    owner_email: { type: "string" },
                     name: { type: "string" },
                     address: { type: "string", nullable: true },
                     status: { type: "string" },
@@ -251,7 +120,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
           page?: number;
           limit?: number;
           status?: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
-          clientId?: string;
+          ownerUserId?: string;
+          search?: string;
         };
 
         const page = query.page || 1;
@@ -262,7 +132,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
           page,
           limit,
           status: query.status,
-          clientId: query.clientId,
+          ownerUserId: query.ownerUserId,
+          search: query.search,
         });
 
         const responseTime = Date.now() - startTime;
@@ -319,8 +190,9 @@ export async function companyRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               company_id: { type: "string", format: "uuid" },
-              client_id: { type: "string", format: "uuid" },
-              client_name: { type: "string" },
+              owner_user_id: { type: "string", format: "uuid" },
+              owner_name: { type: "string" },
+              owner_email: { type: "string" },
               name: { type: "string" },
               address: { type: "string", nullable: true },
               status: { type: "string" },
@@ -378,7 +250,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
 
   /**
    * PUT /api/companies/:companyId
-   * Update company
+   * Update company (name, address, status only - owner cannot be changed)
    * Protected route - requires ADMIN_SYSTEM_CONFIG permission
    */
   fastify.put(
@@ -405,11 +277,6 @@ export async function companyRoutes(fastify: FastifyInstance) {
         body: {
           type: "object",
           properties: {
-            client_id: {
-              type: "string",
-              format: "uuid",
-              description: "Client UUID",
-            },
             name: {
               type: "string",
               minLength: 1,
@@ -433,9 +300,11 @@ export async function companyRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               company_id: { type: "string", format: "uuid" },
-              client_id: { type: "string", format: "uuid" },
-              client_name: { type: "string" },
+              owner_user_id: { type: "string", format: "uuid" },
+              owner_name: { type: "string" },
+              owner_email: { type: "string" },
               name: { type: "string" },
+              address: { type: "string", nullable: true },
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
               updated_at: { type: "string", format: "date-time" },
@@ -469,7 +338,6 @@ export async function companyRoutes(fastify: FastifyInstance) {
       try {
         const params = request.params as { companyId: string };
         const body = request.body as {
-          client_id?: string;
           name?: string;
           address?: string;
           status?: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
@@ -492,7 +360,6 @@ export async function companyRoutes(fastify: FastifyInstance) {
         const company = await companyService.updateCompany(
           params.companyId,
           {
-            client_id: body.client_id,
             name: body.name,
             address: body.address,
             status: body.status,
@@ -539,7 +406,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
 
   /**
    * DELETE /api/companies/:companyId
-   * Soft delete company (set status to INACTIVE)
+   * Hard delete company - permanently removes the company
    * Protected route - requires ADMIN_SYSTEM_CONFIG permission
    */
   fastify.delete(
@@ -550,7 +417,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
         permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
       ],
       schema: {
-        description: "Soft delete company",
+        description: "Permanently delete company",
         tags: ["companies"],
         params: {
           type: "object",
@@ -567,14 +434,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
           200: {
             type: "object",
             properties: {
-              company_id: { type: "string", format: "uuid" },
-              client_id: { type: "string", format: "uuid" },
-              client_name: { type: "string" },
-              name: { type: "string" },
-              address: { type: "string", nullable: true },
-              status: { type: "string" },
-              created_at: { type: "string", format: "date-time" },
-              updated_at: { type: "string", format: "date-time" },
+              success: { type: "boolean" },
+              message: { type: "string" },
             },
           },
           404: {
@@ -612,18 +473,12 @@ export async function companyRoutes(fastify: FastifyInstance) {
           userAgent: request.headers["user-agent"] || null,
         };
 
-        const company = await companyService.deleteCompany(
-          params.companyId,
-          auditContext,
-        );
+        await companyService.deleteCompany(params.companyId, auditContext);
 
         reply.code(200);
         return {
-          ...company,
-          request_metadata: {
-            timestamp: new Date().toISOString(),
-            request_id: request.id,
-          },
+          success: true,
+          message: "Company permanently deleted",
         };
       } catch (error: any) {
         fastify.log.error({ error }, "Error deleting company");
@@ -638,6 +493,13 @@ export async function companyRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             error: "Cannot delete ACTIVE company",
+            message: error.message,
+          };
+        }
+        if (error.message.includes("active store")) {
+          reply.code(400);
+          return {
+            error: "Cannot delete company with active store(s)",
             message: error.message,
           };
         }

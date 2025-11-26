@@ -5,6 +5,7 @@ import {
   createTransactionPayment,
   createCompany,
   createStore,
+  createUser,
 } from "../support/factories";
 import {
   generatePublicId,
@@ -1118,10 +1119,14 @@ test.describe("Transaction Data Models - Security", () => {
   }) => {
     // GIVEN: A transaction in a different company's store
     // Create another company
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Other Company Owner" }),
+    });
     const otherCompany = await prismaClient.company.create({
       data: createCompany({
         name: `Other Company ${Date.now()}`,
         status: "ACTIVE",
+        owner_user_id: otherOwner.user_id,
       }),
     });
 
@@ -1191,10 +1196,14 @@ test.describe("Transaction Data Models - Security", () => {
     prismaClient,
   }) => {
     // GIVEN: A store belonging to a different company
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Unauthorized Company Owner" }),
+    });
     const otherCompany = await prismaClient.company.create({
       data: createCompany({
         name: `Unauthorized Company ${Date.now()}`,
         status: "ACTIVE",
+        owner_user_id: otherOwner.user_id,
       }),
     });
 

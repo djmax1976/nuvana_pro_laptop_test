@@ -13,23 +13,24 @@ export type CompanyStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
  */
 export interface Company {
   company_id: string;
-  client_id: string | null;
+  owner_user_id: string;
   name: string;
   address: string | null;
   status: string;
   created_at: Date;
   updated_at: Date;
-  deleted_at: Date | null;
 }
 
 /**
- * Company with client information for responses
+ * Company with owner information for responses
  */
-export interface CompanyWithClient extends Company {
-  client_name?: string;
-  client?: {
-    client_id: string;
+export interface CompanyWithOwner extends Company {
+  owner_name?: string;
+  owner_email?: string;
+  owner?: {
+    user_id: string;
     name: string;
+    email: string;
   } | null;
 }
 
@@ -37,7 +38,7 @@ export interface CompanyWithClient extends Company {
  * Company creation input
  */
 export interface CreateCompanyInput {
-  client_id: string; // Required for new companies
+  owner_user_id: string; // Required for new companies
   name: string;
   address?: string;
   status?: CompanyStatus;
@@ -45,9 +46,9 @@ export interface CreateCompanyInput {
 
 /**
  * Company update input
+ * Note: owner_user_id is immutable after creation
  */
 export interface UpdateCompanyInput {
-  client_id?: string;
   name?: string;
   address?: string;
   status?: CompanyStatus;
@@ -60,14 +61,15 @@ export interface CompanyListOptions {
   page?: number;
   limit?: number;
   status?: CompanyStatus;
-  clientId?: string;
+  ownerUserId?: string;
+  search?: string;
 }
 
 /**
  * Paginated company result
  */
 export interface PaginatedCompanyResult {
-  data: CompanyWithClient[];
+  data: CompanyWithOwner[];
   meta: {
     page: number;
     limit: number;

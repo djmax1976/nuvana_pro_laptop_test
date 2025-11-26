@@ -56,22 +56,6 @@ const storeFormSchema = z.object({
       "Timezone must be in IANA format (e.g., America/New_York, Europe/London)",
     ),
   address: z.string().optional(),
-  gpsLat: z
-    .string()
-    .optional()
-    .refine((val) => {
-      if (!val) return true;
-      const num = parseFloat(val);
-      return !isNaN(num) && num >= -90 && num <= 90;
-    }, "Latitude must be between -90 and 90"),
-  gpsLng: z
-    .string()
-    .optional()
-    .refine((val) => {
-      if (!val) return true;
-      const num = parseFloat(val);
-      return !isNaN(num) && num >= -180 && num <= 180;
-    }, "Longitude must be between -180 and 180"),
   status: z.enum(["ACTIVE", "INACTIVE", "CLOSED"], {
     message: "Please select a status",
   }),
@@ -108,8 +92,6 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
       name: store?.name || "",
       timezone: store?.timezone || "America/New_York",
       address: locationData?.address || "",
-      gpsLat: locationData?.gps?.lat?.toString() || "",
-      gpsLng: locationData?.gps?.lng?.toString() || "",
       status: store?.status || "ACTIVE",
     },
   });
@@ -117,21 +99,13 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
   const onSubmit = async (values: StoreFormValues) => {
     setIsSubmitting(true);
     try {
-      // Build location_json object
+      // Build location_json object (address only, no GPS)
       const location_json: {
         address?: string;
-        gps?: { lat: number; lng: number };
       } = {};
 
       if (values.address) {
         location_json.address = values.address;
-      }
-
-      if (values.gpsLat && values.gpsLng) {
-        location_json.gps = {
-          lat: parseFloat(values.gpsLat),
-          lng: parseFloat(values.gpsLng),
-        };
       }
 
       const formData = {
@@ -235,75 +209,27 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
           )}
         />
 
-        <div className="space-y-4 rounded-lg border p-4">
-          <h3 className="text-sm font-medium">Location</h3>
-
-          <FormField
-            control={form.control}
-            name="address"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Address</FormLabel>
-                <FormControl>
-                  <Textarea
-                    placeholder="Enter store address"
-                    {...field}
-                    disabled={isSubmitting}
-                    rows={3}
-                  />
-                </FormControl>
-                <FormDescription>
-                  Physical address of the store (optional)
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <div className="grid grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="gpsLat"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>GPS Latitude</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      step="any"
-                      placeholder="-90 to 90"
-                      {...field}
-                      disabled={isSubmitting}
-                    />
-                  </FormControl>
-                  <FormDescription>Latitude (-90 to 90)</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="gpsLng"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>GPS Longitude</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      step="any"
-                      placeholder="-180 to 180"
-                      {...field}
-                      disabled={isSubmitting}
-                    />
-                  </FormControl>
-                  <FormDescription>Longitude (-180 to 180)</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-        </div>
+        <FormField
+          control={form.control}
+          name="address"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Address</FormLabel>
+              <FormControl>
+                <Textarea
+                  placeholder="Enter store address"
+                  {...field}
+                  disabled={isSubmitting}
+                  rows={3}
+                />
+              </FormControl>
+              <FormDescription>
+                Physical address of the store (optional)
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <FormField
           control={form.control}

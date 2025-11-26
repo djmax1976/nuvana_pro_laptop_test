@@ -1,10 +1,8 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { rbacService } from "../services/rbac.service";
 import type { PermissionCode } from "../constants/permissions";
-import { PrismaClient } from "@prisma/client";
+import { prisma, withRLSContext } from "../utils/db";
 import type { UserIdentity } from "./auth.middleware";
-
-const prisma = new PrismaClient();
 
 /**
  * Extended request with user identity from auth middleware
@@ -124,11 +122,10 @@ export function permissionMiddleware(requiredPermission: PermissionCode) {
       // Extract scope from request
       const scope = extractScope(request);
 
-      // Check permission using RBAC service
-      const hasPermission = await rbacService.checkPermission(
-        userId,
-        requiredPermission,
-        scope,
+      // Check permission using RBAC service with RLS context
+      // RLS context is needed because user_roles table has RLS policies
+      const hasPermission = await withRLSContext(userId, () =>
+        rbacService.checkPermission(userId, requiredPermission, scope),
       );
 
       if (!hasPermission) {
@@ -189,12 +186,10 @@ export function requireAllPermissions(requiredPermissions: PermissionCode[]) {
 
       const scope = extractScope(request);
 
-      // Check all permissions
+      // Check all permissions with RLS context
       for (const permission of requiredPermissions) {
-        const hasPermission = await rbacService.checkPermission(
-          userId,
-          permission,
-          scope,
+        const hasPermission = await withRLSContext(userId, () =>
+          rbacService.checkPermission(userId, permission, scope),
         );
 
         if (!hasPermission) {
@@ -253,13 +248,11 @@ export function requireAnyPermission(requiredPermissions: PermissionCode[]) {
 
       const scope = extractScope(request);
 
-      // Check if user has any of the required permissions
+      // Check if user has any of the required permissions with RLS context
       let hasAnyPermission = false;
       for (const permission of requiredPermissions) {
-        const hasPermission = await rbacService.checkPermission(
-          userId,
-          permission,
-          scope,
+        const hasPermission = await withRLSContext(userId, () =>
+          rbacService.checkPermission(userId, permission, scope),
         );
 
         if (hasPermission) {

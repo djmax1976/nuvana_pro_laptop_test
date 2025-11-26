@@ -4,7 +4,7 @@ import {
   UpdateCompanyInput,
   CompanyListOptions,
   PaginatedCompanyResult,
-  CompanyWithClient,
+  CompanyWithOwner,
   AuditContext,
 } from "../types/company.types";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
@@ -13,25 +13,21 @@ const prisma = new PrismaClient();
 
 /**
  * Company service for managing company CRUD operations
- * Handles company creation, retrieval, updates, and soft deletion
+ * Handles company creation, retrieval, updates, and hard deletion
  */
 export class CompanyService {
   /**
-   * Validate that a client exists
-   * @param clientId - Client UUID to validate
-   * @throws Error if client does not exist or is deleted
+   * Validate that an owner user exists
+   * @param ownerUserId - User UUID to validate
+   * @throws Error if user does not exist
    */
-  private async validateClientExists(clientId: string): Promise<void> {
-    const client = await prisma.client.findUnique({
-      where: { client_id: clientId },
+  private async validateOwnerExists(ownerUserId: string): Promise<void> {
+    const user = await prisma.user.findUnique({
+      where: { user_id: ownerUserId },
     });
 
-    if (!client) {
-      throw new Error(`Client with ID ${clientId} not found`);
-    }
-
-    if (client.deleted_at) {
-      throw new Error(`Client with ID ${clientId} has been deleted`);
+    if (!user) {
+      throw new Error(`User with ID ${ownerUserId} not found`);
     }
   }
 
@@ -39,20 +35,20 @@ export class CompanyService {
    * Create a new company
    * @param data - Company creation data
    * @param auditContext - Audit context for logging
-   * @returns Created company record with client information
+   * @returns Created company record with owner information
    * @throws Error if validation fails or database error occurs
    */
   async createCompany(
     data: CreateCompanyInput,
     auditContext: AuditContext,
-  ): Promise<CompanyWithClient> {
-    // Validate client_id is provided
-    if (!data.client_id) {
-      throw new Error("Client ID is required for company creation");
+  ): Promise<CompanyWithOwner> {
+    // Validate owner_user_id is provided
+    if (!data.owner_user_id) {
+      throw new Error("Owner user ID is required for company creation");
     }
 
-    // Validate client exists
-    await this.validateClientExists(data.client_id);
+    // Validate owner exists
+    await this.validateOwnerExists(data.owner_user_id);
 
     // Validate name
     if (!data.name || data.name.trim().length === 0) {
@@ -94,16 +90,17 @@ export class CompanyService {
       const company = await prisma.company.create({
         data: {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-          client_id: data.client_id,
+          owner_user_id: data.owner_user_id,
           name: data.name.trim(),
           address: data.address ? data.address.trim() : null,
           status: data.status || "ACTIVE",
         },
         include: {
-          client: {
+          owner: {
             select: {
-              client_id: true,
+              user_id: true,
               name: true,
+              email: true,
             },
           },
         },
@@ -133,15 +130,15 @@ export class CompanyService {
 
       return {
         company_id: company.company_id,
-        client_id: company.client_id,
-        client_name: company.client?.name,
+        owner_user_id: company.owner_user_id,
+        owner_name: company.owner?.name,
+        owner_email: company.owner?.email,
         name: company.name,
         address: company.address,
         status: company.status,
         created_at: company.created_at,
         updated_at: company.updated_at,
-        deleted_at: company.deleted_at,
-        client: company.client,
+        owner: company.owner,
       };
     } catch (error: unknown) {
       if (error instanceof Error && error.message.includes("not found")) {
@@ -155,20 +152,21 @@ export class CompanyService {
   /**
    * Get company by ID
    * @param companyId - Company UUID
-   * @returns Company record with client information
+   * @returns Company record with owner information
    * @throws Error if company not found
    */
-  async getCompanyById(companyId: string): Promise<CompanyWithClient> {
+  async getCompanyById(companyId: string): Promise<CompanyWithOwner> {
     try {
       const company = await prisma.company.findUnique({
         where: {
           company_id: companyId,
         },
         include: {
-          client: {
+          owner: {
             select: {
-              client_id: true,
+              user_id: true,
               name: true,
+              email: true,
             },
           },
         },
@@ -180,15 +178,15 @@ export class CompanyService {
 
       return {
         company_id: company.company_id,
-        client_id: company.client_id,
-        client_name: company.client?.name,
+        owner_user_id: company.owner_user_id,
+        owner_name: company.owner?.name,
+        owner_email: company.owner?.email,
         name: company.name,
         address: company.address,
         status: company.status,
         created_at: company.created_at,
         updated_at: company.updated_at,
-        deleted_at: company.deleted_at,
-        client: company.client,
+        owner: company.owner,
       };
     } catch (error: unknown) {
       if (error instanceof Error && error.message.includes("not found")) {
@@ -201,30 +199,57 @@ export class CompanyService {
 
   /**
    * Get companies with pagination and filtering
-   * @param options - List options (page, limit, status, clientId)
-   * @returns Paginated company results with client information
+   * @param options - List options (page, limit, status, ownerUserId, search)
+   * @returns Paginated company results with owner information
    */
   async getCompanies(
     options: CompanyListOptions = {},
   ): Promise<PaginatedCompanyResult> {
-    const { page = 1, limit = 20, status, clientId } = options;
+    const { page = 1, limit = 20, status, ownerUserId, search } = options;
 
     const skip = (page - 1) * limit;
 
     // Build where clause
-    const where: any = {
-      // Exclude soft-deleted companies
-      deleted_at: null,
-    };
+    const where: any = {};
 
     // Filter by status
     if (status) {
       where.status = status;
     }
 
-    // Filter by client_id
-    if (clientId) {
-      where.client_id = clientId;
+    // Filter by owner_user_id
+    if (ownerUserId) {
+      where.owner_user_id = ownerUserId;
+    }
+
+    // Search by company name, owner name, or owner email (case-insensitive partial match)
+    // Minimum 2 characters required for search
+    if (search && search.trim().length >= 2) {
+      const searchTerm = search.trim();
+      where.OR = [
+        {
+          name: {
+            contains: searchTerm,
+            mode: "insensitive",
+          },
+        },
+        {
+          owner: {
+            name: {
+              contains: searchTerm,
+              mode: "insensitive",
+            },
+          },
+        },
+        {
+          owner: {
+            email: {
+              contains: searchTerm,
+              mode: "insensitive",
+            },
+          },
+        },
+      ];
     }
 
     try {
@@ -235,10 +260,11 @@ export class CompanyService {
           take: limit,
           orderBy: { created_at: "desc" },
           include: {
-            client: {
+            owner: {
               select: {
-                client_id: true,
+                user_id: true,
                 name: true,
+                email: true,
               },
             },
           },
@@ -246,23 +272,23 @@ export class CompanyService {
         prisma.company.count({ where }),
       ]);
 
-      const companiesWithClient: CompanyWithClient[] = companies.map(
+      const companiesWithOwner: CompanyWithOwner[] = companies.map(
         (company: any) => ({
           company_id: company.company_id,
-          client_id: company.client_id,
-          client_name: company.client?.name,
+          owner_user_id: company.owner_user_id,
+          owner_name: company.owner?.name,
+          owner_email: company.owner?.email,
           name: company.name,
           address: company.address,
           status: company.status,
           created_at: company.created_at,
           updated_at: company.updated_at,
-          deleted_at: company.deleted_at,
-          client: company.client,
+          owner: company.owner,
         }),
       );
 
       return {
-        data: companiesWithClient,
+        data: companiesWithOwner,
         meta: {
           page,
           limit,
@@ -281,14 +307,14 @@ export class CompanyService {
    * @param companyId - Company UUID
    * @param data - Company update data
    * @param auditContext - Audit context for logging
-   * @returns Updated company record with client information
+   * @returns Updated company record with owner information
    * @throws Error if company not found or validation fails
    */
   async updateCompany(
     companyId: string,
     data: UpdateCompanyInput,
     auditContext: AuditContext,
-  ): Promise<CompanyWithClient> {
+  ): Promise<CompanyWithOwner> {
     // Validate name if provided
     if (data.name !== undefined && data.name.trim().length === 0) {
       throw new Error("Company name cannot be empty or whitespace");
@@ -318,11 +344,6 @@ export class CompanyService {
       );
     }
 
-    // Validate client_id if provided
-    if (data.client_id) {
-      await this.validateClientExists(data.client_id);
-    }
-
     try {
       // Check if company exists
       const existingCompany = await prisma.company.findUnique({
@@ -330,10 +351,11 @@ export class CompanyService {
           company_id: companyId,
         },
         include: {
-          client: {
+          owner: {
             select: {
-              client_id: true,
+              user_id: true,
               name: true,
+              email: true,
               status: true,
             },
           },
@@ -344,15 +366,15 @@ export class CompanyService {
         throw new Error(`Company with ID ${companyId} not found`);
       }
 
-      // Prevent activating a company if its client is inactive
+      // Prevent activating a company if its owner is inactive
       if (
         data.status === "ACTIVE" &&
         existingCompany.status === "INACTIVE" &&
-        existingCompany.client &&
-        existingCompany.client.status === "INACTIVE"
+        existingCompany.owner &&
+        existingCompany.owner.status === "INACTIVE"
       ) {
         throw new Error(
-          "Cannot activate company because its parent client is inactive. Please activate the client first.",
+          "Cannot activate company because its owner is inactive. Please activate the owner first.",
         );
       }
 
@@ -367,11 +389,7 @@ export class CompanyService {
       if (data.status !== undefined) {
         updateData.status = data.status;
       }
-      if (data.client_id !== undefined) {
-        updateData.client = {
-          connect: { client_id: data.client_id },
-        };
-      }
+      // Note: owner_user_id is immutable - cannot be changed after creation
 
       const company = await prisma.company.update({
         where: {
@@ -379,17 +397,18 @@ export class CompanyService {
         },
         data: updateData,
         include: {
-          client: {
+          owner: {
             select: {
-              client_id: true,
+              user_id: true,
               name: true,
+              email: true,
               status: true,
             },
           },
         },
       });
 
-      // Create audit log entry with old and new client_id (non-blocking)
+      // Create audit log entry (non-blocking)
       try {
         await prisma.auditLog.create({
           data: {
@@ -414,15 +433,15 @@ export class CompanyService {
 
       return {
         company_id: company.company_id,
-        client_id: company.client_id,
-        client_name: company.client?.name,
+        owner_user_id: company.owner_user_id,
+        owner_name: company.owner?.name,
+        owner_email: company.owner?.email,
         name: company.name,
         address: company.address,
         status: company.status,
         created_at: company.created_at,
         updated_at: company.updated_at,
-        deleted_at: company.deleted_at,
-        client: company.client,
+        owner: company.owner,
       };
     } catch (error: unknown) {
       if (error instanceof Error && error.message.includes("not found")) {
@@ -434,17 +453,16 @@ export class CompanyService {
   }
 
   /**
-   * Soft delete company (set status to INACTIVE and deleted_at timestamp)
-   * Cascades to all stores and user roles under this company
+   * Hard delete company and all associated data
+   * Permanently removes company, stores, and user roles under this company
    * @param companyId - Company UUID
    * @param auditContext - Audit context for logging
-   * @returns Updated company record with INACTIVE status
    * @throws Error if company not found or if company is ACTIVE
    */
   async deleteCompany(
     companyId: string,
     auditContext: AuditContext,
-  ): Promise<CompanyWithClient> {
+  ): Promise<void> {
     try {
       // Check if company exists
       const existingCompany = await prisma.company.findUnique({
@@ -452,10 +470,11 @@ export class CompanyService {
           company_id: companyId,
         },
         include: {
-          client: {
+          owner: {
             select: {
-              client_id: true,
+              user_id: true,
               name: true,
+              email: true,
             },
           },
         },
@@ -472,53 +491,56 @@ export class CompanyService {
         );
       }
 
-      // Soft delete by setting status to INACTIVE and deleted_at timestamp
-      const deletedAt = new Date();
-
-      // Use transaction to cascade soft delete to stores and user roles
-      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        // Cascade soft delete to all stores under this company
-        await tx.store.updateMany({
-          where: {
-            company_id: companyId,
-            deleted_at: null,
-          },
-          data: {
-            deleted_at: deletedAt,
-            status: "INACTIVE",
-          },
-        });
-
-        // Cascade soft delete to all UserRoles associated with this company
-        // This includes company-level and store-level roles
-        await tx.userRole.updateMany({
-          where: {
-            company_id: companyId,
-            deleted_at: null,
-          },
-          data: {
-            status: "INACTIVE",
-            deleted_at: deletedAt,
-          },
-        });
-      });
-
-      const company = await prisma.company.update({
+      // Check for active stores - cannot delete company with active stores
+      const activeStoresCount = await prisma.store.count({
         where: {
           company_id: companyId,
+          status: "ACTIVE",
         },
-        data: {
-          status: "INACTIVE",
-          deleted_at: deletedAt,
-        },
-        include: {
-          client: {
-            select: {
-              client_id: true,
-              name: true,
+      });
+
+      if (activeStoresCount > 0) {
+        throw new Error(
+          `Cannot delete company with ${activeStoresCount} active store(s). Deactivate all stores first.`,
+        );
+      }
+
+      // Use transaction to hard delete company, stores, and user roles
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        // Get all stores for this company to delete their user roles
+        const stores = await tx.store.findMany({
+          where: { company_id: companyId },
+          select: { store_id: true },
+        });
+        const storeIds = stores.map((s: any) => s.store_id);
+
+        // Delete all UserRoles associated with stores under this company
+        if (storeIds.length > 0) {
+          await tx.userRole.deleteMany({
+            where: {
+              store_id: { in: storeIds },
             },
+          });
+        }
+
+        // Delete all UserRoles associated with this company (company-level roles)
+        await tx.userRole.deleteMany({
+          where: {
+            company_id: companyId,
           },
-        },
+        });
+
+        // Delete all stores under this company
+        await tx.store.deleteMany({
+          where: {
+            company_id: companyId,
+          },
+        });
+
+        // Delete the company
+        await tx.company.delete({
+          where: { company_id: companyId },
+        });
       });
 
       // Create audit log entry (non-blocking - don't fail the deletion if audit fails)
@@ -528,12 +550,12 @@ export class CompanyService {
             user_id: auditContext.userId,
             action: "DELETE",
             table_name: "companies",
-            record_id: company.company_id,
+            record_id: companyId,
             old_values: existingCompany as unknown as Record<string, any>,
-            new_values: company as unknown as Record<string, any>,
+            new_values: {} as any,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
-            reason: `Company soft deleted by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+            reason: `Company permanently deleted by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
           },
         });
       } catch (auditError) {
@@ -543,24 +565,12 @@ export class CompanyService {
           auditError,
         );
       }
-
-      return {
-        company_id: company.company_id,
-        client_id: company.client_id,
-        client_name: company.client?.name,
-        name: company.name,
-        address: company.address,
-        status: company.status,
-        created_at: company.created_at,
-        updated_at: company.updated_at,
-        deleted_at: company.deleted_at,
-        client: company.client,
-      };
     } catch (error: unknown) {
       if (
         error instanceof Error &&
         (error.message.includes("not found") ||
-          error.message.includes("ACTIVE company"))
+          error.message.includes("ACTIVE company") ||
+          error.message.includes("active store"))
       ) {
         throw error;
       }

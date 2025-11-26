@@ -28,7 +28,6 @@ test.describe.configure({ mode: "serial" });
 
 test.describe("Store Management E2E", () => {
   let superadminUser: any;
-  let testClient: any;
   let testCompany: any;
   let testStore: any;
 
@@ -76,23 +75,13 @@ test.describe("Store Management E2E", () => {
       });
     }
 
-    // Create test client
-    testClient = await prisma.client.create({
-      data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.CLIENT),
-        email: `test-${Date.now()}@example.com`,
-        name: "E2E Test Client for Stores",
-        status: "ACTIVE",
-      },
-    });
-
-    // Create test company
+    // Create test company owned by superadmin
     testCompany = await prisma.company.create({
       data: {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
         name: "E2E Test Company for Stores",
         status: "ACTIVE",
-        client_id: testClient.client_id,
+        owner_user_id: superadminUser.user_id,
       },
     });
 
@@ -118,7 +107,6 @@ test.describe("Store Management E2E", () => {
     await cleanupTestData(prisma, {
       stores: testStore ? [testStore.store_id] : [],
       companies: testCompany ? [testCompany.company_id] : [],
-      clients: testClient ? [testClient.client_id] : [],
       users: superadminUser ? [superadminUser.user_id] : [],
     });
 

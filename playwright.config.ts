@@ -11,6 +11,10 @@ export default defineConfig({
   // Test directory structure
   testDir: "./tests",
 
+  // Global setup/teardown - cleans test data before and after all tests
+  globalSetup: "./tests/support/global-setup.ts",
+  globalTeardown: "./tests/support/global-teardown.ts",
+
   // Parallel execution
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

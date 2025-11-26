@@ -16,7 +16,6 @@ export interface CreateStoreInput {
   name: string;
   location_json?: {
     address?: string;
-    gps?: { lat: number; lng: number };
   };
   timezone?: string;
   status?: StoreStatus;
@@ -29,7 +28,6 @@ export interface UpdateStoreInput {
   name?: string;
   location_json?: {
     address?: string;
-    gps?: { lat: number; lng: number };
   };
   timezone?: string;
   status?: StoreStatus;
@@ -66,7 +64,6 @@ export interface StoreConfiguration {
   timezone?: string; // IANA timezone format (e.g., America/New_York)
   location?: {
     address?: string;
-    gps?: { lat: number; lng: number };
   };
   operating_hours?: OperatingHours;
 }
@@ -141,27 +138,6 @@ export class StoreService {
         typeof data.location_json.address !== "string"
       ) {
         throw new Error("location_json.address must be a string");
-      }
-      if (data.location_json.gps) {
-        if (
-          typeof data.location_json.gps.lat !== "number" ||
-          typeof data.location_json.gps.lng !== "number"
-        ) {
-          throw new Error("location_json.gps must have lat and lng as numbers");
-        }
-        // Validate GPS coordinates range
-        if (
-          data.location_json.gps.lat < -90 ||
-          data.location_json.gps.lat > 90
-        ) {
-          throw new Error("GPS latitude must be between -90 and 90");
-        }
-        if (
-          data.location_json.gps.lng < -180 ||
-          data.location_json.gps.lng > 180
-        ) {
-          throw new Error("GPS longitude must be between -180 and 180");
-        }
       }
     }
 
@@ -292,27 +268,6 @@ export class StoreService {
       ) {
         throw new Error("location_json.address must be a string");
       }
-      if (data.location_json.gps) {
-        if (
-          typeof data.location_json.gps.lat !== "number" ||
-          typeof data.location_json.gps.lng !== "number"
-        ) {
-          throw new Error("location_json.gps must have lat and lng as numbers");
-        }
-        // Validate GPS coordinates range
-        if (
-          data.location_json.gps.lat < -90 ||
-          data.location_json.gps.lat > 90
-        ) {
-          throw new Error("GPS latitude must be between -90 and 90");
-        }
-        if (
-          data.location_json.gps.lng < -180 ||
-          data.location_json.gps.lng > 180
-        ) {
-          throw new Error("GPS longitude must be between -180 and 180");
-        }
-      }
     }
 
     // Validate status
@@ -412,21 +367,6 @@ export class StoreService {
           throw new Error(
             "Invalid address: HTML tags and scripts are not allowed",
           );
-        }
-      }
-      if (config.location.gps) {
-        if (
-          typeof config.location.gps.lat !== "number" ||
-          typeof config.location.gps.lng !== "number"
-        ) {
-          throw new Error("location.gps must have lat and lng as numbers");
-        }
-        // Validate GPS coordinates range
-        if (config.location.gps.lat < -90 || config.location.gps.lat > 90) {
-          throw new Error("GPS latitude must be between -90 and 90");
-        }
-        if (config.location.gps.lng < -180 || config.location.gps.lng > 180) {
-          throw new Error("GPS longitude must be between -180 and 180");
         }
       }
     }
@@ -535,14 +475,13 @@ export class StoreService {
   }
 
   /**
-   * Soft delete store (set status to INACTIVE and deleted_at timestamp) with company isolation check
-   * Cascades to all user roles associated with this store
+   * Hard delete store with company isolation check
+   * Permanently removes the store and cascades to all user roles associated with this store
    * @param storeId - Store UUID
    * @param userCompanyId - User's assigned company ID (for isolation check)
-   * @returns Updated store record with INACTIVE status
-   * @throws Error if store not found or user tries to delete store from different company
+   * @throws Error if store not found, store is ACTIVE, or user tries to delete store from different company
    */
-  async deleteStore(storeId: string, userCompanyId: string) {
+  async deleteStore(storeId: string, userCompanyId: string): Promise<void> {
     try {
       // Check if store exists and verify company isolation
       const existingStore = await prisma.store.findUnique({
@@ -562,39 +501,34 @@ export class StoreService {
         );
       }
 
-      // Soft delete by setting status to INACTIVE and deleted_at timestamp
-      const deletedAt = new Date();
+      // Prevent deletion of ACTIVE stores - they must be set to INACTIVE first
+      if (existingStore.status === "ACTIVE") {
+        throw new Error(
+          "Cannot delete ACTIVE store. Set status to INACTIVE first.",
+        );
+      }
 
-      // Use transaction to cascade soft delete to user roles
+      // Use transaction to hard delete store and cascade to user roles
       await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        // Cascade soft delete to all UserRoles associated with this store
-        await tx.userRole.updateMany({
+        // Delete all UserRoles associated with this store
+        await tx.userRole.deleteMany({
           where: {
             store_id: storeId,
-            deleted_at: null,
           },
-          data: {
-            status: "INACTIVE",
-            deleted_at: deletedAt,
+        });
+
+        // Delete the store
+        await tx.store.delete({
+          where: {
+            store_id: storeId,
           },
         });
       });
-
-      const store = await prisma.store.update({
-        where: {
-          store_id: storeId,
-        },
-        data: {
-          status: "INACTIVE",
-          deleted_at: deletedAt,
-        },
-      });
-
-      return store;
     } catch (error: any) {
       if (
         error.message.includes("not found") ||
-        error.message.includes("Forbidden")
+        error.message.includes("Forbidden") ||
+        error.message.includes("ACTIVE store")
       ) {
         throw error;
       }

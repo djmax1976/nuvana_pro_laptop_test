@@ -8,7 +8,6 @@ import {
   type Company,
   type CompanyStatus,
 } from "@/lib/api/companies";
-import { useClientsDropdown } from "@/lib/api/clients";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -18,15 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Plus, Pencil, Power, Trash2 } from "lucide-react";
-import Link from "next/link";
+import { Pencil, Power, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -36,13 +27,10 @@ import { useQueryClient } from "@tanstack/react-query";
 /**
  * CompanyList component
  * Displays a list of companies in a table format (System Admin only)
- * Shows company_id, client, name, status, created_at, updated_at columns
- * Includes "Create Company" button, client filter, and "Edit"/"View Details" actions
+ * Shows owner, name, status, created_at, updated_at columns
+ * Note: Companies are now created through the User creation flow (CLIENT_OWNER role)
  */
 export function CompanyList() {
-  const [clientFilter, setClientFilter] = useState<string | undefined>(
-    undefined,
-  );
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
   // Confirmation dialog states
@@ -61,11 +49,8 @@ export function CompanyList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data, isLoading, error } = useCompanies({
-    clientId: clientFilter,
-  });
+  const { data, isLoading, error } = useCompanies();
 
-  const { data: clientsData, isLoading: clientsLoading } = useClientsDropdown();
   const updateMutation = useUpdateCompany();
   const deleteMutation = useDeleteCompany();
 
@@ -185,59 +170,23 @@ export function CompanyList() {
   }
 
   const companies = data?.data || [];
-  const clients = clientsData?.data || [];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Companies</h1>
-        <Link href="/companies/new">
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Create Company
-          </Button>
-        </Link>
-      </div>
-
-      {/* Filter controls */}
-      <div className="flex items-center gap-4">
-        <div className="w-[250px]">
-          <Select
-            value={clientFilter || "all"}
-            onValueChange={(value) =>
-              setClientFilter(value === "all" ? undefined : value)
-            }
-            disabled={clientsLoading}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Filter by client" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Clients</SelectItem>
-              {clients.map((client) => (
-                <SelectItem key={client.client_id} value={client.client_id}>
-                  {client.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
       </div>
 
       {companies.length === 0 ? (
         <div className="rounded-lg border p-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            {clientFilter
-              ? "No companies found for this client."
-              : "No companies found. Create your first company to get started."}
-          </p>
+          <p className="text-sm text-muted-foreground">No companies found.</p>
         </div>
       ) : (
         <div className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Client</TableHead>
+                <TableHead>Owner</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created At</TableHead>
@@ -249,7 +198,16 @@ export function CompanyList() {
               {companies.map((company) => (
                 <TableRow key={company.company_id}>
                   <TableCell className="text-sm">
-                    {company.client_name || "-"}
+                    <div>
+                      <div className="font-medium">
+                        {company.owner_name || "-"}
+                      </div>
+                      {company.owner_email && (
+                        <div className="text-xs text-muted-foreground">
+                          {company.owner_email}
+                        </div>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="font-medium">{company.name}</TableCell>
                   <TableCell>
@@ -406,16 +364,12 @@ function CompanyListSkeleton() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="h-8 w-32 animate-pulse rounded bg-muted" />
-        <div className="h-10 w-40 animate-pulse rounded bg-muted" />
-      </div>
-      <div className="flex items-center gap-4">
-        <div className="h-10 w-[250px] animate-pulse rounded bg-muted" />
       </div>
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Client</TableHead>
+              <TableHead>Owner</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Created At</TableHead>

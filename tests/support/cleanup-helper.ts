@@ -103,53 +103,7 @@ export async function deleteUsersWithRelatedData(
   }
 }
 
-/**
- * Delete a client and optionally its associated user
- * @param prisma - Prisma client instance
- * @param clientId - Client ID to delete
- * @param options - Cleanup options
- */
-export async function deleteClientWithRelatedData(
-  prisma: PrismaClient,
-  clientId: string,
-  options: {
-    deleteAssociatedUser?: boolean;
-  } = {},
-): Promise<void> {
-  const { deleteAssociatedUser = true } = options;
-
-  try {
-    // Get client with user info
-    const client = await prisma.client.findUnique({
-      where: { client_id: clientId },
-      select: { email: true },
-    });
-
-    if (!client) {
-      console.warn(`Client ${clientId} not found`);
-      return;
-    }
-
-    // Delete client first
-    await prisma.client.delete({
-      where: { client_id: clientId },
-    });
-
-    // If deleteAssociatedUser, find and delete the user with the same email
-    if (deleteAssociatedUser) {
-      const user = await prisma.user.findUnique({
-        where: { email: client.email },
-      });
-
-      if (user) {
-        await deleteUserWithRelatedData(prisma, user.user_id);
-      }
-    }
-  } catch (error) {
-    console.error(`Error deleting client ${clientId}:`, error);
-    // Don't throw - cleanup should be non-blocking
-  }
-}
+// Client model removed - deleteClientWithRelatedData no longer needed
 
 /**
  * Delete a company and all related data
@@ -233,18 +187,12 @@ export async function cleanupTestData(
   prisma: PrismaClient,
   cleanup: {
     users?: string[];
-    clients?: string[];
     companies?: string[];
     stores?: string[];
   },
 ): Promise<void> {
   try {
     // Delete in correct order
-    if (cleanup.clients) {
-      for (const clientId of cleanup.clients) {
-        await deleteClientWithRelatedData(prisma, clientId).catch(() => {});
-      }
-    }
 
     if (cleanup.stores) {
       for (const storeId of cleanup.stores) {

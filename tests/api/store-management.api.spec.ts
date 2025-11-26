@@ -62,7 +62,6 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
       timezone: "America/New_York",
       location_json: {
         address: "123 Main St",
-        gps: { lat: 40.7128, lng: -74.006 },
       },
     });
 
@@ -147,8 +146,14 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Another company exists
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Other Company Owner" }),
+    });
     const otherCompany = await prismaClient.company.create({
-      data: createCompany({ name: "Other Company" }),
+      data: createCompany({
+        name: "Other Company",
+        owner_user_id: otherOwner.user_id,
+      }),
     });
 
     // WHEN: Trying to create store for different company
@@ -205,8 +210,14 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Store exists for another company
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Other Company Owner" }),
+    });
     const otherCompany = await prismaClient.company.create({
-      data: createCompany({ name: "Other Company" }),
+      data: createCompany({
+        name: "Other Company",
+        owner_user_id: otherOwner.user_id,
+      }),
     });
     const otherStoreData = createStore({
       company_id: otherCompany.company_id,
@@ -321,8 +332,14 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Store from another company
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Other Company Owner" }),
+    });
     const otherCompany = await prismaClient.company.create({
-      data: createCompany({ name: "Other Company" }),
+      data: createCompany({
+        name: "Other Company",
+        owner_user_id: otherOwner.user_id,
+      }),
     });
     const otherStoreData = createStore({
       company_id: otherCompany.company_id,
@@ -346,17 +363,17 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
     expect(response.status()).toBe(403);
   });
 
-  test("2.2-API-011: [P0] DELETE /api/stores/:storeId - should soft delete store", async ({
+  test("2.2-API-011: [P0] DELETE /api/stores/:storeId - should hard delete INACTIVE store", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
   }) => {
-    // GIVEN: Active store
+    // GIVEN: An INACTIVE store (must be INACTIVE to allow deletion)
     const storeData = createStore({
       company_id: corporateAdminUser.company_id,
       name: "Store to Delete",
       timezone: "America/New_York",
-      status: "ACTIVE",
+      status: "INACTIVE",
     });
     const store = await prismaClient.store.create({
       data: storeData,
@@ -367,15 +384,17 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
       `/api/stores/${store.store_id}`,
     );
 
-    // THEN: Soft deleted (status changed, not hard deleted)
+    // THEN: Permanently deleted (hard delete)
     expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.message).toContain("permanently deleted");
 
-    // CRITICAL: Verify soft delete (not hard delete)
+    // CRITICAL: Verify hard delete (not soft delete)
     const deletedStore = await prismaClient.store.findUnique({
       where: { store_id: store.store_id },
     });
-    expect(deletedStore).not.toBeNull(); // Still exists
-    expect(deletedStore?.status).toBe("INACTIVE"); // Status changed
+    expect(deletedStore).toBeNull(); // Store no longer exists
 
     // AND: Audit log created
     const auditLog = await prismaClient.auditLog.findFirst({
@@ -388,18 +407,58 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
     expect(auditLog).not.toBeNull();
   });
 
-  test("[P0] DELETE /api/stores/:storeId - should cascade soft delete to user roles", async ({
+  test("[P0] DELETE /api/stores/:storeId - should reject deletion of ACTIVE store", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
   }) => {
-    // GIVEN: A store with user roles
+    // GIVEN: An ACTIVE store
+    const storeData = createStore({
+      company_id: corporateAdminUser.company_id,
+      name: "Active Store",
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
+    const store = await prismaClient.store.create({
+      data: storeData,
+    });
+
+    // WHEN: Attempting to delete an ACTIVE store
+    const response = await corporateAdminApiRequest.delete(
+      `/api/stores/${store.store_id}`,
+    );
+
+    // THEN: Deletion is rejected with 400 Bad Request
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.error).toBe("Bad Request");
+    expect(body.message).toContain("ACTIVE store");
+
+    // AND: Store still exists
+    const stillExistingStore = await prismaClient.store.findUnique({
+      where: { store_id: store.store_id },
+    });
+    expect(stillExistingStore).not.toBeNull();
+    expect(stillExistingStore?.status).toBe("ACTIVE");
+
+    // Cleanup
+    await prismaClient.store.delete({
+      where: { store_id: store.store_id },
+    });
+  });
+
+  test("[P0] DELETE /api/stores/:storeId - should cascade hard delete to user roles", async ({
+    corporateAdminApiRequest,
+    corporateAdminUser,
+    prismaClient,
+  }) => {
+    // GIVEN: An INACTIVE store with user roles
     const store = await prismaClient.store.create({
       data: {
         public_id: `ST_${Date.now()}`,
         company_id: corporateAdminUser.company_id,
         name: "Store With Roles",
-        status: "ACTIVE",
+        status: "INACTIVE",
       },
     });
 
@@ -426,28 +485,33 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
       },
     });
 
-    // WHEN: Soft deleting the store
+    // WHEN: Hard deleting the store
     const response = await corporateAdminApiRequest.delete(
       `/api/stores/${store.store_id}`,
     );
 
-    // THEN: Store is soft deleted
+    // THEN: Store is permanently deleted
     expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.message).toContain("permanently deleted");
 
-    // AND: Store has deleted_at set
+    // AND: Store record no longer exists
     const deletedStore = await prismaClient.store.findUnique({
       where: { store_id: store.store_id },
     });
-    expect(deletedStore).not.toBeNull();
-    expect(deletedStore?.deleted_at).not.toBeNull();
-    expect(deletedStore?.status).toBe("INACTIVE");
+    expect(deletedStore).toBeNull();
 
-    // AND: Associated user roles are also soft deleted
+    // AND: Associated user roles are also deleted
     const deletedUserRole = await prismaClient.userRole.findUnique({
       where: { user_role_id: storeUserRole.user_role_id },
     });
-    expect(deletedUserRole?.deleted_at).not.toBeNull();
-    expect(deletedUserRole?.status).toBe("INACTIVE");
+    expect(deletedUserRole).toBeNull();
+
+    // Cleanup: Delete the test user (was not deleted by cascade)
+    await prismaClient.user.delete({
+      where: { user_id: testUser.user_id },
+    });
   });
 
   test("2.2-API-012: [P0] DELETE /api/stores/:storeId - should enforce company isolation", async ({
@@ -455,8 +519,14 @@ test.describe.skip("Store Management API - CRUD Operations", () => {
     prismaClient,
   }) => {
     // GIVEN: Store from another company
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Other Company Owner" }),
+    });
     const otherCompany = await prismaClient.company.create({
-      data: createCompany({ name: "Other Company" }),
+      data: createCompany({
+        name: "Other Company",
+        owner_user_id: otherOwner.user_id,
+      }),
     });
     const otherStoreData = createStore({
       company_id: otherCompany.company_id,
@@ -895,7 +965,6 @@ test.describe.skip("Store Configuration API", () => {
       timezone: "America/Los_Angeles",
       location: {
         address: "456 Test Ave",
-        gps: { lat: 34.0522, lng: -118.2437 },
       },
       operating_hours: {
         monday: { open: "09:00", close: "17:00" },
@@ -1017,8 +1086,14 @@ test.describe.skip("Store Configuration API", () => {
     });
 
     // AND: Company 2 and admin user exist
+    const company2Owner = await prismaClient.user.create({
+      data: createUser({ name: "Company 2 Owner" }),
+    });
     const company2 = await prismaClient.company.create({
-      data: createCompany({ name: "Company 2" }),
+      data: createCompany({
+        name: "Company 2",
+        owner_user_id: company2Owner.user_id,
+      }),
     });
     const user2Data = createUser();
     const user2 = await prismaClient.user.create({ data: user2Data });
@@ -1644,8 +1719,14 @@ test.describe.skip("Store Configuration API", () => {
     prismaClient,
   }) => {
     // GIVEN: A store exists
+    const companyOwner = await prismaClient.user.create({
+      data: createUser({ name: "Test Company Owner" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany({ name: "Test Company" }),
+      data: createCompany({
+        name: "Test Company",
+        owner_user_id: companyOwner.user_id,
+      }),
     });
     const storeData = createStore({
       company_id: company.company_id,

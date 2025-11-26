@@ -5,7 +5,6 @@ const prisma = new PrismaClient();
 async function verifyCleanup() {
   try {
     const users = await prisma.user.findMany();
-    const clients = await prisma.client.findMany();
     const companies = await prisma.company.findMany();
     const stores = await prisma.store.findMany();
     const userRoles = await prisma.userRole.findMany();
@@ -14,8 +13,7 @@ async function verifyCleanup() {
     console.log(`\n👤 Users: ${users.length}`);
     users.forEach((u) => console.log(`   - ${u.email} (${u.name})`));
 
-    console.log(`\n👥 Clients: ${clients.length}`);
-    console.log(`🏢 Companies: ${companies.length}`);
+    console.log(`\n🏢 Companies: ${companies.length}`);
     console.log(`🏪 Stores: ${stores.length}`);
     console.log(`🔐 User Roles: ${userRoles.length}`);
 

@@ -99,7 +99,12 @@ test.describe("RBAC Framework - Permission Checking", () => {
   }) => {
     // GIVEN: Corporate admin user has COMPANY scope for their company
     // Create a different company
-    const otherCompanyData = createCompany();
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Other Company Owner" }),
+    });
+    const otherCompanyData = createCompany({
+      owner_user_id: otherOwner.user_id,
+    });
     const otherCompany = await prismaClient.company.create({
       data: otherCompanyData,
     });
@@ -151,7 +156,12 @@ test.describe("RBAC Framework - Permission Checking", () => {
   }) => {
     // GIVEN: Store manager user has STORE scope for their store
     // Create a different company and store
-    const otherCompanyData = createCompany();
+    const otherOwner = await prismaClient.user.create({
+      data: createUser({ name: "Other Company Owner" }),
+    });
+    const otherCompanyData = createCompany({
+      owner_user_id: otherOwner.user_id,
+    });
     const otherCompany = await prismaClient.company.create({
       data: otherCompanyData,
     });

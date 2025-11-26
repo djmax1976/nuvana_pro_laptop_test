@@ -15,6 +15,7 @@ import {
 
 export type UserData = {
   id?: string;
+  user_id?: string;
   public_id: string;
   email: string;
   name: string;
@@ -24,12 +25,15 @@ export type UserData = {
 };
 
 export type CompanyData = {
+  company_id?: string;
   public_id: string;
   name: string;
   status: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
+  owner_user_id: string;
 };
 
 export type StoreData = {
+  store_id?: string;
   public_id: string;
   company_id: string;
   name: string;
@@ -40,11 +44,12 @@ export type StoreData = {
 
 /**
  * Creates a User test data object
+ * Email format: test_<random>@test.nuvana.local (identifiable for cleanup)
  */
 export const createUser = (overrides: Partial<UserData> = {}): UserData => ({
   public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-  email: faker.internet.email(),
-  name: faker.person.fullName(),
+  email: `test_${faker.string.alphanumeric(8).toLowerCase()}@test.nuvana.local`,
+  name: `Test ${faker.person.fullName()}`,
   auth_provider_id: faker.string.uuid(),
   status: "ACTIVE",
   ...overrides,
@@ -52,29 +57,28 @@ export const createUser = (overrides: Partial<UserData> = {}): UserData => ({
 
 /**
  * Creates a Company test data object
+ * Name format: Test <random> (identifiable for cleanup)
+ * Requires owner_user_id to be provided
  */
 export const createCompany = (
-  overrides: Partial<CompanyData> = {},
+  overrides: Partial<CompanyData> & { owner_user_id: string },
 ): CompanyData => ({
   public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-  name: faker.company.name(),
+  name: `Test ${faker.company.name()}`,
   status: "ACTIVE",
   ...overrides,
 });
 
 /**
  * Creates a Store test data object
+ * Name format: Test <random> Store (identifiable for cleanup)
  */
 export const createStore = (overrides: Partial<StoreData> = {}): StoreData => ({
   public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
   company_id: overrides.company_id || faker.string.uuid(),
-  name: `${faker.company.name()} Store`,
+  name: `Test ${faker.company.name()} Store`,
   location_json: {
     address: faker.location.streetAddress(),
-    gps: {
-      lat: Number(faker.location.latitude()),
-      lng: Number(faker.location.longitude()),
-    },
   },
   timezone: "America/New_York",
   status: "ACTIVE",
@@ -91,10 +95,11 @@ export const createUsers = (
 
 /**
  * Creates multiple Company test data objects
+ * Requires owner_user_id to be provided
  */
 export const createCompanies = (
   count: number,
-  overrides: Partial<CompanyData> = {},
+  overrides: Partial<CompanyData> & { owner_user_id: string },
 ): CompanyData[] =>
   Array.from({ length: count }, () => createCompany(overrides));
 

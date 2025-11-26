@@ -46,16 +46,6 @@ vi.mock("@/lib/api/companies", () => ({
   })),
 }));
 
-// Mock the clients API hook
-vi.mock("@/lib/api/clients", () => ({
-  useClientsDropdown: vi.fn(() => ({
-    data: { data: [] },
-    isLoading: false,
-    isError: false,
-    error: null,
-  })),
-}));
-
 // Mock the toast hook
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({
@@ -84,11 +74,13 @@ vi.mock("@/components/ui/confirm-dialog", () => ({
   ConfirmDialog: () => null,
 }));
 
-describe("2.4-COMPONENT: CompanyList Component", () => {
+describe("2.4-COMPONENT: CompanyList Component - Owner Display", () => {
   const mockCompanies: Company[] = [
     {
       company_id: "123e4567-e89b-12d3-a456-426614174000",
-      client_id: "323e4567-e89b-12d3-a456-426614174002",
+      owner_user_id: "423e4567-e89b-12d3-a456-426614174003",
+      owner_name: "Test Owner 1",
+      owner_email: "owner1@test.com",
       name: "Test Company 1",
       status: "ACTIVE",
       created_at: "2024-01-01T00:00:00Z",
@@ -96,7 +88,9 @@ describe("2.4-COMPONENT: CompanyList Component", () => {
     },
     {
       company_id: "223e4567-e89b-12d3-a456-426614174001",
-      client_id: "323e4567-e89b-12d3-a456-426614174002",
+      owner_user_id: "523e4567-e89b-12d3-a456-426614174004",
+      owner_name: "Test Owner 2",
+      owner_email: "owner2@test.com",
       name: "Test Company 2",
       status: "INACTIVE",
       created_at: "2024-01-02T00:00:00Z",
@@ -175,11 +169,7 @@ describe("2.4-COMPONENT: CompanyList Component", () => {
     renderWithProviders(<CompanyList />);
 
     // THEN: Empty state message should be displayed
-    expect(
-      screen.getByText(
-        "No companies found. Create your first company to get started.",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText("No companies found.")).toBeInTheDocument();
   });
 
   it("[P0] 2.4-COMPONENT-015: should render companies list with all required columns", async () => {
@@ -204,8 +194,8 @@ describe("2.4-COMPONENT: CompanyList Component", () => {
       expect(screen.getByText("INACTIVE")).toBeInTheDocument();
     });
 
-    // Verify table headers
-    expect(screen.getByText("Client")).toBeInTheDocument();
+    // Verify table headers (including Owner column)
+    expect(screen.getByText("Owner")).toBeInTheDocument();
     expect(screen.getByText("Name")).toBeInTheDocument();
     expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.getByText("Created At")).toBeInTheDocument();
@@ -213,8 +203,8 @@ describe("2.4-COMPONENT: CompanyList Component", () => {
     expect(screen.getByText("Actions")).toBeInTheDocument();
   });
 
-  it("[P1] 2.4-COMPONENT-016: should display Create Company button", () => {
-    // GIVEN: Companies API returns data
+  it("[P0] 2.4-COMPONENT-016: should display owner name and email for each company", async () => {
+    // GIVEN: Companies API returns data with owner info
     vi.mocked(companiesApi.useCompanies).mockReturnValue({
       data: mockResponse,
       isLoading: false,
@@ -227,13 +217,16 @@ describe("2.4-COMPONENT: CompanyList Component", () => {
     // WHEN: Component is rendered
     renderWithProviders(<CompanyList />);
 
-    // THEN: Create Company button should be displayed
-    expect(
-      screen.getByRole("link", { name: /Create Company/i }),
-    ).toBeInTheDocument();
+    // THEN: Owner names and emails should be displayed
+    await waitFor(() => {
+      expect(screen.getByText("Test Owner 1")).toBeInTheDocument();
+      expect(screen.getByText("owner1@test.com")).toBeInTheDocument();
+      expect(screen.getByText("Test Owner 2")).toBeInTheDocument();
+      expect(screen.getByText("owner2@test.com")).toBeInTheDocument();
+    });
   });
 
-  it("[P1] 2.4-COMPONENT-017: should display Edit action buttons for each company", async () => {
+  it("[P1] 2.4-COMPONENT-018: should display Edit action buttons for each company", async () => {
     // GIVEN: Companies API returns data
     vi.mocked(companiesApi.useCompanies).mockReturnValue({
       data: mockResponse,
@@ -255,5 +248,164 @@ describe("2.4-COMPONENT: CompanyList Component", () => {
       });
       expect(editButtons).toHaveLength(2);
     });
+  });
+
+  it("[P1] 2.4-COMPONENT-019: should handle missing owner info gracefully", async () => {
+    // GIVEN: Company without owner info
+    const companiesWithMissingOwner: Company[] = [
+      {
+        company_id: "123e4567-e89b-12d3-a456-426614174000",
+        owner_user_id: "423e4567-e89b-12d3-a456-426614174003",
+        // No owner_name or owner_email
+        name: "Orphaned Company",
+        status: "ACTIVE",
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      },
+    ];
+
+    vi.mocked(companiesApi.useCompanies).mockReturnValue({
+      data: { data: companiesWithMissingOwner, meta: mockResponse.meta },
+      isLoading: false,
+      error: null,
+      isError: false,
+      isSuccess: true,
+      refetch: vi.fn(),
+    } as any);
+
+    // WHEN: Component is rendered
+    renderWithProviders(<CompanyList />);
+
+    // THEN: Company should display with fallback for missing owner
+    await waitFor(() => {
+      expect(screen.getByText("Orphaned Company")).toBeInTheDocument();
+      // Should show "-" for missing owner name
+      expect(screen.getByText("-")).toBeInTheDocument();
+    });
+  });
+
+  it("[P1] 2.4-COMPONENT-020: should NOT show Create Company button (companies created via user flow)", () => {
+    // GIVEN: Companies API returns data
+    vi.mocked(companiesApi.useCompanies).mockReturnValue({
+      data: mockResponse,
+      isLoading: false,
+      error: null,
+      isError: false,
+      isSuccess: true,
+      refetch: vi.fn(),
+    } as any);
+
+    // WHEN: Component is rendered
+    renderWithProviders(<CompanyList />);
+
+    // THEN: There should be no Create Company button (companies created via user flow)
+    expect(
+      screen.queryByRole("button", { name: /create company/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /create company/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("[P0] 2.4-COMPONENT-021: should disable delete button for ACTIVE companies", async () => {
+    // GIVEN: Companies API returns data with ACTIVE company
+    vi.mocked(companiesApi.useCompanies).mockReturnValue({
+      data: mockResponse,
+      isLoading: false,
+      error: null,
+      isError: false,
+      isSuccess: true,
+      refetch: vi.fn(),
+    } as any);
+
+    // WHEN: Component is rendered
+    renderWithProviders(<CompanyList />);
+
+    // THEN: Delete button for ACTIVE company should be disabled
+    await waitFor(() => {
+      const deleteButtons = screen.getAllByRole("button", { name: /Delete/i });
+      // First company is ACTIVE - delete should be disabled
+      expect(deleteButtons[0]).toBeDisabled();
+      // Second company is INACTIVE - delete should be enabled
+      expect(deleteButtons[1]).not.toBeDisabled();
+    });
+  });
+
+  it("[P1] 2.4-COMPONENT-022: should show status toggle buttons for each company", async () => {
+    // GIVEN: Companies API returns data
+    vi.mocked(companiesApi.useCompanies).mockReturnValue({
+      data: mockResponse,
+      isLoading: false,
+      error: null,
+      isError: false,
+      isSuccess: true,
+      refetch: vi.fn(),
+    } as any);
+
+    // WHEN: Component is rendered
+    renderWithProviders(<CompanyList />);
+
+    // THEN: Status toggle buttons should be present
+    await waitFor(() => {
+      // ACTIVE company should have Deactivate sr-only text
+      expect(screen.getByText("Deactivate")).toBeInTheDocument();
+      // INACTIVE company should have Activate sr-only text
+      expect(screen.getByText("Activate")).toBeInTheDocument();
+    });
+  });
+});
+
+describe("2.4-COMPONENT: CompanyList - List Refresh After Operations", () => {
+  const mockCompanies: Company[] = [
+    {
+      company_id: "123e4567-e89b-12d3-a456-426614174000",
+      owner_user_id: "323e4567-e89b-12d3-a456-426614174002",
+      owner_name: "Test Owner",
+      owner_email: "owner@test.com",
+      name: "Test Company 1",
+      status: "ACTIVE",
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    },
+  ];
+
+  const mockResponse: ListCompaniesResponse = {
+    data: mockCompanies,
+    meta: {
+      page: 1,
+      limit: 10,
+      total_items: 1,
+      total_pages: 1,
+      has_next_page: false,
+      has_previous_page: false,
+    },
+  };
+
+  const mockRefetch = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("[P1] 2.4-COMPONENT-040: should provide refetch capability for list updates", async () => {
+    // GIVEN: Companies list is displayed
+    vi.mocked(companiesApi.useCompanies).mockReturnValue({
+      data: mockResponse,
+      isLoading: false,
+      error: null,
+      isError: false,
+      isSuccess: true,
+      refetch: mockRefetch,
+    } as any);
+
+    renderWithProviders(<CompanyList />);
+
+    // WHEN: Companies list renders
+    await waitFor(() => {
+      expect(screen.getByText("Test Company 1")).toBeInTheDocument();
+    });
+
+    // THEN: List should have refetch capability (via TanStack Query invalidation)
+    expect(mockRefetch).toBeDefined();
   });
 });

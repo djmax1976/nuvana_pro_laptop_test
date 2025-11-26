@@ -5,7 +5,6 @@ import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
-import { cleanupTestData } from "../support/cleanup-helper";
 
 const prisma = new PrismaClient();
 
@@ -27,32 +26,49 @@ const prisma = new PrismaClient();
 
 test.describe.configure({ mode: "serial" });
 
+/**
+ * Helper function to clean up test users by email pattern
+ * This ensures cleanup happens even if previous test runs failed
+ */
+async function cleanupTestUsersByEmail(emails: string[]): Promise<void> {
+  try {
+    const existingUsers = await prisma.user.findMany({
+      where: { email: { in: emails } },
+      select: { user_id: true },
+    });
+
+    for (const user of existingUsers) {
+      // Delete related data in correct order
+      await prisma.transaction.deleteMany({
+        where: { cashier_id: user.user_id },
+      });
+      await prisma.shift.deleteMany({
+        where: { cashier_id: user.user_id },
+      });
+      await prisma.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+      await prisma.user.delete({
+        where: { user_id: user.user_id },
+      });
+    }
+  } catch (error) {
+    console.error("Cleanup error:", error);
+    // Don't throw - cleanup should be non-blocking
+  }
+}
+
 test.describe("Admin User Management E2E", () => {
   let superadminUser: any;
   let testUser: any;
   let testRole: any;
 
+  // Define test emails as constants for consistency
+  const TEST_EMAILS = ["admin-e2e@test.com", "test-user-e2e@test.com"];
+
   test.beforeAll(async () => {
-    // Clean up existing test data (delete userRoles before users to avoid FK violations)
-    const existingUsers = await prisma.user.findMany({
-      where: {
-        email: { in: ["admin-e2e@test.com", "test-user-e2e@test.com"] },
-      },
-      select: { user_id: true },
-    });
-
-    for (const user of existingUsers) {
-      await prisma.userRole.deleteMany({
-        where: { user_id: user.user_id },
-      });
-    }
-
-    await prisma.user.deleteMany({
-      where: { email: "admin-e2e@test.com" },
-    });
-    await prisma.user.deleteMany({
-      where: { email: "test-user-e2e@test.com" },
-    });
+    // Clean up any leftover test data from previous runs
+    await cleanupTestUsersByEmail(TEST_EMAILS);
 
     // Create superadmin user
     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
@@ -99,10 +115,8 @@ test.describe("Admin User Management E2E", () => {
   });
 
   test.afterAll(async () => {
-    // Cleanup: Delete test data using helper (respects FK constraints)
-    await cleanupTestData(prisma, {
-      users: [superadminUser?.user_id, testUser?.user_id].filter(Boolean),
-    });
+    // Cleanup: Delete test data by email (more reliable than by ID)
+    await cleanupTestUsersByEmail(TEST_EMAILS);
 
     await prisma.$disconnect();
   });
@@ -124,16 +138,20 @@ test.describe("Admin User Management E2E", () => {
     ).toBeVisible();
   });
 
-  test("[P0] Should navigate to user detail page from users list", async ({
+  test("[P0] Should navigate to user detail page directly", async ({
     page,
   }) => {
-    await page.goto("http://localhost:3000/admin/users");
-    const userRow = page.locator(`tr:has-text("${testUser.email}")`).first();
-    await expect(userRow).toBeVisible({ timeout: 10000 });
-    await userRow.click();
+    // Navigate directly to user detail page via URL
+    // Note: The user list doesn't have clickable row navigation; users access detail page via direct URL
+    await page.goto(`http://localhost:3000/admin/users/${testUser.user_id}`);
     await expect(page).toHaveURL(
       new RegExp(`/admin/users/${testUser.user_id}`),
     );
+    // Verify user details are displayed
+    await expect(
+      page.locator("h1").filter({ hasText: testUser.name }),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`text=${testUser.email}`)).toBeVisible();
   });
 
   test("[P0] Should successfully edit user name", async ({ page }) => {
@@ -166,29 +184,33 @@ test.describe("Admin User Management E2E", () => {
   test("[P0] Should successfully change user status", async ({ page }) => {
     await page.goto(`http://localhost:3000/admin/users/${testUser.user_id}`);
 
-    const statusSelect = page.locator(
-      'button[data-testid="user-status-select"]',
+    // The user detail page has a "Deactivate" button to toggle status
+    const deactivateButton = page.locator(
+      `button[data-testid="deactivate-user-button-${testUser.user_id}"]`,
     );
-    await expect(statusSelect).toBeVisible({ timeout: 10000 });
-    await statusSelect.click();
-    await page.locator('div[role="option"]:has-text("Inactive")').click();
+    await expect(deactivateButton).toBeVisible({ timeout: 10000 });
+    await expect(deactivateButton).toHaveText("Deactivate");
+    await deactivateButton.click();
 
-    const submitButton = page.locator(
-      'button[data-testid="user-submit-button"]',
-    );
-    await submitButton.click();
+    // Wait for the status to update
     await page.waitForTimeout(1000);
+
+    // Verify the button now shows "Activate" (status changed)
+    await expect(deactivateButton).toHaveText("Activate", { timeout: 5000 });
 
     const updatedUser = await prisma.user.findUnique({
       where: { user_id: testUser.user_id },
     });
     expect(updatedUser?.status).toBe("INACTIVE");
 
-    // Restore
-    await prisma.user.update({
+    // Restore by clicking again
+    await deactivateButton.click();
+    await page.waitForTimeout(1000);
+
+    const restoredUser = await prisma.user.findUnique({
       where: { user_id: testUser.user_id },
-      data: { status: "ACTIVE" },
     });
+    expect(restoredUser?.status).toBe("ACTIVE");
   });
 
   test("[P0] Should create a new user", async ({ page }) => {
@@ -525,7 +547,7 @@ test.describe("Admin User Management E2E", () => {
   test("[P0] Should search users by name or email", async ({ page }) => {
     await page.goto("http://localhost:3000/admin/users");
 
-    const searchInput = page.locator('input[data-testid="users-search-input"]');
+    const searchInput = page.locator('input[data-testid="user-search-input"]');
     await expect(searchInput).toBeVisible({ timeout: 10000 });
     await searchInput.fill(testUser.email);
 
@@ -550,9 +572,13 @@ test.describe("Admin User Management E2E", () => {
 
     await page.goto("http://localhost:3000/admin/users");
 
+    // Wait for page to load
+    await page.waitForLoadState("networkidle");
+
     const statusFilter = page.locator(
-      'button[data-testid="users-status-filter"]',
+      'button[data-testid="user-status-filter"]',
     );
+    await expect(statusFilter).toBeVisible({ timeout: 10000 });
     await statusFilter.click();
     await page.locator('div[role="option"]:has-text("Inactive")').click();
 

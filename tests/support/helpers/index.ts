@@ -14,7 +14,9 @@ export {
 } from "./server-helpers";
 
 export {
-  createClientViaAPI,
-  createClientsViaAPI,
-  createClientWithStatusViaAPI,
-} from "./client-helpers";
+  createUser,
+  createCompany,
+  createStore,
+  createShift,
+  createTransaction,
+} from "./database-helpers";

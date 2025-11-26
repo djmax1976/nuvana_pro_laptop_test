@@ -68,7 +68,10 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
     let companyId: string | null = null;
 
     try {
-      const companyData = createCompany();
+      const owner = await prismaClient.user.create({
+        data: createUser({ name: "Company Owner" }),
+      });
+      const companyData = createCompany({ owner_user_id: owner.user_id });
 
       // THEN: Company should be created successfully
       const company = await prismaClient.company.create({
@@ -76,6 +79,7 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
           public_id: companyData.public_id,
           name: companyData.name,
           status: companyData.status,
+          owner_user_id: companyData.owner_user_id,
         },
       });
       companyId = company.company_id;
@@ -105,12 +109,16 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
 
     try {
       // First create a company
-      const companyData = createCompany();
+      const owner = await prismaClient.user.create({
+        data: createUser({ name: "Company Owner" }),
+      });
+      const companyData = createCompany({ owner_user_id: owner.user_id });
       const company = await prismaClient.company.create({
         data: {
           public_id: companyData.public_id,
           name: companyData.name,
           status: companyData.status,
+          owner_user_id: companyData.owner_user_id,
         },
       });
       companyId = company.company_id;
@@ -202,12 +210,16 @@ test.describe("1.3-API-002: Database Setup - Schema Validation", () => {
     let storeId: string | null = null;
 
     try {
-      const companyData = createCompany();
+      const owner = await prismaClient.user.create({
+        data: createUser({ name: "Company Owner" }),
+      });
+      const companyData = createCompany({ owner_user_id: owner.user_id });
       const company = await prismaClient.company.create({
         data: {
           public_id: companyData.public_id,
           name: companyData.name,
           status: companyData.status,
+          owner_user_id: companyData.owner_user_id,
         },
       });
       companyId = company.company_id;

@@ -14,19 +14,11 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 export type StoreStatus = "ACTIVE" | "INACTIVE" | "CLOSED";
 
 /**
- * GPS coordinates structure
- */
-export interface GpsCoordinates {
-  lat: number; // -90 to 90
-  lng: number; // -180 to 180
-}
-
-/**
  * Location JSON structure
  */
 export interface LocationJson {
   address?: string;
-  gps?: GpsCoordinates;
+  gps?: { lat: number; lng: number };
 }
 
 /**
@@ -36,7 +28,6 @@ export interface StoreConfiguration {
   timezone?: string;
   location?: {
     address?: string;
-    gps?: GpsCoordinates;
   };
   operating_hours?: {
     monday?: { open?: string; close?: string; closed?: boolean };
@@ -113,11 +104,20 @@ export interface ListStoresParams {
 }
 
 /**
+ * Store with company info (for system admin view)
+ */
+export interface StoreWithCompany extends Store {
+  company?: {
+    name: string;
+  };
+}
+
+/**
  * IANA timezone validation regex
  * Matches formats like: America/New_York, Europe/London, UTC, GMT+5, GMT-3
  */
 const IANA_TIMEZONE_REGEX =
-  /^[A-Z][a-z]+(\/[A-Z][a-z_]+)+$|^UTC$|^GMT(\+|-)\d+$/;
+  /^[A-Z][a-z]+(\/[A-Z][a-zA-Z_]+)+$|^UTC$|^GMT(\+|-)\d+$/;
 
 /**
  * Validate IANA timezone format
@@ -127,24 +127,11 @@ function validateTimezone(timezone: string): boolean {
 }
 
 /**
- * Validate GPS coordinates
- */
-function validateGpsCoordinates(gps: GpsCoordinates): void {
-  if (gps.lat < -90 || gps.lat > 90) {
-    throw new Error("GPS latitude must be between -90 and 90");
-  }
-  if (gps.lng < -180 || gps.lng > 180) {
-    throw new Error("GPS longitude must be between -180 and 180");
-  }
-}
-
-/**
- * Validate location JSON structure
+ * Validate location JSON structure (address only, no GPS validation needed)
  */
 function validateLocationJson(location: LocationJson): void {
-  if (location.gps) {
-    validateGpsCoordinates(location.gps);
-  }
+  // No validation needed for address-only location
+  return;
 }
 
 /**
@@ -156,13 +143,19 @@ async function apiRequest<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+
+  // Only set Content-Type header if there's a body
+  const headers: Record<string, string> = {
+    ...((options.headers as Record<string, string>) || {}),
+  };
+  if (options.body) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const response = await fetch(url, {
     ...options,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -177,6 +170,34 @@ async function apiRequest<T>(
   }
 
   return response.json();
+}
+
+/**
+ * Get all stores (System Admin only)
+ * @param params - Query parameters for pagination
+ * @returns List of all stores with company info
+ */
+export async function getAllStores(params?: ListStoresParams): Promise<{
+  data: StoreWithCompany[];
+  meta: { total: number; limit: number; offset: number };
+}> {
+  const queryParams = new URLSearchParams();
+  if (params?.limit) {
+    queryParams.append("limit", params.limit.toString());
+  }
+  if (params?.offset) {
+    queryParams.append("offset", params.offset.toString());
+  }
+
+  const queryString = queryParams.toString();
+  const endpoint = `/api/stores${queryString ? `?${queryString}` : ""}`;
+
+  return apiRequest<{
+    data: StoreWithCompany[];
+    meta: { total: number; limit: number; offset: number };
+  }>(endpoint, {
+    method: "GET",
+  });
 }
 
 /**
@@ -324,11 +345,30 @@ export async function deleteStore(storeId: string): Promise<void> {
 export const storeKeys = {
   all: ["stores"] as const,
   lists: () => [...storeKeys.all, "list"] as const,
+  listAll: (params?: ListStoresParams) =>
+    [...storeKeys.lists(), "all", params] as const,
   list: (companyId: string, params?: ListStoresParams) =>
     [...storeKeys.lists(), companyId, params] as const,
   details: () => [...storeKeys.all, "detail"] as const,
   detail: (id: string) => [...storeKeys.details(), id] as const,
 };
+
+/**
+ * Hook to fetch all stores (System Admin only)
+ * @param params - Query parameters for pagination
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with all stores data
+ */
+export function useAllStores(
+  params?: ListStoresParams,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: storeKeys.listAll(params),
+    queryFn: () => getAllStores(params),
+    enabled: options?.enabled !== false,
+  });
+}
 
 /**
  * Hook to fetch stores list for a company

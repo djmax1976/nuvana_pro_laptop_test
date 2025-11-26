@@ -28,32 +28,45 @@ import { Loader2 } from "lucide-react";
 import { AssignRoleRequest, ScopeType } from "@/types/admin-user";
 
 // Zod validation schema for user creation
-const userFormSchema = z.object({
-  email: z
-    .string()
-    .min(1, "Email is required")
-    .email("Invalid email format")
-    .max(255, "Email cannot exceed 255 characters"),
-  name: z
-    .string()
-    .min(1, "Name is required")
-    .max(255, "Name cannot exceed 255 characters")
-    .refine((val) => val.trim().length > 0, {
-      message: "Name cannot be whitespace only",
-    }),
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .max(255, "Password cannot exceed 255 characters")
-    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
-    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
-    .regex(/[0-9]/, "Password must contain at least one number")
-    .regex(
-      /[^A-Za-z0-9]/,
-      "Password must contain at least one special character",
-    ),
-  role_id: z.string().min(1, "Role is required"),
-});
+const userFormSchema = z
+  .object({
+    email: z
+      .string()
+      .min(1, "Email is required")
+      .email("Invalid email format")
+      .max(255, "Email cannot exceed 255 characters"),
+    name: z
+      .string()
+      .min(1, "Name is required")
+      .max(255, "Name cannot exceed 255 characters")
+      .refine((val) => val.trim().length > 0, {
+        message: "Name cannot be whitespace only",
+      }),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .max(255, "Password cannot exceed 255 characters")
+      .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+      .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+      .regex(/[0-9]/, "Password must contain at least one number")
+      .regex(
+        /[^A-Za-z0-9]/,
+        "Password must contain at least one special character",
+      ),
+    role_id: z.string().min(1, "Role is required"),
+    companyName: z.string().optional(),
+    companyAddress: z.string().optional(),
+  })
+  .refine(
+    (data) => {
+      // Will be validated in onSubmit where we have access to the selected role
+      return true;
+    },
+    {
+      message: "Company name and address are required for Client Owner role",
+      path: ["companyName"],
+    },
+  );
 
 type UserFormValues = z.infer<typeof userFormSchema>;
 
@@ -75,17 +88,26 @@ export function UserForm() {
       name: "",
       password: "",
       role_id: "",
+      companyName: "",
+      companyAddress: "",
     },
   });
+
+  // Watch the role_id to determine if company fields should be shown
+  const selectedRoleId = form.watch("role_id");
+  const selectedRole = rolesData?.data.find(
+    (role) => role.role_id === selectedRoleId,
+  );
+  const isClientOwner = selectedRole?.code === "CLIENT_OWNER";
 
   async function onSubmit(data: UserFormValues) {
     try {
       // Find the selected role to get its scope for the role assignment
-      const selectedRole = rolesData?.data.find(
+      const roleForSubmit = rolesData?.data.find(
         (role) => role.role_id === data.role_id,
       );
 
-      if (!selectedRole) {
+      if (!roleForSubmit) {
         toast({
           variant: "destructive",
           title: "Error",
@@ -94,22 +116,59 @@ export function UserForm() {
         return;
       }
 
+      // Validate company fields for CLIENT_OWNER role
+      const isClientOwnerRole = roleForSubmit.code === "CLIENT_OWNER";
+      if (isClientOwnerRole) {
+        if (!data.companyName || data.companyName.trim().length === 0) {
+          form.setError("companyName", {
+            type: "manual",
+            message: "Company name is required for Client Owner role",
+          });
+          return;
+        }
+        if (!data.companyAddress || data.companyAddress.trim().length === 0) {
+          form.setError("companyAddress", {
+            type: "manual",
+            message: "Company address is required for Client Owner role",
+          });
+          return;
+        }
+      }
+
       // Create role assignment based on selected role
       const roleAssignment: AssignRoleRequest = {
         role_id: data.role_id,
-        scope_type: selectedRole.scope as ScopeType,
+        scope_type: roleForSubmit.scope as ScopeType,
       };
 
-      await createUserMutation.mutateAsync({
+      // Build request payload
+      const payload: {
+        email: string;
+        name: string;
+        password: string;
+        roles: AssignRoleRequest[];
+        companyName?: string;
+        companyAddress?: string;
+      } = {
         email: data.email.trim(),
         name: data.name.trim(),
         password: data.password,
         roles: [roleAssignment],
-      });
+      };
+
+      // Add company fields if CLIENT_OWNER role
+      if (isClientOwnerRole && data.companyName && data.companyAddress) {
+        payload.companyName = data.companyName.trim();
+        payload.companyAddress = data.companyAddress.trim();
+      }
+
+      await createUserMutation.mutateAsync(payload);
 
       toast({
         title: "User created",
-        description: `Successfully created user ${data.name}`,
+        description: isClientOwnerRole
+          ? `Successfully created user ${data.name} with company ${data.companyName}`
+          : `Successfully created user ${data.name}`,
       });
 
       // Navigate to user list
@@ -222,6 +281,64 @@ export function UserForm() {
             </FormItem>
           )}
         />
+
+        {/* Company fields - shown only when CLIENT_OWNER role is selected */}
+        {isClientOwner && (
+          <>
+            <div className="rounded-lg border border-border bg-muted/50 p-4">
+              <h3 className="mb-4 text-sm font-medium text-foreground">
+                Company Information
+              </h3>
+              <p className="mb-4 text-sm text-muted-foreground">
+                A company will be created for this Client Owner user.
+              </p>
+
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="companyName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Company Name *</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Acme Corporation"
+                          data-testid="company-name-input"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        The name of the company for this Client Owner
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="companyAddress"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Company Address *</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="123 Main St, City, State 12345"
+                          data-testid="company-address-input"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        The physical address of the company
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
+          </>
+        )}
 
         <div className="flex gap-4">
           <Button

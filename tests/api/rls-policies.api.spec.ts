@@ -66,8 +66,11 @@ async function createTestCompanies(
 ): Promise<Array<{ company_id: string; name: string }>> {
   const companies = [];
   for (let i = 0; i < count; i++) {
+    const owner = await prisma.user.create({
+      data: createUser({ name: `Company Owner ${i}` }),
+    });
     const company = await prisma.company.create({
-      data: createCompany(), // Uses faker - unique each time
+      data: createCompany({ owner_user_id: owner.user_id }), // Uses faker - unique each time
     });
     companies.push({ company_id: company.company_id, name: company.name });
   }
@@ -344,8 +347,11 @@ test.describe("RLS Policies - Store-Level Isolation", () => {
     storeManagerUser,
   }) => {
     // GIVEN: Two stores exist and user is assigned to Store 1
+    const companyOwner = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany(),
+      data: createCompany({ owner_user_id: companyOwner.user_id }),
     });
     const stores = await createTestStores(
       prismaClient,
@@ -409,8 +415,11 @@ test.describe("RLS Policies - Store-Level Isolation", () => {
     storeManagerUser,
   }) => {
     // GIVEN: Two stores exist and user is assigned to Store 1
+    const companyOwner = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany(),
+      data: createCompany({ owner_user_id: companyOwner.user_id }),
     });
     const stores = await createTestStores(
       prismaClient,
@@ -466,8 +475,11 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     storeManagerUser,
   }) => {
     // GIVEN: Two stores exist and user is assigned to Store 1
+    const companyOwner = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany(),
+      data: createCompany({ owner_user_id: companyOwner.user_id }),
     });
     const stores = await createTestStores(
       prismaClient,
@@ -566,8 +578,11 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     storeManagerUser,
   }) => {
     // GIVEN: Two stores exist and user is assigned to Store 1
+    const companyOwner = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner" }),
+    });
     const company = await prismaClient.company.create({
-      data: createCompany(),
+      data: createCompany({ owner_user_id: companyOwner.user_id }),
     });
     const stores = await createTestStores(
       prismaClient,

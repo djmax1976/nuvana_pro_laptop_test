@@ -67,12 +67,16 @@ test.describe("1.3-API-004: Database Setup - Indexes", () => {
     let companyId: string | null = null;
 
     try {
-      const companyData = createCompany();
+      const owner = await prismaClient.user.create({
+        data: createUser({ name: "Company Owner" }),
+      });
+      const companyData = createCompany({ owner_user_id: owner.user_id });
       const company = await prismaClient.company.create({
         data: {
           public_id: companyData.public_id,
           name: companyData.name,
           status: companyData.status,
+          owner_user_id: companyData.owner_user_id,
         },
       });
       companyId = company.company_id;

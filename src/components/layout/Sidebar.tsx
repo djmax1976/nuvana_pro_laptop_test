@@ -33,22 +33,16 @@ const allNavItems: NavItemWithRole[] = [
     icon: LayoutDashboard,
   },
   {
-    title: "Clients",
-    href: "/clients",
-    icon: Users,
-    roles: ["SYSTEM_ADMIN"], // System Admin only
+    title: "Users",
+    href: "/admin/users",
+    icon: UserCog,
+    roles: ["SYSTEM_ADMIN"], // System Admin only - ADMIN_SYSTEM_CONFIG permission
   },
   {
     title: "Companies",
     href: "/companies",
     icon: Building2,
     roles: ["SYSTEM_ADMIN"], // System Admin only
-  },
-  {
-    title: "Users",
-    href: "/admin/users",
-    icon: UserCog,
-    roles: ["SYSTEM_ADMIN"], // System Admin only - ADMIN_SYSTEM_CONFIG permission
   },
   {
     title: "Stores",
