@@ -13,7 +13,7 @@
  * Priority: P0 (Critical - Regression protection for client access)
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect, Page } from "@playwright/test";
 import bcrypt from "bcrypt";
 import { v4 as uuidv4 } from "uuid";
 import { PrismaClient } from "@prisma/client";
@@ -21,6 +21,26 @@ import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
+
+/**
+ * Helper function to perform login and wait for navigation.
+ * Uses Promise.all pattern to avoid race conditions between click and navigation.
+ */
+async function loginAndWaitForDashboard(
+  page: Page,
+  email: string,
+  password: string,
+): Promise<void> {
+  await page.goto("/login");
+  await page.fill('input[name="email"], input[type="email"]', email);
+  await page.fill('input[name="password"], input[type="password"]', password);
+
+  // Wait for navigation to complete after form submission
+  await Promise.all([
+    page.waitForURL(/.*client-dashboard.*/, { timeout: 15000 }),
+    page.click('button[type="submit"]'),
+  ]);
+}
 
 test.describe("2.9-E2E: Client Dashboard User Journey", () => {
   let prisma: PrismaClient;
@@ -100,18 +120,11 @@ test.describe("2.9-E2E: Client Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: Client user is on the login page
-    await page.goto("/login");
-
-    // WHEN: Client user enters valid credentials
-    await page.fill(
-      'input[name="email"], input[type="email"]',
-      clientUser.email,
-    );
-    await page.fill('input[name="password"], input[type="password"]', password);
-    await page.click('button[type="submit"]');
+    // WHEN: Client user enters valid credentials and submits
+    await loginAndWaitForDashboard(page, clientUser.email, password);
 
     // THEN: Client user is redirected to client dashboard
-    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
+    await expect(page).toHaveURL(/.*client-dashboard.*/);
 
     // AND: Dashboard shows welcome message
     await expect(page.getByText(/welcome/i)).toBeVisible({ timeout: 5000 });
@@ -121,14 +134,7 @@ test.describe("2.9-E2E: Client Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: Client user is logged in
-    await page.goto("/login");
-    await page.fill(
-      'input[name="email"], input[type="email"]',
-      clientUser.email,
-    );
-    await page.fill('input[name="password"], input[type="password"]', password);
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
+    await loginAndWaitForDashboard(page, clientUser.email, password);
 
     // THEN: Dashboard shows the client's company
     await expect(page.getByText("E2E Test Company")).toBeVisible({
@@ -140,14 +146,7 @@ test.describe("2.9-E2E: Client Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: Client user is logged in and on dashboard
-    await page.goto("/login");
-    await page.fill(
-      'input[name="email"], input[type="email"]',
-      clientUser.email,
-    );
-    await page.fill('input[name="password"], input[type="password"]', password);
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
+    await loginAndWaitForDashboard(page, clientUser.email, password);
 
     // THEN: Dashboard shows the client's store
     await expect(page.getByText("E2E Test Store")).toBeVisible({
@@ -196,14 +195,7 @@ test.describe("2.9-E2E: Client Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: Client user is logged in
-    await page.goto("/login");
-    await page.fill(
-      'input[name="email"], input[type="email"]',
-      clientUser.email,
-    );
-    await page.fill('input[name="password"], input[type="password"]', password);
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
+    await loginAndWaitForDashboard(page, clientUser.email, password);
 
     // THEN: Quick stats cards are visible
     // Looking for stats like "Active Stores", "Companies", etc.
@@ -252,14 +244,7 @@ test.describe("2.9-E2E: Client Dashboard Navigation", () => {
     page,
   }) => {
     // GIVEN: Client user is logged in
-    await page.goto("/login");
-    await page.fill(
-      'input[name="email"], input[type="email"]',
-      clientUser.email,
-    );
-    await page.fill('input[name="password"], input[type="password"]', password);
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
+    await loginAndWaitForDashboard(page, clientUser.email, password);
 
     // THEN: Sidebar with navigation items is visible (on desktop)
     // Check for navigation elements - Dashboard link should exist
@@ -374,14 +359,7 @@ test.describe("2.9-E2E: Client Dashboard Data Isolation", () => {
     page,
   }) => {
     // GIVEN: Client 1 is logged in
-    await page.goto("/login");
-    await page.fill(
-      'input[name="email"], input[type="email"]',
-      clientUser1.email,
-    );
-    await page.fill('input[name="password"], input[type="password"]', password);
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
+    await loginAndWaitForDashboard(page, clientUser1.email, password);
 
     // THEN: Client 1 sees their own company
     await expect(page.getByText("Client One Company")).toBeVisible({
@@ -436,18 +414,12 @@ test.describe("2.9-E2E: Session Persistence", () => {
     page,
   }) => {
     // GIVEN: Client user logs in
-    await page.goto("/login");
-    await page.fill(
-      'input[name="email"], input[type="email"]',
-      clientUser.email,
-    );
-    await page.fill('input[name="password"], input[type="password"]', password);
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
+    await loginAndWaitForDashboard(page, clientUser.email, password);
 
     // WHEN: Client navigates to another page within the app (if available)
     // For now, just refresh the page to simulate returning
     await page.reload();
+    await page.waitForLoadState("networkidle");
 
     // THEN: Client is still on the dashboard (session persists)
     await expect(page).toHaveURL(/.*client-dashboard.*/);
@@ -498,14 +470,7 @@ test.describe("2.9-E2E: Logout Flow", () => {
     page,
   }) => {
     // GIVEN: Client user is logged in
-    await page.goto("/login");
-    await page.fill(
-      'input[name="email"], input[type="email"]',
-      clientUser.email,
-    );
-    await page.fill('input[name="password"], input[type="password"]', password);
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
+    await loginAndWaitForDashboard(page, clientUser.email, password);
 
     // WHEN: Client clicks logout button
     // Look for logout button in header/profile area
