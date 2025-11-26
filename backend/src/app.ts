@@ -20,6 +20,7 @@ import { storeRoutes } from "./routes/store";
 import { transactionRoutes } from "./routes/transactions";
 import { contactRoutes } from "./routes/contact";
 import { adminUserRoutes } from "./routes/admin-users";
+import { clientDashboardRoutes } from "./routes/client-dashboard";
 import { rlsPlugin } from "./middleware/rls.middleware";
 
 // Load environment variables
@@ -134,6 +135,9 @@ app.register(adminRoutes);
 
 // Register admin user management routes
 app.register(adminUserRoutes);
+
+// Register client dashboard routes
+app.register(clientDashboardRoutes);
 
 // Root endpoint - API information and status
 app.get("/", async () => {

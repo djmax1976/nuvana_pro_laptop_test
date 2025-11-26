@@ -367,6 +367,8 @@ export function useAllStores(
     queryKey: storeKeys.listAll(params),
     queryFn: () => getAllStores(params),
     enabled: options?.enabled !== false,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -386,6 +388,8 @@ export function useStoresByCompany(
     queryKey: storeKeys.list(companyId || "", params),
     queryFn: () => getStoresByCompany(companyId!, params),
     enabled: options?.enabled !== false && !!companyId,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -422,9 +426,9 @@ export function useCreateStore() {
       data: CreateStoreInput;
     }) => createStore(companyId, data),
     onSuccess: (data) => {
-      // Invalidate stores list for the company
+      // Invalidate ALL store queries to ensure lists refresh
       queryClient.invalidateQueries({
-        queryKey: storeKeys.list(data.company_id),
+        queryKey: storeKeys.all,
       });
     },
   });
@@ -446,12 +450,9 @@ export function useUpdateStore() {
       data: UpdateStoreInput;
     }) => updateStore(storeId, data),
     onSuccess: (data) => {
-      // Invalidate both list and detail queries
+      // Invalidate ALL store queries to ensure lists and details refresh
       queryClient.invalidateQueries({
-        queryKey: storeKeys.list(data.company_id),
-      });
-      queryClient.invalidateQueries({
-        queryKey: storeKeys.detail(data.store_id),
+        queryKey: storeKeys.all,
       });
     },
   });
@@ -549,10 +550,10 @@ export function useDeleteStore() {
       storeId: string;
       companyId: string;
     }) => deleteStore(storeId),
-    onSuccess: (_, variables) => {
-      // Invalidate stores list for the company
+    onSuccess: () => {
+      // Invalidate ALL store queries to ensure lists refresh
       queryClient.invalidateQueries({
-        queryKey: storeKeys.list(variables.companyId),
+        queryKey: storeKeys.all,
       });
     },
   });

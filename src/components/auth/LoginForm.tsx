@@ -40,20 +40,28 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         throw new Error(data.message || "Login failed");
       }
 
+      // Determine if this is a client user for routing
+      const isClientUser = data.user?.is_client_user === true;
+
       // Store basic user info for UI (not for auth - that's in httpOnly cookies)
+      // Use appropriate storage key based on user type
+      const storageKey = isClientUser ? "client_auth_session" : "auth_session";
       localStorage.setItem(
-        "auth_session",
+        storageKey,
         JSON.stringify({
           user: data.user,
           authenticated: true,
         }),
       );
 
-      // Call success callback or redirect
+      // Call success callback or redirect based on user type
       if (onSuccess) {
         onSuccess();
       } else {
-        window.location.href = "/dashboard";
+        // Role-based redirect: client users go to client dashboard, others to admin dashboard
+        window.location.href = isClientUser
+          ? "/client-dashboard"
+          : "/dashboard";
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");

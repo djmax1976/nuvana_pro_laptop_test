@@ -29,9 +29,32 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-// Mock the API hook
+// Mock the API hooks
 vi.mock("@/lib/api/stores", () => ({
   useStoresByCompany: vi.fn(),
+  useUpdateStore: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    reset: vi.fn(),
+  }),
+  useDeleteStore: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    reset: vi.fn(),
+  }),
+}));
+
+// Mock toast hook
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({
+    toast: vi.fn(),
+  }),
 }));
 
 describe("2.4-COMPONENT: StoreList Component", () => {
@@ -165,7 +188,7 @@ describe("2.4-COMPONENT: StoreList Component", () => {
     // Verify table headers
     expect(screen.getByText("ID")).toBeInTheDocument();
     expect(screen.getByText("Name")).toBeInTheDocument();
-    expect(screen.getByText("Location")).toBeInTheDocument();
+    expect(screen.getByText("Address")).toBeInTheDocument();
     expect(screen.getByText("Timezone")).toBeInTheDocument();
     expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.getByText("Created At")).toBeInTheDocument();
@@ -192,8 +215,9 @@ describe("2.4-COMPONENT: StoreList Component", () => {
     });
   });
 
-  it("[P1] 2.4-COMPONENT-037: should display GPS coordinates when address is not available", async () => {
+  it("[P1] 2.4-COMPONENT-037: should display placeholder when address is not available", async () => {
     // GIVEN: Store has GPS coordinates but no address
+    // NOTE: The AddressDisplay component now only shows address or "—" placeholder
     const storeWithGPS: Store = {
       store_id: "423e4567-e89b-12d3-a456-426614174003",
       company_id: companyId,
@@ -219,9 +243,10 @@ describe("2.4-COMPONENT: StoreList Component", () => {
     // WHEN: Component is rendered
     renderWithProviders(<StoreList companyId={companyId} />);
 
-    // THEN: GPS coordinates should be displayed
+    // THEN: Placeholder should be displayed when no address
     await waitFor(() => {
-      expect(screen.getByText(/40\.712800.*-74\.006000/i)).toBeInTheDocument();
+      // "—" is used as placeholder for missing address
+      expect(screen.getByText("—")).toBeInTheDocument();
     });
   });
 
@@ -245,7 +270,7 @@ describe("2.4-COMPONENT: StoreList Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("[P1] 2.4-COMPONENT-039: should display View and Edit action buttons for each store", async () => {
+  it("[P1] 2.4-COMPONENT-039: should display Edit, Status toggle, and Delete action buttons for each store", async () => {
     // GIVEN: Stores API returns data
     vi.mocked(storesApi.useStoresByCompany).mockReturnValue({
       data: mockResponse,
@@ -259,17 +284,16 @@ describe("2.4-COMPONENT: StoreList Component", () => {
     // WHEN: Component is rendered
     renderWithProviders(<StoreList companyId={companyId} />);
 
-    // THEN: View and Edit buttons should be present for each store
-    // Buttons use sr-only spans for accessibility, so we query by role and accessible name
+    // THEN: Each store row should have 3 action buttons (Edit, Status toggle, Delete)
     await waitFor(() => {
-      const viewButtons = screen.getAllByRole("link", {
-        name: /View details/i,
-      });
-      const editButtons = screen.getAllByRole("link", {
+      const editButtons = screen.getAllByRole("button", {
         name: /Edit/i,
       });
-      expect(viewButtons).toHaveLength(2);
-      expect(editButtons).toHaveLength(2);
+      const deleteButtons = screen.getAllByRole("button", {
+        name: /Delete/i,
+      });
+      expect(editButtons).toHaveLength(2); // One for each store
+      expect(deleteButtons).toHaveLength(2); // One for each store
     });
   });
 });

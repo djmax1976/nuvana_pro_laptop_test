@@ -158,18 +158,25 @@ export class UserAdminService {
       throw new Error("User must be assigned at least one role");
     }
 
-    // For CLIENT_OWNER role, we need to check if company details are provided
+    // Check for CLIENT_OWNER and CLIENT_USER roles
     // We'll verify this after fetching the roles
     let hasClientOwnerRole = false;
+    let hasClientUserRole = false;
     for (const roleAssignment of data.roles) {
       const role = await prisma.role.findUnique({
         where: { role_id: roleAssignment.role_id },
       });
       if (role?.code === "CLIENT_OWNER") {
         hasClientOwnerRole = true;
-        break;
+      }
+      if (role?.code === "CLIENT_USER") {
+        hasClientUserRole = true;
       }
     }
+
+    // Determine if this user should be marked as a client user
+    // Client users can access the client dashboard and use client-login
+    const isClientUser = hasClientOwnerRole || hasClientUserRole;
 
     // Validate company fields if CLIENT_OWNER role is being assigned
     if (hasClientOwnerRole) {
@@ -196,6 +203,7 @@ export class UserAdminService {
       // Use transaction to create user and company atomically
       const result = await prisma.$transaction(async (tx) => {
         // Create user
+        // Set is_client_user flag for users with CLIENT_OWNER or CLIENT_USER roles
         const user = await tx.user.create({
           data: {
             public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
@@ -203,6 +211,7 @@ export class UserAdminService {
             name: data.name.trim(),
             password_hash: passwordHash,
             status: "ACTIVE",
+            is_client_user: isClientUser,
           },
         });
 
@@ -630,6 +639,10 @@ export class UserAdminService {
     }
 
     try {
+      // Check if the role being assigned is a client role
+      const isClientRole =
+        role.code === "CLIENT_OWNER" || role.code === "CLIENT_USER";
+
       // Create user role assignment
       const userRole = await prisma.userRole.create({
         data: {
@@ -645,6 +658,14 @@ export class UserAdminService {
           store: true,
         },
       });
+
+      // If assigning a client role, ensure user's is_client_user flag is set
+      if (isClientRole) {
+        await prisma.user.update({
+          where: { user_id: userId },
+          data: { is_client_user: true },
+        });
+      }
 
       // Create audit log (non-blocking)
       try {

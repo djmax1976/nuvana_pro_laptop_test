@@ -4,11 +4,18 @@ import { getUserById } from "../services/user.service";
 import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { PrismaClient } from "@prisma/client";
+import { z } from "zod";
 
 const prisma = new PrismaClient();
 
 // NOTE: OAuth has been removed from this application
 // Using local email/password authentication with bcrypt
+
+// Validation schema for client login
+const clientLoginSchema = z.object({
+  email: z.string().email("Invalid email format"),
+  password: z.string().min(1, "Password is required"),
+});
 
 export async function authRoutes(fastify: FastifyInstance) {
   /**
@@ -103,6 +110,176 @@ export async function authRoutes(fastify: FastifyInstance) {
           maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
         });
 
+        // Return success response with user data (including is_client_user for routing)
+        reply.code(200);
+        return {
+          message: "Login successful",
+          user: {
+            id: user.user_id,
+            email: user.email,
+            name: user.name,
+            is_client_user: user.is_client_user,
+          },
+        };
+      } catch (error) {
+        fastify.log.error({ error }, "Login error");
+        reply.code(500);
+        return {
+          error: "Internal Server Error",
+          message: "An error occurred during login",
+        };
+      }
+    },
+  );
+
+  /**
+   * Client Login endpoint - Email/password authentication for client users
+   * POST /api/auth/client-login
+   * Only users with is_client_user = true can use this endpoint
+   * @security Client users are company owners who access the client dashboard
+   */
+  fastify.post(
+    "/api/auth/client-login",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // Guard against null/undefined body
+        if (!request.body || typeof request.body !== "object") {
+          reply.code(400);
+          return {
+            error: "Bad Request",
+            message: "Request body is required",
+          };
+        }
+
+        // Validate input with Zod schema
+        const parseResult = clientLoginSchema.safeParse(request.body);
+        if (!parseResult.success) {
+          // Extract first error message from Zod issues
+          const firstIssue = parseResult.error.issues[0];
+          const message =
+            firstIssue?.path[0] === "email" &&
+            firstIssue?.code === "invalid_type"
+              ? "Email is required"
+              : firstIssue?.path[0] === "password" &&
+                  firstIssue?.code === "invalid_type"
+                ? "Password is required"
+                : firstIssue?.message || "Invalid input";
+
+          reply.code(400);
+          return {
+            error: "Bad Request",
+            message,
+          };
+        }
+
+        const { email, password } = parseResult.data;
+
+        // Normalize email to lowercase
+        const normalizedEmail = email.toLowerCase().trim();
+
+        // Find user by email
+        const user = await prisma.user.findUnique({
+          where: { email: normalizedEmail },
+        });
+
+        if (!user) {
+          reply.code(401);
+          return {
+            error: "Unauthorized",
+            message: "Invalid email or password",
+          };
+        }
+
+        // Check if user is a client user
+        if (!user.is_client_user) {
+          reply.code(401);
+          return {
+            error: "Unauthorized",
+            message: "This login is for client users only",
+          };
+        }
+
+        // Check if user is active
+        if (user.status !== "ACTIVE") {
+          reply.code(401);
+          return {
+            error: "Unauthorized",
+            message: "Account is inactive",
+          };
+        }
+
+        // Check if user has a password set
+        if (!user.password_hash) {
+          reply.code(401);
+          return {
+            error: "Unauthorized",
+            message: "Password not set for this account",
+          };
+        }
+
+        // Verify password
+        const isValidPassword = await bcrypt.compare(
+          password,
+          user.password_hash,
+        );
+
+        if (!isValidPassword) {
+          reply.code(401);
+          return {
+            error: "Unauthorized",
+            message: "Invalid email or password",
+          };
+        }
+
+        // Generate JWT tokens with RBAC
+        const authService = new AuthService();
+        const { accessToken, refreshToken } =
+          await authService.generateTokenPairWithRBAC(user.user_id, user.email);
+
+        // Log client login to AuditLog
+        try {
+          await prisma.auditLog.create({
+            data: {
+              user_id: user.user_id,
+              action: "CLIENT_LOGIN",
+              table_name: "auth",
+              record_id: user.user_id,
+              new_values: {
+                email: user.email,
+                login_type: "client",
+                timestamp: new Date().toISOString(),
+              },
+              ip_address:
+                (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+                request.ip ||
+                null,
+              user_agent: request.headers["user-agent"] || null,
+            },
+          });
+        } catch (auditError) {
+          // Log error but don't fail the login
+          fastify.log.error({ auditError }, "Failed to log client login audit");
+        }
+
+        // Set httpOnly cookies
+        // Access token cookie (15 min expiry)
+        (reply as any).setCookie("access_token", accessToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 15 * 60, // 15 minutes in seconds
+        });
+
+        // Refresh token cookie (7 days expiry)
+        (reply as any).setCookie("refresh_token", refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
+        });
+
         // Return success response with user data
         reply.code(200);
         return {
@@ -114,7 +291,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           },
         };
       } catch (error) {
-        fastify.log.error({ error }, "Login error");
+        fastify.log.error({ error }, "Client login error");
         reply.code(500);
         return {
           error: "Internal Server Error",

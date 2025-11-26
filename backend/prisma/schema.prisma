@@ -18,6 +18,7 @@ model User {
   updated_at       DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
   password_hash    String?       @db.VarChar(255)
   public_id        String        @unique @db.VarChar(30)
+  is_client_user   Boolean       @default(false)
   audit_logs       AuditLog[]
   owned_companies  Company[]     @relation("CompanyOwner")
   shifts           Shift[]       @relation("ShiftCashier")
@@ -28,6 +29,7 @@ model User {
   @@index([email])
   @@index([status])
   @@index([public_id])
+  @@index([is_client_user])
   @@map("users")
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   useAdminUsers,
   useUpdateUserStatus,
@@ -9,6 +9,7 @@ import {
 import { AdminUser, UserStatus } from "@/types/admin-user";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -34,17 +35,20 @@ import {
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { format } from "date-fns";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EditUserModal } from "@/components/admin/EditUserModal";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTableSort } from "@/hooks/useTableSort";
+import { useBulkSelection } from "@/hooks/useBulkSelection";
+import { SortableTableHead } from "@/components/ui/sortable-table-head";
+import { BulkActionsBar } from "@/components/ui/bulk-actions-bar";
 
 /**
  * UserList component
  * Displays a list of users in a table format (System Admin only)
- * Includes search, filter by status, and pagination
+ * Includes search, filter by status, pagination, sorting, and bulk actions
  * Shows role badges with color coding by scope
  */
 export function UserList() {
@@ -52,6 +56,7 @@ export function UserList() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
   // Confirmation dialog states
   const [showStatusDialog, setShowStatusDialog] = useState(false);
@@ -61,6 +66,13 @@ export function UserList() {
   // Delete confirmation dialog state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [userToDelete, setUserToDelete] = useState<AdminUser | null>(null);
+
+  // Bulk action dialog states
+  const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
+  const [pendingBulkStatus, setPendingBulkStatus] = useState<UserStatus | null>(
+    null,
+  );
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
 
   // Edit user modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -82,6 +94,35 @@ export function UserList() {
 
   const updateMutation = useUpdateUserStatus();
   const deleteMutation = useDeleteUser();
+
+  const users = data?.data || [];
+  const meta = data?.meta;
+
+  // Sorting hook - applies to the current page's data
+  const { sortedData, sortKey, sortDirection, handleSort } =
+    useTableSort<AdminUser>({
+      data: users,
+    });
+
+  // Bulk selection hook
+  const {
+    selectedItems,
+    isAllSelected,
+    isPartiallySelected,
+    isSelected,
+    toggleSelection,
+    toggleSelectAll,
+    clearSelection,
+    selectedCount,
+  } = useBulkSelection<AdminUser>({
+    data: sortedData,
+    getItemId: (user) => user.user_id,
+  });
+
+  // Check if any selected users are ACTIVE (for delete button)
+  const hasActiveSelected = useMemo(() => {
+    return selectedItems.some((user) => user.status === UserStatus.ACTIVE);
+  }, [selectedItems]);
 
   // Reset to page 1 when filters change
   useMemo(() => {
@@ -177,6 +218,122 @@ export function UserList() {
     }
   };
 
+  // Bulk activate handler
+  const handleBulkActivate = useCallback(() => {
+    setPendingBulkStatus(UserStatus.ACTIVE);
+    setShowBulkStatusDialog(true);
+  }, []);
+
+  // Bulk deactivate handler
+  const handleBulkDeactivate = useCallback(() => {
+    setPendingBulkStatus(UserStatus.INACTIVE);
+    setShowBulkStatusDialog(true);
+  }, []);
+
+  // Confirm bulk status change
+  const confirmBulkStatusChange = async () => {
+    if (!pendingBulkStatus || selectedItems.length === 0) return;
+
+    setBulkActionLoading(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      for (const user of selectedItems) {
+        try {
+          await updateMutation.mutateAsync({
+            userId: user.user_id,
+            data: { status: pendingBulkStatus },
+          });
+          successCount++;
+        } catch {
+          errorCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        toast({
+          title: "Success",
+          description: `${successCount} user${successCount !== 1 ? "s" : ""} ${pendingBulkStatus === UserStatus.ACTIVE ? "activated" : "deactivated"} successfully${errorCount > 0 ? `, ${errorCount} failed` : ""}`,
+        });
+      }
+
+      if (errorCount > 0 && successCount === 0) {
+        toast({
+          title: "Error",
+          description: `Failed to update ${errorCount} user${errorCount !== 1 ? "s" : ""}`,
+          variant: "destructive",
+        });
+      }
+
+      clearSelection();
+    } finally {
+      setBulkActionLoading(false);
+      setShowBulkStatusDialog(false);
+      setPendingBulkStatus(null);
+    }
+  };
+
+  // Handle bulk delete request
+  const handleBulkDelete = useCallback(() => {
+    setShowBulkDeleteDialog(true);
+  }, []);
+
+  // Confirm bulk delete
+  const confirmBulkDelete = async () => {
+    if (selectedItems.length === 0) return;
+
+    // Filter out active users
+    const usersToDelete = selectedItems.filter(
+      (user) => user.status !== UserStatus.ACTIVE,
+    );
+
+    if (usersToDelete.length === 0) {
+      toast({
+        title: "Cannot Delete Active Users",
+        description: "All selected users are active. Deactivate them first.",
+        variant: "destructive",
+      });
+      setShowBulkDeleteDialog(false);
+      return;
+    }
+
+    setBulkActionLoading(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      for (const user of usersToDelete) {
+        try {
+          await deleteMutation.mutateAsync(user.user_id);
+          successCount++;
+        } catch {
+          errorCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        toast({
+          title: "Success",
+          description: `${successCount} user${successCount !== 1 ? "s" : ""} deleted successfully${errorCount > 0 ? `, ${errorCount} failed` : ""}`,
+        });
+      }
+
+      if (errorCount > 0 && successCount === 0) {
+        toast({
+          title: "Error",
+          description: `Failed to delete ${errorCount} user${errorCount !== 1 ? "s" : ""}`,
+          variant: "destructive",
+        });
+      }
+
+      clearSelection();
+    } finally {
+      setBulkActionLoading(false);
+      setShowBulkDeleteDialog(false);
+    }
+  };
+
   if (isLoading) {
     return <UserListSkeleton />;
   }
@@ -193,9 +350,6 @@ export function UserList() {
       </div>
     );
   }
-
-  const users = data?.data || [];
-  const meta = data?.meta;
 
   return (
     <div className="space-y-4">
@@ -233,6 +387,17 @@ export function UserList() {
         </Select>
       </div>
 
+      {/* Bulk Actions Bar */}
+      <BulkActionsBar
+        selectedCount={selectedCount}
+        onClearSelection={clearSelection}
+        onBulkActivate={handleBulkActivate}
+        onBulkDeactivate={handleBulkDeactivate}
+        onBulkDelete={handleBulkDelete}
+        isLoading={bulkActionLoading}
+        hasActiveItems={hasActiveSelected}
+      />
+
       {users.length === 0 ? (
         <div className="rounded-lg border p-8 text-center">
           <p className="text-sm text-muted-foreground">
@@ -247,19 +412,66 @@ export function UserList() {
             <Table data-testid="user-list-table">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
+                  <TableHead className="w-[50px]">
+                    <Checkbox
+                      checked={isAllSelected}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Select all users"
+                      className={isPartiallySelected ? "opacity-50" : ""}
+                    />
+                  </TableHead>
+                  <SortableTableHead
+                    sortKey="name"
+                    currentSortKey={sortKey}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                  >
+                    Name
+                  </SortableTableHead>
+                  <SortableTableHead
+                    sortKey="email"
+                    currentSortKey={sortKey}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                  >
+                    Email
+                  </SortableTableHead>
                   <TableHead>Roles</TableHead>
-                  <TableHead>Status</TableHead>
+                  <SortableTableHead
+                    sortKey="status"
+                    currentSortKey={sortKey}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                  >
+                    Status
+                  </SortableTableHead>
+                  <SortableTableHead
+                    sortKey="created_at"
+                    currentSortKey={sortKey}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                  >
+                    Created
+                  </SortableTableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users.map((user) => (
+                {sortedData.map((user) => (
                   <TableRow
                     key={user.user_id}
                     data-testid={`user-row-${user.user_id}`}
+                    className={
+                      isSelected(user.user_id) ? "bg-muted/50" : undefined
+                    }
                   >
+                    <TableCell>
+                      <Checkbox
+                        checked={isSelected(user.user_id)}
+                        onCheckedChange={() => toggleSelection(user.user_id)}
+                        aria-label={`Select ${user.name}`}
+                      />
+                    </TableCell>
                     <TableCell
                       className="font-medium"
                       data-testid={`user-name-${user.user_id}`}
@@ -288,6 +500,9 @@ export function UserList() {
                     </TableCell>
                     <TableCell data-testid={`user-status-${user.user_id}`}>
                       <StatusBadge status={user.status} />
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {new Date(user.created_at).toLocaleDateString()}
                     </TableCell>
                     <TableCell
                       className="text-right"
@@ -430,6 +645,38 @@ export function UserList() {
           confirmationText="DELETE"
         />
       )}
+
+      {/* Bulk Status Change Confirmation Dialog */}
+      <ConfirmDialog
+        open={showBulkStatusDialog}
+        onOpenChange={setShowBulkStatusDialog}
+        title={`${pendingBulkStatus === UserStatus.ACTIVE ? "Activate" : "Deactivate"} ${selectedCount} User${selectedCount !== 1 ? "s" : ""}?`}
+        description={`Are you sure you want to ${pendingBulkStatus === UserStatus.ACTIVE ? "activate" : "deactivate"} ${selectedCount} selected user${selectedCount !== 1 ? "s" : ""}?`}
+        confirmText={
+          pendingBulkStatus === UserStatus.ACTIVE
+            ? "Activate All"
+            : "Deactivate All"
+        }
+        cancelText="Cancel"
+        onConfirm={confirmBulkStatusChange}
+        destructive={pendingBulkStatus === UserStatus.INACTIVE}
+        isLoading={bulkActionLoading}
+      />
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={showBulkDeleteDialog}
+        onOpenChange={setShowBulkDeleteDialog}
+        title={`Delete ${selectedCount} User${selectedCount !== 1 ? "s" : ""}?`}
+        description={`Are you sure you want to delete ${selectedCount} selected user${selectedCount !== 1 ? "s" : ""}? This action cannot be undone.${hasActiveSelected ? " Note: Active users will be skipped." : ""}`}
+        confirmText="Delete Selected"
+        cancelText="Cancel"
+        onConfirm={confirmBulkDelete}
+        destructive={true}
+        isLoading={bulkActionLoading}
+        requiresTextConfirmation={true}
+        confirmationText="DELETE"
+      />
     </div>
   );
 }
@@ -499,16 +746,23 @@ function UserListSkeleton() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-[50px]">
+                <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+              </TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Roles</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Created</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {[1, 2, 3, 4, 5].map((i) => (
               <TableRow key={i}>
+                <TableCell>
+                  <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+                </TableCell>
                 <TableCell>
                   <div className="h-4 w-32 animate-pulse rounded bg-muted" />
                 </TableCell>
@@ -524,8 +778,12 @@ function UserListSkeleton() {
                 <TableCell>
                   <div className="h-6 w-20 animate-pulse rounded-full bg-muted" />
                 </TableCell>
+                <TableCell>
+                  <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+                </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-2">
+                    <div className="h-8 w-8 animate-pulse rounded bg-muted" />
                     <div className="h-8 w-8 animate-pulse rounded bg-muted" />
                     <div className="h-8 w-8 animate-pulse rounded bg-muted" />
                   </div>

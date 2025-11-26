@@ -118,3 +118,17 @@ export {
   type UserStatus,
   type ScopeType,
 } from "./user-admin.factory";
+
+// Client Auth factories (Story 2.9)
+export {
+  createClientUser,
+  createClientUserWithPassword,
+  createClientLoginRequest,
+  createClientDashboardData,
+  createClientUsers,
+  createNonClientUser,
+  createClientRoleAssignment,
+  type ClientUserData,
+  type ClientLoginRequest,
+  type ClientDashboardData,
+} from "./client-auth.factory";

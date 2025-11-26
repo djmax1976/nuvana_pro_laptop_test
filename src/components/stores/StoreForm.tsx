@@ -99,20 +99,15 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
   const onSubmit = async (values: StoreFormValues) => {
     setIsSubmitting(true);
     try {
-      // Build location_json object (address only, no GPS)
-      const location_json: {
-        address?: string;
-      } = {};
-
-      if (values.address) {
-        location_json.address = values.address;
-      }
-
+      // Build form data with location_json
       const formData = {
         name: values.name,
         timezone: values.timezone,
         status: values.status,
-        ...(Object.keys(location_json).length > 0 ? { location_json } : {}),
+        // Always include location_json if address is provided (even empty string clears it)
+        ...(values.address
+          ? { location_json: { address: values.address } }
+          : {}),
       };
 
       if (store) {
@@ -219,6 +214,7 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
                 <Textarea
                   placeholder="Enter store address"
                   {...field}
+                  value={field.value ?? ""}
                   disabled={isSubmitting}
                   rows={3}
                 />
