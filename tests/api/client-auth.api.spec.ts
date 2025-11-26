@@ -670,9 +670,17 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
     }
 
     // GIVEN: A company exists for the CLIENT_USER role assignment
-    const companyOwner = await createUser(prismaClient);
-    const company = await createCompany(prismaClient, {
+    // Use factory functions directly to avoid helper function issues
+    const companyOwnerData = createUserFactory();
+    const companyOwner = await prismaClient.user.create({
+      data: companyOwnerData,
+    });
+
+    const companyData = createCompanyFactory({
       owner_user_id: companyOwner.user_id,
+    });
+    const company = await prismaClient.company.create({
+      data: companyData,
     });
 
     const userData = {
@@ -1213,6 +1221,583 @@ test.describe("2.9-API: Session Management", () => {
       await prismaClient.auditLog.deleteMany({
         where: { user_id: clientUser.user_id },
       });
+      await prismaClient.user.delete({
+        where: { user_id: clientUser.user_id },
+      });
+    }
+  });
+});
+
+// ============================================================================
+// SECURITY: Account Enumeration Prevention
+// ============================================================================
+
+test.describe("2.9-API: Security - Account Enumeration Prevention", () => {
+  test("2.9-API-023: [P0] should return identical error for all auth failure scenarios", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // SECURITY: All authentication failures must return the same error message
+    // to prevent attackers from enumerating valid accounts
+    const expectedError = {
+      error: "Unauthorized",
+      message: "Invalid email or password",
+    };
+
+    // GIVEN: Test data for various failure scenarios
+    const password = "ClientPassword123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Create a client user
+    const clientUserData = createClientUser({ password_hash: passwordHash });
+    const clientUser = await prismaClient.user.create({
+      data: {
+        user_id: clientUserData.user_id,
+        email: clientUserData.email,
+        name: clientUserData.name,
+        status: clientUserData.status,
+        password_hash: passwordHash,
+        public_id: clientUserData.public_id,
+        is_client_user: true,
+      },
+    });
+
+    // Create a non-client user (admin)
+    const adminUserData = createNonClientUser({ password_hash: passwordHash });
+    const adminUser = await prismaClient.user.create({
+      data: {
+        user_id: adminUserData.user_id,
+        email: adminUserData.email,
+        name: adminUserData.name,
+        status: adminUserData.status,
+        password_hash: passwordHash,
+        public_id: adminUserData.public_id,
+        is_client_user: false,
+      },
+    });
+
+    try {
+      // Scenario 1: Non-existent email
+      const response1 = await apiRequest.post("/api/auth/client-login", {
+        email: "nonexistent-account@example.com",
+        password: password,
+      });
+      expect(response1.status()).toBe(401);
+      const body1 = await response1.json();
+      expect(body1).toEqual(expectedError);
+
+      // Scenario 2: Wrong password for valid client user
+      const response2 = await apiRequest.post("/api/auth/client-login", {
+        email: clientUser.email,
+        password: "WrongPassword123!",
+      });
+      expect(response2.status()).toBe(401);
+      const body2 = await response2.json();
+      expect(body2).toEqual(expectedError);
+
+      // Scenario 3: Valid credentials but non-client user
+      const response3 = await apiRequest.post("/api/auth/client-login", {
+        email: adminUser.email,
+        password: password,
+      });
+      expect(response3.status()).toBe(401);
+      const body3 = await response3.json();
+      expect(body3).toEqual(expectedError);
+
+      // THEN: All three scenarios return identical error responses
+      // This prevents attackers from determining:
+      // - Whether an email exists in the system
+      // - Whether a user is a client or admin
+    } finally {
+      await prismaClient.user.delete({
+        where: { user_id: clientUser.user_id },
+      });
+      await prismaClient.user.delete({ where: { user_id: adminUser.user_id } });
+    }
+  });
+});
+
+// ============================================================================
+// SECURITY: Token Security - HttpOnly Cookies
+// ============================================================================
+
+test.describe("2.9-API: Security - Token Security", () => {
+  test("2.9-API-024: [P0] should NOT include tokens in response body", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // SECURITY: Tokens must only be in httpOnly cookies, never in response body
+    // This prevents XSS attacks from stealing tokens via JavaScript
+    const password = "ClientPassword123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const clientUserData = createClientUser({ password_hash: passwordHash });
+    const clientUser = await prismaClient.user.create({
+      data: {
+        user_id: clientUserData.user_id,
+        email: clientUserData.email,
+        name: clientUserData.name,
+        status: clientUserData.status,
+        password_hash: passwordHash,
+        public_id: clientUserData.public_id,
+        is_client_user: true,
+      },
+    });
+
+    try {
+      // WHEN: Client user logs in successfully
+      const response = await apiRequest.post("/api/auth/client-login", {
+        email: clientUser.email,
+        password: password,
+      });
+
+      expect(response.status()).toBe(200);
+      const body = await response.json();
+
+      // THEN: Response body does NOT contain any tokens
+      expect(body).not.toHaveProperty("accessToken");
+      expect(body).not.toHaveProperty("access_token");
+      expect(body).not.toHaveProperty("refreshToken");
+      expect(body).not.toHaveProperty("refresh_token");
+      expect(body).not.toHaveProperty("token");
+      expect(body).not.toHaveProperty("jwt");
+
+      // AND: Response body only contains user info
+      expect(body).toHaveProperty("message", "Login successful");
+      expect(body).toHaveProperty("user");
+      expect(body.user).toHaveProperty("id");
+      expect(body.user).toHaveProperty("email");
+      expect(body.user).toHaveProperty("name");
+
+      // AND: Tokens ARE set in cookies
+      const cookies = response.headers()["set-cookie"];
+      expect(cookies).toBeDefined();
+      expect(cookies).toContain("access_token=");
+      expect(cookies).toContain("refresh_token=");
+    } finally {
+      await prismaClient.auditLog.deleteMany({
+        where: { user_id: clientUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: clientUser.user_id },
+      });
+    }
+  });
+
+  test("2.9-API-025: [P0] should set HttpOnly flag on auth cookies", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // SECURITY: HttpOnly flag prevents JavaScript from accessing cookies
+    const password = "ClientPassword123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const clientUserData = createClientUser({ password_hash: passwordHash });
+    const clientUser = await prismaClient.user.create({
+      data: {
+        user_id: clientUserData.user_id,
+        email: clientUserData.email,
+        name: clientUserData.name,
+        status: clientUserData.status,
+        password_hash: passwordHash,
+        public_id: clientUserData.public_id,
+        is_client_user: true,
+      },
+    });
+
+    try {
+      // WHEN: Client user logs in
+      const response = await apiRequest.post("/api/auth/client-login", {
+        email: clientUser.email,
+        password: password,
+      });
+
+      expect(response.status()).toBe(200);
+
+      // THEN: Cookies have HttpOnly flag set
+      const cookies = response.headers()["set-cookie"];
+      expect(cookies).toBeDefined();
+      expect(cookies.toLowerCase()).toContain("httponly");
+    } finally {
+      await prismaClient.auditLog.deleteMany({
+        where: { user_id: clientUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: clientUser.user_id },
+      });
+    }
+  });
+
+  test("2.9-API-026: [P1] should set SameSite flag on auth cookies", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // SECURITY: SameSite flag provides CSRF protection
+    const password = "ClientPassword123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const clientUserData = createClientUser({ password_hash: passwordHash });
+    const clientUser = await prismaClient.user.create({
+      data: {
+        user_id: clientUserData.user_id,
+        email: clientUserData.email,
+        name: clientUserData.name,
+        status: clientUserData.status,
+        password_hash: passwordHash,
+        public_id: clientUserData.public_id,
+        is_client_user: true,
+      },
+    });
+
+    try {
+      // WHEN: Client user logs in
+      const response = await apiRequest.post("/api/auth/client-login", {
+        email: clientUser.email,
+        password: password,
+      });
+
+      expect(response.status()).toBe(200);
+
+      // THEN: Cookies have SameSite flag set
+      const cookies = response.headers()["set-cookie"];
+      expect(cookies).toBeDefined();
+      expect(cookies.toLowerCase()).toContain("samesite");
+    } finally {
+      await prismaClient.auditLog.deleteMany({
+        where: { user_id: clientUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: clientUser.user_id },
+      });
+    }
+  });
+});
+
+// ============================================================================
+// SECURITY: Input Sanitization - Injection Prevention
+// ============================================================================
+
+test.describe("2.9-API: Security - Input Sanitization", () => {
+  test("2.9-API-027: [P0] should safely handle SQL injection attempt in email", async ({
+    apiRequest,
+  }) => {
+    // SECURITY: SQL injection attempts should not cause errors or data leakage
+    // These payloads may fail at Zod validation (400) or authentication (401)
+    // The key security assertion is: NO 500 errors and NO database errors
+    const sqlInjectionPayloads = [
+      "'; DROP TABLE users; --@test.com",
+      "admin'--@test.com",
+      "' OR '1'='1'@test.com",
+      "'; SELECT * FROM users WHERE '1'='1@test.com",
+    ];
+
+    for (const payload of sqlInjectionPayloads) {
+      // WHEN: Attacker sends SQL injection payload
+      const response = await apiRequest.post("/api/auth/client-login", {
+        email: payload,
+        password: "password123",
+      });
+
+      // THEN: Returns 400 (invalid email format) or 401 (not found)
+      // NOT 500 (database error) - this is the security-critical assertion
+      expect([400, 401]).toContain(response.status());
+
+      const body = await response.json();
+      // Error should be clean validation or auth error, not database exception
+      expect(["Bad Request", "Unauthorized"]).toContain(body.error);
+    }
+  });
+
+  test("2.9-API-028: [P1] should safely handle XSS payload in email", async ({
+    apiRequest,
+  }) => {
+    // SECURITY: XSS payloads should be treated as invalid input
+    const xssPayloads = [
+      "<script>alert('xss')</script>@test.com",
+      "test@<script>alert(1)</script>.com",
+      "javascript:alert(1)@test.com",
+      "<img src=x onerror=alert(1)>@test.com",
+    ];
+
+    for (const payload of xssPayloads) {
+      // WHEN: Attacker sends XSS payload
+      const response = await apiRequest.post("/api/auth/client-login", {
+        email: payload,
+        password: "password123",
+      });
+
+      // THEN: Returns 400 (invalid email format) or 401 (not found)
+      // Either is acceptable - key is no 500 error
+      expect([400, 401]).toContain(response.status());
+    }
+  });
+
+  test("2.9-API-029: [P2] should handle null byte injection in email", async ({
+    apiRequest,
+  }) => {
+    // SECURITY: Null bytes can cause truncation issues
+    const nullBytePayloads = [
+      "admin@test.com\x00.evil.com",
+      "admin\x00@test.com",
+    ];
+
+    for (const payload of nullBytePayloads) {
+      // WHEN: Attacker sends null byte payload
+      const response = await apiRequest.post("/api/auth/client-login", {
+        email: payload,
+        password: "password123",
+      });
+
+      // THEN: Returns clean error (not 500)
+      expect([400, 401]).toContain(response.status());
+    }
+  });
+});
+
+// ============================================================================
+// EDGE CASES: Email Input Validation
+// ============================================================================
+
+test.describe("2.9-API: Edge Cases - Email Input", () => {
+  test("2.9-API-030: [P1] should reject email without @ symbol", async ({
+    apiRequest,
+  }) => {
+    // GIVEN: Invalid email without @ symbol
+    const response = await apiRequest.post("/api/auth/client-login", {
+      email: "notanemail",
+      password: "password123",
+    });
+
+    // THEN: Returns 400 Bad Request (Zod validation)
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.error).toBe("Bad Request");
+  });
+
+  test("2.9-API-031: [P1] should reject email without domain", async ({
+    apiRequest,
+  }) => {
+    // GIVEN: Invalid email without domain
+    const response = await apiRequest.post("/api/auth/client-login", {
+      email: "test@",
+      password: "password123",
+    });
+
+    // THEN: Returns 400 Bad Request
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.error).toBe("Bad Request");
+  });
+
+  test("2.9-API-032: [P2] should reject very long email (over 254 chars)", async ({
+    apiRequest,
+  }) => {
+    // GIVEN: Email exceeding RFC 5321 limit of 254 characters
+    const longLocalPart = "a".repeat(250);
+    const longEmail = `${longLocalPart}@test.com`;
+
+    const response = await apiRequest.post("/api/auth/client-login", {
+      email: longEmail,
+      password: "password123",
+    });
+
+    // THEN: Returns 400 or 401 (either validation or not found is acceptable)
+    expect([400, 401]).toContain(response.status());
+  });
+
+  test("2.9-API-033: [P2] should reject email with leading/trailing whitespace", async ({
+    apiRequest,
+  }) => {
+    // GIVEN: Email with leading/trailing whitespace
+    // NOTE: Zod email validation rejects whitespace BEFORE the trim() in business logic
+    // This is correct security behavior - strict input validation
+
+    // WHEN: Login with whitespace around email
+    const response = await apiRequest.post("/api/auth/client-login", {
+      email: "  test@example.com  ",
+      password: "password123",
+    });
+
+    // THEN: Returns 400 (Zod validation rejects emails with whitespace)
+    // This is the expected behavior - strict email format validation
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.error).toBe("Bad Request");
+  });
+});
+
+// ============================================================================
+// EDGE CASES: Password Input
+// ============================================================================
+
+test.describe("2.9-API: Edge Cases - Password Input", () => {
+  test("2.9-API-034: [P1] should reject whitespace-only password", async ({
+    apiRequest,
+  }) => {
+    // GIVEN: Password with only whitespace
+    const response = await apiRequest.post("/api/auth/client-login", {
+      email: "test@example.com",
+      password: "   ",
+    });
+
+    // THEN: Returns 401 (password doesn't match after potential trim)
+    expect(response.status()).toBe(401);
+  });
+
+  test("2.9-API-035: [P2] should handle unicode password", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client user with unicode password
+    const unicodePassword = "Pässwörd123!日本語";
+    const passwordHash = await bcrypt.hash(unicodePassword, 10);
+
+    const clientUserData = createClientUser({ password_hash: passwordHash });
+    const clientUser = await prismaClient.user.create({
+      data: {
+        user_id: clientUserData.user_id,
+        email: clientUserData.email,
+        name: clientUserData.name,
+        status: clientUserData.status,
+        password_hash: passwordHash,
+        public_id: clientUserData.public_id,
+        is_client_user: true,
+      },
+    });
+
+    try {
+      // WHEN: Login with unicode password
+      const response = await apiRequest.post("/api/auth/client-login", {
+        email: clientUser.email,
+        password: unicodePassword,
+      });
+
+      // THEN: Login succeeds
+      expect(response.status()).toBe(200);
+    } finally {
+      await prismaClient.auditLog.deleteMany({
+        where: { user_id: clientUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: clientUser.user_id },
+      });
+    }
+  });
+
+  test("2.9-API-036: [P2] should handle special characters in password", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client user with special characters in password
+    const specialPassword = "P@$$w0rd!#$%^&*()_+-=[]{}|;':\",./<>?";
+    const passwordHash = await bcrypt.hash(specialPassword, 10);
+
+    const clientUserData = createClientUser({ password_hash: passwordHash });
+    const clientUser = await prismaClient.user.create({
+      data: {
+        user_id: clientUserData.user_id,
+        email: clientUserData.email,
+        name: clientUserData.name,
+        status: clientUserData.status,
+        password_hash: passwordHash,
+        public_id: clientUserData.public_id,
+        is_client_user: true,
+      },
+    });
+
+    try {
+      // WHEN: Login with special character password
+      const response = await apiRequest.post("/api/auth/client-login", {
+        email: clientUser.email,
+        password: specialPassword,
+      });
+
+      // THEN: Login succeeds
+      expect(response.status()).toBe(200);
+    } finally {
+      await prismaClient.auditLog.deleteMany({
+        where: { user_id: clientUser.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: clientUser.user_id },
+      });
+    }
+  });
+});
+
+// ============================================================================
+// EDGE CASES: User Status Variations
+// ============================================================================
+
+test.describe("2.9-API: Edge Cases - User Status", () => {
+  test("2.9-API-037: [P1] should reject user without password_hash set", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client user without password_hash (OAuth-only user)
+    const clientUserData = createClientUser();
+    const clientUser = await prismaClient.user.create({
+      data: {
+        user_id: clientUserData.user_id,
+        email: clientUserData.email,
+        name: clientUserData.name,
+        status: clientUserData.status,
+        password_hash: null, // No password set
+        public_id: clientUserData.public_id,
+        is_client_user: true,
+      },
+    });
+
+    try {
+      // WHEN: Attempting login with any password
+      const response = await apiRequest.post("/api/auth/client-login", {
+        email: clientUser.email,
+        password: "AnyPassword123!",
+      });
+
+      // THEN: Returns 401 with generic error (no enumeration)
+      expect(response.status()).toBe(401);
+      const body = await response.json();
+      expect(body.error).toBe("Unauthorized");
+      expect(body.message).toBe("Invalid email or password");
+    } finally {
+      await prismaClient.user.delete({
+        where: { user_id: clientUser.user_id },
+      });
+    }
+  });
+
+  test("2.9-API-038: [P1] should reject PENDING status user", async ({
+    apiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A client user with PENDING status
+    const password = "ClientPassword123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const clientUserData = createClientUser({ password_hash: passwordHash });
+    const clientUser = await prismaClient.user.create({
+      data: {
+        user_id: clientUserData.user_id,
+        email: clientUserData.email,
+        name: clientUserData.name,
+        status: "PENDING",
+        password_hash: passwordHash,
+        public_id: clientUserData.public_id,
+        is_client_user: true,
+      },
+    });
+
+    try {
+      // WHEN: PENDING user attempts login
+      const response = await apiRequest.post("/api/auth/client-login", {
+        email: clientUser.email,
+        password: password,
+      });
+
+      // THEN: Returns 401 (account not active)
+      expect(response.status()).toBe(401);
+    } finally {
       await prismaClient.user.delete({
         where: { user_id: clientUser.user_id },
       });

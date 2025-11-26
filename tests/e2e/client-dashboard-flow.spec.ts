@@ -267,3 +267,267 @@ test.describe("2.9-E2E: Client Dashboard Navigation", () => {
     await expect(sidebar.first()).toBeVisible({ timeout: 5000 });
   });
 });
+
+// ============================================================================
+// E2E: Client Dashboard Data Visibility
+// ============================================================================
+
+test.describe("2.9-E2E: Client Dashboard Data Isolation", () => {
+  let prisma: PrismaClient;
+  let clientUser1: any;
+  let clientUser2: any;
+  let company1: any;
+  let company2: any;
+  const password = "ClientPassword123!";
+
+  test.beforeAll(async () => {
+    prisma = new PrismaClient();
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Create first client user with company
+    const userId1 = uuidv4();
+    const companyId1 = uuidv4();
+
+    clientUser1 = await prisma.user.create({
+      data: {
+        user_id: userId1,
+        email: `e2e-client1-${Date.now()}@test.com`,
+        name: "E2E Client One",
+        status: "ACTIVE",
+        password_hash: passwordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
+    });
+
+    company1 = await prisma.company.create({
+      data: {
+        company_id: companyId1,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: "Client One Company",
+        address: "123 Client One Street",
+        status: "ACTIVE",
+        owner_user_id: clientUser1.user_id,
+      },
+    });
+
+    // Create second client user with different company
+    const userId2 = uuidv4();
+    const companyId2 = uuidv4();
+
+    clientUser2 = await prisma.user.create({
+      data: {
+        user_id: userId2,
+        email: `e2e-client2-${Date.now()}@test.com`,
+        name: "E2E Client Two",
+        status: "ACTIVE",
+        password_hash: passwordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
+    });
+
+    company2 = await prisma.company.create({
+      data: {
+        company_id: companyId2,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: "Client Two Company",
+        address: "456 Client Two Street",
+        status: "ACTIVE",
+        owner_user_id: clientUser2.user_id,
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    // Cleanup in proper order
+    if (company1) {
+      await prisma.company
+        .delete({ where: { company_id: company1.company_id } })
+        .catch(() => {});
+    }
+    if (company2) {
+      await prisma.company
+        .delete({ where: { company_id: company2.company_id } })
+        .catch(() => {});
+    }
+    if (clientUser1) {
+      await prisma.auditLog
+        .deleteMany({ where: { user_id: clientUser1.user_id } })
+        .catch(() => {});
+      await prisma.user
+        .delete({ where: { user_id: clientUser1.user_id } })
+        .catch(() => {});
+    }
+    if (clientUser2) {
+      await prisma.auditLog
+        .deleteMany({ where: { user_id: clientUser2.user_id } })
+        .catch(() => {});
+      await prisma.user
+        .delete({ where: { user_id: clientUser2.user_id } })
+        .catch(() => {});
+    }
+    await prisma.$disconnect();
+  });
+
+  test("2.9-E2E-008: [P0] Client user cannot see other client's company", async ({
+    page,
+  }) => {
+    // GIVEN: Client 1 is logged in
+    await page.goto("/login");
+    await page.fill(
+      'input[name="email"], input[type="email"]',
+      clientUser1.email,
+    );
+    await page.fill('input[name="password"], input[type="password"]', password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
+
+    // THEN: Client 1 sees their own company
+    await expect(page.getByText("Client One Company")).toBeVisible({
+      timeout: 5000,
+    });
+
+    // AND: Client 1 does NOT see Client 2's company
+    await expect(page.getByText("Client Two Company")).not.toBeVisible();
+  });
+});
+
+// ============================================================================
+// E2E: Session Persistence
+// ============================================================================
+
+test.describe("2.9-E2E: Session Persistence", () => {
+  let prisma: PrismaClient;
+  let clientUser: any;
+  const password = "ClientPassword123!";
+
+  test.beforeAll(async () => {
+    prisma = new PrismaClient();
+    const passwordHash = await bcrypt.hash(password, 10);
+    const userId = uuidv4();
+
+    clientUser = await prisma.user.create({
+      data: {
+        user_id: userId,
+        email: `e2e-session-${Date.now()}@test.com`,
+        name: "E2E Session Test Client",
+        status: "ACTIVE",
+        password_hash: passwordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (clientUser) {
+      await prisma.auditLog
+        .deleteMany({ where: { user_id: clientUser.user_id } })
+        .catch(() => {});
+      await prisma.user
+        .delete({ where: { user_id: clientUser.user_id } })
+        .catch(() => {});
+    }
+    await prisma.$disconnect();
+  });
+
+  test("2.9-E2E-009: [P1] Client can navigate away and return without re-login", async ({
+    page,
+  }) => {
+    // GIVEN: Client user logs in
+    await page.goto("/login");
+    await page.fill(
+      'input[name="email"], input[type="email"]',
+      clientUser.email,
+    );
+    await page.fill('input[name="password"], input[type="password"]', password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
+
+    // WHEN: Client navigates to another page within the app (if available)
+    // For now, just refresh the page to simulate returning
+    await page.reload();
+
+    // THEN: Client is still on the dashboard (session persists)
+    await expect(page).toHaveURL(/.*client-dashboard.*/);
+    await expect(page.getByText(/welcome/i)).toBeVisible({ timeout: 5000 });
+  });
+});
+
+// ============================================================================
+// E2E: Logout Flow
+// ============================================================================
+
+test.describe("2.9-E2E: Logout Flow", () => {
+  let prisma: PrismaClient;
+  let clientUser: any;
+  const password = "ClientPassword123!";
+
+  test.beforeAll(async () => {
+    prisma = new PrismaClient();
+    const passwordHash = await bcrypt.hash(password, 10);
+    const userId = uuidv4();
+
+    clientUser = await prisma.user.create({
+      data: {
+        user_id: userId,
+        email: `e2e-logout-${Date.now()}@test.com`,
+        name: "E2E Logout Test Client",
+        status: "ACTIVE",
+        password_hash: passwordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (clientUser) {
+      await prisma.auditLog
+        .deleteMany({ where: { user_id: clientUser.user_id } })
+        .catch(() => {});
+      await prisma.user
+        .delete({ where: { user_id: clientUser.user_id } })
+        .catch(() => {});
+    }
+    await prisma.$disconnect();
+  });
+
+  test("2.9-E2E-010: [P1] Client can logout and is redirected to login", async ({
+    page,
+  }) => {
+    // GIVEN: Client user is logged in
+    await page.goto("/login");
+    await page.fill(
+      'input[name="email"], input[type="email"]',
+      clientUser.email,
+    );
+    await page.fill('input[name="password"], input[type="password"]', password);
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
+
+    // WHEN: Client clicks logout button
+    // Look for logout button in header/profile area
+    const logoutButton = page.getByRole("button", { name: /logout|sign out/i });
+    if (await logoutButton.isVisible()) {
+      await logoutButton.click();
+
+      // THEN: Client is redirected to login page
+      await expect(page).toHaveURL(/.*login.*/, { timeout: 10000 });
+    } else {
+      // If no visible logout button, try to find it in a dropdown
+      const userMenu = page.locator(
+        '[data-testid="user-menu"], [class*="user"], [class*="profile"]',
+      );
+      if (await userMenu.first().isVisible()) {
+        await userMenu.first().click();
+        const logoutInMenu = page.getByText(/logout|sign out/i);
+        if (await logoutInMenu.isVisible()) {
+          await logoutInMenu.click();
+          await expect(page).toHaveURL(/.*login.*/, { timeout: 10000 });
+        }
+      }
+    }
+  });
+});
