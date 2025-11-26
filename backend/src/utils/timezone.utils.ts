@@ -9,8 +9,13 @@
  * Display layer converts to store timezone for user-facing output.
  */
 
-import { toZonedTime, fromZonedTime, format as formatTz } from "date-fns-tz";
-import { differenceInHours, differenceInMinutes, parseISO } from "date-fns";
+import { toZonedTime, fromZonedTime, formatInTimeZone } from "date-fns-tz";
+import {
+  differenceInHours,
+  differenceInMinutes,
+  parseISO,
+  format,
+} from "date-fns";
 
 /**
  * Convert UTC date to store's local timezone
@@ -63,7 +68,7 @@ export function formatInStoreTimezone(
   storeTimezone: string,
   formatString: string,
 ): string {
-  return formatTz(date, formatString, { timeZone: storeTimezone });
+  return formatInTimeZone(date, storeTimezone, formatString);
 }
 
 /**
@@ -96,10 +101,10 @@ export function getBusinessDay(
   if (hour < businessDayStartHour) {
     const previousDay = new Date(storeTime);
     previousDay.setDate(previousDay.getDate() - 1);
-    return formatTz(previousDay, "yyyy-MM-dd", { timeZone: storeTimezone });
+    return format(previousDay, "yyyy-MM-dd");
   }
 
-  return formatTz(storeTime, "yyyy-MM-dd", { timeZone: storeTimezone });
+  return format(storeTime, "yyyy-MM-dd");
 }
 
 /**
@@ -131,9 +136,7 @@ export function getBusinessDayBoundaries(
   // Business day ends at same hour next calendar day
   const endDate = new Date(businessDate);
   endDate.setDate(endDate.getDate() + 1);
-  const endDateStr = formatTz(endDate, "yyyy-MM-dd", {
-    timeZone: storeTimezone,
-  });
+  const endDateStr = format(endDate, "yyyy-MM-dd");
   const endLocal = `${endDateStr} ${businessDayStartHour.toString().padStart(2, "0")}:00:00`;
   const endUTC = toUTC(endLocal, storeTimezone);
 
