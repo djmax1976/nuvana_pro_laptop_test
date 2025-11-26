@@ -59,7 +59,9 @@ async function checkTestData() {
 
     console.log(`\n🏪 Stores (${stores.length}):`);
     if (stores.length > 0) {
-      stores.forEach((s) => console.log(`   - ${s.name}`));
+      stores.forEach((s: { name: string; store_id: string }) =>
+        console.log(`   - ${s.name} (${s.store_id})`),
+      );
     } else {
       console.log("   (none)");
     }

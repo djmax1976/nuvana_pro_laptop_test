@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   useCompanies,
   useUpdateCompany,
@@ -17,29 +17,39 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { SortableTableHead } from "@/components/ui/sortable-table-head";
+import { BulkActionsBar } from "@/components/ui/bulk-actions-bar";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Pencil, Power, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EditCompanyModal } from "@/components/companies/EditCompanyModal";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTableSort } from "@/hooks/useTableSort";
+import { useBulkSelection } from "@/hooks/useBulkSelection";
 
 /**
  * CompanyList component
  * Displays a list of companies in a table format (System Admin only)
  * Shows owner, name, status, created_at, updated_at columns
- * Note: Companies are now created through the User creation flow (CLIENT_OWNER role)
+ * Includes sortable columns and bulk actions
  */
 export function CompanyList() {
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [bulkActionInProgress, setBulkActionInProgress] = useState(false);
 
   // Confirmation dialog states
   const [showStatusDialog, setShowStatusDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [pendingStatus, setPendingStatus] = useState<CompanyStatus | null>(
     null,
   );
+  const [bulkPendingStatus, setBulkPendingStatus] =
+    useState<CompanyStatus | null>(null);
 
   // Edit company modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -54,10 +64,37 @@ export function CompanyList() {
   const updateMutation = useUpdateCompany();
   const deleteMutation = useDeleteCompany();
 
+  const companies = data?.data || [];
+
+  // Sorting
+  const { sortedData, sortKey, sortDirection, handleSort } =
+    useTableSort<Company>({
+      data: companies,
+    });
+
+  // Bulk selection
+  const {
+    selectedItems,
+    isAllSelected,
+    isPartiallySelected,
+    isSelected,
+    toggleSelection,
+    toggleSelectAll,
+    clearSelection,
+    selectedCount,
+  } = useBulkSelection({
+    data: sortedData,
+    getItemId: (company) => company.company_id,
+  });
+
+  // Check if any selected items are ACTIVE
+  const hasActiveSelectedItems = selectedItems.some(
+    (company) => company.status === "ACTIVE",
+  );
+
   // Handle status toggle request
   const handleStatusToggle = (company: Company) => {
     setSelectedCompany(company);
-    // Determine the most appropriate next status
     const newStatus: CompanyStatus =
       company.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
     setPendingStatus(newStatus);
@@ -106,7 +143,6 @@ export function CompanyList() {
   const confirmDelete = async () => {
     if (!selectedCompany) return;
 
-    // Check if the company is ACTIVE
     if (selectedCompany.status === "ACTIVE") {
       toast({
         title: "Cannot Delete Active Company",
@@ -152,6 +188,110 @@ export function CompanyList() {
     queryClient.invalidateQueries({ queryKey: ["companies"] });
   };
 
+  // Bulk activate
+  const handleBulkActivate = useCallback(() => {
+    setBulkPendingStatus("ACTIVE");
+    setShowBulkStatusDialog(true);
+  }, []);
+
+  // Bulk deactivate
+  const handleBulkDeactivate = useCallback(() => {
+    setBulkPendingStatus("INACTIVE");
+    setShowBulkStatusDialog(true);
+  }, []);
+
+  // Confirm bulk status change
+  const confirmBulkStatusChange = async () => {
+    if (!bulkPendingStatus || selectedItems.length === 0) return;
+
+    setBulkActionInProgress(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const company of selectedItems) {
+      try {
+        await updateMutation.mutateAsync({
+          companyId: company.company_id,
+          data: { status: bulkPendingStatus },
+        });
+        successCount++;
+      } catch {
+        errorCount++;
+      }
+    }
+
+    setBulkActionInProgress(false);
+    setShowBulkStatusDialog(false);
+    setBulkPendingStatus(null);
+    clearSelection();
+
+    if (errorCount === 0) {
+      toast({
+        title: "Success",
+        description: `${successCount} ${successCount !== 1 ? "companies" : "company"} ${bulkPendingStatus === "ACTIVE" ? "activated" : "deactivated"} successfully`,
+      });
+    } else {
+      toast({
+        title: "Partial Success",
+        description: `${successCount} succeeded, ${errorCount} failed`,
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Bulk delete
+  const handleBulkDelete = useCallback(() => {
+    setShowBulkDeleteDialog(true);
+  }, []);
+
+  // Confirm bulk delete
+  const confirmBulkDelete = async () => {
+    const deletableItems = selectedItems.filter(
+      (company) => company.status !== "ACTIVE",
+    );
+
+    if (deletableItems.length === 0) {
+      toast({
+        title: "Cannot Delete",
+        description:
+          "All selected companies are ACTIVE. Deactivate them first.",
+        variant: "destructive",
+      });
+      setShowBulkDeleteDialog(false);
+      return;
+    }
+
+    setBulkActionInProgress(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const company of deletableItems) {
+      try {
+        await deleteMutation.mutateAsync(company.company_id);
+        successCount++;
+      } catch {
+        errorCount++;
+      }
+    }
+
+    setBulkActionInProgress(false);
+    setShowBulkDeleteDialog(false);
+    clearSelection();
+
+    if (errorCount === 0) {
+      toast({
+        title: "Success",
+        description: `${successCount} ${successCount !== 1 ? "companies" : "company"} deleted successfully`,
+      });
+    } else {
+      toast({
+        title: "Partial Success",
+        description: `${successCount} deleted, ${errorCount} failed`,
+        variant: "destructive",
+      });
+    }
+  };
+
   if (isLoading) {
     return <CompanyListSkeleton />;
   }
@@ -169,13 +309,22 @@ export function CompanyList() {
     );
   }
 
-  const companies = data?.data || [];
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Companies</h1>
       </div>
+
+      {/* Bulk Actions Bar */}
+      <BulkActionsBar
+        selectedCount={selectedCount}
+        onClearSelection={clearSelection}
+        onBulkActivate={handleBulkActivate}
+        onBulkDeactivate={handleBulkDeactivate}
+        onBulkDelete={handleBulkDelete}
+        isLoading={bulkActionInProgress}
+        hasActiveItems={hasActiveSelectedItems}
+      />
 
       {companies.length === 0 ? (
         <div className="rounded-lg border p-8 text-center">
@@ -186,17 +335,74 @@ export function CompanyList() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Owner</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created At</TableHead>
-                <TableHead>Updated At</TableHead>
+                <TableHead className="w-12">
+                  <Checkbox
+                    checked={isAllSelected}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label="Select all"
+                    className={isPartiallySelected ? "opacity-50" : ""}
+                  />
+                </TableHead>
+                <SortableTableHead
+                  sortKey="owner_name"
+                  currentSortKey={sortKey}
+                  currentSortDirection={sortDirection}
+                  onSort={handleSort}
+                >
+                  Owner
+                </SortableTableHead>
+                <SortableTableHead
+                  sortKey="name"
+                  currentSortKey={sortKey}
+                  currentSortDirection={sortDirection}
+                  onSort={handleSort}
+                >
+                  Name
+                </SortableTableHead>
+                <SortableTableHead
+                  sortKey="status"
+                  currentSortKey={sortKey}
+                  currentSortDirection={sortDirection}
+                  onSort={handleSort}
+                >
+                  Status
+                </SortableTableHead>
+                <SortableTableHead
+                  sortKey="created_at"
+                  currentSortKey={sortKey}
+                  currentSortDirection={sortDirection}
+                  onSort={handleSort}
+                >
+                  Created At
+                </SortableTableHead>
+                <SortableTableHead
+                  sortKey="updated_at"
+                  currentSortKey={sortKey}
+                  currentSortDirection={sortDirection}
+                  onSort={handleSort}
+                >
+                  Updated At
+                </SortableTableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {companies.map((company) => (
-                <TableRow key={company.company_id}>
+              {sortedData.map((company) => (
+                <TableRow
+                  key={company.company_id}
+                  data-state={
+                    isSelected(company.company_id) ? "selected" : undefined
+                  }
+                >
+                  <TableCell>
+                    <Checkbox
+                      checked={isSelected(company.company_id)}
+                      onCheckedChange={() =>
+                        toggleSelection(company.company_id)
+                      }
+                      aria-label={`Select ${company.name}`}
+                    />
+                  </TableCell>
                   <TableCell className="text-sm">
                     <div>
                       <div className="font-medium">
@@ -298,6 +504,19 @@ export function CompanyList() {
         />
       )}
 
+      {/* Bulk Status Change Confirmation Dialog */}
+      <ConfirmDialog
+        open={showBulkStatusDialog}
+        onOpenChange={setShowBulkStatusDialog}
+        title={`${bulkPendingStatus === "ACTIVE" ? "Activate" : "Deactivate"} ${selectedCount} ${selectedCount !== 1 ? "Companies" : "Company"}?`}
+        description={`Are you sure you want to ${bulkPendingStatus === "ACTIVE" ? "activate" : "deactivate"} ${selectedCount} selected ${selectedCount !== 1 ? "companies" : "company"}?`}
+        confirmText={`${bulkPendingStatus === "ACTIVE" ? "Activate" : "Deactivate"} All`}
+        cancelText="Cancel"
+        onConfirm={confirmBulkStatusChange}
+        destructive={bulkPendingStatus === "INACTIVE"}
+        isLoading={bulkActionInProgress}
+      />
+
       {/* Delete Confirmation Dialog with Text Input */}
       {selectedCompany && (
         <ConfirmDialog
@@ -319,6 +538,21 @@ export function CompanyList() {
           isLoading={actionInProgress === selectedCompany.company_id}
         />
       )}
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={showBulkDeleteDialog}
+        onOpenChange={setShowBulkDeleteDialog}
+        title={`Delete ${selectedCount} ${selectedCount !== 1 ? "Companies" : "Company"}?`}
+        description={`Are you sure you want to delete ${selectedCount} selected ${selectedCount !== 1 ? "companies" : "company"}? This action cannot be undone.${hasActiveSelectedItems ? " Note: Active companies will be skipped." : ""}`}
+        confirmText="Delete All"
+        cancelText="Cancel"
+        onConfirm={confirmBulkDelete}
+        destructive={true}
+        isLoading={bulkActionInProgress}
+        requiresTextConfirmation={true}
+        confirmationText="DELETE"
+      />
 
       {/* Edit Company Modal */}
       <EditCompanyModal
@@ -369,6 +603,7 @@ function CompanyListSkeleton() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-12" />
               <TableHead>Owner</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Status</TableHead>
@@ -380,6 +615,9 @@ function CompanyListSkeleton() {
           <TableBody>
             {[1, 2, 3, 4, 5].map((i) => (
               <TableRow key={i}>
+                <TableCell>
+                  <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+                </TableCell>
                 <TableCell>
                   <div className="h-4 w-24 animate-pulse rounded bg-muted" />
                 </TableCell>
@@ -397,6 +635,7 @@ function CompanyListSkeleton() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-2">
+                    <div className="h-8 w-8 animate-pulse rounded bg-muted" />
                     <div className="h-8 w-8 animate-pulse rounded bg-muted" />
                     <div className="h-8 w-8 animate-pulse rounded bg-muted" />
                   </div>

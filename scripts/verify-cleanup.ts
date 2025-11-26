@@ -18,11 +18,16 @@ async function verifyCleanup() {
     console.log(`Only user: ${users[0].email} (${users[0].name})\n`);
   } else {
     console.log("⚠️  WARNING: Found unexpected users:\n");
-    users.forEach((user, index) => {
-      console.log(
-        `${index + 1}. ${user.email} (${user.name}) - ${user.status}`,
-      );
-    });
+    users.forEach(
+      (
+        user: { email: string; name: string; status: string },
+        index: number,
+      ) => {
+        console.log(
+          `${index + 1}. ${user.email} (${user.name}) - ${user.status}`,
+        );
+      },
+    );
     console.log("");
   }
 

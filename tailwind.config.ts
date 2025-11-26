@@ -27,8 +27,12 @@ const config: Config = {
           DEFAULT: "#F44336",
           foreground: "hsl(var(--destructive-foreground))",
         },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
         warning: {
-          DEFAULT: "#FF9800",
+          DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
         },
         muted: {

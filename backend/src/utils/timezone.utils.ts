@@ -15,6 +15,7 @@ import {
   differenceInMinutes,
   parseISO,
   format,
+  addDays,
 } from "date-fns";
 
 /**
@@ -134,9 +135,10 @@ export function getBusinessDayBoundaries(
   const startUTC = toUTC(startLocal, storeTimezone);
 
   // Business day ends at same hour next calendar day
-  const endDate = new Date(businessDate);
-  endDate.setDate(endDate.getDate() + 1);
-  const endDateStr = format(endDate, "yyyy-MM-dd");
+  // Convert start to store timezone, add one day, then format to get next day's date string
+  const startInStoreTz = toStoreTime(startUTC, storeTimezone);
+  const nextDayInStoreTz = addDays(startInStoreTz, 1);
+  const endDateStr = format(nextDayInStoreTz, "yyyy-MM-dd");
   const endLocal = `${endDateStr} ${businessDayStartHour.toString().padStart(2, "0")}:00:00`;
   const endUTC = toUTC(endLocal, storeTimezone);
 
@@ -180,36 +182,37 @@ export function isTransactionInShift(
 /**
  * Calculate shift duration accounting for DST transitions
  *
- * Properly handles Daylight Saving Time by using timezone-aware calculations.
+ * Returns the actual elapsed time between two UTC timestamps.
+ * This correctly handles DST transitions because the calculation is done
+ * in UTC, which doesn't observe daylight saving time.
  *
  * @param shiftStart - Shift start time (UTC)
  * @param shiftEnd - Shift end time (UTC)
- * @param storeTimezone - IANA timezone string
+ * @param storeTimezone - IANA timezone string (kept for API compatibility)
  * @param unit - Return duration in 'hours' or 'minutes' (default: 'hours')
  * @returns Duration as number
  *
  * @example
  * // DST "fall back" night: 1 AM - 2 AM happens twice
  * // Shift: 10 PM Sat - 6 AM Sun (crosses DST boundary)
- * const start = new Date('2024-11-03T05:00:00Z'); // 10 PM Sat MDT
+ * const start = new Date('2024-11-03T04:00:00Z'); // 10 PM Sat MDT
  * const end = new Date('2024-11-03T13:00:00Z');   // 6 AM Sun MST
  *
  * getShiftDuration(start, end, 'America/Denver', 'hours');
- * // Returns: 9 (not 8, because of DST "fall back" extra hour)
+ * // Returns: 9 (the actual elapsed hours, accounting for DST "fall back")
  */
 export function getShiftDuration(
   shiftStart: Date,
   shiftEnd: Date,
-  storeTimezone: string,
+  _storeTimezone: string,
   unit: "hours" | "minutes" = "hours",
 ): number {
-  const startInStoreTime = toStoreTime(shiftStart, storeTimezone);
-  const endInStoreTime = toStoreTime(shiftEnd, storeTimezone);
-
+  // Calculate actual elapsed time using UTC timestamps directly
+  // This correctly handles DST transitions because UTC doesn't observe DST
   if (unit === "hours") {
-    return differenceInHours(endInStoreTime, startInStoreTime);
+    return differenceInHours(shiftEnd, shiftStart);
   }
-  return differenceInMinutes(endInStoreTime, startInStoreTime);
+  return differenceInMinutes(shiftEnd, shiftStart);
 }
 
 /**

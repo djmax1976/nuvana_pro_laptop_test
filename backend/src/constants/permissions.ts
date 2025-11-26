@@ -57,6 +57,9 @@ export const ADMIN_OVERRIDE = "ADMIN_OVERRIDE";
 export const ADMIN_AUDIT_VIEW = "ADMIN_AUDIT_VIEW";
 export const ADMIN_SYSTEM_CONFIG = "ADMIN_SYSTEM_CONFIG";
 
+// Client Dashboard Permissions
+export const CLIENT_DASHBOARD_ACCESS = "CLIENT_DASHBOARD_ACCESS";
+
 /**
  * All permission codes as a constant object
  * Useful for validation and iteration
@@ -109,6 +112,9 @@ export const PERMISSIONS = {
   ADMIN_OVERRIDE,
   ADMIN_AUDIT_VIEW,
   ADMIN_SYSTEM_CONFIG,
+
+  // Client Dashboard
+  CLIENT_DASHBOARD_ACCESS,
 } as const;
 
 /**
@@ -174,4 +180,8 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [ADMIN_OVERRIDE]: "Override system restrictions",
   [ADMIN_AUDIT_VIEW]: "View audit logs",
   [ADMIN_SYSTEM_CONFIG]: "Configure system settings",
+
+  // Client Dashboard
+  [CLIENT_DASHBOARD_ACCESS]:
+    "Access client dashboard and view owned companies/stores",
 };

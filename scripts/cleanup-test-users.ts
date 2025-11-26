@@ -61,11 +61,16 @@ async function cleanupTestUsers() {
       );
     } else {
       console.log(`🗑️  Found ${testUsers.length} test users to delete:`);
-      testUsers.forEach((user, index) => {
-        console.log(
-          `   ${index + 1}. ${user.email} (${user.name || "No name"})`,
-        );
-      });
+      testUsers.forEach(
+        (
+          user: { user_id: string; email: string; name: string | null },
+          index: number,
+        ) => {
+          console.log(
+            `   ${index + 1}. ${user.email} (${user.name || "No name"})`,
+          );
+        },
+      );
       console.log("");
 
       // Step 4: Delete in correct order (respect foreign key constraints)
@@ -83,7 +88,9 @@ async function cleanupTestUsers() {
           if (userShifts.length > 0) {
             const transactionsForShifts = await prisma.transaction.deleteMany({
               where: {
-                shift_id: { in: userShifts.map((s) => s.shift_id) },
+                shift_id: {
+                  in: userShifts.map((s: { shift_id: string }) => s.shift_id),
+                },
               },
             });
             deletedTransactions += transactionsForShifts.count;

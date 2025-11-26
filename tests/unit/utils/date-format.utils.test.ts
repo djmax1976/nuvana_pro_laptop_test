@@ -280,9 +280,9 @@ describe("date-format.utils", () => {
   });
 
   describe("Edge Cases", () => {
-    it("should handle invalid date strings gracefully", () => {
+    it("should throw RangeError for invalid date strings", () => {
       // Invalid dates will throw RangeError from date-fns
-      // This is expected behavior for invalid input
+      // This is the expected behavior - consumers must handle errors explicitly
       expect(() => formatDate("invalid", denverTZ)).toThrow(RangeError);
     });
 

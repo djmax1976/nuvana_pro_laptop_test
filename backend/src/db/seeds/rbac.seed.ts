@@ -133,7 +133,23 @@ export async function seedRBAC() {
       },
     });
 
-    console.log("✅ Seeded 6 roles");
+    // CLIENT_USER - COMPANY scope (users who can log in via client-login and access client dashboard)
+    const clientUserRole = await prisma.role.upsert({
+      where: { code: "CLIENT_USER" },
+      update: {
+        scope: "COMPANY",
+        description:
+          "Client user with read-only access to view owned companies and stores",
+      },
+      create: {
+        code: "CLIENT_USER",
+        scope: "COMPANY",
+        description:
+          "Client user with read-only access to view owned companies and stores",
+      },
+    });
+
+    console.log("✅ Seeded 7 roles");
 
     // Map roles to permissions
     console.log("Mapping roles to permissions...");
@@ -346,6 +362,40 @@ export async function seedRBAC() {
       }
     }
     console.log("✅ CLIENT_OWNER: Permissions mapped");
+
+    // CLIENT_USER: Access to client dashboard and read access to owned companies/stores
+    const clientUserPermissions = [
+      PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
+      PERMISSIONS.COMPANY_READ,
+      PERMISSIONS.STORE_READ,
+      PERMISSIONS.SHIFT_READ,
+      PERMISSIONS.TRANSACTION_READ,
+      PERMISSIONS.INVENTORY_READ,
+      PERMISSIONS.LOTTERY_REPORT,
+      PERMISSIONS.REPORT_SHIFT,
+      PERMISSIONS.REPORT_DAILY,
+      PERMISSIONS.REPORT_ANALYTICS,
+    ];
+
+    for (const permissionCode of clientUserPermissions) {
+      const permissionId = permissionMap.get(permissionCode);
+      if (permissionId) {
+        await prisma.rolePermission.upsert({
+          where: {
+            role_id_permission_id: {
+              role_id: clientUserRole.role_id,
+              permission_id: permissionId,
+            },
+          },
+          update: {},
+          create: {
+            role_id: clientUserRole.role_id,
+            permission_id: permissionId,
+          },
+        });
+      }
+    }
+    console.log("✅ CLIENT_USER: Permissions mapped");
 
     console.log("✅ RBAC seed completed successfully");
   } catch (error) {

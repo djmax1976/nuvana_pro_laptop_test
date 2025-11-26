@@ -58,10 +58,19 @@ export function formatDateTime(
  * @param date - Date object or ISO 8601 string
  * @param storeTimezone - IANA timezone string
  * @returns Formatted string: "Nov 25, 2025"
+ * @throws {RangeError} If the date string is invalid or cannot be parsed
  *
  * @example
  * formatDate('2025-11-26T05:00:00Z', 'America/Denver');
  * // Returns: "Nov 25, 2025"
+ *
+ * @example
+ * // Invalid dates will throw RangeError
+ * try {
+ *   formatDate('invalid', 'America/Denver');
+ * } catch (error) {
+ *   // Handle RangeError
+ * }
  */
 export function formatDate(date: Date | string, storeTimezone: string): string {
   return formatInStoreTime(date, storeTimezone, "MMM d, yyyy");
@@ -237,6 +246,7 @@ export function toStoreTimezone(
  * @param endDate - End date
  * @param storeTimezone - IANA timezone string
  * @returns Formatted string: "Nov 25, 2025 - Nov 26, 2025"
+ * @throws {RangeError} If either date string is invalid or cannot be parsed
  *
  * @example
  * formatDateRange(
@@ -251,15 +261,20 @@ export function formatDateRange(
   endDate: Date | string,
   storeTimezone: string,
 ): string {
-  const start = formatDate(startDate, storeTimezone);
-  const end = formatDate(endDate, storeTimezone);
+  try {
+    const start = formatDate(startDate, storeTimezone);
+    const end = formatDate(endDate, storeTimezone);
 
-  // If same date, only show once
-  if (start === end) {
-    return start;
+    // If same date, only show once
+    if (start === end) {
+      return start;
+    }
+
+    return `${start} - ${end}`;
+  } catch (error) {
+    // Re-throw RangeError from formatDate to maintain consistent error behavior
+    throw error;
   }
-
-  return `${start} - ${end}`;
 }
 
 /**

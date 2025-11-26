@@ -20,6 +20,8 @@
     --accent-foreground: 222.2 47.4% 11.2%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
+    --success: 142 71% 45%;
+    --success-foreground: 210 40% 98%;
     --warning: 32.1 94.6% 43.7%;
     --warning-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
@@ -45,6 +47,8 @@
     --accent-foreground: 210 40% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
+    --success: 142 65% 50%;
+    --success-foreground: 210 40% 98%;
     --warning: 32.1 94.6% 43.7%;
     --warning-foreground: 210 40% 98%;
     --border: 217.2 32.6% 17.5%;

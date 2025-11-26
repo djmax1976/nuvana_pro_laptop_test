@@ -37,10 +37,33 @@ vi.mock("next/link", () => ({
   }) => <a href={href}>{children}</a>,
 }));
 
+// Mock toast hook
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({
+    toast: vi.fn(),
+  }),
+}));
+
 // Mock the stores API module
 let mockUseAllStores: any;
 vi.mock("@/lib/api/stores", () => ({
   useAllStores: () => mockUseAllStores(),
+  useUpdateStore: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    reset: vi.fn(),
+  }),
+  useDeleteStore: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    reset: vi.fn(),
+  }),
 }));
 
 describe("StoresPage Component - UI Rendering", () => {

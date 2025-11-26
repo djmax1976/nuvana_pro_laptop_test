@@ -34,6 +34,9 @@ import {
  * Returns formatting functions that automatically use the store's timezone.
  * All functions accept Date objects or ISO 8601 strings.
  *
+ * **Note:** Functions like `formatDate` will throw `RangeError` for invalid date strings.
+ * Wrap calls in try/catch blocks when dealing with potentially invalid input.
+ *
  * @returns Object with formatting functions and timezone info
  *
  * @example
@@ -44,7 +47,15 @@ import {
  *   return (
  *     <tr>
  *       <td>{formatDateTime(transaction.timestamp)}</td>
- *       <td>{formatDate(transaction.created_at)}</td>
+ *       <td>
+ *         {(() => {
+ *           try {
+ *             return formatDate(transaction.created_at);
+ *           } catch (error) {
+ *             return 'Invalid date';
+ *           }
+ *         })()}
+ *       </td>
  *       <td>Store Timezone: {timezone}</td>
  *     </tr>
  *   );
@@ -64,6 +75,7 @@ export function useDateFormat() {
     /**
      * Format date only (no time)
      * @example "Nov 25, 2025"
+     * @throws {RangeError} If the date string is invalid or cannot be parsed
      */
     formatDate: (date: Date | string) => formatDate(date, timezone),
 
