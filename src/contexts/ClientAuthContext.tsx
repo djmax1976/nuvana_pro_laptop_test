@@ -296,10 +296,21 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Clear state regardless of backend success (safe fallback)
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem("client_auth_session");
-    setUser(null);
-    router.push("/login");
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem("client_auth_session");
+    } catch (storageError) {
+      // Non-fatal: failed to clear session from localStorage
+      // Log error but continue with logout cleanup
+      console.warn(
+        "Failed to clear session from localStorage:",
+        storageError instanceof Error ? storageError.message : "Unknown error",
+      );
+    } finally {
+      // Always execute cleanup regardless of storage errors
+      setUser(null);
+      router.push("/login");
+    }
   }, [backendUrl, router]);
 
   // Proactive token refresh to keep users logged in during active sessions
@@ -424,15 +435,24 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
     };
 
     // Store user info - clear legacy key to prevent conflicts
-    localStorage.removeItem("client_auth_session");
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        user: userData,
-        authenticated: true,
-        isClientUser: true,
-      }),
-    );
+    try {
+      localStorage.removeItem("client_auth_session");
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          user: userData,
+          authenticated: true,
+          isClientUser: true,
+        }),
+      );
+    } catch (storageError) {
+      // Non-fatal: failed to save session, but user is still authenticated
+      console.warn(
+        "Failed to save login session to localStorage:",
+        storageError instanceof Error ? storageError.message : "Unknown error",
+      );
+      // Continue with authentication even if storage fails
+    }
 
     setUser(userData);
   };
@@ -471,21 +491,33 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
         };
 
         // Clear legacy key to prevent conflicts
-        localStorage.removeItem("client_auth_session");
-        localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({
-            user: userData,
-            authenticated: true,
-            isClientUser: hasClientAccess,
-          }),
-        );
+        try {
+          localStorage.removeItem("client_auth_session");
+          localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({
+              user: userData,
+              authenticated: true,
+              isClientUser: hasClientAccess,
+            }),
+          );
+        } catch (storageError) {
+          console.error(
+            `Failed to save user session to localStorage: ${storageError instanceof Error ? storageError.message : String(storageError)}`,
+          );
+        }
 
         setUser(userData);
       } else {
         // Token invalid or expired
-        localStorage.removeItem(STORAGE_KEY);
-        localStorage.removeItem("client_auth_session");
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+          localStorage.removeItem("client_auth_session");
+        } catch (storageError) {
+          console.error(
+            `Failed to remove expired session from localStorage: ${storageError instanceof Error ? storageError.message : String(storageError)}`,
+          );
+        }
         setUser(null);
       }
     } catch (error) {
@@ -500,8 +532,14 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Remove STORAGE_KEY and setUser(null) on error (including abort)
-      localStorage.removeItem(STORAGE_KEY);
-      localStorage.removeItem("client_auth_session");
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem("client_auth_session");
+      } catch (storageError) {
+        console.error(
+          `Failed to remove session from localStorage on error: ${storageError instanceof Error ? storageError.message : String(storageError)}`,
+        );
+      }
       setUser(null);
     }
   }, [backendUrl, setUser]);

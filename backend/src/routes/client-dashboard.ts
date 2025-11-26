@@ -1,6 +1,13 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { prisma } from "../utils/db";
+import {
+  toUTC,
+  isValidTimezone,
+  getStoreDate,
+  toStoreTime,
+} from "../utils/timezone.utils";
+import { addDays } from "date-fns";
 
 /**
  * Client Dashboard Routes
@@ -117,35 +124,105 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
         const employeeCount = employeeRoles.length;
 
         // Count today's transactions across all owned stores
-        // Use UTC to ensure consistent "today" calculation regardless of server timezone
+        // Uses per-store timezone-aware "today" calculation:
+        // For each store, calculates local midnight to next midnight in the store's timezone,
+        // converts those boundaries to UTC, then queries transactions within that UTC interval.
+        // Stores are batched by timezone for efficiency. Falls back to UTC if timezone is missing/invalid.
         const storeIds = stores.map((s: { store_id: string }) => s.store_id);
-        const now = new Date();
-        const today = new Date(
-          Date.UTC(
-            now.getUTCFullYear(),
-            now.getUTCMonth(),
-            now.getUTCDate(),
-            0,
-            0,
-            0,
-            0,
-          ),
-        );
-        const tomorrow = new Date(today);
-        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+        let todayTransactionCount = 0;
 
-        const todayTransactionCount =
-          storeIds.length > 0
-            ? await prisma.transaction.count({
-                where: {
-                  store_id: { in: storeIds },
-                  timestamp: {
-                    gte: today,
-                    lt: tomorrow,
-                  },
+        if (storeIds.length > 0) {
+          // Group stores by timezone for efficient batching
+          const storesByTimezone = new Map<
+            string,
+            Array<{ store_id: string; timezone: string }>
+          >();
+          const storesWithoutTimezone: Array<{ store_id: string }> = [];
+
+          for (const store of stores) {
+            const timezone = store.timezone;
+            if (timezone && isValidTimezone(timezone)) {
+              if (!storesByTimezone.has(timezone)) {
+                storesByTimezone.set(timezone, []);
+              }
+              storesByTimezone.get(timezone)!.push({
+                store_id: store.store_id,
+                timezone,
+              });
+            } else {
+              // Fall back to UTC for stores with missing/invalid timezone
+              storesWithoutTimezone.push({ store_id: store.store_id });
+            }
+          }
+
+          // Process each timezone group
+          for (const [timezone, timezoneStores] of storesByTimezone) {
+            const timezoneStoreIds = timezoneStores.map((s) => s.store_id);
+
+            // Get current date in store's timezone as YYYY-MM-DD
+            const now = new Date();
+            const localDateStr = getStoreDate(now, timezone);
+
+            // Calculate local midnight (start of today) in store timezone
+            const localMidnightStr = `${localDateStr} 00:00:00`;
+            const startUTC = toUTC(localMidnightStr, timezone);
+
+            // Calculate next midnight (start of tomorrow) in store timezone
+            // Get current time in store timezone, add one day, then get the date string
+            // This ensures correct handling of DST transitions
+            const storeTimeNow = toStoreTime(now, timezone);
+            const storeTimeTomorrow = addDays(storeTimeNow, 1);
+            // storeTimeTomorrow is a UTC Date object representing tomorrow in store timezone
+            // Format it in store timezone to get the date string
+            const nextDayStr = getStoreDate(storeTimeTomorrow, timezone);
+            const localNextMidnightStr = `${nextDayStr} 00:00:00`;
+            const endUTC = toUTC(localNextMidnightStr, timezone);
+
+            // Query transactions for this timezone group within the UTC interval
+            const count = await prisma.transaction.count({
+              where: {
+                store_id: { in: timezoneStoreIds },
+                timestamp: {
+                  gte: startUTC,
+                  lt: endUTC,
                 },
-              })
-            : 0;
+              },
+            });
+
+            todayTransactionCount += count;
+          }
+
+          // Process stores without valid timezone using UTC fallback
+          if (storesWithoutTimezone.length > 0) {
+            const utcStoreIds = storesWithoutTimezone.map((s) => s.store_id);
+            const now = new Date();
+            const today = new Date(
+              Date.UTC(
+                now.getUTCFullYear(),
+                now.getUTCMonth(),
+                now.getUTCDate(),
+                0,
+                0,
+                0,
+                0,
+              ),
+            );
+            const tomorrow = new Date(today);
+            tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+
+            const count = await prisma.transaction.count({
+              where: {
+                store_id: { in: utcStoreIds },
+                timestamp: {
+                  gte: today,
+                  lt: tomorrow,
+                },
+              },
+            });
+
+            todayTransactionCount += count;
+          }
+        }
 
         // Format response to match ClientDashboardResponse interface
         reply.code(200);

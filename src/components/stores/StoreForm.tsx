@@ -91,7 +91,7 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
     defaultValues: {
       name: store?.name || "",
       timezone: store?.timezone || "America/New_York",
-      address: locationData?.address || "",
+      address: locationData?.address ?? undefined,
       status: store?.status || "ACTIVE",
     },
   });

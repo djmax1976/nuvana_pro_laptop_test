@@ -145,9 +145,14 @@ jobs:
       - name: Install backend dependencies
         if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: cd backend && npm ci
-      - name: Generate Prisma Client
+      - name: Generate Prisma Client (root)
         if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: npm run prisma:generate
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
+      - name: Generate Prisma Client (backend)
+        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
+        run: cd backend && npx prisma generate
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Run Prisma migrations
@@ -304,6 +309,10 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npx prisma generate
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
@@ -527,6 +536,10 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npx prisma generate
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
@@ -676,6 +689,10 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npx prisma generate
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
@@ -893,6 +910,10 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npx prisma generate
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Run Prisma migrations
         run: cd backend && npx prisma migrate deploy
         env:
