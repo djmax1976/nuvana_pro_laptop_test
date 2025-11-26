@@ -15,6 +15,7 @@ import {
   differenceInMinutes,
   parseISO,
   format,
+  addDays,
 } from "date-fns";
 
 /**
@@ -134,9 +135,10 @@ export function getBusinessDayBoundaries(
   const startUTC = toUTC(startLocal, storeTimezone);
 
   // Business day ends at same hour next calendar day
-  const endDate = new Date(businessDate);
-  endDate.setDate(endDate.getDate() + 1);
-  const endDateStr = format(endDate, "yyyy-MM-dd");
+  // Convert start to store timezone, add one day, then format to get next day's date string
+  const startInStoreTz = toStoreTime(startUTC, storeTimezone);
+  const nextDayInStoreTz = addDays(startInStoreTz, 1);
+  const endDateStr = format(nextDayInStoreTz, "yyyy-MM-dd");
   const endLocal = `${endDateStr} ${businessDayStartHour.toString().padStart(2, "0")}:00:00`;
   const endUTC = toUTC(endLocal, storeTimezone);
 

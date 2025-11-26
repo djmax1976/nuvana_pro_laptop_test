@@ -245,25 +245,25 @@ describe("timezone.utils", () => {
     it("should handle DST fall back (9-hour shift)", () => {
       // DST ends Nov 3, 2024 at 2 AM (falls back to 1 AM)
       // Shift: 10 PM Sat - 6 AM Sun crosses DST boundary
-      const start = new Date("2024-11-03T04:00:00Z"); // 10 PM MST
-      const end = new Date("2024-11-03T13:00:00Z"); // 6 AM MST
+      const start = new Date("2024-11-03T04:00:00Z"); // 10 PM MDT (before fall back)
+      const end = new Date("2024-11-03T13:00:00Z"); // 6 AM MST (after fall back)
 
       const duration = getShiftDuration(start, end, "America/Denver", "hours");
 
-      // Returns 8 hours based on UTC time difference (simplified calculation)
-      expect(duration).toBe(8);
+      // Returns 9 hours because DST fall back adds an extra hour
+      expect(duration).toBe(9);
     });
 
     it("should handle DST spring forward (7-hour shift)", () => {
       // DST begins Mar 10, 2024 at 2 AM (springs forward to 3 AM)
       // Shift: 10 PM Sat - 6 AM Sun crosses DST boundary
-      const start = new Date("2024-03-10T05:00:00Z"); // 10 PM MST
-      const end = new Date("2024-03-10T12:00:00Z"); // 6 AM MDT
+      const start = new Date("2024-03-10T05:00:00Z"); // 10 PM MST (before spring forward)
+      const end = new Date("2024-03-10T12:00:00Z"); // 6 AM MDT (after spring forward)
 
       const duration = getShiftDuration(start, end, "America/Denver", "hours");
 
-      // Returns 8 hours based on UTC time difference (simplified calculation)
-      expect(duration).toBe(8);
+      // Returns 7 hours because DST spring forward removes an hour
+      expect(duration).toBe(7);
     });
   });
 
