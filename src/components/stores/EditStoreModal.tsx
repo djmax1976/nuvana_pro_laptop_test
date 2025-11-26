@@ -35,11 +35,65 @@ import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 /**
- * IANA timezone validation regex
- * Matches IANA timezone database format (e.g., America/New_York, Europe/London, UTC)
+ * Permissive IANA timezone validation regex (fallback)
+ * Matches IANA timezone database format with support for:
+ * - Multi-segment zones (e.g., America/Argentina/Buenos_Aires)
+ * - Varied capitalization and underscores
+ * - UTC and GMT offsets
+ * Note: Requires at least one slash (multi-segment) or UTC/GMT with offset
  */
-const IANA_TIMEZONE_REGEX =
-  /^[A-Z][a-z]+(\/[A-Z][a-zA-Z_]+)+$|^UTC$|^GMT(\+|-)?\d*$/;
+const PERMISSIVE_TIMEZONE_REGEX =
+  /^[A-Za-z_]+\/[A-Za-z_]+(?:\/[A-Za-z_]+)*$|^UTC$|^GMT[+-]\d{1,2}$/;
+
+/**
+ * Cache for supported timezones from Intl API
+ */
+let supportedTimezonesCache: Set<string> | null = null;
+
+/**
+ * Get supported timezones from Intl API, with caching
+ */
+function getSupportedTimezones(): Set<string> | null {
+  if (supportedTimezonesCache !== null) {
+    return supportedTimezonesCache;
+  }
+
+  try {
+    // Check if Intl.supportedValuesOf is available (ES2022+)
+    if (
+      typeof Intl !== "undefined" &&
+      typeof Intl.supportedValuesOf === "function"
+    ) {
+      const timezones = Intl.supportedValuesOf("timeZone");
+      supportedTimezonesCache = new Set(timezones);
+      return supportedTimezonesCache;
+    }
+  } catch (error) {
+    // If Intl.supportedValuesOf throws (e.g., not supported), fall back to regex
+    console.warn("Intl.supportedValuesOf not available, using regex fallback");
+  }
+
+  return null;
+}
+
+/**
+ * Validate IANA timezone format
+ * Prefers Intl.supportedValuesOf when available, falls back to permissive regex
+ */
+function validateIANATimezone(timezone: string): boolean {
+  if (!timezone || typeof timezone !== "string") {
+    return false;
+  }
+
+  // Try Intl.supportedValuesOf first (most accurate)
+  const supportedTimezones = getSupportedTimezones();
+  if (supportedTimezones !== null) {
+    return supportedTimezones.has(timezone);
+  }
+
+  // Fallback to permissive regex pattern
+  return PERMISSIVE_TIMEZONE_REGEX.test(timezone);
+}
 
 /**
  * Store edit form validation schema
@@ -53,7 +107,7 @@ const editStoreSchema = z.object({
     .string()
     .min(1, "Timezone is required")
     .refine(
-      (val) => IANA_TIMEZONE_REGEX.test(val),
+      (val) => validateIANATimezone(val),
       "Timezone must be in IANA format (e.g., America/New_York, Europe/London)",
     ),
   address: z.string().optional(),
@@ -112,7 +166,9 @@ export function EditStoreModal({
   }, [store, open, form]);
 
   const handleStatusChange = (newStatus: string) => {
-    if (store && store.status !== newStatus) {
+    const currentFormStatus = form.getValues("status");
+    // Compare against current form value to detect any status change from the form's current state
+    if (currentFormStatus !== newStatus) {
       setPendingStatus(newStatus);
       setShowStatusChangeDialog(true);
     } else {
@@ -138,7 +194,7 @@ export function EditStoreModal({
         timezone: values.timezone,
         status: values.status,
         // Always include location_json if address is provided (even empty string clears it)
-        ...(values.address
+        ...(values.address !== undefined
           ? { location_json: { address: values.address } }
           : {}),
       };

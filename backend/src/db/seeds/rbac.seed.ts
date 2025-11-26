@@ -133,19 +133,19 @@ export async function seedRBAC() {
       },
     });
 
-    // CLIENT_USER - SYSTEM scope (users who can log in via client-login and access client dashboard)
+    // CLIENT_USER - COMPANY scope (users who can log in via client-login and access client dashboard)
     const clientUserRole = await prisma.role.upsert({
       where: { code: "CLIENT_USER" },
       update: {
-        scope: "SYSTEM",
+        scope: "COMPANY",
         description:
-          "Client user with access to client dashboard to view and manage owned companies and stores",
+          "Client user with read-only access to view owned companies and stores",
       },
       create: {
         code: "CLIENT_USER",
-        scope: "SYSTEM",
+        scope: "COMPANY",
         description:
-          "Client user with access to client dashboard to view and manage owned companies and stores",
+          "Client user with read-only access to view owned companies and stores",
       },
     });
 

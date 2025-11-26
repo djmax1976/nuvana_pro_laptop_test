@@ -50,6 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = JSON.parse(authSession);
         if (!data.authenticated || !data.user) {
           localStorage.removeItem("auth_session");
+          localStorage.removeItem("client_auth_session");
           setIsLoading(false);
           return;
         }
@@ -70,12 +71,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           };
 
           // Update localStorage with validated user data
+          // Clear legacy key to prevent conflicts
+          localStorage.removeItem("client_auth_session");
           localStorage.setItem(
             "auth_session",
             JSON.stringify({
               user: userData,
               authenticated: true,
-            })
+              isClientUser: validatedData.user?.is_client_user === true,
+            }),
           );
 
           setUser(userData);
@@ -91,10 +95,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           // Token invalid or expired - clear localStorage and stay logged out
           localStorage.removeItem("auth_session");
+          localStorage.removeItem("client_auth_session");
           setUser(null);
         }
       } catch (error) {
         localStorage.removeItem("auth_session");
+        localStorage.removeItem("client_auth_session");
         setUser(null);
       } finally {
         setIsLoading(false);
@@ -150,12 +156,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(data.message || "Login failed");
     }
 
-    // Store user info
+    // Store user info - clear legacy key to prevent conflicts
+    localStorage.removeItem("client_auth_session");
     localStorage.setItem(
       "auth_session",
       JSON.stringify({
         user: data.user,
         authenticated: true,
+        isClientUser: data.user?.is_client_user === true,
       }),
     );
 
@@ -194,6 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Clear state regardless of backend success
     localStorage.removeItem("auth_session");
+    localStorage.removeItem("client_auth_session");
 
     // Theme reset is handled by ThemeSync component
     // which properly integrates with next-themes
@@ -217,11 +226,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name: data.user.name || data.user.email,
         };
 
+        // Clear legacy key to prevent conflicts
+        localStorage.removeItem("client_auth_session");
         localStorage.setItem(
           "auth_session",
           JSON.stringify({
             user: userData,
             authenticated: true,
+            isClientUser: data.user?.is_client_user === true,
           }),
         );
 
@@ -229,11 +241,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         // Token invalid or expired
         localStorage.removeItem("auth_session");
+        localStorage.removeItem("client_auth_session");
         setUser(null);
       }
     } catch (error) {
       console.error("Failed to refresh user:", error);
       localStorage.removeItem("auth_session");
+      localStorage.removeItem("client_auth_session");
       setUser(null);
     }
   };

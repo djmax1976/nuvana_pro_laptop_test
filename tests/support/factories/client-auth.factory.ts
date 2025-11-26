@@ -100,20 +100,25 @@ export const createClientUser = (
 /**
  * Create a client user with password for login testing
  * Returns both the user data and plain text password
- * @param overrides - Optional field overrides
+ * @param overrides - Optional field overrides (may include 'password' for plain password override)
  * @returns Object with user data and plain text password
  */
 export const createClientUserWithPassword = (
-  overrides: Partial<ClientUserData> = {},
+  overrides: Partial<ClientUserData & { password?: string }> = {},
 ): { user: ClientUserData; password: string } => {
-  const password = overrides.password_hash
-    ? "CustomPassword123!"
-    : "ClientPassword123!";
+  // Extract password from overrides if present, otherwise use default
+  const password = overrides.password ?? "ClientPassword123!";
+
+  // Compute hash from the chosen plain password
   const passwordHash = bcrypt.hashSync(password, 10);
 
+  // Remove password_hash and password from overrides to prevent conflicts
+  const { password_hash, password: _, ...cleanOverrides } = overrides;
+
+  // Create user with computed hash, ensuring password_hash override is ignored
   const user = createClientUser({
     password_hash: passwordHash,
-    ...overrides,
+    ...cleanOverrides,
   });
 
   return { user, password };
@@ -191,17 +196,17 @@ export const createNonClientUser = (
 
 /**
  * Create a CLIENT_USER role assignment request
- * In User-Ownership model, client users have SYSTEM scope with limited permissions
+ * In User-Ownership model, client users have COMPANY scope with limited permissions
  * @param roleId - Role ID for CLIENT_USER role
- * @param companyId - Optional company ID for scope
+ * @param companyId - Required company ID for COMPANY scope
  * @returns Role assignment object
  */
 export const createClientRoleAssignment = (
   roleId: string,
-  companyId?: string,
+  companyId: string,
 ) => ({
   role_id: roleId,
-  scope_type: "SYSTEM" as const,
-  company_id: companyId || null,
+  scope_type: "COMPANY" as const,
+  company_id: companyId,
   store_id: null,
 });

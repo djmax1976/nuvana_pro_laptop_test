@@ -104,8 +104,8 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
         name: values.name,
         timezone: values.timezone,
         status: values.status,
-        // Always include location_json if address is provided (even empty string clears it)
-        ...(values.address
+        // Always include location_json if address is defined (even empty string clears it)
+        ...(values.address != null
           ? { location_json: { address: values.address } }
           : {}),
       };

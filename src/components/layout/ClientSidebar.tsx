@@ -17,6 +17,7 @@ interface NavItem {
   title: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
+  exact?: boolean;
 }
 
 /**
@@ -29,6 +30,7 @@ const clientNavItems: NavItem[] = [
     title: "Dashboard",
     href: "/client-dashboard",
     icon: LayoutDashboard,
+    exact: true,
   },
   {
     title: "Shifts",
@@ -89,8 +91,9 @@ export function ClientSidebar({ className, onNavigate }: ClientSidebarProps) {
       <nav className="flex-1 space-y-1 px-3 py-4">
         {clientNavItems.map((item) => {
           const Icon = item.icon;
-          const isActive =
-            pathname === item.href || pathname?.startsWith(item.href + "/");
+          const isActive = item.exact
+            ? pathname === item.href
+            : pathname === item.href || pathname?.startsWith(item.href + "/");
           return (
             <Link
               key={item.href}

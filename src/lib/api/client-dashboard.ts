@@ -4,7 +4,7 @@
  * All functions require CLIENT_DASHBOARD_ACCESS permission (Client Users only)
  */
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
@@ -55,6 +55,7 @@ export interface DashboardStats {
   total_stores: number;
   active_stores: number;
   total_employees: number;
+  today_transactions: number;
 }
 
 /**

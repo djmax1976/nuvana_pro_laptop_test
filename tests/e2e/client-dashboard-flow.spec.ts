@@ -22,15 +22,15 @@ import {
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
 
-const prisma = new PrismaClient();
-
 test.describe("2.9-E2E: Client Dashboard User Journey", () => {
+  let prisma: PrismaClient;
   let clientUser: any;
   let company: any;
   let store: any;
   const password = "ClientPassword123!";
 
   test.beforeAll(async () => {
+    prisma = new PrismaClient();
     // Create test client user with company and store
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = uuidv4();
@@ -214,10 +214,12 @@ test.describe("2.9-E2E: Client Dashboard User Journey", () => {
 });
 
 test.describe("2.9-E2E: Client Dashboard Navigation", () => {
+  let prisma: PrismaClient;
   let clientUser: any;
   const password = "ClientPassword123!";
 
   test.beforeAll(async () => {
+    prisma = new PrismaClient();
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = uuidv4();
 

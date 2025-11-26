@@ -44,13 +44,16 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
       const isClientUser = data.user?.is_client_user === true;
 
       // Store basic user info for UI (not for auth - that's in httpOnly cookies)
-      // Use appropriate storage key based on user type
-      const storageKey = isClientUser ? "client_auth_session" : "auth_session";
+      // Always use single source of truth: "auth_session" with role information
+      // Clear both keys to prevent stale/conflicting entries
+      localStorage.removeItem("auth_session");
+      localStorage.removeItem("client_auth_session");
       localStorage.setItem(
-        storageKey,
+        "auth_session",
         JSON.stringify({
           user: data.user,
           authenticated: true,
+          isClientUser: isClientUser,
         }),
       );
 

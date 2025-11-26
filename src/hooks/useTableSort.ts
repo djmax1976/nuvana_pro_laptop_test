@@ -69,7 +69,16 @@ export function useTableSort<T>({
       if (isDateString(aValue) && isDateString(bValue)) {
         const aDate = new Date(aValue as string).getTime();
         const bDate = new Date(bValue as string).getTime();
-        return sortDirection === "asc" ? aDate - bDate : bDate - aDate;
+        // Verify both dates are valid (finite numbers) before comparison
+        if (Number.isFinite(aDate) && Number.isFinite(bDate)) {
+          return sortDirection === "asc" ? aDate - bDate : bDate - aDate;
+        }
+        // Fall back to string comparison if dates are invalid
+        const aString = String(aValue).toLowerCase();
+        const bString = String(bValue).toLowerCase();
+        return sortDirection === "asc"
+          ? aString.localeCompare(bString)
+          : bString.localeCompare(aString);
       }
 
       // Handle numbers

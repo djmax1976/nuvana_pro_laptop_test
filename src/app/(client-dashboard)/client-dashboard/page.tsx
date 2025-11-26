@@ -150,6 +150,7 @@ export default function ClientDashboardPage() {
     total_stores: 0,
     active_stores: 0,
     total_employees: 0,
+    today_transactions: 0,
   };
 
   return (
@@ -220,7 +221,9 @@ export default function ClientDashboardPage() {
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0</div>
+            <div className="text-2xl font-bold">
+              {stats.today_transactions ?? 0}
+            </div>
             <p className="text-xs text-muted-foreground">Transactions today</p>
           </CardContent>
         </Card>

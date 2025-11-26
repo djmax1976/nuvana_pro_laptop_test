@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 
@@ -201,65 +201,69 @@ export class UserAdminService {
         : null;
 
       // Use transaction to create user and company atomically
-      const result = await prisma.$transaction(async (tx) => {
-        // Create user
-        // Set is_client_user flag for users with CLIENT_OWNER or CLIENT_USER roles
-        const user = await tx.user.create({
-          data: {
-            public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-            email: data.email.toLowerCase().trim(),
-            name: data.name.trim(),
-            password_hash: passwordHash,
-            status: "ACTIVE",
-            is_client_user: isClientUser,
-          },
-        });
-
-        // If CLIENT_OWNER, create a company owned by this user
-        let createdCompany = null;
-        if (hasClientOwnerRole && data.companyName && data.companyAddress) {
-          createdCompany = await tx.company.create({
+      const result = await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          // Create user
+          // Set is_client_user flag for users with CLIENT_OWNER or CLIENT_USER roles
+          const user = await tx.user.create({
             data: {
-              public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-              name: data.companyName.trim(),
-              address: data.companyAddress.trim(),
-              owner_user_id: user.user_id,
+              public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+              email: data.email.toLowerCase().trim(),
+              name: data.name.trim(),
+              password_hash: passwordHash,
               status: "ACTIVE",
+              is_client_user: isClientUser,
             },
           });
-        }
 
-        // Create role assignments
-        for (const roleAssignment of data.roles!) {
-          const role = await tx.role.findUnique({
-            where: { role_id: roleAssignment.role_id },
-          });
-
-          if (!role) {
-            throw new Error(`Role with ID ${roleAssignment.role_id} not found`);
+          // If CLIENT_OWNER, create a company owned by this user
+          let createdCompany = null;
+          if (hasClientOwnerRole && data.companyName && data.companyAddress) {
+            createdCompany = await tx.company.create({
+              data: {
+                public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+                name: data.companyName.trim(),
+                address: data.companyAddress.trim(),
+                owner_user_id: user.user_id,
+                status: "ACTIVE",
+              },
+            });
           }
 
-          // For CLIENT_OWNER role, we don't need company_id in user_roles
-          // The ownership is tracked via company.owner_user_id
-          await tx.userRole.create({
-            data: {
-              user_id: user.user_id,
-              role_id: roleAssignment.role_id,
-              company_id:
-                roleAssignment.scope_type === "SYSTEM"
-                  ? null
-                  : roleAssignment.company_id,
-              store_id:
-                roleAssignment.scope_type === "STORE"
-                  ? roleAssignment.store_id
-                  : null,
-              assigned_by: auditContext.userId,
-            },
-          });
-        }
+          // Create role assignments
+          for (const roleAssignment of data.roles!) {
+            const role = await tx.role.findUnique({
+              where: { role_id: roleAssignment.role_id },
+            });
 
-        return { user, company: createdCompany };
-      });
+            if (!role) {
+              throw new Error(
+                `Role with ID ${roleAssignment.role_id} not found`,
+              );
+            }
+
+            // For CLIENT_OWNER role, we don't need company_id in user_roles
+            // The ownership is tracked via company.owner_user_id
+            await tx.userRole.create({
+              data: {
+                user_id: user.user_id,
+                role_id: roleAssignment.role_id,
+                company_id:
+                  roleAssignment.scope_type === "SYSTEM"
+                    ? null
+                    : roleAssignment.company_id,
+                store_id:
+                  roleAssignment.scope_type === "STORE"
+                    ? roleAssignment.store_id
+                    : null,
+                assigned_by: auditContext.userId,
+              },
+            });
+          }
+
+          return { user, company: createdCompany };
+        },
+      );
 
       // Create audit log for user creation (non-blocking)
       try {
@@ -490,7 +494,7 @@ export class UserAdminService {
       );
 
       // Use transaction to update user and cascade to owned companies if applicable
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // Update user status
         await tx.user.update({
           where: { user_id: userId },
@@ -887,7 +891,7 @@ export class UserAdminService {
       };
 
       // Use transaction to delete user and cascade to owned companies
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // If user owns companies, delete them and their stores
         if (existingUser.owned_companies.length > 0) {
           for (const company of existingUser.owned_companies) {

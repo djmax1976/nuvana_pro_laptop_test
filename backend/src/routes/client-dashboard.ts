@@ -67,7 +67,9 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
         });
 
         // Get stores within owned companies
-        const companyIds = companies.map((c) => c.company_id);
+        const companyIds = companies.map(
+          (c: { company_id: string }) => c.company_id,
+        );
         const stores = await prisma.store.findMany({
           where: {
             company_id: { in: companyIds },
@@ -91,23 +93,59 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
         });
 
         // Calculate stats
-        const activeStores = stores.filter((s) => s.status === "ACTIVE").length;
+        const activeStores = stores.filter(
+          (s: { status: string }) => s.status === "ACTIVE",
+        ).length;
 
         // Count employees in stores (users with role assignments to these stores)
         // Exclude the owner user themselves from the count
-        const employeeCount = await prisma.userRole.count({
+        // Use groupBy to count distinct user_ids (not role rows) to avoid double-counting
+        const employeeRoles = await prisma.userRole.groupBy({
+          by: ["user_id"],
           where: {
             user_id: { not: user.id },
             OR: [
               { company_id: { in: companyIds } },
               {
                 store_id: {
-                  in: stores.map((s) => s.store_id),
+                  in: stores.map((s: { store_id: string }) => s.store_id),
                 },
               },
             ],
           },
         });
+        const employeeCount = employeeRoles.length;
+
+        // Count today's transactions across all owned stores
+        // Use UTC to ensure consistent "today" calculation regardless of server timezone
+        const storeIds = stores.map((s: { store_id: string }) => s.store_id);
+        const now = new Date();
+        const today = new Date(
+          Date.UTC(
+            now.getUTCFullYear(),
+            now.getUTCMonth(),
+            now.getUTCDate(),
+            0,
+            0,
+            0,
+            0,
+          ),
+        );
+        const tomorrow = new Date(today);
+        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+
+        const todayTransactionCount =
+          storeIds.length > 0
+            ? await prisma.transaction.count({
+                where: {
+                  store_id: { in: storeIds },
+                  timestamp: {
+                    gte: today,
+                    lt: tomorrow,
+                  },
+                },
+              })
+            : 0;
 
         // Format response to match ClientDashboardResponse interface
         reply.code(200);
@@ -117,32 +155,53 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
             email: dbUser.email,
             name: dbUser.name || "",
           },
-          companies: companies.map((c) => ({
-            company_id: c.company_id,
-            name: c.name,
-            address: c.address,
-            status: c.status,
-            created_at: c.created_at.toISOString(),
-            store_count: c._count.stores,
-          })),
-          stores: stores.map((s) => ({
-            store_id: s.store_id,
-            company_id: s.company_id,
-            company_name: s.company.name,
-            name: s.name,
-            location_json: s.location_json as {
-              address?: string;
-              gps?: { lat: number; lng: number };
-            } | null,
-            timezone: s.timezone,
-            status: s.status,
-            created_at: s.created_at.toISOString(),
-          })),
+          companies: companies.map(
+            (c: {
+              company_id: string;
+              name: string;
+              address: string | null;
+              status: string;
+              created_at: Date;
+              _count: { stores: number };
+            }) => ({
+              company_id: c.company_id,
+              name: c.name,
+              address: c.address,
+              status: c.status,
+              created_at: c.created_at.toISOString(),
+              store_count: c._count.stores,
+            }),
+          ),
+          stores: stores.map(
+            (s: {
+              store_id: string;
+              company_id: string;
+              company: { name: string };
+              name: string;
+              location_json: unknown;
+              timezone: string;
+              status: string;
+              created_at: Date;
+            }) => ({
+              store_id: s.store_id,
+              company_id: s.company_id,
+              company_name: s.company.name,
+              name: s.name,
+              location_json: s.location_json as {
+                address?: string;
+                gps?: { lat: number; lng: number };
+              } | null,
+              timezone: s.timezone,
+              status: s.status,
+              created_at: s.created_at.toISOString(),
+            }),
+          ),
           stats: {
             total_companies: companies.length,
             total_stores: stores.length,
             active_stores: activeStores,
             total_employees: employeeCount,
+            today_transactions: todayTransactionCount,
           },
         };
       } catch (error) {

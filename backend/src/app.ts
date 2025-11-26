@@ -156,6 +156,8 @@ app.get("/", async () => {
       transactions: "/api/transactions",
       admin: "/api/admin/*",
       contact: "/api/contact",
+      // Client dashboard: GET /api/client/dashboard - Returns dashboard data for authenticated client users (companies, stores, stats)
+      clientDashboard: "/api/client/dashboard",
     },
     documentation: "https://github.com/your-org/nuvana-pro",
   };

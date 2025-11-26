@@ -190,15 +190,6 @@ export async function authRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Check if user is a client user
-        if (!user.is_client_user) {
-          reply.code(401);
-          return {
-            error: "Unauthorized",
-            message: "This login is for client users only",
-          };
-        }
-
         // Check if user is active
         if (user.status !== "ACTIVE") {
           reply.code(401);
@@ -213,17 +204,27 @@ export async function authRoutes(fastify: FastifyInstance) {
           reply.code(401);
           return {
             error: "Unauthorized",
-            message: "Password not set for this account",
+            message: "Invalid email or password",
           };
         }
 
-        // Verify password
+        // Verify password first (constant-time operation)
         const isValidPassword = await bcrypt.compare(
           password,
           user.password_hash,
         );
 
         if (!isValidPassword) {
+          reply.code(401);
+          return {
+            error: "Unauthorized",
+            message: "Invalid email or password",
+          };
+        }
+
+        // Only check if user is a client user after successful password verification
+        // This prevents timing-based account enumeration attacks
+        if (!user.is_client_user) {
           reply.code(401);
           return {
             error: "Unauthorized",
@@ -245,7 +246,6 @@ export async function authRoutes(fastify: FastifyInstance) {
               table_name: "auth",
               record_id: user.user_id,
               new_values: {
-                email: user.email,
                 login_type: "client",
                 timestamp: new Date().toISOString(),
               },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClientDashboardLayout } from "@/components/layout/ClientDashboardLayout";
 import {
@@ -8,16 +8,6 @@ import {
   useClientAuth,
 } from "@/contexts/ClientAuthContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
-// Create a stable QueryClient instance for client dashboard
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30000, // 30 seconds
-      retry: 1,
-    },
-  },
-});
 
 /**
  * Inner layout component that uses client auth context
@@ -77,6 +67,19 @@ export default function ClientDashboardRouteLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Create a QueryClient instance per component tree for proper cache isolation
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 30000, // 30 seconds
+            retry: 1,
+          },
+        },
+      }),
+  );
+
   return (
     <QueryClientProvider client={queryClient}>
       <ClientAuthProvider>
