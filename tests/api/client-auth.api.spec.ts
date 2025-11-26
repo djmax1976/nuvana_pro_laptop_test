@@ -156,12 +156,14 @@ test.describe("2.9-API: Client Authentication - POST /api/auth/client-login", ()
         password: password,
       });
 
-      // THEN: 401 Unauthorized is returned with specific message
+      // THEN: 401 Unauthorized is returned with generic message
+      // Note: Returns generic "Invalid email or password" to prevent account enumeration attacks
+      // (revealing whether a user exists but isn't a client user would be a security issue)
       expect(response.status()).toBe(401);
 
       const body = await response.json();
       expect(body.error).toBe("Unauthorized");
-      expect(body.message).toBe("This login is for client users only");
+      expect(body.message).toBe("Invalid email or password");
     } finally {
       await prismaClient.user.delete({ where: { user_id: user.user_id } });
     }
