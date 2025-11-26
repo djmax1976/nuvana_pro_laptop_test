@@ -20,11 +20,13 @@ async function checkTestData() {
   });
 
   console.log(`\nFound ${testUsers.length} test users in database:`);
-  testUsers.forEach((user) => {
-    console.log(
-      `  - ${user.email} (${user.name}) - Created: ${user.created_at}`,
-    );
-  });
+  testUsers.forEach(
+    (user: { email: string; name: string; created_at: Date }) => {
+      console.log(
+        `  - ${user.email} (${user.name}) - Created: ${user.created_at}`,
+      );
+    },
+  );
 
   // Check for test companies
   const testCompanies = await prisma.company.findMany({
@@ -68,9 +70,11 @@ async function checkTestData() {
   });
 
   console.log(`\nFound ${orphanedRoles.length} orphaned test user roles:`);
-  orphanedRoles.forEach((role) => {
-    console.log(`  - Role ${role.user_role_id} for ${role.user.email}`);
-  });
+  orphanedRoles.forEach(
+    (role: { user_role_id: string; user: { email: string } }) => {
+      console.log(`  - Role ${role.user_role_id} for ${role.user.email}`);
+    },
+  );
 
   await prisma.$disconnect();
 }

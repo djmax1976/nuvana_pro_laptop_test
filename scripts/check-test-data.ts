@@ -45,21 +45,23 @@ async function checkTestData() {
     console.log(`📊 Current Test Data:\n`);
     console.log(`👥 Users (${users.length} non-protected):`);
     if (users.length > 0) {
-      users.forEach((u) => console.log(`   - ${u.email} (${u.name})`));
+      users.forEach((u: { email: string; name: string }) =>
+        console.log(`   - ${u.email} (${u.name})`),
+      );
     } else {
       console.log("   (none)");
     }
 
     console.log(`\n🏢 Companies (${companies.length}):`);
     if (companies.length > 0) {
-      companies.forEach((c) => console.log(`   - ${c.name}`));
+      companies.forEach((c: { name: string }) => console.log(`   - ${c.name}`));
     } else {
       console.log("   (none)");
     }
 
     console.log(`\n🏪 Stores (${stores.length}):`);
     if (stores.length > 0) {
-      stores.forEach((s) => console.log(`   - ${s.name}`));
+      stores.forEach((s: { name: string }) => console.log(`   - ${s.name}`));
     } else {
       console.log("   (none)");
     }

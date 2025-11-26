@@ -11,7 +11,9 @@ async function verifyCleanup() {
 
     console.log("\n=== Database Status After Cleanup ===");
     console.log(`\n👤 Users: ${users.length}`);
-    users.forEach((u) => console.log(`   - ${u.email} (${u.name})`));
+    users.forEach((u: { email: string; name: string }) =>
+      console.log(`   - ${u.email} (${u.name})`),
+    );
 
     console.log(`\n🏢 Companies: ${companies.length}`);
     console.log(`🏪 Stores: ${stores.length}`);

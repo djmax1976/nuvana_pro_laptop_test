@@ -1,6 +1,13 @@
+// Generate to backend/node_modules for backend code
 generator client {
   provider = "prisma-client-js"
   output   = "../node_modules/.prisma/client"
+}
+
+// Generate to root/node_modules for test files
+generator clientRoot {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/.prisma/client"
 }
 
 datasource db {
