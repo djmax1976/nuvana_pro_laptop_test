@@ -22,7 +22,16 @@ import {
   createClientLoginRequest,
   createNonClientUser,
 } from "../support/factories/client-auth.factory";
-import { createUser, createCompany, createStore } from "../support/factories";
+import {
+  createUser as createUserFactory,
+  createCompany as createCompanyFactory,
+  createStore as createStoreFactory,
+} from "../support/factories";
+import {
+  createUser,
+  createCompany,
+  createStore,
+} from "../support/helpers/database-helpers";
 import { createJWTAccessToken } from "../support/factories";
 import bcrypt from "bcrypt";
 
@@ -332,11 +341,13 @@ test.describe("2.9-API: Client Dashboard - GET /api/client/dashboard", () => {
     });
 
     // Create company owned by the client user
-    const companyData = createCompany({ owner_user_id: clientUser.user_id });
+    const companyData = createCompanyFactory({
+      owner_user_id: clientUser.user_id,
+    });
     const company = await prismaClient.company.create({ data: companyData });
 
     // Create store under company
-    const storeData = createStore({ company_id: company.company_id });
+    const storeData = createStoreFactory({ company_id: company.company_id });
     const store = await prismaClient.store.create({
       data: {
         ...storeData,
@@ -428,7 +439,7 @@ test.describe("2.9-API: Client Dashboard - GET /api/client/dashboard", () => {
       },
     });
     const company1 = await prismaClient.company.create({
-      data: createCompany({
+      data: createCompanyFactory({
         owner_user_id: clientUser1.user_id,
         name: "Company One",
       }),
@@ -452,7 +463,7 @@ test.describe("2.9-API: Client Dashboard - GET /api/client/dashboard", () => {
       },
     });
     const company2 = await prismaClient.company.create({
-      data: createCompany({
+      data: createCompanyFactory({
         owner_user_id: clientUser2.user_id,
         name: "Company Two",
       }),
@@ -656,6 +667,12 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
       return;
     }
 
+    // GIVEN: A company exists for the CLIENT_USER role assignment
+    const companyOwner = await createUser(prismaClient);
+    const company = await createCompany(prismaClient, {
+      owner_user_id: companyOwner.user_id,
+    });
+
     const userData = {
       name: "New Client User",
       email: "newclientuser@example.com",
@@ -663,7 +680,8 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "SYSTEM",
+          scope_type: "COMPANY",
+          company_id: company.company_id,
         },
       ],
     };
@@ -693,6 +711,12 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
         where: { user_id: body.data.user_id },
       });
       await prismaClient.user.delete({ where: { user_id: body.data.user_id } });
+      await prismaClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: companyOwner.user_id },
+      });
     }
   });
 });
@@ -927,7 +951,9 @@ test.describe("2.9-API: Client Read-Only Permissions (MVP)", () => {
       },
     });
 
-    const companyData = createCompany({ owner_user_id: clientUser.user_id });
+    const companyData = createCompanyFactory({
+      owner_user_id: clientUser.user_id,
+    });
     const company = await prismaClient.company.create({ data: companyData });
 
     const token = createJWTAccessToken({
@@ -986,10 +1012,12 @@ test.describe("2.9-API: Client Read-Only Permissions (MVP)", () => {
       },
     });
 
-    const companyData = createCompany({ owner_user_id: clientUser.user_id });
+    const companyData = createCompanyFactory({
+      owner_user_id: clientUser.user_id,
+    });
     const company = await prismaClient.company.create({ data: companyData });
 
-    const storeData = createStore({ company_id: company.company_id });
+    const storeData = createStoreFactory({ company_id: company.company_id });
     const store = await prismaClient.store.create({
       data: {
         ...storeData,
@@ -1054,10 +1082,12 @@ test.describe("2.9-API: Client Read-Only Permissions (MVP)", () => {
       },
     });
 
-    const companyData = createCompany({ owner_user_id: clientUser.user_id });
+    const companyData = createCompanyFactory({
+      owner_user_id: clientUser.user_id,
+    });
     const company = await prismaClient.company.create({ data: companyData });
 
-    const storeData = createStore({ company_id: company.company_id });
+    const storeData = createStoreFactory({ company_id: company.company_id });
     const store = await prismaClient.store.create({
       data: {
         ...storeData,
