@@ -112,6 +112,7 @@ export function useTableSort<T>({
 function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   return path.split(".").reduce((current: unknown, key) => {
     if (current && typeof current === "object" && key in current) {
+      // eslint-disable-next-line security/detect-object-injection -- key is validated via 'in' check
       return (current as Record<string, unknown>)[key];
     }
     return undefined;

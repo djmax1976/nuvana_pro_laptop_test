@@ -1,10 +1,10 @@
-import { NextPage, NextPageContext } from "next";
+import { NextPageContext } from "next";
 
 interface ErrorProps {
   statusCode?: number;
 }
 
-const Error: NextPage<ErrorProps> = ({ statusCode }) => {
+function Error({ statusCode }: ErrorProps) {
   return (
     <div
       style={{
@@ -51,7 +51,7 @@ const Error: NextPage<ErrorProps> = ({ statusCode }) => {
       </div>
     </div>
   );
-};
+}
 
 Error.getInitialProps = ({ res, err }: NextPageContext) => {
   const statusCode = res ? res.statusCode : err ? err.statusCode : 404;
