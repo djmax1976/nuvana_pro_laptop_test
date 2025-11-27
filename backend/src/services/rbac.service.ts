@@ -207,6 +207,14 @@ export class RBACService {
         if (!role.company_id) {
           continue; // COMPANY scope role must have company_id
         }
+
+        // If no scope provided, grant permission - the service layer handles data filtering
+        // This allows COMPANY-scoped users to access endpoints that don't specify a company/store
+        if (!scope?.companyId && !scope?.storeId) {
+          await this.cachePermissionCheck(cacheKey, true);
+          return true;
+        }
+
         // Company role applies if companyId matches (applies to company and all its stores)
         if (scope?.companyId && role.company_id === scope.companyId) {
           await this.cachePermissionCheck(cacheKey, true);

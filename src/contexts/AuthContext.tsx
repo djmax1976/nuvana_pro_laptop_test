@@ -19,6 +19,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isClientUser: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -29,6 +30,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isClientUser, setIsClientUser] = useState(false);
   const router = useRouter();
 
   const backendUrl =
@@ -83,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           );
 
           setUser(userData);
+          setIsClientUser(validatedData.user?.is_client_user === true);
 
           // Restore user's theme preference immediately
           // This must happen before next-themes initializes
@@ -97,11 +100,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem("auth_session");
           localStorage.removeItem("client_auth_session");
           setUser(null);
+          setIsClientUser(false);
         }
       } catch (error) {
         localStorage.removeItem("auth_session");
         localStorage.removeItem("client_auth_session");
         setUser(null);
+        setIsClientUser(false);
       } finally {
         setIsLoading(false);
       }
@@ -177,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setUser(data.user);
+    setIsClientUser(data.user?.is_client_user === true);
     // ThemeSync will call setTheme() to ensure next-themes internal state is updated
   };
 
@@ -208,6 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // which properly integrates with next-themes
 
     setUser(null);
+    setIsClientUser(false);
     router.push("/login");
   };
 
@@ -238,17 +245,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         );
 
         setUser(userData);
+        setIsClientUser(data.user?.is_client_user === true);
       } else {
         // Token invalid or expired
         localStorage.removeItem("auth_session");
         localStorage.removeItem("client_auth_session");
         setUser(null);
+        setIsClientUser(false);
       }
     } catch (error) {
       console.error("Failed to refresh user:", error);
       localStorage.removeItem("auth_session");
       localStorage.removeItem("client_auth_session");
       setUser(null);
+      setIsClientUser(false);
     }
   };
 
@@ -258,6 +268,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isLoading,
         isAuthenticated: !!user,
+        isClientUser,
         login,
         logout,
         refreshUser,

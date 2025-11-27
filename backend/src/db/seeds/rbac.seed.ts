@@ -341,6 +341,11 @@ export async function seedRBAC() {
       PERMISSIONS.REPORT_DAILY,
       PERMISSIONS.REPORT_ANALYTICS,
       PERMISSIONS.REPORT_EXPORT,
+      // Client Dashboard and Employee Management
+      PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
+      PERMISSIONS.CLIENT_EMPLOYEE_CREATE,
+      PERMISSIONS.CLIENT_EMPLOYEE_READ,
+      PERMISSIONS.CLIENT_EMPLOYEE_DELETE,
     ];
 
     for (const permissionCode of clientOwnerPermissions) {
@@ -363,7 +368,7 @@ export async function seedRBAC() {
     }
     console.log("✅ CLIENT_OWNER: Permissions mapped");
 
-    // CLIENT_USER: Access to client dashboard and read access to owned companies/stores
+    // CLIENT_USER: Access to client dashboard, read access to owned companies/stores, and employee management
     const clientUserPermissions = [
       PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
       PERMISSIONS.COMPANY_READ,
@@ -375,6 +380,10 @@ export async function seedRBAC() {
       PERMISSIONS.REPORT_SHIFT,
       PERMISSIONS.REPORT_DAILY,
       PERMISSIONS.REPORT_ANALYTICS,
+      // Client Employee Management
+      PERMISSIONS.CLIENT_EMPLOYEE_CREATE,
+      PERMISSIONS.CLIENT_EMPLOYEE_READ,
+      PERMISSIONS.CLIENT_EMPLOYEE_DELETE,
     ];
 
     for (const permissionCode of clientUserPermissions) {

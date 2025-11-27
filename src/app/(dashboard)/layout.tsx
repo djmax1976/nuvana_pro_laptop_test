@@ -6,23 +6,29 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 
 /**
- * Dashboard layout for authenticated pages
+ * Dashboard layout for authenticated admin pages
  * Uses DashboardLayout component with sidebar and header
  * Redirects to login if user is not authenticated
+ * Redirects client users to their dedicated dashboard
  */
 export default function DashboardRouteLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isClientUser } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push("/login");
+    if (!isLoading) {
+      if (!isAuthenticated) {
+        router.push("/login");
+      } else if (isClientUser) {
+        // Client users should not access admin dashboard - redirect to client dashboard
+        router.push("/client-dashboard");
+      }
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoading, isClientUser, router]);
 
   // Show loading state while checking auth
   if (isLoading) {
@@ -33,8 +39,8 @@ export default function DashboardRouteLayout({
     );
   }
 
-  // Don't render dashboard if not authenticated
-  if (!isAuthenticated) {
+  // Don't render dashboard if not authenticated or if client user
+  if (!isAuthenticated || isClientUser) {
     return null;
   }
 

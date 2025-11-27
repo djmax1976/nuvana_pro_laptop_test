@@ -1,0 +1,605 @@
+import { test, expect } from "../support/fixtures/rbac.fixture";
+import { createEmployeeRequest } from "../support/factories/client-employee.factory";
+import { createCompany, createStore, createUser } from "../support/factories";
+
+/**
+ * Client Employee Management API Tests
+ *
+ * Tests for Client Employee Management API endpoints:
+ * - Create employees with STORE scope role restrictions
+ * - List employees filtered by client's stores (RLS)
+ * - Delete employees with authorization checks
+ * - Audit logging for all operations
+ * - Permission enforcement (CLIENT_EMPLOYEE_CREATE, CLIENT_EMPLOYEE_DELETE)
+ *
+ * Story: 2.91 - Client Employee Management
+ * Priority: P0 (Critical - Client self-service, security boundaries)
+ */
+
+test.describe("2.91-API: Client Employee Management - Employee CRUD Operations", () => {
+  test("2.91-API-001: [P1] POST /api/client/employees - should create employee with valid data (AC #1, #2)", async ({
+    clientUserApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Client User with a company and store
+    const clientUser = await prismaClient.user.findFirst({
+      where: { is_client_user: true },
+    });
+    if (!clientUser) {
+      throw new Error("No client user found in database");
+    }
+
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: clientUser.user_id }),
+    });
+    const store = await prismaClient.store.create({
+      data: createStore({ company_id: company.company_id }),
+    });
+
+    // Get a STORE scope role for employee assignment
+    const storeRole = await prismaClient.role.findFirst({
+      where: { scope: "STORE" },
+    });
+    if (!storeRole) {
+      throw new Error("No STORE scope role found in database");
+    }
+
+    const employeeData = createEmployeeRequest({
+      store_id: store.store_id,
+      role_id: storeRole.role_id,
+    });
+
+    // WHEN: Creating an employee via API
+    const response = await clientUserApiRequest.post("/api/client/employees", {
+      email: employeeData.email,
+      name: employeeData.name,
+      store_id: employeeData.store_id,
+      role_id: employeeData.role_id,
+    });
+
+    // THEN: Employee is created successfully
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty("user_id");
+    expect(body.data).toHaveProperty("email", employeeData.email);
+    expect(body.data).toHaveProperty("name", employeeData.name);
+    expect(body.data).toHaveProperty("status", "ACTIVE");
+
+    // AND: Employee record exists in database
+    const employee = await prismaClient.user.findUnique({
+      where: { user_id: body.data.user_id },
+    });
+    expect(employee).not.toBeNull();
+    expect(employee?.email).toBe(employeeData.email);
+
+    // AND: STORE scope role is assigned
+    const userRole = await prismaClient.userRole.findFirst({
+      where: {
+        user_id: body.data.user_id,
+        role_id: storeRole.role_id,
+        store_id: store.store_id,
+      },
+    });
+    expect(userRole).not.toBeNull();
+    // Scope is on the Role model, not UserRole - verify via role relation
+    const roleWithScope = await prismaClient.role.findUnique({
+      where: { role_id: storeRole.role_id },
+    });
+    expect(roleWithScope?.scope).toBe("STORE");
+
+    // AND: Audit log entry is created with client user_id
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        table_name: "users",
+        record_id: body.data.user_id,
+        action: "CREATE",
+        user_id: clientUser.user_id,
+      },
+    });
+    expect(auditLog).not.toBeNull();
+    expect(auditLog?.action).toBe("CREATE");
+  });
+
+  test("2.91-API-002: [P0] POST /api/client/employees - should reject SYSTEM scope role assignment (AC #2)", async ({
+    clientUserApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Client User with a company and store
+    const clientUser = await prismaClient.user.findFirst({
+      where: { is_client_user: true },
+    });
+    if (!clientUser) {
+      throw new Error("No client user found in database");
+    }
+
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: clientUser.user_id }),
+    });
+    const store = await prismaClient.store.create({
+      data: createStore({ company_id: company.company_id }),
+    });
+
+    // Get a SYSTEM scope role (should be rejected)
+    const systemRole = await prismaClient.role.findFirst({
+      where: { scope: "SYSTEM" },
+    });
+    if (!systemRole) {
+      throw new Error("No SYSTEM scope role found in database");
+    }
+
+    const employeeData = createEmployeeRequest({
+      store_id: store.store_id,
+      role_id: systemRole.role_id,
+    });
+
+    // WHEN: Attempting to create employee with SYSTEM scope role
+    const response = await clientUserApiRequest.post("/api/client/employees", {
+      email: employeeData.email,
+      name: employeeData.name,
+      store_id: employeeData.store_id,
+      role_id: employeeData.role_id,
+    });
+
+    // THEN: Request is rejected with 403 Forbidden
+    expect(response.status()).toBe(403);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body).toHaveProperty("error");
+    expect(body.error).toContain("STORE scope");
+  });
+
+  test("2.91-API-003: [P0] POST /api/client/employees - should reject COMPANY scope role assignment (AC #2)", async ({
+    clientUserApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Client User with a company and store
+    const clientUser = await prismaClient.user.findFirst({
+      where: { is_client_user: true },
+    });
+    if (!clientUser) {
+      throw new Error("No client user found in database");
+    }
+
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: clientUser.user_id }),
+    });
+    const store = await prismaClient.store.create({
+      data: createStore({ company_id: company.company_id }),
+    });
+
+    // Get a COMPANY scope role (should be rejected)
+    const companyRole = await prismaClient.role.findFirst({
+      where: { scope: "COMPANY" },
+    });
+    if (!companyRole) {
+      throw new Error("No COMPANY scope role found in database");
+    }
+
+    const employeeData = createEmployeeRequest({
+      store_id: store.store_id,
+      role_id: companyRole.role_id,
+    });
+
+    // WHEN: Attempting to create employee with COMPANY scope role
+    const response = await clientUserApiRequest.post("/api/client/employees", {
+      email: employeeData.email,
+      name: employeeData.name,
+      store_id: employeeData.store_id,
+      role_id: employeeData.role_id,
+    });
+
+    // THEN: Request is rejected with 403 Forbidden
+    expect(response.status()).toBe(403);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body).toHaveProperty("error");
+    expect(body.error).toContain("STORE scope");
+  });
+
+  test("2.91-API-004: [P0] POST /api/client/employees - should reject store_id not belonging to client (AC #2)", async ({
+    clientUserApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Client User
+    // AND: Another client has a store
+    const otherClient = await prismaClient.user.create({
+      data: createUser({ is_client_user: true }),
+    });
+    const otherCompany = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: otherClient.user_id }),
+    });
+    const otherStore = await prismaClient.store.create({
+      data: createStore({ company_id: otherCompany.company_id }),
+    });
+
+    // Get a STORE scope role
+    const storeRole = await prismaClient.role.findFirst({
+      where: { scope: "STORE" },
+    });
+    if (!storeRole) {
+      throw new Error("No STORE scope role found in database");
+    }
+
+    const employeeData = createEmployeeRequest({
+      store_id: otherStore.store_id, // Store belonging to another client
+      role_id: storeRole.role_id,
+    });
+
+    // WHEN: Attempting to create employee with store_id from another client
+    const response = await clientUserApiRequest.post("/api/client/employees", {
+      email: employeeData.email,
+      name: employeeData.name,
+      store_id: employeeData.store_id,
+      role_id: employeeData.role_id,
+    });
+
+    // THEN: Request is rejected with 403 Forbidden
+    expect(response.status()).toBe(403);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body).toHaveProperty("error");
+  });
+
+  test("2.91-API-005: [P0] POST /api/client/employees - should reject duplicate email (AC #4)", async ({
+    clientUserApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An employee with a specific email already exists
+    const existingEmployee = await prismaClient.user.create({
+      data: createUser({ email: "existing@test.nuvana.local" }),
+    });
+
+    const clientUser = await prismaClient.user.findFirst({
+      where: { is_client_user: true },
+    });
+    if (!clientUser) {
+      throw new Error("No client user found in database");
+    }
+
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: clientUser.user_id }),
+    });
+    const store = await prismaClient.store.create({
+      data: createStore({ company_id: company.company_id }),
+    });
+
+    // Get a STORE scope role
+    const storeRole = await prismaClient.role.findFirst({
+      where: { scope: "STORE" },
+    });
+    if (!storeRole) {
+      throw new Error("No STORE scope role found in database");
+    }
+
+    // WHEN: Creating another employee with the same email
+    const response = await clientUserApiRequest.post("/api/client/employees", {
+      email: existingEmployee.email,
+      name: "New Employee",
+      store_id: store.store_id,
+      role_id: storeRole.role_id,
+    });
+
+    // THEN: Duplicate email error is returned
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body).toHaveProperty("error");
+  });
+
+  test("2.91-API-006: [P1] GET /api/client/employees - should list employees filtered by client's stores (AC #1)", async ({
+    clientUserApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Client User with companies and stores
+    const clientUser = await prismaClient.user.findFirst({
+      where: { is_client_user: true },
+    });
+    if (!clientUser) {
+      throw new Error("No client user found in database");
+    }
+
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: clientUser.user_id }),
+    });
+    const store1 = await prismaClient.store.create({
+      data: createStore({ company_id: company.company_id }),
+    });
+    const store2 = await prismaClient.store.create({
+      data: createStore({ company_id: company.company_id }),
+    });
+
+    // Create employees for this client's stores
+    const employee1 = await prismaClient.user.create({
+      data: createUser({ email: "employee1@test.nuvana.local" }),
+    });
+    const employee2 = await prismaClient.user.create({
+      data: createUser({ email: "employee2@test.nuvana.local" }),
+    });
+
+    // Get STORE scope role
+    const storeRole = await prismaClient.role.findFirst({
+      where: { scope: "STORE" },
+    });
+    if (!storeRole) {
+      throw new Error("No STORE scope role found in database");
+    }
+
+    // Assign employees to stores (scope is derived from the Role, not stored on UserRole)
+    await prismaClient.userRole.create({
+      data: {
+        user_id: employee1.user_id,
+        role_id: storeRole.role_id,
+        store_id: store1.store_id,
+      },
+    });
+    await prismaClient.userRole.create({
+      data: {
+        user_id: employee2.user_id,
+        role_id: storeRole.role_id,
+        store_id: store2.store_id,
+      },
+    });
+
+    // WHEN: Retrieving employees list
+    const response = await clientUserApiRequest.get("/api/client/employees");
+
+    // THEN: Paginated list with only client's employees is returned
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body).toHaveProperty("data");
+    expect(body).toHaveProperty("meta");
+    expect(Array.isArray(body.data)).toBe(true);
+
+    // AND: List includes employee name, email, assigned store, status, roles
+    const employeeData = body.data.find(
+      (e: { user_id: string }) => e.user_id === employee1.user_id,
+    );
+    expect(employeeData).not.toBeUndefined();
+    expect(employeeData).toHaveProperty("name");
+    expect(employeeData).toHaveProperty("email");
+    expect(employeeData).toHaveProperty("status");
+    expect(employeeData).toHaveProperty("roles");
+  });
+
+  test("2.91-API-007: [P0] GET /api/client/employees - should not return employees from other clients (AC #1)", async ({
+    clientUserApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Another client has employees
+    const otherClient = await prismaClient.user.create({
+      data: createUser({ is_client_user: true }),
+    });
+    const otherCompany = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: otherClient.user_id }),
+    });
+    const otherStore = await prismaClient.store.create({
+      data: createStore({ company_id: otherCompany.company_id }),
+    });
+    const otherEmployee = await prismaClient.user.create({
+      data: createUser({ email: "other@test.nuvana.local" }),
+    });
+
+    // Get STORE scope role
+    const storeRole = await prismaClient.role.findFirst({
+      where: { scope: "STORE" },
+    });
+    if (!storeRole) {
+      throw new Error("No STORE scope role found in database");
+    }
+
+    await prismaClient.userRole.create({
+      data: {
+        user_id: otherEmployee.user_id,
+        role_id: storeRole.role_id,
+        store_id: otherStore.store_id,
+      },
+    });
+
+    // WHEN: Retrieving employees list as current client
+    const response = await clientUserApiRequest.get("/api/client/employees");
+
+    // THEN: Other client's employees are not included
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    const otherEmployeeData = body.data.find(
+      (e: { user_id: string }) => e.user_id === otherEmployee.user_id,
+    );
+    expect(otherEmployeeData).toBeUndefined();
+  });
+
+  test("2.91-API-008: [P0] DELETE /api/client/employees/:userId - should delete employee belonging to client (AC #3)", async ({
+    clientUserApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Client User with an employee
+    const clientUser = await prismaClient.user.findFirst({
+      where: { is_client_user: true },
+    });
+    if (!clientUser) {
+      throw new Error("No client user found in database");
+    }
+
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: clientUser.user_id }),
+    });
+    const store = await prismaClient.store.create({
+      data: createStore({ company_id: company.company_id }),
+    });
+
+    const employee = await prismaClient.user.create({
+      data: createUser({ email: "employee@test.nuvana.local" }),
+    });
+
+    // Get STORE scope role
+    const storeRole = await prismaClient.role.findFirst({
+      where: { scope: "STORE" },
+    });
+    if (!storeRole) {
+      throw new Error("No STORE scope role found in database");
+    }
+
+    await prismaClient.userRole.create({
+      data: {
+        user_id: employee.user_id,
+        role_id: storeRole.role_id,
+        store_id: store.store_id,
+      },
+    });
+
+    // WHEN: Deleting the employee
+    const response = await clientUserApiRequest.delete(
+      `/api/client/employees/${employee.user_id}`,
+    );
+
+    // THEN: Employee is deleted successfully
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    // AND: Employee record is removed from database
+    const deletedEmployee = await prismaClient.user.findUnique({
+      where: { user_id: employee.user_id },
+    });
+    expect(deletedEmployee).toBeNull();
+
+    // AND: Audit log entry is created
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        table_name: "users",
+        record_id: employee.user_id,
+        action: "DELETE",
+        user_id: clientUser.user_id,
+      },
+    });
+    expect(auditLog).not.toBeNull();
+  });
+
+  test("2.91-API-009: [P0] DELETE /api/client/employees/:userId - should reject deleting SYSTEM scope user (AC #3)", async ({
+    clientUserApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A SYSTEM scope user exists
+    const systemUser = await prismaClient.user.create({
+      data: createUser({ email: "system@test.nuvana.local" }),
+    });
+
+    // Get SYSTEM scope role
+    const systemRole = await prismaClient.role.findFirst({
+      where: { scope: "SYSTEM" },
+    });
+    if (!systemRole) {
+      throw new Error("No SYSTEM scope role found in database");
+    }
+
+    await prismaClient.userRole.create({
+      data: {
+        user_id: systemUser.user_id,
+        role_id: systemRole.role_id,
+        // No store_id or company_id for SYSTEM scope roles
+      },
+    });
+
+    // WHEN: Attempting to delete SYSTEM scope user
+    const response = await clientUserApiRequest.delete(
+      `/api/client/employees/${systemUser.user_id}`,
+    );
+
+    // THEN: Request is rejected with 403 Forbidden
+    expect(response.status()).toBe(403);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body).toHaveProperty("error");
+  });
+
+  test("2.91-API-010: [P0] DELETE /api/client/employees/:userId - should reject deleting other client's employee (AC #3)", async ({
+    clientUserApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Another client has an employee
+    const otherClient = await prismaClient.user.create({
+      data: createUser({ is_client_user: true }),
+    });
+    const otherCompany = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: otherClient.user_id }),
+    });
+    const otherStore = await prismaClient.store.create({
+      data: createStore({ company_id: otherCompany.company_id }),
+    });
+    const otherEmployee = await prismaClient.user.create({
+      data: createUser({ email: "other@test.nuvana.local" }),
+    });
+
+    // Get STORE scope role
+    const storeRole = await prismaClient.role.findFirst({
+      where: { scope: "STORE" },
+    });
+    if (!storeRole) {
+      throw new Error("No STORE scope role found in database");
+    }
+
+    await prismaClient.userRole.create({
+      data: {
+        user_id: otherEmployee.user_id,
+        role_id: storeRole.role_id,
+        store_id: otherStore.store_id,
+      },
+    });
+
+    // WHEN: Attempting to delete other client's employee
+    const response = await clientUserApiRequest.delete(
+      `/api/client/employees/${otherEmployee.user_id}`,
+    );
+
+    // THEN: Request is rejected with 403 Forbidden
+    expect(response.status()).toBe(403);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body).toHaveProperty("error");
+  });
+
+  test("2.91-API-011: [P0] POST /api/client/employees - should validate required fields (AC #4)", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: I am authenticated as a Client User
+    // WHEN: Creating employee with missing required fields
+    const response = await clientUserApiRequest.post("/api/client/employees", {
+      // email is missing
+      name: "Test Employee",
+      // store_id is missing
+    });
+
+    // THEN: Validation error is returned
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body).toHaveProperty("error");
+  });
+
+  test("2.91-API-012: [P0] All endpoints should require CLIENT_EMPLOYEE permissions (AC #1, #3)", async ({
+    regularUserApiRequest,
+  }) => {
+    // GIVEN: I am authenticated as a regular user without CLIENT_EMPLOYEE permissions
+    // WHEN: Attempting to access employee endpoints
+    const createResponse = await regularUserApiRequest.post(
+      "/api/client/employees",
+      {
+        email: "test@example.com",
+        name: "Test",
+        store_id: "store-uuid",
+      },
+    );
+    const listResponse = await regularUserApiRequest.get("/api/client/employees");
+    const deleteResponse = await regularUserApiRequest.delete(
+      "/api/client/employees/user-uuid",
+    );
+
+    // THEN: All requests are rejected with 403 Forbidden
+    expect(createResponse.status()).toBe(403);
+    expect(listResponse.status()).toBe(403);
+    expect(deleteResponse.status()).toBe(403);
+  });
+});
+

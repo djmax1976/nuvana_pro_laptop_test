@@ -85,8 +85,8 @@ export const createClientUser = (
 
   return {
     user_id: faker.string.uuid(),
-    email: faker.internet.email().toLowerCase(),
-    name: faker.person.fullName(),
+    email: `test_${faker.string.alphanumeric(8).toLowerCase()}@test.nuvana.local`,
+    name: `Test ${faker.person.fullName()}`,
     status: "ACTIVE",
     password_hash: passwordHash,
     public_id: createId(),
@@ -132,7 +132,7 @@ export const createClientUserWithPassword = (
 export const createClientLoginRequest = (
   overrides: Partial<ClientLoginRequest> = {},
 ): ClientLoginRequest => ({
-  email: faker.internet.email().toLowerCase(),
+  email: `test_${faker.string.alphanumeric(8).toLowerCase()}@test.nuvana.local`,
   password: "ClientPassword123!",
   ...overrides,
 });
@@ -147,22 +147,22 @@ export const createClientDashboardData = (
 ): ClientDashboardData => ({
   user: {
     id: faker.string.uuid(),
-    name: faker.person.fullName(),
-    email: faker.internet.email().toLowerCase(),
+    name: `Test ${faker.person.fullName()}`,
+    email: `test_${faker.string.alphanumeric(8).toLowerCase()}@test.nuvana.local`,
   },
   companies: [
     {
       id: faker.string.uuid(),
-      name: faker.company.name(),
+      name: `Test ${faker.company.name()}`,
       status: "ACTIVE",
     },
   ],
   stores: [
     {
       id: faker.string.uuid(),
-      name: `${faker.location.city()} Store`,
+      name: `Test ${faker.location.city()} Store`,
       status: "ACTIVE",
-      companyName: faker.company.name(),
+      companyName: `Test ${faker.company.name()}`,
     },
   ],
   stats: {

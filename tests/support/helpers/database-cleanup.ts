@@ -3,32 +3,54 @@
  *
  * Provides functions to clean up test data from the database
  * to prevent pollution and ensure test isolation.
+ *
+ * IMPORTANT: Only deletes data that matches TEST MARKERS to avoid
+ * accidentally deleting manually created data.
+ *
+ * Test data markers:
+ * - Users: email ends with @test.nuvana.local, @test.com, or starts with test_, e2e-
+ * - Companies: name starts with "Test " or "E2E "
+ * - Stores: name starts with "Test " or "E2E "
  */
 
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// Test email patterns - ONLY users matching these will be deleted
+const TEST_EMAIL_PATTERNS = {
+  domains: ["@test.nuvana.local", "@test.com"],
+  prefixes: ["test_", "e2e-", "e2e_"],
+};
+
+// Test name patterns - ONLY entities matching these will be deleted
+const TEST_NAME_PATTERNS = {
+  prefixes: ["Test ", "E2E ", "test_", "e2e_"],
+};
+
 /**
  * Delete all test data created during test runs
- * Identifies test data by common patterns (test-, demo-, etc.)
+ * Identifies test data by TEST MARKERS (not general patterns)
  */
 export async function cleanupAllTestData() {
   console.log("🧹 Cleaning up test data...");
+  console.log("   ℹ️  Only data with test markers will be deleted");
 
   try {
+    // Build store filter for test stores only
+    const storeFilter = {
+      OR: TEST_NAME_PATTERNS.prefixes.map((prefix) => ({
+        name: { startsWith: prefix },
+      })),
+    };
+
     // Delete in correct order to respect foreign key constraints
 
-    // 1. Delete transactions and related data
+    // 1. Delete transactions and related data for test stores
     await prisma.transactionPayment.deleteMany({
       where: {
         transaction: {
-          store: {
-            OR: [
-              { name: { contains: "test", mode: "insensitive" } },
-              { name: { contains: "demo", mode: "insensitive" } },
-            ],
-          },
+          store: storeFilter,
         },
       },
     });
@@ -36,24 +58,14 @@ export async function cleanupAllTestData() {
     await prisma.transactionLineItem.deleteMany({
       where: {
         transaction: {
-          store: {
-            OR: [
-              { name: { contains: "test", mode: "insensitive" } },
-              { name: { contains: "demo", mode: "insensitive" } },
-            ],
-          },
+          store: storeFilter,
         },
       },
     });
 
     await prisma.transaction.deleteMany({
       where: {
-        store: {
-          OR: [
-            { name: { contains: "test", mode: "insensitive" } },
-            { name: { contains: "demo", mode: "insensitive" } },
-          ],
-        },
+        store: storeFilter,
       },
     });
 
@@ -63,48 +75,42 @@ export async function cleanupAllTestData() {
     // await prisma.lotteryShiftOpening.deleteMany({...});
     // await prisma.lotteryPack.deleteMany({...});
 
-    // 3. Delete shifts
+    // 3. Delete shifts for test stores
     await prisma.shift.deleteMany({
       where: {
-        store: {
-          OR: [
-            { name: { contains: "test", mode: "insensitive" } },
-            { name: { contains: "demo", mode: "insensitive" } },
-          ],
-        },
+        store: storeFilter,
       },
     });
 
     // 4. Delete inventory data (commented out - models not yet in schema)
     // await prisma.stockMovement.deleteMany({...});
 
-    // 5. Delete stores
+    // 5. Delete test stores (name starts with "Test " or "E2E ")
     const deletedStores = await prisma.store.deleteMany({
-      where: {
-        OR: [
-          { name: { contains: "test", mode: "insensitive" } },
-          { name: { contains: "demo", mode: "insensitive" } },
-        ],
-      },
+      where: storeFilter,
     });
 
-    // 6. Delete companies
+    // 6. Delete test companies (name starts with "Test " or "E2E ")
     const deletedCompanies = await prisma.company.deleteMany({
       where: {
-        OR: [
-          { name: { contains: "test", mode: "insensitive" } },
-          { name: { contains: "demo", mode: "insensitive" } },
-        ],
+        OR: TEST_NAME_PATTERNS.prefixes.map((prefix) => ({
+          name: { startsWith: prefix },
+        })),
       },
     });
 
-    // 7. Delete test users
+    // 7. Delete test users (email matches test patterns)
     const deletedUsers = await prisma.user.deleteMany({
       where: {
         OR: [
-          { email: { contains: "test@", mode: "insensitive" } },
-          { email: { contains: "demo@", mode: "insensitive" } },
-          { name: { contains: "test", mode: "insensitive" } },
+          // Match test email domains
+          ...TEST_EMAIL_PATTERNS.domains.map((domain) => ({
+            email: { endsWith: domain },
+          })),
+          // Match test email prefixes
+          ...TEST_EMAIL_PATTERNS.prefixes.map((prefix) => ({
+            email: { startsWith: prefix },
+          })),
         ],
       },
     });
@@ -217,82 +223,41 @@ export async function cleanupByUserIds(userIds: string[]) {
   console.log("✅ User cleanup complete");
 }
 
-/**
- * Reset database to clean state (USE WITH CAUTION)
- * Only use in test environments
- */
-export async function resetDatabase() {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("❌ Cannot reset database in production!");
-  }
-
-  console.log("⚠️  RESETTING DATABASE - ALL DATA WILL BE DELETED");
-
-  // Delete all data in correct order
-  // Note: Lottery, stock, purchase, vendor, product, category, department models not yet in schema
-  await prisma.$transaction([
-    prisma.transactionPayment.deleteMany(),
-    prisma.transactionLineItem.deleteMany(),
-    prisma.transaction.deleteMany(),
-    // prisma.lotteryTicketSerial.deleteMany(),
-    // prisma.lotteryShiftClosing.deleteMany(),
-    // prisma.lotteryShiftOpening.deleteMany(),
-    // prisma.lotteryVariance.deleteMany(),
-    // prisma.lotteryPack.deleteMany(),
-    // prisma.lotteryBin.deleteMany(),
-    // prisma.lotteryGame.deleteMany(),
-    prisma.shift.deleteMany(),
-    // prisma.stockMovement.deleteMany(),
-    // prisma.inventorySnapshot.deleteMany(),
-    // prisma.purchaseInvoiceLine.deleteMany(),
-    // prisma.purchaseInvoice.deleteMany(),
-    // prisma.purchaseOrderLine.deleteMany(),
-    // prisma.purchaseOrder.deleteMany(),
-    // prisma.vendorProduct.deleteMany(),
-    // prisma.vendor.deleteMany(),
-    // prisma.productBarcode.deleteMany(),
-    // prisma.product.deleteMany(),
-    // prisma.category.deleteMany(),
-    // prisma.department.deleteMany(),
-    prisma.store.deleteMany(),
-    prisma.company.deleteMany(),
-    prisma.userRole.deleteMany(),
-    prisma.rolePermission.deleteMany(),
-    prisma.user.deleteMany(),
-    prisma.permission.deleteMany(),
-    prisma.role.deleteMany(),
-  ]);
-
-  console.log("✅ Database reset complete");
-}
+// NOTE: resetDatabase() function was REMOVED because it deleted ALL data
+// without filtering by test markers, which caused data loss.
+// Use cleanupAllTestData() instead for safe test data cleanup.
 
 /**
- * Get count of test data in database
+ * Get count of test data in database (data matching test markers)
  */
 export async function getTestDataCount() {
   const [users, companies, stores] = await Promise.all([
     prisma.user.count({
       where: {
         OR: [
-          { email: { contains: "test@" } },
-          { email: { contains: "demo@" } },
+          // Match test email domains
+          ...TEST_EMAIL_PATTERNS.domains.map((domain) => ({
+            email: { endsWith: domain },
+          })),
+          // Match test email prefixes
+          ...TEST_EMAIL_PATTERNS.prefixes.map((prefix) => ({
+            email: { startsWith: prefix },
+          })),
         ],
       },
     }),
     prisma.company.count({
       where: {
-        OR: [
-          { name: { contains: "test", mode: "insensitive" } },
-          { name: { contains: "demo", mode: "insensitive" } },
-        ],
+        OR: TEST_NAME_PATTERNS.prefixes.map((prefix) => ({
+          name: { startsWith: prefix },
+        })),
       },
     }),
     prisma.store.count({
       where: {
-        OR: [
-          { name: { contains: "test", mode: "insensitive" } },
-          { name: { contains: "demo", mode: "insensitive" } },
-        ],
+        OR: TEST_NAME_PATTERNS.prefixes.map((prefix) => ({
+          name: { startsWith: prefix },
+        })),
       },
     }),
   ]);
