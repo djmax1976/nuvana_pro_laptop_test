@@ -31,16 +31,14 @@ export type JWTTokenPayload = {
  */
 export const createJWTAccessTokenPayload = (
   overrides: Partial<JWTTokenPayload> = {},
-): JWTTokenPayload => {
-  return {
-    user_id: faker.string.uuid(),
-    email: faker.internet.email(),
-    roles: ["USER"],
-    permissions: ["READ"],
-    type: "access",
-    ...overrides,
-  };
-};
+): JWTTokenPayload => ({
+  user_id: faker.string.uuid(),
+  email: faker.internet.email(),
+  roles: ["USER"],
+  permissions: ["READ"],
+  type: "access",
+  ...overrides,
+});
 
 /**
  * Creates a JWT refresh token payload (7 days expiry)
@@ -200,5 +198,54 @@ export const createMultiRoleJWTAccessToken = (
     roles,
     permissions,
     ...overrides,
+  });
+};
+
+/**
+ * Payload type for malformed tokens - allows missing required claims
+ * Used exclusively for security testing scenarios (testing 401 responses)
+ */
+export type MalformedJWTPayload = {
+  user_id?: string;
+  email?: string;
+  roles?: string[];
+  permissions?: string[];
+  type?: "access" | "refresh";
+  [key: string]: unknown; // Allow arbitrary claims for edge case testing
+};
+
+/**
+ * Creates a JWT token with intentionally missing or malformed claims
+ *
+ * SECURITY TESTING ONLY: Use this factory to test authentication
+ * middleware's handling of invalid tokens.
+ *
+ * @param payload - Partial payload with only the claims you want to include
+ * @returns Signed JWT token with missing required claims
+ *
+ * @example
+ * // Token without user_id
+ * const token = createMalformedJWTAccessToken({ email: 'test@example.com' });
+ *
+ * @example
+ * // Token without email
+ * const token = createMalformedJWTAccessToken({ user_id: 'some-id' });
+ *
+ * @example
+ * // Token with neither required claim
+ * const token = createMalformedJWTAccessToken({ roles: ['USER'] });
+ */
+export const createMalformedJWTAccessToken = (
+  payload: MalformedJWTPayload = {},
+): string => {
+  const secret =
+    process.env.JWT_SECRET || "test-secret-key-change-in-production";
+
+  // Sign the payload directly without adding defaults
+  // This creates a valid JWT signature but with missing claims
+  return jwt.sign({ type: "access", ...payload }, secret, {
+    expiresIn: "15m",
+    issuer: "nuvana-backend",
+    audience: "nuvana-api",
   });
 };

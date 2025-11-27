@@ -5,6 +5,7 @@ import {
   createExpiredJWTAccessToken,
   createExpiredJWTRefreshToken,
   createAdminJWTAccessToken,
+  createMalformedJWTAccessToken,
   createUser,
 } from "../support/factories";
 import { createUserWithRole } from "../support/helpers/user-with-role.helper";
@@ -210,12 +211,13 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
   test("[P1] 1.6-API-002-007: Protected route should return 401 for token with missing required claims", async ({
     apiRequest,
   }) => {
-    // GIVEN: JWT token missing required claims (user_id or email)
-    const tokenWithoutUserId = createJWTAccessToken({
+    // GIVEN: JWT tokens with intentionally missing required claims
+    // Using dedicated malformed token factory for security testing
+    const tokenWithoutUserId = createMalformedJWTAccessToken({
       email: faker.internet.email(),
       // user_id intentionally omitted
     });
-    const tokenWithoutEmail = createJWTAccessToken({
+    const tokenWithoutEmail = createMalformedJWTAccessToken({
       user_id: faker.string.uuid(),
       // email intentionally omitted
     });

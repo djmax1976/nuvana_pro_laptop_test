@@ -55,7 +55,9 @@ export {
   createExpiredJWTRefreshToken,
   createAdminJWTAccessToken,
   createMultiRoleJWTAccessToken,
+  createMalformedJWTAccessToken,
   type JWTTokenPayload,
+  type MalformedJWTPayload,
 } from "./jwt.factory";
 
 // RBAC factories

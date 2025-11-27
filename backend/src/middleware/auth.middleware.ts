@@ -39,6 +39,17 @@ export async function authMiddleware(
     const authService = new AuthService();
     const decoded = authService.verifyAccessToken(accessToken);
 
+    // Validate required claims are present in token
+    if (!decoded.user_id || !decoded.email) {
+      return reply.code(401).send({
+        success: false,
+        error: {
+          code: "UNAUTHORIZED",
+          message: "Token missing required claims (user_id or email)",
+        },
+      });
+    }
+
     // Extract user identity from token payload
     const userIdentity: UserIdentity = {
       id: decoded.user_id,

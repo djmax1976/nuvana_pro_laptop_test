@@ -24,6 +24,43 @@ import {
 } from "../../../backend/src/utils/public-id";
 
 /**
+ * Helper to check if an object is a PrismaClient using duck-typing.
+ *
+ * WHY NOT instanceof?
+ * Prisma Client uses Proxy objects with custom Symbol.toStringTag getters.
+ * When Node.js's `instanceof` operator triggers internal inspection (via
+ * util.inspect or similar), it can cause infinite recursion due to Prisma's
+ * proxy structure, resulting in "RangeError: Maximum call stack size exceeded".
+ *
+ * This is a known Prisma issue:
+ * - https://github.com/prisma/prisma/issues/25798
+ * - https://github.com/prisma/prisma/issues/17236
+ *
+ * SOLUTION: Use duck-typing to check for Prisma-specific methods/properties
+ * without triggering serialization or inspection.
+ *
+ * @see https://github.com/prisma/prisma/issues/25798
+ */
+function isPrismaClient(obj: unknown): obj is PrismaClient {
+  if (obj === null || typeof obj !== "object") {
+    return false;
+  }
+
+  // Check for Prisma Client's characteristic methods and model delegates
+  // These are always present on a PrismaClient instance
+  const hasPrismaMethods =
+    "$connect" in obj &&
+    "$disconnect" in obj &&
+    "$transaction" in obj &&
+    typeof (obj as Record<string, unknown>).$connect === "function";
+
+  // Check for model delegates (our schema's models)
+  const hasModelDelegates = "user" in obj && "company" in obj && "store" in obj;
+
+  return hasPrismaMethods && hasModelDelegates;
+}
+
+/**
  * Create a user in the database
  * Supports both patterns:
  * - createUser(prisma, overrides) - prisma first (for existing code)
@@ -41,13 +78,15 @@ export async function createUser(
   let prismaClient: PrismaClient | undefined;
   let userOverrides: Partial<UserData>;
 
-  if (prismaOrOverrides instanceof PrismaClient) {
+  // Use duck-typing check instead of instanceof to avoid Prisma's
+  // internal serialization which can cause stack overflow
+  if (isPrismaClient(prismaOrOverrides)) {
     // Pattern: createUser(prisma, overrides)
     prismaClient = prismaOrOverrides;
     userOverrides = overrides || {};
   } else {
     // Pattern: createUser(overrides)
-    userOverrides = prismaOrOverrides;
+    userOverrides = prismaOrOverrides as Partial<UserData>;
     prismaClient = undefined;
   }
 
@@ -77,13 +116,15 @@ export async function createCompany(
   let prismaClient: PrismaClient | undefined;
   let companyOverrides: Partial<CompanyData>;
 
-  if (prismaOrOverrides instanceof PrismaClient) {
+  // Use duck-typing check instead of instanceof to avoid Prisma's
+  // internal serialization which can cause stack overflow
+  if (isPrismaClient(prismaOrOverrides)) {
     // Pattern: createCompany(prisma, overrides)
     prismaClient = prismaOrOverrides;
     companyOverrides = overrides || {};
   } else {
     // Pattern: createCompany(overrides)
-    companyOverrides = prismaOrOverrides;
+    companyOverrides = prismaOrOverrides as Partial<CompanyData>;
     prismaClient = undefined;
   }
 
@@ -124,13 +165,17 @@ export async function createStore(
   let prismaClient: PrismaClient | undefined;
   let storeOverrides: Partial<StoreData> & { company_id?: string };
 
-  if (prismaOrOverrides instanceof PrismaClient) {
+  // Use duck-typing check instead of instanceof to avoid Prisma's
+  // internal serialization which can cause stack overflow
+  if (isPrismaClient(prismaOrOverrides)) {
     // Pattern: createStore(prisma, overrides)
     prismaClient = prismaOrOverrides;
     storeOverrides = overrides || {};
   } else {
     // Pattern: createStore(overrides)
-    storeOverrides = prismaOrOverrides;
+    storeOverrides = prismaOrOverrides as Partial<StoreData> & {
+      company_id?: string;
+    };
     prismaClient = undefined;
   }
 
