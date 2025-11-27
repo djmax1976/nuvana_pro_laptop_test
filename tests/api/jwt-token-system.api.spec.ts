@@ -883,7 +883,8 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
       const body = await response.json();
       expect(body).toHaveProperty("user");
       expect(body.user).toHaveProperty("id", createdUser.user_id);
-      expect(body.user).toHaveProperty("email", userEmail);
+      // Note: createdUser.email is lowercase (normalized during creation)
+      expect(body.user).toHaveProperty("email", createdUser.email);
     } finally {
       await prismaClient.userRole.deleteMany({
         where: { user_id: createdUser.user_id },

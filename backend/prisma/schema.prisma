@@ -49,7 +49,6 @@ model Company {
   created_at    DateTime   @default(now()) @db.Timestamptz(6)
   updated_at    DateTime   @default(now()) @updatedAt @db.Timestamptz(6)
   owner_user_id String     @db.Uuid
-  deleted_at    DateTime?  @db.Timestamptz(6)
   public_id     String     @unique @db.VarChar(30)
   owner         User       @relation("CompanyOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
   stores        Store[]
@@ -70,7 +69,6 @@ model Store {
   status        String        @default("ACTIVE") @db.VarChar(50)
   created_at    DateTime      @default(now()) @db.Timestamptz(6)
   updated_at    DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
-  deleted_at    DateTime?     @db.Timestamptz(6)
   configuration Json?
   public_id     String        @unique @db.VarChar(30)
   pos_terminals POSTerminal[]
@@ -81,7 +79,6 @@ model Store {
 
   @@index([company_id])
   @@index([status])
-  @@index([deleted_at])
   @@index([public_id])
   @@map("stores")
 }

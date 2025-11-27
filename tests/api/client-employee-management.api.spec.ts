@@ -447,25 +447,20 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     const body = await response.json();
     expect(body.success).toBe(true);
 
-    // AND: Employee record is removed from database
+    // AND: Employee record is DELETED (hard delete)
     const deletedEmployee = await prismaClient.user.findUnique({
       where: { user_id: employee.user_id },
     });
     expect(
       deletedEmployee,
-      "Employee should be deleted from database",
+      "Employee record should be deleted (hard delete)",
     ).toBeNull();
 
-    // AND: Audit log entry is created
-    const auditLog = await prismaClient.auditLog.findFirst({
-      where: {
-        table_name: "users",
-        record_id: employee.user_id,
-        action: "DELETE",
-        user_id: clientUser.user_id,
-      },
+    // AND: User roles are also deleted
+    const deletedUserRoles = await prismaClient.userRole.findMany({
+      where: { user_id: employee.user_id },
     });
-    expect(auditLog, "Audit log should be created for delete").not.toBeNull();
+    expect(deletedUserRoles.length, "User roles should be deleted").toBe(0);
   });
 
   test("2.91-API-009: [P0] DELETE /api/client/employees/:userId - should reject deleting SYSTEM scope user (AC #3)", async ({

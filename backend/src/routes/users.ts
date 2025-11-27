@@ -246,7 +246,9 @@ export async function userRoutes(fastify: FastifyInstance) {
         }
 
         const user = await prisma.user.findUnique({
-          where: { user_id: params.id },
+          where: {
+            user_id: params.id,
+          },
           select: {
             user_id: true,
             email: true,

@@ -27,22 +27,23 @@ test.describe("RBAC Framework - Permission Checking", () => {
   });
 
   test("[P0] should deny access with 403 when user lacks required permission", async ({
-    corporateAdminUser,
+    storeManagerUser,
     prismaClient,
     request,
     backendUrl,
   }) => {
-    // GIVEN: Corporate admin user does not have USER_DELETE permission
+    // GIVEN: Store manager user does not have USER_DELETE permission
+    // (STORE_MANAGER role only has USER_READ, not USER_DELETE per rbac.seed.ts)
     // Create a test user to attempt deletion
     const testUserData = createUser();
     const testUser = await prismaClient.user.create({ data: testUserData });
 
-    // WHEN: Corporate admin attempts to delete user (lacks USER_DELETE permission)
+    // WHEN: Store manager attempts to delete user (lacks USER_DELETE permission)
     const response = await request.delete(
       `${backendUrl}/api/users/${testUser.user_id}`,
       {
         headers: {
-          Cookie: `access_token=${corporateAdminUser.token}`,
+          Cookie: `access_token=${storeManagerUser.token}`,
         },
       },
     );

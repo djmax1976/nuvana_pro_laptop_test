@@ -84,6 +84,7 @@
     "cross-env": "^10.1.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.18",
+    "eslint-plugin-security": "^3.0.1",
     "jsdom": "^27.2.0",
     "postcss": "^8",
     "prisma": "^6.19.0",

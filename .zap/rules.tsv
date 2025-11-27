@@ -1,0 +1,25 @@
+# ZAP Baseline Rules Configuration
+# Format: rule_id	action	name
+# Actions: IGNORE (don't report), WARN (report but don't fail), FAIL (report and fail build)
+#
+# Informational alerts - warn only (don't fail build)
+10021	WARN	X-Content-Type-Options Header Missing
+10036	WARN	Server Leaks Version Information via Server HTTP Response Header Field
+10037	WARN	Server Leaks Information via X-Powered-By HTTP Response Header Field
+10096	WARN	Timestamp Disclosure - Unix
+10055	WARN	CSP: Wildcard Directive
+10098	WARN	Cross-Domain Misconfiguration
+10109	WARN	Modern Web Application
+10112	WARN	Session Management Response Identified
+
+# Low severity - warn (configurable based on your risk tolerance)
+10035	WARN	Strict-Transport-Security Header Not Set
+10038	WARN	Content Security Policy Header Not Set
+10063	WARN	Permissions Policy Header Not Set
+
+# Medium/High severity - these WILL fail the build (default behavior)
+# No need to list - ZAP fails on these by default when fail_action: true
+
+# Known false positives for your API - IGNORE if verified safe
+# Add any false positives here after review, e.g.:
+# 40012	IGNORE	Cross Site Scripting (Reflected) - if API-only endpoint

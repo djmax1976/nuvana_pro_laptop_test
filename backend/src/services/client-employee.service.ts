@@ -84,7 +84,6 @@ export class ClientEmployeeService {
     const companies = await prisma.company.findMany({
       where: {
         owner_user_id: clientUserId,
-        deleted_at: null,
       },
       select: {
         company_id: true,
@@ -100,7 +99,6 @@ export class ClientEmployeeService {
     const stores = await prisma.store.findMany({
       where: {
         company_id: { in: companyIds },
-        deleted_at: null,
       },
       select: {
         store_id: true,
@@ -123,10 +121,8 @@ export class ClientEmployeeService {
     const store = await prisma.store.findFirst({
       where: {
         store_id: storeId,
-        deleted_at: null,
         company: {
           owner_user_id: clientUserId,
-          deleted_at: null,
         },
       },
     });
@@ -567,7 +563,7 @@ export class ClientEmployeeService {
             old_values: employeeInfo as Prisma.InputJsonValue,
             ip_address: auditContext.ipAddress,
             user_agent: auditContext.userAgent,
-            reason: `Employee ${employee.email} deleted by client ${auditContext.userEmail}`,
+            reason: `Employee ${employee.email} permanently deleted by client ${auditContext.userEmail}`,
           },
         });
       } catch (auditError) {
