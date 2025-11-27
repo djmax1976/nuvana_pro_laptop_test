@@ -3,43 +3,72 @@
  *
  * This file runs ONCE after all tests complete.
  * It cleans up any test data that was created during the test run.
+ *
+ * IMPORTANT: Only deletes data that matches TEST MARKERS to avoid
+ * accidentally deleting manually created data.
+ *
+ * Test data markers:
+ * - Users: email ends with @test.nuvana.local, @test.com, or starts with test_, e2e-
+ * - Companies: name starts with "Test " or "E2E "
+ * - Stores: name starts with "Test " or "E2E "
  */
 
 import { PrismaClient } from "@prisma/client";
 
-// Protected emails that should NEVER be deleted (seed users)
-const PROTECTED_EMAILS = [
-  "superadmin@nuvana.com",
-  "admin@nuvana.com",
-  "corporate@nuvana.com",
-  "manager@nuvana.com",
-];
+// Test email patterns - ONLY users matching these will be deleted
+const TEST_EMAIL_PATTERNS = {
+  domains: ["@test.nuvana.local", "@test.com"],
+  prefixes: ["test_", "e2e-", "e2e_"],
+};
+
+// Test name patterns - ONLY entities matching these will be deleted
+const TEST_NAME_PATTERNS = {
+  prefixes: ["Test ", "E2E ", "test_", "e2e_"],
+};
 
 async function globalTeardown() {
-  console.log("\n🧹 Global Teardown: Cleaning database after tests...\n");
+  console.log("\n🧹 Global Teardown: Cleaning TEST DATA after tests...\n");
+  console.log("   ℹ️  Only data with test markers will be deleted\n");
 
   const prisma = new PrismaClient();
 
   try {
     await prisma.$connect();
 
-    // Find ALL users except protected seed users
+    // Find ONLY users with test email patterns
     const testUsers = await prisma.user.findMany({
       where: {
-        NOT: {
-          email: { in: PROTECTED_EMAILS },
-        },
+        OR: [
+          // Match test email domains
+          ...TEST_EMAIL_PATTERNS.domains.map((domain) => ({
+            email: { endsWith: domain },
+          })),
+          // Match test email prefixes
+          ...TEST_EMAIL_PATTERNS.prefixes.map((prefix) => ({
+            email: { startsWith: prefix },
+          })),
+        ],
       },
       select: { user_id: true, email: true },
     });
 
-    // Find ALL companies
+    // Find ONLY companies with test name patterns
     const testCompanies = await prisma.company.findMany({
+      where: {
+        OR: TEST_NAME_PATTERNS.prefixes.map((prefix) => ({
+          name: { startsWith: prefix },
+        })),
+      },
       select: { company_id: true, name: true },
     });
 
-    // Find ALL stores
+    // Find ONLY stores with test name patterns
     const testStores = await prisma.store.findMany({
+      where: {
+        OR: TEST_NAME_PATTERNS.prefixes.map((prefix) => ({
+          name: { startsWith: prefix },
+        })),
+      },
       select: { store_id: true, name: true },
     });
 
