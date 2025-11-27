@@ -113,17 +113,28 @@ export interface StoreWithCompany extends Store {
 }
 
 /**
- * IANA timezone validation regex
- * Matches formats like: America/New_York, Europe/London, UTC, GMT+5, GMT-3
- */
-const IANA_TIMEZONE_REGEX =
-  /^[A-Z][a-z]+(\/[A-Z][a-zA-Z_]+)+$|^UTC$|^GMT(\+|-)\d+$/;
-
-/**
- * Validate IANA timezone format
+ * Validate IANA timezone format (safer implementation to avoid ReDoS)
+ * Supports formats like: America/New_York, Europe/London, UTC, GMT+5, GMT-3
  */
 function validateTimezone(timezone: string): boolean {
-  return IANA_TIMEZONE_REGEX.test(timezone);
+  if (timezone === "UTC") {
+    return true;
+  }
+  if (/^GMT[+-]\d{1,2}$/.test(timezone)) {
+    return true;
+  }
+  // Limit length to prevent ReDoS
+  if (timezone.length > 50) {
+    return false;
+  }
+  // Split and validate each segment instead of using nested quantifiers
+  const parts = timezone.split("/");
+  if (parts.length < 2 || parts.length > 3) {
+    return false;
+  }
+  // Each part should contain only letters and underscores
+  const segmentPattern = /^[A-Za-z_]+$/;
+  return parts.every((part) => segmentPattern.test(part));
 }
 
 /**

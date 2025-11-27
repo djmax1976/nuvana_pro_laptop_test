@@ -54,7 +54,6 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
         const companies = await prisma.company.findMany({
           where: {
             owner_user_id: user.id,
-            deleted_at: null,
           },
           select: {
             company_id: true,
@@ -64,9 +63,7 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
             created_at: true,
             _count: {
               select: {
-                stores: {
-                  where: { deleted_at: null },
-                },
+                stores: true,
               },
             },
           },
@@ -80,7 +77,6 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
         const stores = await prisma.store.findMany({
           where: {
             company_id: { in: companyIds },
-            deleted_at: null,
           },
           select: {
             store_id: true,

@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 
 const prisma = new PrismaClient();
@@ -76,9 +76,26 @@ export interface StoreConfiguration {
 function isValidIANATimezone(timezone: string): boolean {
   // Common IANA timezone patterns
   // Examples: America/New_York, Europe/London, Asia/Tokyo, UTC
-  const ianaTimezonePattern =
-    /^[A-Za-z]+(\/[A-Za-z_]+)+$|^UTC$|^GMT[+-]\d{1,2}$/;
-  return ianaTimezonePattern.test(timezone);
+  // Use a safer validation approach to avoid ReDoS vulnerabilities
+  if (timezone === "UTC") {
+    return true;
+  }
+  if (/^GMT[+-]\d{1,2}$/.test(timezone)) {
+    return true;
+  }
+  // IANA format: Continent/City or Continent/Region/City (e.g., America/New_York, America/Argentina/Buenos_Aires)
+  // Limit to reasonable length to prevent ReDoS
+  if (timezone.length > 50) {
+    return false;
+  }
+  // Split and validate each segment instead of using nested quantifiers
+  const parts = timezone.split("/");
+  if (parts.length < 2 || parts.length > 3) {
+    return false;
+  }
+  // Each part should contain only letters and underscores
+  const segmentPattern = /^[A-Za-z_]+$/;
+  return parts.every((part) => segmentPattern.test(part));
 }
 
 /**

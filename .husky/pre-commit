@@ -16,6 +16,17 @@ echo "Linting staged TypeScript files..."
 ./node_modules/.bin/eslint --fix $STAGED_FILES
 git add $STAGED_FILES
 
+# Check for remaining warnings/errors after auto-fix
+echo "Checking for remaining linting issues..."
+LINT_OUTPUT=$(./node_modules/.bin/eslint $STAGED_FILES 2>&1)
+LINT_EXIT_CODE=$?
+
+if [ $LINT_EXIT_CODE -ne 0 ] || echo "$LINT_OUTPUT" | grep -qE "(warning|error)"; then
+  echo "❌ Linting warnings or errors found! Commit blocked."
+  echo "$LINT_OUTPUT"
+  exit 1
+fi
+
 echo "Type-checking project..."
 npx tsc --noEmit
 

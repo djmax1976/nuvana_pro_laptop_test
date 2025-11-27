@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useCompanies, type Company } from "@/lib/api/companies";
 import { Input } from "@/components/ui/input";
@@ -57,7 +57,10 @@ export function CompanySearchCombobox({
     { enabled: shouldFetch },
   );
 
-  const companies = companiesData?.data || [];
+  const companies = useMemo(
+    () => companiesData?.data || [],
+    [companiesData?.data],
+  );
 
   // Load selected company on mount if value is provided
   useEffect(() => {
@@ -130,7 +133,9 @@ export function CompanySearchCombobox({
         break;
       case "Enter":
         e.preventDefault();
+        // eslint-disable-next-line security/detect-object-injection -- highlightedIndex is a controlled number index
         if (companies[highlightedIndex]) {
+          // eslint-disable-next-line security/detect-object-injection -- highlightedIndex is a controlled number index
           handleSelectCompany(companies[highlightedIndex]);
         }
         break;
@@ -170,6 +175,7 @@ export function CompanySearchCombobox({
           aria-controls="company-listbox"
           aria-autocomplete="list"
           aria-activedescendant={
+            // eslint-disable-next-line security/detect-object-injection -- highlightedIndex is a controlled number index
             isOpen && companies[highlightedIndex]
               ? `company-option-${highlightedIndex}`
               : undefined

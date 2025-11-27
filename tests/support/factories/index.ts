@@ -55,7 +55,9 @@ export {
   createExpiredJWTRefreshToken,
   createAdminJWTAccessToken,
   createMultiRoleJWTAccessToken,
+  createMalformedJWTAccessToken,
   type JWTTokenPayload,
+  type MalformedJWTPayload,
 } from "./jwt.factory";
 
 // RBAC factories
@@ -132,3 +134,10 @@ export {
   type ClientLoginRequest,
   type ClientDashboardData,
 } from "./client-auth.factory";
+
+// Client Employee factories (Story 2.91)
+export {
+  createEmployeeRequest,
+  createEmployeeRequests,
+  type CreateEmployeeRequest,
+} from "./client-employee.factory";

@@ -60,6 +60,11 @@ export const ADMIN_SYSTEM_CONFIG = "ADMIN_SYSTEM_CONFIG";
 // Client Dashboard Permissions
 export const CLIENT_DASHBOARD_ACCESS = "CLIENT_DASHBOARD_ACCESS";
 
+// Client Employee Management Permissions
+export const CLIENT_EMPLOYEE_CREATE = "CLIENT_EMPLOYEE_CREATE";
+export const CLIENT_EMPLOYEE_READ = "CLIENT_EMPLOYEE_READ";
+export const CLIENT_EMPLOYEE_DELETE = "CLIENT_EMPLOYEE_DELETE";
+
 /**
  * All permission codes as a constant object
  * Useful for validation and iteration
@@ -115,6 +120,11 @@ export const PERMISSIONS = {
 
   // Client Dashboard
   CLIENT_DASHBOARD_ACCESS,
+
+  // Client Employee Management
+  CLIENT_EMPLOYEE_CREATE,
+  CLIENT_EMPLOYEE_READ,
+  CLIENT_EMPLOYEE_DELETE,
 } as const;
 
 /**
@@ -184,4 +194,9 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   // Client Dashboard
   [CLIENT_DASHBOARD_ACCESS]:
     "Access client dashboard and view owned companies/stores",
+
+  // Client Employee Management
+  [CLIENT_EMPLOYEE_CREATE]: "Create employees for owned stores",
+  [CLIENT_EMPLOYEE_READ]: "View employees for owned stores",
+  [CLIENT_EMPLOYEE_DELETE]: "Delete employees for owned stores",
 };

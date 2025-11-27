@@ -439,9 +439,10 @@ export async function authRoutes(fastify: FastifyInstance) {
   );
 
   /**
-   * Test protected endpoint to verify JWT middleware
+   * Get current user information
    * GET /api/auth/me
    * Requires valid JWT access token in httpOnly cookie
+   * Returns user info including is_client_user for proper routing
    */
   fastify.get(
     "/api/auth/me",
@@ -450,15 +451,36 @@ export async function authRoutes(fastify: FastifyInstance) {
       // User context is attached by authMiddleware
       const user = (request as any).user as UserIdentity;
 
+      // Fetch full user info from database to get is_client_user
+      const dbUser = await prisma.user.findUnique({
+        where: { user_id: user.id },
+        select: {
+          user_id: true,
+          email: true,
+          name: true,
+          is_client_user: true,
+        },
+      });
+
+      if (!dbUser) {
+        reply.code(401);
+        return {
+          error: "Unauthorized",
+          message: "User not found",
+        };
+      }
+
       reply.code(200);
       return {
         user: {
-          id: user.id,
-          email: user.email,
+          id: dbUser.user_id,
+          email: dbUser.email,
+          name: dbUser.name,
           roles: user.roles,
           permissions: user.permissions,
+          is_client_user: dbUser.is_client_user,
         },
-        message: "JWT middleware successfully extracted user context",
+        message: "User session validated",
       };
     },
   );

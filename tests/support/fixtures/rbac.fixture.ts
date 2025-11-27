@@ -1,6 +1,11 @@
 import { config } from "dotenv";
 import { test as base, APIRequestContext } from "@playwright/test";
-import { createUser, createCompany, createStore } from "../factories";
+import {
+  createUser,
+  createCompany,
+  createStore,
+  createClientUser,
+} from "../factories";
 import {
   createSuperadminRole,
   createCorporateAdminRole,
@@ -157,6 +162,26 @@ type RBACFixture = {
     permissions: string[];
     token: string;
   };
+  clientUser: {
+    user_id: string;
+    email: string;
+    name: string;
+    company_id: string;
+    store_id: string;
+    roles: string[];
+    permissions: string[];
+    token: string;
+  };
+  regularUser: {
+    user_id: string;
+    email: string;
+    name: string;
+    roles: string[];
+    permissions: string[];
+    token: string;
+  };
+  clientUserApiRequest: ApiRequestHelper;
+  regularUserApiRequest: ApiRequestHelper;
   prismaClient: PrismaClient;
   rlsPrismaClient: PrismaClient;
   superadminPage: import("@playwright/test").Page;
@@ -839,6 +864,302 @@ export const test = base.extend<RBACFixture>({
     };
 
     await use(storeManagerApiRequest);
+  },
+
+  clientUser: async ({ prismaClient }, use) => {
+    // Setup: Create client user with CLIENT_USER role and own company/store
+    const userData = createClientUser();
+
+    // Create user first (will be company owner)
+    const user = await prismaClient.user.create({ data: userData });
+
+    // Create company owned by this client user
+    const companyData = createCompany({ owner_user_id: user.user_id });
+    const company = await prismaClient.company.create({ data: companyData });
+
+    // Create store for the company
+    const storeData = createStore({ company_id: company.company_id });
+    const store = await prismaClient.store.create({
+      data: {
+        ...storeData,
+        location_json: storeData.location_json as any,
+      },
+    });
+
+    // Get CLIENT_USER role (must exist in database)
+    const role = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_USER" },
+    });
+    if (!role) {
+      throw new Error(
+        "CLIENT_USER role not found in database. Run database seed first.",
+      );
+    }
+
+    // Assign CLIENT_USER role to user
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: role.role_id,
+          company_id: company.company_id,
+        },
+      });
+    });
+
+    const token = createJWTAccessToken({
+      user_id: user.user_id,
+      email: user.email,
+      roles: ["CLIENT_USER"],
+      permissions: ["*"], // Wildcard bypasses DB permission check, relies on service-layer auth
+    });
+
+    const clientUser = {
+      user_id: user.user_id,
+      email: user.email,
+      name: user.name,
+      company_id: company.company_id,
+      store_id: store.store_id,
+      roles: ["CLIENT_USER"],
+      permissions: ["*"], // Wildcard for test fixture - service layer handles real authorization
+      token,
+    };
+
+    await use(clientUser);
+
+    // Cleanup
+    await withBypassClient(async (bypassClient) => {
+      // Delete user roles
+      await bypassClient.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+      // Delete store
+      await bypassClient.store.delete({ where: { store_id: store.store_id } });
+      // Delete company
+      await bypassClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      // Delete user
+      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+    });
+  },
+
+  regularUser: async ({ prismaClient }, use) => {
+    // Setup: Create regular user without CLIENT_EMPLOYEE permissions
+    const userData = createUser({});
+    const user = await prismaClient.user.create({ data: userData });
+
+    // Get a basic role without CLIENT_EMPLOYEE permissions (CASHIER - STORE scope)
+    const role = await prismaClient.role.findUnique({
+      where: { code: "CASHIER" },
+    });
+    if (!role) {
+      throw new Error(
+        "CASHIER role not found in database. Run database seed first.",
+      );
+    }
+
+    // Create a company and store for context (user needs some context)
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Regular User Company Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: ownerUser.user_id }),
+    });
+    const storeData = createStore({ company_id: company.company_id });
+    const store = await prismaClient.store.create({
+      data: {
+        ...storeData,
+        location_json: storeData.location_json as any,
+      },
+    });
+
+    // Assign STORE_EMPLOYEE role
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: role.role_id,
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      });
+    });
+
+    const token = createJWTAccessToken({
+      user_id: user.user_id,
+      email: user.email,
+      roles: ["CASHIER"],
+      permissions: ["SHIFT_READ", "INVENTORY_READ"], // Basic permissions, no CLIENT_EMPLOYEE_*
+    });
+
+    const regularUser = {
+      user_id: user.user_id,
+      email: user.email,
+      name: user.name,
+      roles: ["CASHIER"],
+      permissions: ["SHIFT_READ", "INVENTORY_READ"],
+      token,
+    };
+
+    await use(regularUser);
+
+    // Cleanup
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      await bypassClient.store.delete({ where: { store_id: store.store_id } });
+      await bypassClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
+    });
+  },
+
+  clientUserApiRequest: async ({ request, clientUser, backendUrl }, use) => {
+    const clientUserApiRequest = {
+      get: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.get(`${backendUrl}${path}`, {
+          headers: {
+            Cookie: `access_token=${clientUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      post: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.post(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${clientUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      put: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.put(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${clientUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      delete: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.delete(`${backendUrl}${path}`, {
+          headers: {
+            Cookie: `access_token=${clientUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      patch: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.fetch(`${backendUrl}${path}`, {
+          method: "PATCH",
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${clientUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+    };
+
+    await use(clientUserApiRequest);
+  },
+
+  regularUserApiRequest: async ({ request, regularUser, backendUrl }, use) => {
+    const regularUserApiRequest = {
+      get: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.get(`${backendUrl}${path}`, {
+          headers: {
+            Cookie: `access_token=${regularUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      post: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.post(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${regularUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      put: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.put(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${regularUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      delete: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.delete(`${backendUrl}${path}`, {
+          headers: {
+            Cookie: `access_token=${regularUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      patch: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.fetch(`${backendUrl}${path}`, {
+          method: "PATCH",
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${regularUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+    };
+
+    await use(regularUserApiRequest);
   },
 
   superadminPage: async ({ page, superadminUser }, use) => {

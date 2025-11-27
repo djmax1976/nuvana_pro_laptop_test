@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   useAdminUsers,
   useUpdateUserStatus,
@@ -125,7 +125,7 @@ export function UserList() {
   }, [selectedItems]);
 
   // Reset to page 1 when filters change
-  useMemo(() => {
+  useEffect(() => {
     setPage(1);
   }, [debouncedSearch, statusFilter]);
 

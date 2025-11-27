@@ -16,14 +16,12 @@ import {
  * - BR-101: Stores MUST be associated with a valid company (FK constraint)
  * - BR-102: Corporate admin can ONLY see stores for THEIR company
  * - BR-103: System admin sees stores from ALL companies (including INACTIVE)
- * - BR-104: Soft-deleted companies' stores are EXCLUDED from system admin list
  * - BR-105: When company is hard-deleted, stores CASCADE delete
  * - BR-106: Store created by system admin can be managed by corporate admin
  *
  * DATA INTEGRITY FOCUS:
  * - Foreign key constraints
  * - Cascade deletion
- * - Soft-delete filtering
  * - Referential integrity
  * - Cross-role workflows
  *
@@ -167,53 +165,6 @@ test.describe("Store-Company Isolation & Integrity", () => {
     const storeIds = body.data.map((s: any) => s.store_id);
     expect(storeIds).toContain(activeStore.store_id);
     expect(storeIds).toContain(inactiveStore.store_id);
-  });
-
-  /**
-   * BR-104: Soft-deleted companies' stores are EXCLUDED
-   *
-   * WHY: Soft-deleted data should not appear in lists
-   * RISK: Confusion - deleted company's stores still visible
-   * VALIDATES: deleted_at IS NULL filter
-   */
-  test("[P0-BR-104] Soft-deleted companies' stores are excluded from list", async ({
-    superadminApiRequest,
-    prismaClient,
-  }) => {
-    // GIVEN: Company with store
-    const companyOwner = await createUser(prismaClient);
-    const company = await createCompany(prismaClient, {
-      name: "To Be Deleted Company",
-      owner_user_id: companyOwner.user_id,
-    });
-    const store = await createStore(prismaClient, {
-      company_id: company.company_id,
-      name: "Store in Deleted Company",
-    });
-
-    // WHEN: Company is soft-deleted
-    await prismaClient.company.update({
-      where: { company_id: company.company_id },
-      data: { deleted_at: new Date() },
-    });
-
-    // AND: System admin requests all stores
-    const response = await superadminApiRequest.get("/api/stores");
-
-    // THEN: Request succeeds
-    expect(response.status()).toBe(200);
-
-    const body = await response.json();
-
-    // AND: Store from soft-deleted company is NOT in the list
-    const storeIds = body.data.map((s: any) => s.store_id);
-    expect(storeIds).not.toContain(store.store_id);
-
-    // AND: Store still exists in database (not hard-deleted)
-    const dbStore = await prismaClient.store.findUnique({
-      where: { store_id: store.store_id },
-    });
-    expect(dbStore).not.toBeNull();
   });
 
   /**

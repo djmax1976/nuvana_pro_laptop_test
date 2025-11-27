@@ -28,10 +28,28 @@ import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 /**
- * IANA timezone validation regex
+ * Validate IANA timezone format (safer implementation to avoid ReDoS)
  */
-const IANA_TIMEZONE_REGEX =
-  /^[A-Z][a-z]+(\/[A-Z][a-zA-Z_]+)+$|^UTC$|^GMT(\+|-)?\d*$/;
+function validateIANATimezoneFormat(timezone: string): boolean {
+  if (timezone === "UTC") {
+    return true;
+  }
+  if (/^GMT[+-]\d{1,2}$/.test(timezone)) {
+    return true;
+  }
+  // Limit length to prevent ReDoS
+  if (timezone.length > 50) {
+    return false;
+  }
+  // Split and validate each segment instead of using nested quantifiers
+  const parts = timezone.split("/");
+  if (parts.length < 2 || parts.length > 3) {
+    return false;
+  }
+  // Each part should contain only letters and underscores
+  const segmentPattern = /^[A-Za-z_]+$/;
+  return parts.every((part) => segmentPattern.test(part));
+}
 
 /**
  * Time format validation (HH:mm)
@@ -99,7 +117,7 @@ const storeConfigurationFormSchema = z.object({
     .string()
     .optional()
     .refine(
-      (val) => !val || IANA_TIMEZONE_REGEX.test(val),
+      (val) => !val || validateIANATimezoneFormat(val),
       "Timezone must be in IANA format (e.g., America/New_York, Europe/London)",
     ),
   address: z.string().optional(),
@@ -201,8 +219,10 @@ export function StoreConfigurationForm({
         };
         if (dayData) {
           if (dayData.closed) {
+            // eslint-disable-next-line security/detect-object-injection
             operating_hours[day] = { closed: true };
           } else if (dayData.open && dayData.close) {
+            // eslint-disable-next-line security/detect-object-injection
             operating_hours[day] = {
               open: dayData.open,
               close: dayData.close,

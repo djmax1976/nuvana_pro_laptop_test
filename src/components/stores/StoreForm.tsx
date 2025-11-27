@@ -33,12 +33,28 @@ import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 /**
- * IANA timezone validation regex
- * Matches IANA timezone database format (e.g., America/New_York, Europe/London, UTC)
- * Format: Continent/City or Continent/Region/City where City can have mixed case
+ * Validate IANA timezone format (safer implementation to avoid ReDoS)
  */
-const IANA_TIMEZONE_REGEX =
-  /^[A-Z][a-z]+(\/[A-Z][a-zA-Z_]+)+$|^UTC$|^GMT(\+|-)?\d*$/;
+function validateIANATimezoneFormat(timezone: string): boolean {
+  if (timezone === "UTC") {
+    return true;
+  }
+  if (/^GMT[+-]\d{1,2}$/.test(timezone)) {
+    return true;
+  }
+  // Limit length to prevent ReDoS
+  if (timezone.length > 50) {
+    return false;
+  }
+  // Split and validate each segment instead of using nested quantifiers
+  const parts = timezone.split("/");
+  if (parts.length < 2 || parts.length > 3) {
+    return false;
+  }
+  // Each part should contain only letters and underscores
+  const segmentPattern = /^[A-Za-z_]+$/;
+  return parts.every((part) => segmentPattern.test(part));
+}
 
 /**
  * Store form validation schema
@@ -52,7 +68,7 @@ const storeFormSchema = z.object({
     .string()
     .min(1, "Timezone is required")
     .refine(
-      (val) => IANA_TIMEZONE_REGEX.test(val),
+      (val) => validateIANATimezoneFormat(val),
       "Timezone must be in IANA format (e.g., America/New_York, Europe/London)",
     ),
   address: z.string().optional(),

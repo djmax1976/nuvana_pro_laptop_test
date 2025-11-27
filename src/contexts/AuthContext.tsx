@@ -5,6 +5,7 @@ import {
   useContext,
   useState,
   useEffect,
+  useCallback,
   ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -19,6 +20,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isClientUser: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -29,6 +31,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isClientUser, setIsClientUser] = useState(false);
   const router = useRouter();
 
   const backendUrl =
@@ -83,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           );
 
           setUser(userData);
+          setIsClientUser(validatedData.user?.is_client_user === true);
 
           // Restore user's theme preference immediately
           // This must happen before next-themes initializes
@@ -97,11 +101,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem("auth_session");
           localStorage.removeItem("client_auth_session");
           setUser(null);
+          setIsClientUser(false);
         }
       } catch (error) {
         localStorage.removeItem("auth_session");
         localStorage.removeItem("client_auth_session");
         setUser(null);
+        setIsClientUser(false);
       } finally {
         setIsLoading(false);
       }
@@ -109,6 +115,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     validateSession();
   }, [backendUrl]);
+
+  const logout = useCallback(async () => {
+    try {
+      await fetch(`${backendUrl}/api/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+
+    // Save current theme preference for this user before clearing
+    // ThemeSync will handle saving the current theme before logout
+    if (user) {
+      const currentTheme = localStorage.getItem("nuvana-theme");
+      if (currentTheme) {
+        const userThemeKey = `nuvana-theme-${user.id}`;
+        localStorage.setItem(userThemeKey, currentTheme);
+      }
+    }
+
+    // Clear state regardless of backend success
+    localStorage.removeItem("auth_session");
+    localStorage.removeItem("client_auth_session");
+
+    // Theme reset is handled by ThemeSync component
+    // which properly integrates with next-themes
+
+    setUser(null);
+    setIsClientUser(false);
+    router.push("/login");
+  }, [backendUrl, user, router]);
 
   // Proactive token refresh to keep users logged in during active sessions
   // Refreshes access token every 10 minutes (before 15-minute expiry)
@@ -138,7 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Cleanup interval on unmount or when user logs out
     return () => clearInterval(refreshInterval);
-  }, [user, backendUrl]); // Re-run effect when user changes
+  }, [user, backendUrl, logout]); // Re-run effect when user changes
 
   const login = async (email: string, password: string) => {
     const response = await fetch(`${backendUrl}/api/auth/login`, {
@@ -177,38 +215,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setUser(data.user);
+    setIsClientUser(data.user?.is_client_user === true);
     // ThemeSync will call setTheme() to ensure next-themes internal state is updated
-  };
-
-  const logout = async () => {
-    try {
-      await fetch(`${backendUrl}/api/auth/logout`, {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch (error) {
-      console.error("Logout error:", error);
-    }
-
-    // Save current theme preference for this user before clearing
-    // ThemeSync will handle saving the current theme before logout
-    if (user) {
-      const currentTheme = localStorage.getItem("nuvana-theme");
-      if (currentTheme) {
-        const userThemeKey = `nuvana-theme-${user.id}`;
-        localStorage.setItem(userThemeKey, currentTheme);
-      }
-    }
-
-    // Clear state regardless of backend success
-    localStorage.removeItem("auth_session");
-    localStorage.removeItem("client_auth_session");
-
-    // Theme reset is handled by ThemeSync component
-    // which properly integrates with next-themes
-
-    setUser(null);
-    router.push("/login");
   };
 
   const refreshUser = async () => {
@@ -238,17 +246,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         );
 
         setUser(userData);
+        setIsClientUser(data.user?.is_client_user === true);
       } else {
         // Token invalid or expired
         localStorage.removeItem("auth_session");
         localStorage.removeItem("client_auth_session");
         setUser(null);
+        setIsClientUser(false);
       }
     } catch (error) {
       console.error("Failed to refresh user:", error);
       localStorage.removeItem("auth_session");
       localStorage.removeItem("client_auth_session");
       setUser(null);
+      setIsClientUser(false);
     }
   };
 
@@ -258,6 +269,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isLoading,
         isAuthenticated: !!user,
+        isClientUser,
         login,
         logout,
         refreshUser,

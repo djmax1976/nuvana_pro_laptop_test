@@ -35,15 +35,30 @@ import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 /**
- * Permissive IANA timezone validation regex (fallback)
- * Matches IANA timezone database format with support for:
- * - Multi-segment zones (e.g., America/Argentina/Buenos_Aires)
- * - Varied capitalization and underscores
- * - UTC and GMT offsets
- * Note: Requires at least one slash (multi-segment) or UTC/GMT with offset
+ * Validate IANA timezone format (safer implementation to avoid ReDoS)
+ * Supports multi-segment zones (e.g., America/Argentina/Buenos_Aires)
+ * and UTC/GMT offsets
  */
-const PERMISSIVE_TIMEZONE_REGEX =
-  /^[A-Za-z_]+\/[A-Za-z_]+(?:\/[A-Za-z_]+)*$|^UTC$|^GMT[+-]\d{1,2}$/;
+function validateIANATimezoneFormat(timezone: string): boolean {
+  if (timezone === "UTC") {
+    return true;
+  }
+  if (/^GMT[+-]\d{1,2}$/.test(timezone)) {
+    return true;
+  }
+  // Limit length to prevent ReDoS
+  if (timezone.length > 50) {
+    return false;
+  }
+  // Split and validate each segment instead of using nested quantifiers
+  const parts = timezone.split("/");
+  if (parts.length < 2 || parts.length > 3) {
+    return false;
+  }
+  // Each part should contain only letters and underscores
+  const segmentPattern = /^[A-Za-z_]+$/;
+  return parts.every((part) => segmentPattern.test(part));
+}
 
 /**
  * Cache for supported timezones from Intl API
@@ -91,8 +106,8 @@ function validateIANATimezone(timezone: string): boolean {
     return supportedTimezones.has(timezone);
   }
 
-  // Fallback to permissive regex pattern
-  return PERMISSIVE_TIMEZONE_REGEX.test(timezone);
+  // Fallback to safer validation function
+  return validateIANATimezoneFormat(timezone);
 }
 
 /**

@@ -21,6 +21,7 @@ import { transactionRoutes } from "./routes/transactions";
 import { contactRoutes } from "./routes/contact";
 import { adminUserRoutes } from "./routes/admin-users";
 import { clientDashboardRoutes } from "./routes/client-dashboard";
+import { clientEmployeeRoutes } from "./routes/client-employees";
 import { rlsPlugin } from "./middleware/rls.middleware";
 
 // Load environment variables
@@ -139,6 +140,9 @@ app.register(adminUserRoutes);
 // Register client dashboard routes
 app.register(clientDashboardRoutes);
 
+// Register client employee management routes
+app.register(clientEmployeeRoutes);
+
 // Root endpoint - API information and status
 app.get("/", async () => {
   return {
@@ -158,6 +162,8 @@ app.get("/", async () => {
       contact: "/api/contact",
       // Client dashboard: GET /api/client/dashboard - Returns dashboard data for authenticated client users (companies, stores, stats)
       clientDashboard: "/api/client/dashboard",
+      // Client employees: POST/GET /api/client/employees, DELETE /api/client/employees/:userId
+      clientEmployees: "/api/client/employees",
     },
     documentation: "https://github.com/your-org/nuvana-pro",
   };

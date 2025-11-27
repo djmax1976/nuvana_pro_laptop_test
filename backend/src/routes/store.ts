@@ -397,6 +397,13 @@ export async function storeRoutes(fastify: FastifyInstance) {
             message: error.message,
           };
         }
+        if (error.message.includes("not found")) {
+          reply.code(404);
+          return {
+            error: "Not found",
+            message: error.message,
+          };
+        }
         reply.code(500);
         return {
           error: "Internal server error",
