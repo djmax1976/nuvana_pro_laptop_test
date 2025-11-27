@@ -31,7 +31,8 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email();
+    // Note: Email is lowercased to match backend normalization
+    const userEmail = faker.internet.email().toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -60,7 +61,7 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
       const body = await response.json();
       expect(body).toHaveProperty("user");
       expect(body.user).toHaveProperty("user_id", createdUser.user_id);
-      expect(body.user).toHaveProperty("email", userEmail.toLowerCase());
+      expect(body.user).toHaveProperty("email", userEmail);
     } finally {
       await prismaClient.userRole.deleteMany({
         where: { user_id: createdUser.user_id },
@@ -142,7 +143,7 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email();
+    const userEmail = faker.internet.email().toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -170,7 +171,7 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
       // AND: User exists in database response
       const body = await response.json();
       expect(body.user).toHaveProperty("user_id", createdUser.user_id);
-      expect(body.user).toHaveProperty("email", userEmail.toLowerCase());
+      expect(body.user).toHaveProperty("email", userEmail);
     } finally {
       await prismaClient.userRole.deleteMany({
         where: { user_id: createdUser.user_id },
@@ -248,7 +249,7 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email();
+    const userEmail = faker.internet.email().toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -292,7 +293,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email();
+    const userEmail = faker.internet.email().toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -424,7 +425,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email();
+    const userEmail = faker.internet.email().toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -528,7 +529,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email();
+    const userEmail = faker.internet.email().toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -577,7 +578,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     prismaClient,
   }) => {
     // GIVEN: User exists in database with valid refresh token
-    const userEmail = faker.internet.email();
+    const userEmail = faker.internet.email().toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -744,7 +745,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     prismaClient,
   }) => {
     // GIVEN: User exists with valid refresh token
-    const userEmail = faker.internet.email();
+    const userEmail = faker.internet.email().toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -856,7 +857,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email();
+    const userEmail = faker.internet.email().toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -902,7 +903,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     prismaClient,
   }) => {
     // GIVEN: User exists with valid refresh token
-    const userEmail = faker.internet.email();
+    const userEmail = faker.internet.email().toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
