@@ -13,6 +13,8 @@
 
 import { faker } from "@faker-js/faker";
 import jwt from "jsonwebtoken";
+import { randomUUID } from "crypto";
+import { createClient, RedisClientType } from "redis";
 
 export type JWTTokenPayload = {
   user_id: string;
@@ -74,6 +76,30 @@ export const createJWTAccessToken = (
   });
 };
 
+// Lazy-loaded Redis client for test factories (avoids importing backend code)
+let testRedisClient: RedisClientType | null = null;
+
+async function getTestRedisClient(): Promise<RedisClientType | null> {
+  if (testRedisClient && testRedisClient.isOpen) {
+    return testRedisClient;
+  }
+
+  const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+
+  try {
+    testRedisClient = createClient({ url: redisUrl });
+    testRedisClient.on("error", () => {
+      // Silently ignore Redis errors in tests
+    });
+    await testRedisClient.connect();
+    return testRedisClient;
+  } catch {
+    // Redis unavailable - graceful degradation
+    testRedisClient = null;
+    return null;
+  }
+}
+
 /**
  * Creates a real signed JWT refresh token with JTI for Redis tracking
  * NOW ASYNC: Returns Promise<string> because it stores JTI in Redis
@@ -83,9 +109,6 @@ export const createJWTAccessToken = (
 export const createJWTRefreshToken = async (
   overrides: Partial<JWTTokenPayload> = {},
 ): Promise<string> => {
-  const { randomUUID } = await import("crypto");
-  const { getRedisClient } = await import("../../../backend/src/utils/redis");
-
   // Generate JTI for token tracking (matches production behavior)
   const jti = randomUUID();
 
@@ -107,7 +130,7 @@ export const createJWTRefreshToken = async (
   // Store JTI in Redis for validation (matches production behavior)
   // This allows token rotation tests to work correctly
   try {
-    const redis = await getRedisClient();
+    const redis = await getTestRedisClient();
     if (redis && payload.user_id) {
       await redis.setEx(
         `refresh_token:${jti}`,
@@ -149,8 +172,6 @@ export const createExpiredJWTAccessToken = (
 export const createExpiredJWTRefreshToken = (
   overrides: Partial<JWTTokenPayload> = {},
 ): string => {
-  const { randomUUID } = require("crypto");
-
   // Generate JTI for consistency (but don't store in Redis since token is expired)
   const jti = randomUUID();
 
