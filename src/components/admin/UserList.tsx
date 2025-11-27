@@ -6,7 +6,7 @@ import {
   useUpdateUserStatus,
   useDeleteUser,
 } from "@/lib/api/admin-users";
-import { AdminUser, UserStatus } from "@/types/admin-user";
+import { AdminUser, UserStatus, UserRoleDetail } from "@/types/admin-user";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -98,11 +98,81 @@ export function UserList() {
   const users = data?.data || [];
   const meta = data?.meta;
 
-  // Sorting hook - applies to the current page's data
-  const { sortedData, sortKey, sortDirection, handleSort } =
-    useTableSort<AdminUser>({
-      data: users,
+  // Helper functions to extract sortable values from roles
+  const getRolesString = useCallback((user: AdminUser) => {
+    return (
+      user.roles
+        .map((r) => r.role.code)
+        .sort()
+        .join(", ") || ""
+    );
+  }, []);
+
+  const getCompanyString = useCallback((user: AdminUser) => {
+    const companies = new Map<string, string>();
+    user.roles.forEach((role) => {
+      if (role.company_id && role.company_name) {
+        companies.set(role.company_id, role.company_name);
+      }
     });
+    return Array.from(companies.values()).sort().join(", ") || "";
+  }, []);
+
+  const getStoreString = useCallback((user: AdminUser) => {
+    const stores = new Map<string, string>();
+    user.roles.forEach((role) => {
+      if (role.store_id && role.store_name) {
+        stores.set(role.store_id, role.store_name);
+      }
+    });
+    return Array.from(stores.values()).sort().join(", ") || "";
+  }, []);
+
+  // Sorting hook - applies to the current page's data
+  const {
+    sortedData: baseSortedData,
+    sortKey,
+    sortDirection,
+    handleSort,
+  } = useTableSort<AdminUser>({
+    data: users,
+  });
+
+  // Custom sorting for computed fields (roles, company, store)
+  const sortedData = useMemo(() => {
+    if (!sortKey || !sortDirection) return baseSortedData;
+
+    if (sortKey === "roles" || sortKey === "company" || sortKey === "store") {
+      const getValueFn =
+        sortKey === "roles"
+          ? getRolesString
+          : sortKey === "company"
+            ? getCompanyString
+            : getStoreString;
+
+      return [...baseSortedData].sort((a, b) => {
+        const aVal = getValueFn(a).toLowerCase();
+        const bVal = getValueFn(b).toLowerCase();
+
+        // Empty values go to the end
+        if (!aVal && !bVal) return 0;
+        if (!aVal) return 1;
+        if (!bVal) return -1;
+
+        const comparison = aVal.localeCompare(bVal);
+        return sortDirection === "asc" ? comparison : -comparison;
+      });
+    }
+
+    return baseSortedData;
+  }, [
+    baseSortedData,
+    sortKey,
+    sortDirection,
+    getRolesString,
+    getCompanyString,
+    getStoreString,
+  ]);
 
   // Bulk selection hook
   const {
@@ -436,14 +506,29 @@ export function UserList() {
                   >
                     Email
                   </SortableTableHead>
-                  <TableHead>Roles</TableHead>
                   <SortableTableHead
-                    sortKey="status"
+                    sortKey="roles"
                     currentSortKey={sortKey}
                     currentSortDirection={sortDirection}
                     onSort={handleSort}
                   >
-                    Status
+                    Roles
+                  </SortableTableHead>
+                  <SortableTableHead
+                    sortKey="company"
+                    currentSortKey={sortKey}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                  >
+                    Company
+                  </SortableTableHead>
+                  <SortableTableHead
+                    sortKey="store"
+                    currentSortKey={sortKey}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                  >
+                    Store
                   </SortableTableHead>
                   <SortableTableHead
                     sortKey="created_at"
@@ -498,8 +583,11 @@ export function UserList() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell data-testid={`user-status-${user.user_id}`}>
-                      <StatusBadge status={user.status} />
+                    <TableCell data-testid={`user-company-${user.user_id}`}>
+                      <UserCompanyDisplay roles={user.roles} />
+                    </TableCell>
+                    <TableCell data-testid={`user-store-${user.user_id}`}>
+                      <UserStoreDisplay roles={user.roles} />
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {new Date(user.created_at).toLocaleDateString()}
@@ -729,6 +817,68 @@ function RoleBadge({ code, scope }: { code: string; scope: string }) {
 }
 
 /**
+ * User company display component
+ * Extracts and displays unique company names from user roles
+ */
+function UserCompanyDisplay({ roles }: { roles: UserRoleDetail[] }) {
+  const companies = useMemo(() => {
+    const uniqueCompanies = new Map<string, string>();
+    roles.forEach((role) => {
+      if (role.company_id && role.company_name) {
+        uniqueCompanies.set(role.company_id, role.company_name);
+      }
+    });
+    return Array.from(uniqueCompanies.values());
+  }, [roles]);
+
+  if (companies.length === 0) {
+    return <span className="text-sm text-muted-foreground">—</span>;
+  }
+
+  if (companies.length === 1) {
+    return <span className="text-sm">{companies[0]}</span>;
+  }
+
+  return (
+    <span className="text-sm" title={companies.join(", ")}>
+      {companies[0]}{" "}
+      <span className="text-muted-foreground">+{companies.length - 1}</span>
+    </span>
+  );
+}
+
+/**
+ * User store display component
+ * Extracts and displays unique store names from user roles
+ */
+function UserStoreDisplay({ roles }: { roles: UserRoleDetail[] }) {
+  const stores = useMemo(() => {
+    const uniqueStores = new Map<string, string>();
+    roles.forEach((role) => {
+      if (role.store_id && role.store_name) {
+        uniqueStores.set(role.store_id, role.store_name);
+      }
+    });
+    return Array.from(uniqueStores.values());
+  }, [roles]);
+
+  if (stores.length === 0) {
+    return <span className="text-sm text-muted-foreground">—</span>;
+  }
+
+  if (stores.length === 1) {
+    return <span className="text-sm">{stores[0]}</span>;
+  }
+
+  return (
+    <span className="text-sm" title={stores.join(", ")}>
+      {stores[0]}{" "}
+      <span className="text-muted-foreground">+{stores.length - 1}</span>
+    </span>
+  );
+}
+
+/**
  * Loading skeleton for UserList
  */
 function UserListSkeleton() {
@@ -752,7 +902,8 @@ function UserListSkeleton() {
               <TableHead>Name</TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Roles</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>Company</TableHead>
+              <TableHead>Store</TableHead>
               <TableHead>Created</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -776,7 +927,10 @@ function UserListSkeleton() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className="h-6 w-20 animate-pulse rounded-full bg-muted" />
+                  <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+                </TableCell>
+                <TableCell>
+                  <div className="h-4 w-20 animate-pulse rounded bg-muted" />
                 </TableCell>
                 <TableCell>
                   <div className="h-4 w-24 animate-pulse rounded bg-muted" />

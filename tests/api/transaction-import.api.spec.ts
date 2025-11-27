@@ -85,11 +85,11 @@ test.describe("Transaction Import API - Authentication", () => {
 
     // WHEN: Sending request without JWT token
     const response = await request.post("/api/transactions", {
-      data: payload,
       headers: {
         "Content-Type": "application/json",
         // No Authorization header
       },
+      data: payload,
     });
 
     // THEN: Should return 401 Unauthorized
@@ -143,9 +143,10 @@ test.describe("Transaction Import API - Authentication", () => {
 
     // WHEN: User without TRANSACTION_CREATE permission sends request
     // For this test, we're testing the endpoint exists and checks permissions
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should check permissions (endpoint may not exist yet - will fail as expected)
     // When implemented, users without permission should get 403
@@ -196,9 +197,10 @@ test.describe("Transaction Import API - Authentication", () => {
     });
 
     // WHEN: Sending request for store user doesn't have access to
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 403 Forbidden
     // Note: 400 is acceptable if endpoint exists but payload validation fails
@@ -232,9 +234,10 @@ test.describe("Transaction Import API - Core Functionality", () => {
     });
 
     // WHEN: Sending valid transaction
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 202 Accepted with correlation_id
     expect(
@@ -268,9 +271,10 @@ test.describe("Transaction Import API - Core Functionality", () => {
     });
 
     // WHEN: Sending valid transaction
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: correlation_id should be valid UUID
     const body = await response.json();
@@ -301,9 +305,10 @@ test.describe("Transaction Import API - Core Functionality", () => {
     });
 
     // WHEN: Sending transaction with invalid shift_id
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 404 Not Found
     expect([404], "Should return 404 for non-existent shift_id").toContain(
@@ -342,9 +347,10 @@ test.describe("Transaction Import API - Core Functionality", () => {
     });
 
     // WHEN: Sending transaction to closed shift
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 409 Conflict
     expect(
@@ -371,9 +377,10 @@ test.describe("Transaction Import API - Core Functionality", () => {
     });
 
     // WHEN: Sending valid transaction
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Message should be enqueued (verified by 202 response)
     // Full queue verification would require mock or actual queue check
@@ -404,9 +411,10 @@ test.describe("Transaction Import API - Core Functionality", () => {
     // WHEN: RabbitMQ is down
     // THEN: Should return 503 Service Unavailable
     // This test will pass once the endpoint handles queue connection errors
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // For now, just verify endpoint responds (503 on queue failure is implementation detail)
     expect(
@@ -444,9 +452,10 @@ test.describe("Transaction Import API - Validation", () => {
     payload.line_items = [];
 
     // WHEN: Sending payload with no line items
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 for empty line_items
     expect(
@@ -484,9 +493,10 @@ test.describe("Transaction Import API - Validation", () => {
     payload.payments = [{ method: "CASH", amount: 10.8 }];
 
     // WHEN: Sending single item transaction
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should accept single item transaction
     expect(
@@ -524,9 +534,10 @@ test.describe("Transaction Import API - Validation", () => {
     payload.payments = [{ method: "CASH", amount: 108.0 }];
 
     // WHEN: Sending large transaction
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should handle large transactions
     expect(
@@ -561,9 +572,10 @@ test.describe("Transaction Import API - Validation", () => {
     ];
 
     // WHEN: Sending payload with zero quantity
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 for zero quantity
     expect(
@@ -598,9 +610,10 @@ test.describe("Transaction Import API - Validation", () => {
     ];
 
     // WHEN: Sending payload with negative quantity
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 for negative quantity
     expect(
@@ -638,9 +651,10 @@ test.describe("Transaction Import API - Validation", () => {
     payload.payments = [{ method: "CASH", amount: 0 }];
 
     // WHEN: Sending payload with zero price
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should handle zero price (may be valid for free items or return 400)
     expect(
@@ -675,9 +689,10 @@ test.describe("Transaction Import API - Validation", () => {
     ];
 
     // WHEN: Sending payload with negative price
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 for negative price
     expect(
@@ -709,9 +724,10 @@ test.describe("Transaction Import API - Validation", () => {
     payload.payments = [];
 
     // WHEN: Sending payload with no payments
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 for empty payments
     expect(
@@ -745,9 +761,10 @@ test.describe("Transaction Import API - Validation", () => {
     ];
 
     // WHEN: Sending split payment transaction
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should accept split payments
     expect(
@@ -778,9 +795,10 @@ test.describe("Transaction Import API - Validation", () => {
     payload.payments = [{ method: "CASH", amount: 108.0 }]; // Exact match
 
     // WHEN: Sending exact payment
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should accept exact payment
     expect(
@@ -811,9 +829,10 @@ test.describe("Transaction Import API - Validation", () => {
     payload.payments = [{ method: "CASH", amount: 120.0 }]; // Overpayment
 
     // WHEN: Sending overpayment
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should accept overpayment
     expect(
@@ -841,9 +860,10 @@ test.describe("Transaction Import API - Validation", () => {
     payload.payments = [{ method: "CASH", amount: 0 }];
 
     // WHEN: Sending zero payment
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 for zero payment
     expect(
@@ -871,9 +891,10 @@ test.describe("Transaction Import API - Validation", () => {
     payload.payments = [{ method: "CASH", amount: -50.0 }];
 
     // WHEN: Sending negative payment
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 for negative payment
     expect(
@@ -911,9 +932,10 @@ test.describe("Transaction Import API - Validation", () => {
     payload.payments = [{ method: "CASH", amount: 0 }];
 
     // WHEN: Sending zero transaction
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should handle zero transaction (may be valid or return 400)
     expect(
@@ -943,9 +965,10 @@ test.describe("Transaction Import API - Validation", () => {
     });
 
     // WHEN: Sending negative subtotal
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 for negative subtotal
     expect(
@@ -984,9 +1007,10 @@ test.describe("Transaction Import API - Validation", () => {
     payload.payments = [{ method: "CREDIT", amount: 1080000.0 }];
 
     // WHEN: Sending large transaction
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should handle large amounts
     expect(
@@ -1025,9 +1049,10 @@ test.describe("Transaction Import API - Validation", () => {
     payload.payments = [{ method: "CASH", amount: 107.9882 }];
 
     // WHEN: Sending decimal precision transaction
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should handle decimal precision
     expect(
@@ -1057,9 +1082,10 @@ test.describe("Transaction Import API - Validation", () => {
     });
 
     // WHEN: Sending excessive discount
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 for excessive discount
     expect(
@@ -1084,9 +1110,10 @@ test.describe("Transaction Import API - Validation", () => {
     };
 
     // WHEN: Sending incomplete payload
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: incompletePayload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      incompletePayload,
+    );
 
     // THEN: Should return 400 with validation errors
     expect(
@@ -1130,9 +1157,10 @@ test.describe("Transaction Import API - Validation", () => {
     ];
 
     // WHEN: Sending payload with invalid payment method
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 for invalid payment method
     expect(
@@ -1170,9 +1198,10 @@ test.describe("Transaction Import API - Validation", () => {
     ];
 
     // WHEN: Sending payload with insufficient payment
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 for insufficient payment
     expect(
@@ -1199,9 +1228,10 @@ test.describe("Transaction Import API - Validation", () => {
     });
 
     // WHEN: Sending payload with invalid UUID
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 for invalid UUID format
     expect(
@@ -1244,9 +1274,10 @@ test.describe("Transaction Import API - Security", () => {
     ];
 
     // WHEN: Sending payload with SQL injection
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should either accept (parameterized queries) or reject (validation)
     // but NEVER execute the SQL
@@ -1371,9 +1402,10 @@ test.describe("Transaction Import API - Security", () => {
     }));
 
     // WHEN: Sending oversized payload
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: payload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      payload,
+    );
 
     // THEN: Should return 400 (payload too large) or 413 (entity too large)
     expect([400, 413, 404], "Should reject oversized payload").toContain(
@@ -1394,9 +1426,10 @@ test.describe("Transaction Import API - Security", () => {
     };
 
     // WHEN: Sending malformed payload
-    const response = await corporateAdminApiRequest.post("/api/transactions", {
-      data: malformedPayload,
-    });
+    const response = await corporateAdminApiRequest.post(
+      "/api/transactions",
+      malformedPayload,
+    );
 
     // THEN: Should return error without exposing internals
     const body = await response.json();

@@ -467,6 +467,9 @@ export const test = base.extend<RBACFixture>({
         "STORE_READ",
         "STORE_UPDATE",
         "STORE_DELETE",
+        "SHIFT_READ",
+        "TRANSACTION_CREATE",
+        "TRANSACTION_READ",
       ],
     });
 
@@ -482,6 +485,9 @@ export const test = base.extend<RBACFixture>({
         "STORE_READ",
         "STORE_UPDATE",
         "STORE_DELETE",
+        "SHIFT_READ",
+        "TRANSACTION_CREATE",
+        "TRANSACTION_READ",
       ],
       token,
     };
@@ -1173,7 +1179,6 @@ export const test = base.extend<RBACFixture>({
         value: superadminUser.token,
         domain: "localhost",
         path: "/",
-        url: process.env.FRONTEND_URL || "http://localhost:3000",
       },
     ]);
     await page.goto(

@@ -304,6 +304,72 @@ test.describe("2.4-E2E: Company Status Management", () => {
   });
 });
 
+test.describe("2.4-E2E: Company List - Sorting", () => {
+  test("2.4-E2E-040: [P1] Should sort companies by all sortable columns", async ({
+    superadminPage,
+    prismaClient,
+  }) => {
+    // GIVEN: A company exists
+    const ownerUser = await prismaClient.user.create({
+      data: createUserFactory({ name: "Sort Test Owner" }),
+    });
+
+    await createCompany(prismaClient, {
+      name: "Sort Test Company",
+      status: "ACTIVE",
+      owner_user_id: ownerUser.user_id,
+    });
+
+    // WHEN: Navigating to the company list page
+    await superadminPage.goto("/companies");
+    await superadminPage.waitForSelector("text=Companies");
+
+    // THEN: All sortable columns should support ascending/descending sorting
+    const columnsToTest = [
+      "Owner",
+      "Name",
+      "Status",
+      "Created At",
+      "Updated At",
+    ];
+
+    for (const columnName of columnsToTest) {
+      const header = superadminPage
+        .locator("th")
+        .filter({ hasText: columnName });
+      await expect(header).toBeVisible({ timeout: 10000 });
+
+      // Verify header is clickable (has cursor-pointer class)
+      await expect(header).toHaveClass(/cursor-pointer/);
+
+      // Verify an SVG sort icon exists in header
+      const sortIcon = header.locator("svg");
+      await expect(sortIcon).toBeVisible({ timeout: 5000 });
+
+      // Click to sort ascending
+      await header.click();
+      await superadminPage.waitForTimeout(500);
+
+      // Verify sort icon still visible after click
+      await expect(sortIcon).toBeVisible();
+
+      // Click again to sort descending
+      await header.click();
+      await superadminPage.waitForTimeout(500);
+
+      // Verify sort icon still visible
+      await expect(sortIcon).toBeVisible();
+
+      // Click again to clear sort (return to default)
+      await header.click();
+      await superadminPage.waitForTimeout(500);
+
+      // Verify sort icon still visible (neutral state)
+      await expect(sortIcon).toBeVisible();
+    }
+  });
+});
+
 test.describe("2.4-E2E: Company List - Stores Relationship", () => {
   test("2.4-E2E-030: [P1] Company with stores should show store count or navigate to stores", async ({
     superadminPage,

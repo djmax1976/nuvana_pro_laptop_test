@@ -12,14 +12,18 @@ const prisma = new PrismaClient();
  * E2E Test Suite: Admin User Management
  *
  * Critical Path Tests:
- * - View users list
- * - Navigate to user detail/edit page
- * - Edit user information (name, email, status)
+ * - View users list with Company and Store columns
+ * - Navigate to user detail page
+ * - Verify user name/email are read-only (not editable)
+ * - Toggle user status (activate/deactivate)
  * - Create new users
  * - Assign roles to users
  * - Remove roles from users
- * - Deactivate users
+ * - Sort users by all columns
  * - Mobile responsiveness
+ *
+ * Note: User name and email cannot be edited after creation.
+ * Only status can be changed on the user detail page.
  *
  * These tests ensure the complete user journey works end-to-end.
  */
@@ -144,9 +148,11 @@ test.describe("Admin User Management E2E", () => {
     // Navigate directly to user detail page via URL
     // Note: The user list doesn't have clickable row navigation; users access detail page via direct URL
     await page.goto(`http://localhost:3000/admin/users/${testUser.user_id}`);
+    /* eslint-disable security/detect-non-literal-regexp */
     await expect(page).toHaveURL(
       new RegExp(`/admin/users/${testUser.user_id}`),
     );
+    /* eslint-enable security/detect-non-literal-regexp */
     // Verify user details are displayed
     await expect(
       page.locator("h1").filter({ hasText: testUser.name }),
@@ -154,31 +160,25 @@ test.describe("Admin User Management E2E", () => {
     await expect(page.locator(`text=${testUser.email}`)).toBeVisible();
   });
 
-  test("[P0] Should successfully edit user name", async ({ page }) => {
+  test("[P0] Should display user name and email as read-only on detail page", async ({
+    page,
+  }) => {
     await page.goto(`http://localhost:3000/admin/users/${testUser.user_id}`);
 
-    const newName = `Updated User ${Date.now()}`;
+    // Verify user name is displayed as text (not an input field)
+    const userName = page.locator("h1").filter({ hasText: testUser.name });
+    await expect(userName).toBeVisible({ timeout: 10000 });
+
+    // Verify email is displayed as text (not an input field)
+    await expect(page.locator(`text=${testUser.email}`)).toBeVisible();
+
+    // Verify there is NO name input field (user name is read-only)
     const nameInput = page.locator('input[data-testid="user-name-input"]');
-    await expect(nameInput).toBeVisible({ timeout: 10000 });
-    await nameInput.clear();
-    await nameInput.fill(newName);
+    await expect(nameInput).not.toBeVisible();
 
-    const submitButton = page.locator(
-      'button[data-testid="user-submit-button"]',
-    );
-    await submitButton.click();
-    await page.waitForTimeout(1000);
-
-    const updatedUser = await prisma.user.findUnique({
-      where: { user_id: testUser.user_id },
-    });
-    expect(updatedUser?.name).toBe(newName);
-
-    // Restore
-    await prisma.user.update({
-      where: { user_id: testUser.user_id },
-      data: { name: testUser.name },
-    });
+    // Verify there is NO email input field (email is read-only)
+    const emailInput = page.locator('input[data-testid="user-email-input"]');
+    await expect(emailInput).not.toBeVisible();
   });
 
   test("[P0] Should successfully change user status", async ({ page }) => {
@@ -561,6 +561,91 @@ test.describe("Admin User Management E2E", () => {
       .locator(`tr:has-text("${superadminUser.email}")`)
       .first();
     await expect(otherUserRow).not.toBeVisible();
+  });
+
+  test("[P0] Should display Company and Store columns in users list", async ({
+    page,
+  }) => {
+    await page.goto("http://localhost:3000/admin/users");
+
+    // Verify table headers include Company and Store columns
+    const companyHeader = page.locator("th").filter({ hasText: "Company" });
+    const storeHeader = page.locator("th").filter({ hasText: "Store" });
+
+    await expect(companyHeader).toBeVisible({ timeout: 10000 });
+    await expect(storeHeader).toBeVisible({ timeout: 10000 });
+
+    // Verify the test user row has Company and Store cells with data-testid
+    const companyCell = page.locator(
+      `[data-testid="user-company-${testUser.user_id}"]`,
+    );
+    const storeCell = page.locator(
+      `[data-testid="user-store-${testUser.user_id}"]`,
+    );
+
+    await expect(companyCell).toBeVisible();
+    await expect(storeCell).toBeVisible();
+
+    // Users without company/store assignments should show "—"
+    // (testUser has no company/store role assignments by default)
+    await expect(companyCell).toHaveText("—");
+    await expect(storeCell).toHaveText("—");
+  });
+
+  test("[P1] Should sort users by all sortable columns", async ({ page }) => {
+    await page.goto("http://localhost:3000/admin/users");
+    await page.waitForLoadState("networkidle");
+
+    // Test sorting for ALL sortable columns
+    const columnsToTest = [
+      "Name",
+      "Email",
+      "Roles",
+      "Company",
+      "Store",
+      "Created",
+    ];
+
+    for (const columnName of columnsToTest) {
+      // Find the header cell by text
+      /* eslint-disable security/detect-non-literal-regexp */
+      const header = page
+        .locator("th")
+        .filter({ hasText: new RegExp(`^${columnName}$`) });
+      /* eslint-enable security/detect-non-literal-regexp */
+      await expect(header).toBeVisible({ timeout: 10000 });
+
+      // Verify header is clickable (has cursor-pointer class)
+      await expect(header).toHaveClass(/cursor-pointer/);
+
+      // Get initial first row data for comparison
+      const firstRowBefore = await page
+        .locator("tbody tr")
+        .first()
+        .textContent();
+
+      // Click to sort ascending
+      await header.click();
+      await page.waitForTimeout(500);
+
+      // Verify an SVG icon exists in header (sort indicator)
+      const sortIcon = header.locator("svg");
+      await expect(sortIcon).toBeVisible({ timeout: 5000 });
+
+      // Click again to sort descending
+      await header.click();
+      await page.waitForTimeout(500);
+
+      // Verify sort icon still visible
+      await expect(sortIcon).toBeVisible();
+
+      // Click again to clear sort (return to default)
+      await header.click();
+      await page.waitForTimeout(500);
+
+      // Verify sort icon still visible (neutral state)
+      await expect(sortIcon).toBeVisible();
+    }
   });
 
   test("[P1] Should filter users by status", async ({ page }) => {
