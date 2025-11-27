@@ -965,6 +965,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     // AND: Error indicates missing authentication
     const body = await response.json();
     expect(body).toHaveProperty("error");
-    expect(body.error).toContain("token");
+    expect(body.error).toHaveProperty("code", "UNAUTHORIZED");
+    expect(body.error.message).toContain("token");
   });
 });
