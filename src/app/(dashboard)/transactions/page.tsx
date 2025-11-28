@@ -8,17 +8,21 @@
  */
 
 import { useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { TransactionList } from "@/components/transactions/TransactionList";
 import { TransactionFilters } from "@/components/transactions/TransactionFilters";
 import { TransactionDetailDialog } from "@/components/transactions/TransactionDetailDialog";
-import type {
-  TransactionQueryFilters,
-  PaginationOptions,
+import {
+  transactionKeys,
+  type TransactionQueryFilters,
+  type PaginationOptions,
+  type TransactionResponse,
 } from "@/lib/api/transactions";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export default function TransactionsPage() {
+  const queryClient = useQueryClient();
   const [filters, setFilters] = useState<TransactionQueryFilters>({});
   const [pagination, setPagination] = useState<PaginationOptions>({
     limit: 50,
@@ -46,12 +50,38 @@ export default function TransactionsPage() {
   );
 
   // Handle transaction click
+  // Pre-populates TanStack Query cache with transaction data from list
+  // This avoids refetching when opening the detail view
   const handleTransactionClick = useCallback(
-    (transaction: { transaction_id: string }) => {
+    (transaction: TransactionResponse) => {
+      // Pre-populate the detail cache with the transaction from the list
+      // This allows useTransactionDetail to use cached data instead of fetching
+      const detailKey = transactionKeys.detail(transaction.transaction_id, {
+        include_line_items: true,
+        include_payments: true,
+      });
+
+      // Only set cache if transaction doesn't already have the required data
+      // or if we want to update it with potentially more complete data
+      const existingCache =
+        queryClient.getQueryData<TransactionResponse>(detailKey);
+
+      // If we don't have a cached version, or if the cached version is missing
+      // line_items/payments but the list version has them, update the cache
+      if (
+        !existingCache ||
+        (!existingCache.line_items && transaction.line_items) ||
+        (!existingCache.payments && transaction.payments)
+      ) {
+        // Create an enriched version with line_items and payments if available
+        // If the list query didn't include them, we'll need to fetch later
+        queryClient.setQueryData(detailKey, transaction);
+      }
+
       setSelectedTransactionId(transaction.transaction_id);
       setIsDetailDialogOpen(true);
     },
-    [],
+    [queryClient],
   );
 
   // Handle pagination

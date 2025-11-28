@@ -12,7 +12,21 @@ import userEvent from "@testing-library/user-event";
 // Mock date-fns
 vi.mock("date-fns", () => ({
   format: vi.fn((date: Date) => date.toISOString().split("T")[0]),
-  parse: vi.fn((dateString: string) => new Date(dateString)),
+  parse: vi.fn(
+    (dateString: string, formatString?: string, referenceDate?: Date) => {
+      try {
+        const parsed = new Date(dateString);
+        // If parsing fails or results in invalid date, use referenceDate if provided
+        if (isNaN(parsed.getTime()) && referenceDate) {
+          return referenceDate;
+        }
+        return parsed;
+      } catch {
+        // If parsing throws, use referenceDate if provided, otherwise return invalid date
+        return referenceDate || new Date(NaN);
+      }
+    },
+  ),
 }));
 
 describe("3.5-COMPONENT: TransactionFilters Component", () => {
@@ -282,7 +296,7 @@ describe("3.5-COMPONENT: TransactionFilters Component", () => {
   // SECURITY TESTS - Input Validation
   // ============================================================================
 
-  it("[P1] 3.5-COMPONENT-SEC-001: should sanitize date input to prevent injection", async () => {
+  it("[P2] 3.5-COMPONENT-001: should handle date input without errors", async () => {
     // GIVEN: Component is rendered
     const onFiltersChange = vi.fn();
     const user = userEvent.setup();
@@ -290,22 +304,21 @@ describe("3.5-COMPONENT: TransactionFilters Component", () => {
       <TransactionFilters onFiltersChange={onFiltersChange} />,
     );
 
-    // WHEN: Attempting to input potentially malicious date string
+    // WHEN: Valid date is entered
     const fromInput = screen.getByTestId(
       "date-range-picker-from",
     ) as HTMLInputElement;
 
-    // Date input type should prevent non-date input
-    // But we test that component handles it gracefully
-    try {
-      await user.clear(fromInput);
-      // Date inputs only accept valid date format, but test that component doesn't break
-      await user.type(fromInput, "2024-01-01");
-    } catch (e) {
-      // Expected - date input validation
-    }
+    await user.clear(fromInput);
+    await user.type(fromInput, "2024-01-01");
 
-    // THEN: Component should still function normally
+    const applyButton = screen.getByTestId("apply-filters-button");
+    await user.click(applyButton);
+
+    // THEN: Component should handle the input and apply filters without errors
+    await waitFor(() => {
+      expect(onFiltersChange).toHaveBeenCalled();
+    });
     expect(fromInput).toBeInTheDocument();
   });
 

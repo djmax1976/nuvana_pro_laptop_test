@@ -196,10 +196,10 @@ function buildQueryString(
     params.append("to", filters.to);
   }
 
-  if (pagination?.limit) {
+  if (pagination?.limit != null) {
     params.append("limit", pagination.limit.toString());
   }
-  if (pagination?.offset) {
+  if (pagination?.offset != null) {
     params.append("offset", pagination.offset.toString());
   }
 
@@ -359,10 +359,78 @@ export function useTransactionsByStore(
 }
 
 /**
+ * Helper function to find a transaction in TanStack Query cache
+ * Searches through all list query caches to find the transaction
+ * Returns the transaction if found, even if it's missing some includes
+ */
+function findTransactionInCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  transactionId: string,
+): TransactionResponse | null {
+  // First, check if we have a cached detail query (any variant)
+  const detailQueries = queryClient.getQueriesData({
+    queryKey: transactionKeys.details(),
+  });
+
+  for (const [key, data] of detailQueries) {
+    // Check if this is a detail query for our transaction
+    const keyArray = key as readonly unknown[];
+    if (
+      keyArray.length >= 3 &&
+      keyArray[1] === transactionId &&
+      data &&
+      typeof data === "object"
+    ) {
+      return data as TransactionResponse;
+    }
+  }
+
+  // Search through all list queries in cache
+  const listQueries = queryClient.getQueriesData({
+    queryKey: transactionKeys.lists(),
+  });
+
+  for (const [, data] of listQueries) {
+    if (data && typeof data === "object" && "transactions" in data) {
+      const queryResult = data as TransactionQueryResult;
+      const transaction = queryResult.transactions.find(
+        (t) => t.transaction_id === transactionId,
+      );
+      if (transaction) {
+        return transaction;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Check if a transaction has the required include data
+ */
+function hasRequiredIncludes(
+  transaction: TransactionResponse,
+  include?: IncludeOptions,
+): boolean {
+  if (include?.include_line_items && !transaction.line_items) {
+    return false;
+  }
+  if (include?.include_payments && !transaction.payments) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Hook to fetch a single transaction with full details
- * Note: Since there's no single-transaction endpoint, this queries the list endpoint
- * with a large limit and finds the specific transaction. This is inefficient but works
- * until a dedicated endpoint is added.
+ *
+ * Uses a cache-first approach:
+ * 1. Checks detail query cache
+ * 2. Searches list query caches for the transaction
+ * 3. Only fetches from API if not found in cache AND additional data is needed
+ *
+ * This avoids unnecessary API calls when the transaction is already available
+ * from the list view, significantly improving performance.
  *
  * @param transactionId - Transaction UUID
  * @param include - Include options (include_line_items, include_payments)
@@ -374,6 +442,8 @@ export function useTransactionDetail(
   include?: IncludeOptions,
   options?: { enabled?: boolean },
 ) {
+  const queryClient = useQueryClient();
+
   return useQuery({
     queryKey: transactionKeys.detail(transactionId || "", include),
     queryFn: async () => {
@@ -381,18 +451,56 @@ export function useTransactionDetail(
         throw new Error("Transaction ID is required");
       }
 
-      // Query with a large limit to find the transaction
-      // This is a workaround until a single-transaction endpoint is available
-      const response = await getTransactions(
-        undefined,
-        { limit: 200, offset: 0 },
-        { include_line_items: true, include_payments: true, ...include },
-      );
+      // First, try to find in cache
+      const cached = findTransactionInCache(queryClient, transactionId);
 
-      // Find the specific transaction in the results
-      const transaction = response.data.transactions.find(
-        (t) => t.transaction_id === transactionId,
-      );
+      if (cached) {
+        // Check if cached transaction has all required includes
+        if (hasRequiredIncludes(cached, include)) {
+          // Pre-populate the detail cache with the found transaction
+          queryClient.setQueryData(
+            transactionKeys.detail(transactionId, include),
+            cached,
+          );
+          return cached;
+        }
+        // If cached transaction is missing required includes, we'll need to fetch
+        // but we can use the cached transaction as a base and only fetch what's missing
+      }
+
+      // If not in cache or missing required includes, we need to fetch
+      // This is a fallback workaround until a dedicated endpoint is available
+      // Try with a reasonable limit first
+      let limit = 200;
+      let offset = 0;
+      let found = false;
+      let transaction: TransactionResponse | undefined;
+
+      // Try fetching in chunks if needed (up to 3 attempts)
+      for (let attempt = 0; attempt < 3 && !found; attempt++) {
+        const response = await getTransactions(
+          undefined,
+          { limit, offset },
+          { include_line_items: true, include_payments: true, ...include },
+        );
+
+        transaction = response.data.transactions.find(
+          (t) => t.transaction_id === transactionId,
+        );
+
+        if (transaction) {
+          found = true;
+          break;
+        }
+
+        // If we got fewer results than requested, we've reached the end
+        if (response.data.transactions.length < limit) {
+          break;
+        }
+
+        // Try next chunk
+        offset += limit;
+      }
 
       if (!transaction) {
         throw new Error("Transaction not found");
@@ -401,7 +509,7 @@ export function useTransactionDetail(
       return transaction;
     },
     enabled: !!transactionId && options?.enabled !== false,
-    refetchOnMount: "always",
+    refetchOnMount: false, // Changed from "always" - use cache if available
     refetchOnWindowFocus: false,
     staleTime: 60000, // Transaction details are less likely to change
   });
@@ -417,10 +525,20 @@ export function useInvalidateTransactions() {
   return {
     invalidateList: () =>
       queryClient.invalidateQueries({ queryKey: transactionKeys.lists() }),
-    invalidateDetail: (transactionId: string) =>
-      queryClient.invalidateQueries({
-        queryKey: transactionKeys.detail(transactionId),
-      }),
+    invalidateDetail: (transactionId: string, include?: IncludeOptions) => {
+      if (include !== undefined) {
+        // Invalidate specific key variant with the provided include options
+        return queryClient.invalidateQueries({
+          queryKey: transactionKeys.detail(transactionId, include),
+        });
+      } else {
+        // Invalidate all detail variants for this transaction by using a partial key match
+        return queryClient.invalidateQueries({
+          queryKey: [...transactionKeys.details(), transactionId],
+          exact: false,
+        });
+      }
+    },
     invalidateAll: () =>
       queryClient.invalidateQueries({ queryKey: transactionKeys.all }),
   };

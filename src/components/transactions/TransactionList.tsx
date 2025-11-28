@@ -27,6 +27,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, RefreshCw, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatCurrency } from "@/lib/utils";
 import { format } from "date-fns";
 import * as React from "react";
 
@@ -40,16 +41,18 @@ interface TransactionListProps {
     offset: number;
     has_more: boolean;
   }) => void;
-}
-
-/**
- * Format currency value
- */
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(value);
+  /**
+   * Optional currency code (ISO 4217) for formatting amounts.
+   * Defaults to "USD" if not provided.
+   * @example "USD", "EUR", "GBP"
+   */
+  currency?: string;
+  /**
+   * Optional locale for currency formatting.
+   * Defaults to "en-US" if not provided.
+   * @example "en-US", "en-GB", "fr-FR"
+   */
+  locale?: string;
 }
 
 /**
@@ -69,6 +72,8 @@ export function TransactionList({
   pagination,
   onTransactionClick,
   onMetaChange,
+  currency = "USD",
+  locale = "en-US",
 }: TransactionListProps) {
   const { data, isLoading, isError, error, refetch } = useTransactions(
     filters,
@@ -204,7 +209,9 @@ export function TransactionList({
                   {transaction.public_id}
                 </TableCell>
                 <TableCell>{formatTimestamp(transaction.timestamp)}</TableCell>
-                <TableCell>{formatCurrency(transaction.total)}</TableCell>
+                <TableCell>
+                  {formatCurrency(transaction.total, currency, locale)}
+                </TableCell>
                 <TableCell>{transaction.cashier_name || "Unknown"}</TableCell>
                 <TableCell>{transaction.store_name || "Unknown"}</TableCell>
               </TableRow>

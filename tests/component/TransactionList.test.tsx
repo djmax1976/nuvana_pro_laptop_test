@@ -5,7 +5,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderWithProviders, screen, waitFor } from "../support/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  waitFor,
+  within,
+} from "../support/test-utils";
 import { TransactionList } from "@/components/transactions/TransactionList";
 import * as transactionsApi from "@/lib/api/transactions";
 import type {
@@ -255,13 +260,44 @@ describe("3.5-COMPONENT: TransactionList Component", () => {
     } as any);
 
     // WHEN: Component is rendered
-    renderWithProviders(<TransactionList />);
+    const { container } = renderWithProviders(<TransactionList />);
 
     // THEN: Malicious content should be escaped/rendered as text, not executed
+    const transactionRow = screen.getByTestId(
+      `transaction-row-${maliciousTransaction.transaction_id}`,
+    );
+    expect(transactionRow).toBeInTheDocument();
+
+    // Verify script tags are rendered as escaped text content, not executed
+    // Check that the public_id cell contains the literal script string as text
     const publicIdElement = screen.getByText(/TXN-001/);
-    expect(publicIdElement).toBeInTheDocument();
-    // Verify script tags are not executed (they should be rendered as text or escaped)
-    expect(document.querySelector("script")).toBeNull();
+    expect(publicIdElement.textContent).toContain(
+      "<script>alert('XSS')</script>",
+    );
+    expect(publicIdElement.textContent).toContain("TXN-001");
+
+    // Verify no actual executable <script> tags exist within the transaction row
+    // (framework scripts may exist elsewhere in the document, so we check only within our row)
+    const scriptTagsInRow = transactionRow.querySelectorAll("script");
+    expect(scriptTagsInRow.length).toBe(0);
+
+    // Verify the innerHTML of the transaction row does not contain executable script tags
+    // React should escape the content, so innerHTML should contain &lt;script&gt; not <script>
+    expect(transactionRow.innerHTML).not.toMatch(/<script[^>]*>/i);
+    expect(transactionRow.innerHTML).toContain("&lt;script&gt;"); // Escaped version
+
+    // Verify cashier_name and store_name are also escaped
+    // Query within the transaction row to avoid matching header elements
+    const rowScope = within(transactionRow);
+    const cashierElement = rowScope.getByText(/John/);
+    expect(cashierElement.textContent).toContain(
+      "<script>alert('XSS')</script>",
+    );
+
+    const storeElement = rowScope.getByText(/Store/);
+    expect(storeElement.textContent).toContain(
+      "<img src=x onerror=alert('XSS')>",
+    );
   });
 
   // ============================================================================

@@ -28,22 +28,25 @@ import {
   useTransactionDetail,
   type TransactionResponse,
 } from "@/lib/api/transactions";
+import { formatCurrency } from "@/lib/utils";
 import { format } from "date-fns";
 
 interface TransactionDetailDialogProps {
   transactionId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}
-
-/**
- * Format currency value
- */
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(value);
+  /**
+   * Optional currency code (ISO 4217) for formatting amounts.
+   * Defaults to "USD" if not provided.
+   * @example "USD", "EUR", "GBP"
+   */
+  currency?: string;
+  /**
+   * Optional locale for currency formatting.
+   * Defaults to "en-US" if not provided.
+   * @example "en-US", "en-GB", "fr-FR"
+   */
+  locale?: string;
 }
 
 /**
@@ -62,6 +65,8 @@ export function TransactionDetailDialog({
   transactionId,
   open,
   onOpenChange,
+  currency = "USD",
+  locale = "en-US",
 }: TransactionDetailDialogProps) {
   const {
     data: transaction,
@@ -139,7 +144,7 @@ export function TransactionDetailDialog({
                 <div>
                   <p className="text-sm text-muted-foreground">Total</p>
                   <p className="font-medium text-lg">
-                    {formatCurrency(transaction.total)}
+                    {formatCurrency(transaction.total, currency, locale)}
                   </p>
                 </div>
                 <div>
@@ -157,14 +162,14 @@ export function TransactionDetailDialog({
                 <div>
                   <p className="text-sm text-muted-foreground">Subtotal</p>
                   <p className="font-medium">
-                    {formatCurrency(transaction.subtotal)}
+                    {formatCurrency(transaction.subtotal, currency, locale)}
                   </p>
                 </div>
                 {transaction.tax > 0 && (
                   <div>
                     <p className="text-sm text-muted-foreground">Tax</p>
                     <p className="font-medium">
-                      {formatCurrency(transaction.tax)}
+                      {formatCurrency(transaction.tax, currency, locale)}
                     </p>
                   </div>
                 )}
@@ -172,7 +177,7 @@ export function TransactionDetailDialog({
                   <div>
                     <p className="text-sm text-muted-foreground">Discount</p>
                     <p className="font-medium">
-                      {formatCurrency(transaction.discount)}
+                      {formatCurrency(transaction.discount, currency, locale)}
                     </p>
                   </div>
                 )}
@@ -208,15 +213,15 @@ export function TransactionDetailDialog({
                             {item.quantity}
                           </TableCell>
                           <TableCell className="text-right">
-                            {formatCurrency(item.unit_price)}
+                            {formatCurrency(item.unit_price, currency, locale)}
                           </TableCell>
                           <TableCell className="text-right">
                             {item.discount > 0
-                              ? formatCurrency(item.discount)
+                              ? formatCurrency(item.discount, currency, locale)
                               : "—"}
                           </TableCell>
                           <TableCell className="text-right font-medium">
-                            {formatCurrency(item.line_total)}
+                            {formatCurrency(item.line_total, currency, locale)}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -246,7 +251,7 @@ export function TransactionDetailDialog({
                             {payment.method}
                           </TableCell>
                           <TableCell className="text-right font-medium">
-                            {formatCurrency(payment.amount)}
+                            {formatCurrency(payment.amount, currency, locale)}
                           </TableCell>
                           <TableCell className="text-muted-foreground">
                             {payment.reference || "—"}

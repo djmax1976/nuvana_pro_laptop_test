@@ -45,6 +45,10 @@ function toDateInputValue(date?: string): string {
   if (!date) return "";
   try {
     const d = new Date(date);
+    // Check if date is invalid before calling toISOString()
+    if (isNaN(d.getTime())) {
+      return "";
+    }
     return d.toISOString().split("T")[0];
   } catch {
     return "";
@@ -53,15 +57,49 @@ function toDateInputValue(date?: string): string {
 
 /**
  * Convert date input value (YYYY-MM-DD) to ISO 8601 datetime string
+ * Validates input strictly using regex and component checks to avoid timezone shifts
+ * and reliably detect invalid dates (e.g., Feb 30, month 13, etc.)
  */
 function fromDateInputValue(dateString: string): string | undefined {
   if (!dateString) return undefined;
-  try {
-    const date = new Date(dateString);
-    return date.toISOString();
-  } catch {
+
+  // Strict regex validation for YYYY-MM-DD format
+  const dateRegex = /^(\d{4})-(\d{2})-(\d{2})$/;
+  const match = dateString.match(dateRegex);
+
+  if (!match) {
     return undefined;
   }
+
+  // Extract components (match[0] is full match, 1-3 are groups)
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const day = parseInt(match[3], 10);
+
+  // Validate component ranges
+  if (month < 1 || month > 12) {
+    return undefined;
+  }
+
+  if (day < 1 || day > 31) {
+    return undefined;
+  }
+
+  // Create UTC date at midnight and verify components match
+  // Date.UTC uses 0-indexed months, so month-1
+  const utcDate = new Date(Date.UTC(year, month - 1, day));
+
+  // Verify the date components match (catches invalid dates like Feb 30, Apr 31, etc.)
+  if (
+    utcDate.getUTCFullYear() !== year ||
+    utcDate.getUTCMonth() !== month - 1 ||
+    utcDate.getUTCDate() !== day
+  ) {
+    return undefined;
+  }
+
+  // Return UTC ISO datetime at midnight
+  return utcDate.toISOString();
 }
 
 export function TransactionFilters({
