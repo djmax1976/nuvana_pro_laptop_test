@@ -212,7 +212,15 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
 
 /**
  * Permission Categories for UI Display
- * Groups permissions into logical categories for the role permission editor
+ *
+ * Groups permissions into logical categories for the role permission editor.
+ * This map includes both client-assignable permissions (for STORE scope roles)
+ * and restricted permissions (for system/admin use only). The categories are
+ * used for organizing permissions in the UI and for getPermissionCategory().
+ *
+ * Note: The presence of a permission in a category does NOT imply it's
+ * client-assignable. See CLIENT_ASSIGNABLE_PERMISSIONS for the definitive
+ * list of permissions clients can assign to roles.
  */
 export const PERMISSION_CATEGORIES = {
   SHIFTS: {
@@ -252,6 +260,11 @@ export const PERMISSION_CATEGORIES = {
       CLIENT_EMPLOYEE_READ,
       CLIENT_EMPLOYEE_DELETE,
     ],
+  },
+  ROLES: {
+    name: "Role Management",
+    description: "Permissions for managing role permissions and assignments",
+    permissions: [CLIENT_ROLE_MANAGE],
   },
   STORE: {
     name: "Store",

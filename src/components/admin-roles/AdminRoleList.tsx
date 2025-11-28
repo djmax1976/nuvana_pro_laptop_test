@@ -64,12 +64,31 @@ import {
 interface AdminRoleListProps {
   onSelectRole?: (roleId: string) => void;
   selectedRoleId?: string | null;
+  isAuthorized?: boolean;
+  userPermissions?: string[];
+}
+
+const ADMIN_SYSTEM_CONFIG_PERMISSION = "ADMIN_SYSTEM_CONFIG";
+
+/**
+ * Check if user has Super Admin permission
+ */
+function hasSuperAdminPermission(permissions: string[] = []): boolean {
+  return (
+    permissions.includes(ADMIN_SYSTEM_CONFIG_PERMISSION) ||
+    permissions.includes("*") // Wildcard permission grants all access
+  );
 }
 
 export function AdminRoleList({
   onSelectRole,
   selectedRoleId,
+  isAuthorized = true,
+  userPermissions = [],
 }: AdminRoleListProps) {
+  // Defensive client-side authorization check
+  const canManageRoles =
+    isAuthorized && hasSuperAdminPermission(userPermissions);
   const [search, setSearch] = useState("");
   const [scopeFilter, setScopeFilter] = useState<string>("all");
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -263,12 +282,14 @@ export function AdminRoleList({
             Manage system roles and their permissions
           </p>
         </div>
-        <Link href="/admin/roles/new">
-          <Button data-testid="create-role-button">
-            <Plus className="h-4 w-4 mr-2" />
-            Create Role
-          </Button>
-        </Link>
+        {canManageRoles && (
+          <Link href="/admin/roles/new">
+            <Button data-testid="create-role-button">
+              <Plus className="h-4 w-4 mr-2" />
+              Create Role
+            </Button>
+          </Link>
+        )}
       </div>
 
       {/* Filters */}
@@ -294,18 +315,22 @@ export function AdminRoleList({
             <SelectItem value="STORE">Store</SelectItem>
           </SelectContent>
         </Select>
-        <Link href="/admin/roles/companies">
-          <Button variant="outline" data-testid="company-roles-button">
-            <Building2 className="h-4 w-4 mr-2" />
-            Company Access
-          </Button>
-        </Link>
-        <Link href="/admin/roles/deleted">
-          <Button variant="outline" data-testid="view-deleted-button">
-            <Trash2 className="h-4 w-4 mr-2" />
-            Deleted Roles
-          </Button>
-        </Link>
+        {canManageRoles && (
+          <>
+            <Link href="/admin/roles/companies">
+              <Button variant="outline" data-testid="company-roles-button">
+                <Building2 className="h-4 w-4 mr-2" />
+                Company Access
+              </Button>
+            </Link>
+            <Link href="/admin/roles/deleted">
+              <Button variant="outline" data-testid="view-deleted-button">
+                <Trash2 className="h-4 w-4 mr-2" />
+                Deleted Roles
+              </Button>
+            </Link>
+          </>
+        )}
       </div>
 
       {/* Roles table */}
@@ -321,7 +346,7 @@ export function AdminRoleList({
               ? "No roles match your current filters."
               : "Get started by creating your first role."}
           </p>
-          {!search && scopeFilter === "all" && (
+          {!search && scopeFilter === "all" && canManageRoles && (
             <Link href="/admin/roles/new">
               <Button>
                 <Plus className="h-4 w-4 mr-2" />
@@ -402,35 +427,41 @@ export function AdminRoleList({
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onSelectRole?.(role.role_id)}
-                          data-testid={`edit-role-${role.role_id}`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Link href={`/admin/roles/${role.role_id}`}>
+                      {canManageRoles ? (
+                        <div className="flex items-center justify-end gap-2">
                           <Button
                             variant="ghost"
                             size="sm"
-                            data-testid={`manage-role-${role.role_id}`}
+                            onClick={() => onSelectRole?.(role.role_id)}
+                            data-testid={`edit-role-${role.role_id}`}
                           >
-                            <Settings className="h-4 w-4" />
+                            <Pencil className="h-4 w-4" />
                           </Button>
-                        </Link>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDelete(role)}
-                          disabled={!deleteCheck.canDelete}
-                          title={deleteCheck.reason}
-                          data-testid={`delete-role-${role.role_id}`}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
+                          <Link href={`/admin/roles/${role.role_id}`}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              data-testid={`manage-role-${role.role_id}`}
+                            >
+                              <Settings className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(role)}
+                            disabled={!deleteCheck.canDelete}
+                            title={deleteCheck.reason}
+                            data-testid={`delete-role-${role.role_id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">
+                          View only
+                        </span>
+                      )}
                     </TableCell>
                   </TableRow>
                 );

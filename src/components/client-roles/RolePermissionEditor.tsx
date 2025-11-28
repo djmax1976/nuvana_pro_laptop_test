@@ -9,6 +9,7 @@
  */
 
 import { useState, useMemo, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useRolePermissions,
   useUpdateRolePermissions,
@@ -16,6 +17,7 @@ import {
   groupPermissionsByCategory,
   getCategoryDisplayName,
   hasClientOverrides,
+  clientRoleKeys,
   type PermissionWithState,
   type PermissionUpdate,
 } from "@/lib/api/client-roles";
@@ -90,6 +92,7 @@ export function RolePermissionEditor({
   onBack,
 }: RolePermissionEditorProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   // Local state for permission toggles
   const [localPermissions, setLocalPermissions] = useState<
@@ -110,6 +113,9 @@ export function RolePermissionEditor({
   // Mutations
   const updateMutation = useUpdateRolePermissions();
   const resetMutation = useResetRoleDefaults();
+
+  // Check if any mutation is in progress
+  const isMutating = updateMutation.isPending || resetMutation.isPending;
 
   // Initialize local state when data loads
   useEffect(() => {
@@ -175,6 +181,11 @@ export function RolePermissionEditor({
         roleId,
         permissions: changes,
       });
+      // Wait for the refetch to complete before clearing state
+      // This ensures the authoritative permissions are loaded before we allow further toggles
+      await queryClient.refetchQueries({
+        queryKey: clientRoleKeys.permissions(roleId),
+      });
       toast({
         title: "Permissions updated",
         description: `${changes.length} permission(s) updated successfully.`,
@@ -194,6 +205,11 @@ export function RolePermissionEditor({
   const handleReset = async () => {
     try {
       await resetMutation.mutateAsync(roleId);
+      // Wait for the refetch to complete before clearing state
+      // This ensures the authoritative permissions are loaded before we allow further toggles
+      await queryClient.refetchQueries({
+        queryKey: clientRoleKeys.permissions(roleId),
+      });
       toast({
         title: "Permissions reset",
         description: "Role permissions have been reset to system defaults.",
@@ -355,6 +371,7 @@ export function RolePermissionEditor({
                   onCheckedChange={(checked) =>
                     handleToggle(permission.permission_id, checked)
                   }
+                  disabled={isMutating}
                 />
               ))}
             </div>
@@ -399,28 +416,37 @@ interface PermissionToggleProps {
   permission: PermissionWithState;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
 }
 
 function PermissionToggle({
   permission,
   checked,
   onCheckedChange,
+  disabled = false,
 }: PermissionToggleProps) {
   return (
     <div
-      className="flex items-start space-x-3 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+      className={`flex items-start space-x-3 p-3 rounded-lg border bg-card transition-colors ${
+        disabled
+          ? "opacity-50 cursor-not-allowed"
+          : "hover:bg-muted/50 cursor-pointer"
+      }`}
       data-testid={`permission-toggle-${permission.permission_id}`}
     >
       <Checkbox
         id={permission.permission_id}
         checked={checked}
         onCheckedChange={onCheckedChange}
+        disabled={disabled}
         className="mt-0.5"
       />
       <div className="flex-1 min-w-0">
         <Label
           htmlFor={permission.permission_id}
-          className="text-sm font-medium cursor-pointer flex items-center gap-2 flex-wrap"
+          className={`text-sm font-medium flex items-center gap-2 flex-wrap ${
+            disabled ? "cursor-not-allowed" : "cursor-pointer"
+          }`}
         >
           <span className="truncate">{permission.code.replace(/_/g, " ")}</span>
           {permission.is_client_override && (

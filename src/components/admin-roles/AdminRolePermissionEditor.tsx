@@ -11,7 +11,7 @@
  * - Shows permission descriptions
  */
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   useAdminRole,
   useAllPermissions,
@@ -127,6 +127,7 @@ export function AdminRolePermissionEditor({
   const [hasChanges, setHasChanges] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
+  const initRef = useRef(false);
 
   const { toast } = useToast();
 
@@ -142,18 +143,32 @@ export function AdminRolePermissionEditor({
     data: allPermissions,
     isLoading: permissionsLoading,
     isError: permissionsError,
+    refetch: refetchPermissions,
   } = useAllPermissions();
 
   const updateMutation = useUpdateRolePermissions();
 
+  // Reset initialization ref when roleId changes (e.g., navigating to different role)
+  useEffect(() => {
+    initRef.current = false;
+    setHasChanges(false);
+    setSelectedPermissions(new Set());
+  }, [roleId]);
+
   // Initialize selected permissions when role data loads
+  // Only initialize once per mount or when there are no unsaved changes
   useEffect(() => {
     if (role) {
-      const permIds = new Set(role.permissions.map((p) => p.permission_id));
-      setSelectedPermissions(permIds);
-      setHasChanges(false);
+      // On first role load, always initialize
+      // On subsequent role refetches, only initialize if there are no unsaved changes
+      if (!initRef.current || !hasChanges) {
+        const permIds = new Set(role.permissions.map((p) => p.permission_id));
+        setSelectedPermissions(permIds);
+        setHasChanges(false);
+        initRef.current = true;
+      }
     }
-  }, [role]);
+  }, [role, hasChanges]);
 
   // Group permissions by category
   const groupedPermissions = useMemo(() => {
@@ -314,7 +329,10 @@ export function AdminRolePermissionEditor({
             ? roleErrorMessage.message
             : "Failed to load role data. Please try again."}
         </p>
-        <Button variant="outline" onClick={() => refetchRole()}>
+        <Button
+          variant="outline"
+          onClick={() => Promise.all([refetchRole(), refetchPermissions()])}
+        >
           <RefreshCw className="h-4 w-4 mr-2" />
           Retry
         </Button>

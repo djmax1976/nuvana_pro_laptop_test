@@ -114,9 +114,14 @@ describe("2.93-COMPONENT: AdminRoleList - Display All Roles", () => {
   });
 
   it("[P0] 2.93-COMPONENT-001: should render all roles with scope badges", () => {
-    // GIVEN: AdminRoleList component with mock roles
+    // GIVEN: AdminRoleList component with mock roles and Super Admin authorization
     // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: All roles should be displayed
     expect(screen.getByText("SYSTEM_ADMIN")).toBeInTheDocument();
@@ -125,9 +130,14 @@ describe("2.93-COMPONENT: AdminRoleList - Display All Roles", () => {
   });
 
   it("[P1] 2.93-COMPONENT-002: should show system role indicator for system roles", () => {
-    // GIVEN: AdminRoleList component with system roles
+    // GIVEN: AdminRoleList component with system roles and Super Admin authorization
     // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: System roles should have system badge
     const roleRow1 = screen.getByTestId("role-row-role-1");
@@ -138,9 +148,14 @@ describe("2.93-COMPONENT: AdminRoleList - Display All Roles", () => {
   });
 
   it("[P1] 2.93-COMPONENT-003: should display user count and company count", () => {
-    // GIVEN: AdminRoleList component with roles that have user counts
+    // GIVEN: AdminRoleList component with roles that have user counts and Super Admin authorization
     // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: User counts and company counts should be visible in the table rows
     const roleRow1 = screen.getByTestId("role-row-role-1");
@@ -150,30 +165,45 @@ describe("2.93-COMPONENT: AdminRoleList - Display All Roles", () => {
     expect(roleRow2.textContent).toContain("10"); // STORE_MANAGER has 10 users
   });
 
-  it("[P0] 2.93-COMPONENT-004: should have Create Role button", () => {
-    // GIVEN: AdminRoleList component
-    // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+  it("[P0] 2.93-COMPONENT-004: should have Create Role button when authorized", () => {
+    // GIVEN: AdminRoleList component with Super Admin authorization
+    // WHEN: Component is rendered with proper permissions
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: Create Role button should be present
     const createButton = screen.getByTestId("create-role-button");
     expect(createButton).toBeInTheDocument();
   });
 
-  it("[P1] 2.93-COMPONENT-005: should have Company Access button", () => {
-    // GIVEN: AdminRoleList component
-    // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+  it("[P1] 2.93-COMPONENT-005: should have Company Access button when authorized", () => {
+    // GIVEN: AdminRoleList component with Super Admin authorization
+    // WHEN: Component is rendered with proper permissions
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: Company Access button should be present
     const companyButton = screen.getByTestId("company-roles-button");
     expect(companyButton).toBeInTheDocument();
   });
 
-  it("[P1] 2.93-COMPONENT-006: should have Deleted Roles button", () => {
-    // GIVEN: AdminRoleList component
-    // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+  it("[P1] 2.93-COMPONENT-006: should have Deleted Roles button when authorized", () => {
+    // GIVEN: AdminRoleList component with Super Admin authorization
+    // WHEN: Component is rendered with proper permissions
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: Deleted Roles button should be present
     const deletedButton = screen.getByTestId("view-deleted-button");
@@ -227,9 +257,14 @@ describe("2.93-COMPONENT: AdminRoleList - Filtering", () => {
   });
 
   it("[P1] 2.93-COMPONENT-010: should filter roles by search query", async () => {
-    // GIVEN: AdminRoleList component
+    // GIVEN: AdminRoleList component with Super Admin authorization
     const user = userEvent.setup();
-    renderWithProviders(<AdminRoleList />);
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // WHEN: User types in search box
     const searchInput = screen.getByPlaceholderText(/search/i);
@@ -243,9 +278,14 @@ describe("2.93-COMPONENT: AdminRoleList - Filtering", () => {
   });
 
   it("[P1] 2.93-COMPONENT-011: should filter roles by scope", async () => {
-    // GIVEN: AdminRoleList component
+    // GIVEN: AdminRoleList component with Super Admin authorization
     const user = userEvent.setup();
-    renderWithProviders(<AdminRoleList />);
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // WHEN: User selects STORE scope filter
     const scopeFilter = screen.getByTestId("scope-filter");
@@ -278,8 +318,13 @@ describe("2.93-COMPONENT: AdminRoleList - Loading and Error States", () => {
       refetch: vi.fn(),
     } as any);
 
-    // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+    // WHEN: Component is rendered with Super Admin authorization
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: Loading skeleton should be visible
     expect(screen.getByTestId("admin-roles-loading")).toBeInTheDocument();
@@ -295,8 +340,13 @@ describe("2.93-COMPONENT: AdminRoleList - Loading and Error States", () => {
       refetch: vi.fn(),
     } as any);
 
-    // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+    // WHEN: Component is rendered with Super Admin authorization
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: Error state should be visible
     expect(screen.getByTestId("admin-roles-error")).toBeInTheDocument();
@@ -312,8 +362,13 @@ describe("2.93-COMPONENT: AdminRoleList - Loading and Error States", () => {
       refetch: vi.fn(),
     } as any);
 
-    // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+    // WHEN: Component is rendered with Super Admin authorization
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: Empty state should be visible with "No Roles Found" message
     expect(screen.getByTestId("admin-roles-empty")).toBeInTheDocument();
@@ -352,10 +407,15 @@ describe("2.93-COMPONENT: AdminRoleList - Role Actions", () => {
     vi.mocked(adminRolesApi.canDeleteRole).mockReturnValue({ canDelete: true });
   });
 
-  it("[P0] 2.93-COMPONENT-030: should show delete button for non-system roles", () => {
-    // GIVEN: AdminRoleList with non-system role
+  it("[P0] 2.93-COMPONENT-030: should show delete button for non-system roles when authorized", () => {
+    // GIVEN: AdminRoleList with non-system role and Super Admin authorization
     // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: Delete button should be visible
     const deleteButton = screen.getByTestId("delete-role-role-1");
@@ -363,7 +423,7 @@ describe("2.93-COMPONENT: AdminRoleList - Role Actions", () => {
   });
 
   it("[P0] 2.93-COMPONENT-031: should disable delete button for system roles", () => {
-    // GIVEN: AdminRoleList with system role
+    // GIVEN: AdminRoleList with system role and Super Admin authorization
     vi.mocked(adminRolesApi.useAdminRoles).mockReturnValue({
       data: [
         {
@@ -382,18 +442,28 @@ describe("2.93-COMPONENT: AdminRoleList - Role Actions", () => {
       reason: "System roles cannot be deleted",
     });
 
-    // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+    // WHEN: Component is rendered with Super Admin authorization
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: Delete button should be disabled for system role
     const deleteButton = screen.getByTestId("delete-role-role-1");
     expect(deleteButton).toBeDisabled();
   });
 
-  it("[P1] 2.93-COMPONENT-032: should show edit button for all roles", () => {
-    // GIVEN: AdminRoleList with roles
+  it("[P1] 2.93-COMPONENT-032: should show edit button for all roles when authorized", () => {
+    // GIVEN: AdminRoleList with roles and Super Admin authorization
     // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: Edit button should be visible
     const editButton = screen.getByTestId("edit-role-role-1");
@@ -462,9 +532,14 @@ describe("2.93-COMPONENT: AdminRoleList - Stats Display", () => {
   });
 
   it("[P2] 2.93-COMPONENT-040: should display role count stats by scope", () => {
-    // GIVEN: AdminRoleList with roles of different scopes
+    // GIVEN: AdminRoleList with roles of different scopes and Super Admin authorization
     // WHEN: Component is rendered
-    renderWithProviders(<AdminRoleList />);
+    renderWithProviders(
+      <AdminRoleList
+        isAuthorized={true}
+        userPermissions={["ADMIN_SYSTEM_CONFIG"]}
+      />,
+    );
 
     // THEN: Stats should show count by scope (at the bottom of the list)
     // The component displays stats like "Total: X roles", "System: X", "Company: X", "Store: X"

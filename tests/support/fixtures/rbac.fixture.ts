@@ -923,6 +923,22 @@ export const test = base.extend<RBACFixture>({
       });
     });
 
+    // Assign default STORE scope roles to the company via CompanyAllowedRole
+    // This is required for client role permission management (Story 2.92)
+    const storeRoles = await prismaClient.role.findMany({
+      where: { scope: "STORE", deleted_at: null },
+    });
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.companyAllowedRole.createMany({
+        data: storeRoles.map((storeRole) => ({
+          company_id: company.company_id,
+          role_id: storeRole.role_id,
+          assigned_by: user.user_id,
+        })),
+        skipDuplicates: true,
+      });
+    });
+
     const token = createJWTAccessToken({
       user_id: user.user_id,
       email: user.email,
@@ -948,6 +964,14 @@ export const test = base.extend<RBACFixture>({
       // Delete user roles
       await bypassClient.userRole.deleteMany({
         where: { user_id: user.user_id },
+      });
+      // Delete company allowed roles
+      await bypassClient.companyAllowedRole.deleteMany({
+        where: { company_id: company.company_id },
+      });
+      // Delete client role permissions (if any were created during tests)
+      await bypassClient.clientRolePermission.deleteMany({
+        where: { owner_user_id: user.user_id },
       });
       // Delete store
       await bypassClient.store.delete({ where: { store_id: store.store_id } });

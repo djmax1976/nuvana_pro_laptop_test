@@ -1,4 +1,5 @@
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { prisma } from "../utils/db";
 import { getRedisClient } from "../utils/redis";
 import {
   CLIENT_ASSIGNABLE_PERMISSIONS,
@@ -7,8 +8,6 @@ import {
   isClientAssignablePermission,
   type PermissionCode,
 } from "../constants/permissions";
-
-const prisma = new PrismaClient();
 
 /**
  * Audit context for logging operations
@@ -450,7 +449,7 @@ export class ClientRolePermissionService {
     );
 
     // Process updates in transaction
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await prisma.$transaction(async (tx) => {
       for (const update of updates) {
         await tx.clientRolePermission.upsert({
           where: {
@@ -745,10 +744,23 @@ export class ClientRolePermissionService {
     if (!redis) return;
 
     try {
-      // Delete all client permission overrides for this owner
-      const overrideKeys = await redis.keys(
-        `client_perm_override:${ownerUserId}:*`,
-      );
+      // Delete all client permission overrides for this owner using SCAN (non-blocking)
+      const overrideKeys: string[] = [];
+      let cursor = 0;
+      const pattern = `client_perm_override:${ownerUserId}:*`;
+
+      do {
+        const result: { cursor: number; keys: string[] } = await redis.scan(
+          cursor,
+          {
+            MATCH: pattern,
+            COUNT: 100,
+          },
+        );
+        cursor = result.cursor;
+        overrideKeys.push(...result.keys);
+      } while (cursor !== 0);
+
       if (overrideKeys.length > 0) {
         await redis.del(overrideKeys);
       }
@@ -772,9 +784,21 @@ export class ClientRolePermissionService {
         const userRolesKey = `user_roles:${ur.user_id}`;
         await redis.del(userRolesKey);
 
-        const permCheckKeys = await redis.keys(
-          `permission_check:${ur.user_id}:*`,
-        );
+        // Delete permission_check keys using SCAN (non-blocking)
+        const permCheckKeys: string[] = [];
+        let permCursor = 0;
+        const permPattern = `permission_check:${ur.user_id}:*`;
+
+        do {
+          const scanResult: { cursor: number; keys: string[] } =
+            await redis.scan(permCursor, {
+              MATCH: permPattern,
+              COUNT: 100,
+            });
+          permCursor = scanResult.cursor;
+          permCheckKeys.push(...scanResult.keys);
+        } while (permCursor !== 0);
+
         if (permCheckKeys.length > 0) {
           await redis.del(permCheckKeys);
         }

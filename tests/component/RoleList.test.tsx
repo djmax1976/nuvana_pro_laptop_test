@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderWithProviders, screen, waitFor } from "../support/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  waitFor,
+  within,
+} from "../support/test-utils";
 import { RoleList } from "@/components/client-roles/RoleList";
 import userEvent from "@testing-library/user-event";
 import * as clientRolesApi from "@/lib/api/client-roles";
@@ -119,10 +124,19 @@ describe("2.92-COMPONENT: RoleList - Display STORE Scope Roles", () => {
     // Store Manager has 2 permissions
     const storeManagerCard = screen.getByTestId("role-card-role-1");
     expect(storeManagerCard).toBeInTheDocument();
+    const storeManagerBadges =
+      within(storeManagerCard).getAllByTestId(/^permission-badge-/);
+    expect(storeManagerBadges).toHaveLength(2);
+    expect(storeManagerBadges[0]).toHaveTextContent("SHIFT OPEN");
+    expect(storeManagerBadges[1]).toHaveTextContent("SHIFT CLOSE");
 
     // Shift Manager has 1 permission
     const shiftManagerCard = screen.getByTestId("role-card-role-2");
     expect(shiftManagerCard).toBeInTheDocument();
+    const shiftManagerBadges =
+      within(shiftManagerCard).getAllByTestId(/^permission-badge-/);
+    expect(shiftManagerBadges).toHaveLength(1);
+    expect(shiftManagerBadges[0]).toHaveTextContent("SHIFT OPEN");
   });
 
   it("[P1] 2.92-COMPONENT-003: should display 'Customized' badge for roles with overrides (AC #1)", () => {
@@ -420,5 +434,42 @@ describe("2.92-COMPONENT: RoleList - Edge Cases and Accessibility", () => {
 
     // THEN: Should display formatted code (underscores replaced with spaces)
     expect(screen.getByText(/CUSTOM ROLE NAME/i)).toBeInTheDocument();
+  });
+
+  it("[P1] 2.92-COMPONENT-020: should call onSelectRole when Enter key is pressed on role card", async () => {
+    // GIVEN: RoleList with roles
+    vi.mocked(clientRolesApi.useClientRoles).mockReturnValue({
+      data: [
+        {
+          role_id: "role-1",
+          code: "STORE_MANAGER",
+          scope: "STORE",
+          description: "Manager of a store",
+          permissions: [
+            {
+              permission_id: "perm-1",
+              code: "SHIFT_OPEN",
+              is_client_override: false,
+            },
+          ],
+          permission_badges: ["SHIFT_OPEN"],
+        },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as any);
+
+    const user = userEvent.setup();
+    renderWithProviders(<RoleList onSelectRole={mockOnSelectRole} />);
+
+    // WHEN: Focusing the role card and pressing Enter
+    const roleCard = screen.getByTestId("role-card-role-1");
+    roleCard.focus();
+    await user.keyboard("{Enter}");
+
+    // THEN: onSelectRole should be called with the role ID
+    expect(mockOnSelectRole).toHaveBeenCalledWith("role-1");
   });
 });

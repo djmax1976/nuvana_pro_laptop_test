@@ -123,6 +123,9 @@ export class CompanyRoleAccessService {
           },
         },
         allowed_roles: {
+          where: {
+            role: { deleted_at: null }, // Only include non-deleted roles
+          },
           include: {
             role: true,
             assigner: {
@@ -549,6 +552,15 @@ export class CompanyRoleAccessService {
     companyId: string,
     assignedBy: string,
   ): Promise<void> {
+    // Verify company exists before proceeding
+    const company = await prisma.company.findUnique({
+      where: { company_id: companyId },
+    });
+
+    if (!company) {
+      throw new Error("Company not found");
+    }
+
     // Get default STORE scope roles (these are typically what new companies need)
     const defaultRoles = await prisma.role.findMany({
       where: {

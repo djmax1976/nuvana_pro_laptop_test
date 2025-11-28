@@ -147,7 +147,14 @@ export function RoleList({ onSelectRole, selectedRoleId }: RoleListProps) {
               ? "ring-2 ring-primary border-primary"
               : ""
           }`}
+          tabIndex={0}
           onClick={() => onSelectRole(role.role_id)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onSelectRole(role.role_id);
+            }
+          }}
         >
           <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
             <div className="flex items-start gap-3">

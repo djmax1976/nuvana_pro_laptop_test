@@ -78,6 +78,7 @@ const PERMISSION_CATEGORIES: Record<
   REPORT: { name: "Reports", prefixes: ["REPORT_"] },
   ADMIN: { name: "Administration", prefixes: ["ADMIN_"] },
   CLIENT: { name: "Client Dashboard", prefixes: ["CLIENT_"] },
+  OTHER: { name: "Other Permissions", prefixes: [] },
 };
 
 function getPermissionCategory(permissionCode: string): string {

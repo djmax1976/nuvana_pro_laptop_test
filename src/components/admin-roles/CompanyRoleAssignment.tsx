@@ -62,6 +62,8 @@ export function CompanyRoleAssignment() {
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [pendingCompany, setPendingCompany] =
+    useState<CompanyWithAllowedRoles | null>(null);
 
   const { toast } = useToast();
 
@@ -78,6 +80,7 @@ export function CompanyRoleAssignment() {
     isLoading: isLoadingRoles,
     isError: isRolesError,
     error: rolesError,
+    refetch: refetchAssignableRoles,
   } = useAssignableRoles();
 
   const setCompanyRolesMutation = useSetCompanyRoles();
@@ -92,6 +95,7 @@ export function CompanyRoleAssignment() {
   // Handle company selection
   const handleSelectCompany = (company: CompanyWithAllowedRoles) => {
     if (hasChanges) {
+      setPendingCompany(company);
       setShowSaveDialog(true);
       return;
     }
@@ -136,8 +140,8 @@ export function CompanyRoleAssignment() {
   };
 
   // Handle save
-  const handleSave = async () => {
-    if (!selectedCompany) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!selectedCompany) return false;
 
     try {
       await setCompanyRolesMutation.mutateAsync({
@@ -150,6 +154,7 @@ export function CompanyRoleAssignment() {
       });
       setHasChanges(false);
       refetchCompanies();
+      return true;
     } catch (err) {
       toast({
         title: "Update Failed",
@@ -157,6 +162,7 @@ export function CompanyRoleAssignment() {
           err instanceof Error ? err.message : "Failed to update company roles",
         variant: "destructive",
       });
+      return false;
     }
   };
 
@@ -172,6 +178,11 @@ export function CompanyRoleAssignment() {
   const handleDiscardChanges = () => {
     setHasChanges(false);
     setShowSaveDialog(false);
+    if (pendingCompany) {
+      setSelectedCompany(pendingCompany);
+      setSelectedRoleIds(pendingCompany.allowed_roles.map((ar) => ar.role_id));
+      setPendingCompany(null);
+    }
   };
 
   // Group roles by scope
@@ -234,7 +245,13 @@ export function CompanyRoleAssignment() {
               ? rolesError.message
               : "Failed to load data. Please try again."}
         </p>
-        <Button variant="outline" onClick={() => refetchCompanies()}>
+        <Button
+          variant="outline"
+          onClick={async () => {
+            await refetchCompanies();
+            await refetchAssignableRoles();
+          }}
+        >
           <RefreshCw className="h-4 w-4 mr-2" />
           Retry
         </Button>
@@ -432,7 +449,16 @@ export function CompanyRoleAssignment() {
       </div>
 
       {/* Unsaved changes dialog */}
-      <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+      <Dialog
+        open={showSaveDialog}
+        onOpenChange={(open) => {
+          setShowSaveDialog(open);
+          if (!open) {
+            // Clear pending company if dialog is closed without saving/discarding
+            setPendingCompany(null);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Unsaved Changes</DialogTitle>
@@ -446,9 +472,19 @@ export function CompanyRoleAssignment() {
               Discard
             </Button>
             <Button
-              onClick={() => {
-                handleSave();
+              onClick={async () => {
+                const success = await handleSave();
                 setShowSaveDialog(false);
+                if (success && pendingCompany) {
+                  setSelectedCompany(pendingCompany);
+                  setSelectedRoleIds(
+                    pendingCompany.allowed_roles.map((ar) => ar.role_id),
+                  );
+                  setPendingCompany(null);
+                } else if (!success) {
+                  // Clear pending company if save failed
+                  setPendingCompany(null);
+                }
               }}
             >
               Save Changes

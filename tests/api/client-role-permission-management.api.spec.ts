@@ -206,6 +206,7 @@ test.describe("2.92-API: Client Role Permission Management", () => {
       "STORE_CREATE",
       "STORE_DELETE",
       "USER_CREATE",
+      "USER_READ",
       "USER_UPDATE",
       "USER_DELETE",
       "CLIENT_DASHBOARD_ACCESS",

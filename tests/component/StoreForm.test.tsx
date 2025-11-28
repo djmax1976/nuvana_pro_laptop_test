@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderWithProviders, screen, waitFor } from "../support/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  waitFor,
+  fireEvent,
+} from "../support/test-utils";
 import userEvent from "@testing-library/user-event";
 import { StoreForm } from "@/components/stores/StoreForm";
 import * as storesApi from "@/lib/api/stores";
@@ -105,8 +110,10 @@ describe("2.4-COMPONENT: StoreForm Component", () => {
     renderWithProviders(<StoreForm companyId={companyId} />);
 
     // WHEN: User enters name longer than 255 characters
+    // Using fireEvent.change instead of userEvent.type for performance
+    // (typing 256 chars one-by-one causes timeout)
     const nameInput = screen.getByLabelText(/Store Name/i);
-    await user.type(nameInput, "a".repeat(256));
+    fireEvent.change(nameInput, { target: { value: "a".repeat(256) } });
     const submitButton = screen.getByRole("button", { name: /Create Store/i });
     await user.click(submitButton);
 

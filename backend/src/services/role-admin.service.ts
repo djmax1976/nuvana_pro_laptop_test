@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../utils/db";
 import { rbacService } from "./rbac.service";
 
@@ -218,15 +219,6 @@ export class RoleAdminService {
       );
     }
 
-    // Check if code already exists
-    const existingRole = await prisma.role.findUnique({
-      where: { code: input.code },
-    });
-
-    if (existingRole) {
-      throw new Error(`Role with code '${input.code}' already exists`);
-    }
-
     // Validate scope
     const validScopes = ["SYSTEM", "COMPANY", "STORE"];
     if (!validScopes.includes(input.scope)) {
@@ -249,16 +241,33 @@ export class RoleAdminService {
     }
 
     // Create role with permissions in a transaction
+    // Rely on database unique constraint to prevent duplicates (handles concurrent creates)
     const role = await prisma.$transaction(async (tx) => {
-      const newRole = await tx.role.create({
-        data: {
-          code: input.code,
-          scope: input.scope,
-          description: input.description,
-          is_system_role: false, // Custom roles are never system roles
-          created_by: auditContext.userId,
-        },
-      });
+      let newRole;
+      try {
+        newRole = await tx.role.create({
+          data: {
+            code: input.code,
+            scope: input.scope,
+            description: input.description,
+            is_system_role: false, // Custom roles are never system roles
+            created_by: auditContext.userId,
+          },
+        });
+      } catch (error) {
+        // Handle unique constraint violation (concurrent create race condition)
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002"
+        ) {
+          const target = error.meta?.target;
+          if (Array.isArray(target) && target.includes("code")) {
+            throw new Error(`Role with code '${input.code}' already exists`);
+          }
+        }
+        // Re-throw any other error
+        throw error;
+      }
 
       // Add permissions if provided
       if (input.permissions && input.permissions.length > 0) {
@@ -339,31 +348,35 @@ export class RoleAdminService {
           "Role code must be uppercase, start with a letter, and contain only letters, numbers, and underscores",
         );
       }
-
-      // Check for duplicate code
-      const duplicateRole = await prisma.role.findFirst({
-        where: {
-          code: input.code,
-          role_id: { not: roleId },
-        },
-      });
-
-      if (duplicateRole) {
-        throw new Error(`Role with code '${input.code}' already exists`);
-      }
     }
 
     const role = await prisma.$transaction(async (tx) => {
-      const updatedRole = await tx.role.update({
-        where: { role_id: roleId },
-        data: {
-          ...(input.code &&
-            !existingRole.is_system_role && { code: input.code }),
-          ...(input.description !== undefined && {
-            description: input.description,
-          }),
-        },
-      });
+      let updatedRole;
+      try {
+        updatedRole = await tx.role.update({
+          where: { role_id: roleId },
+          data: {
+            ...(input.code &&
+              !existingRole.is_system_role && { code: input.code }),
+            ...(input.description !== undefined && {
+              description: input.description,
+            }),
+          },
+        });
+      } catch (error) {
+        // Handle unique constraint violation (concurrent update race condition)
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002"
+        ) {
+          const target = error.meta?.target;
+          if (Array.isArray(target) && target.includes("code")) {
+            throw new Error(`Role with code '${input.code}' already exists`);
+          }
+        }
+        // Re-throw any other error
+        throw error;
+      }
 
       // Create audit log
       await tx.auditLog.create({
@@ -633,6 +646,9 @@ export class RoleAdminService {
       throw new Error("Failed to retrieve restored role");
     }
 
+    // Invalidate caches
+    await rbacService.invalidateRolePermissionsCache(roleId);
+
     return fullRole;
   }
 
@@ -686,6 +702,9 @@ export class RoleAdminService {
         where: { role_id: roleId },
       });
     });
+
+    // Invalidate caches after transaction commits to ensure cache state matches database
+    await rbacService.invalidateRolePermissionsCache(roleId);
   }
 
   /**
@@ -741,7 +760,9 @@ export class RoleAdminService {
         },
         _count: {
           select: {
-            user_roles: true,
+            user_roles: {
+              where: { status: "ACTIVE" },
+            },
             company_allowed_roles: true,
           },
         },

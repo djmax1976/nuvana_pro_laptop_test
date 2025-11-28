@@ -153,12 +153,51 @@ async function apiRequest<T>(
     headers,
   });
 
-  const data = await response.json();
+  // Handle empty responses (204 No Content, 205 Reset Content)
+  if (response.status === 204 || response.status === 205) {
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    return null as T;
+  }
 
-  if (!response.ok || data.success === false) {
+  // Check Content-Type header to detect empty or non-JSON responses
+  const contentType = response.headers.get("Content-Type");
+  const contentLength = response.headers.get("Content-Length");
+
+  // If no Content-Type or Content-Length is 0, and response is OK, return empty value
+  if ((!contentType || contentLength === "0") && response.ok) {
+    return null as T;
+  }
+
+  // If Content-Type exists but is not JSON, handle as empty if response is OK
+  if (contentType && !contentType.includes("application/json") && response.ok) {
+    return null as T;
+  }
+
+  // Parse JSON response
+  let data: any;
+  try {
+    const text = await response.text();
+    // If body is empty and response is OK, return empty value
+    if (!text.trim() && response.ok) {
+      return null as T;
+    }
+    // Parse JSON if there's content
+    data = text ? JSON.parse(text) : null;
+  } catch (parseError) {
+    // If parsing fails but response is OK, return empty value
+    if (response.ok) {
+      return null as T;
+    }
+    // If parsing fails and response is not OK, throw error
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  if (!response.ok || data?.success === false) {
     throw new Error(
-      data.message ||
-        data.error ||
+      data?.message ||
+        data?.error ||
         `HTTP ${response.status}: ${response.statusText}`,
     );
   }
