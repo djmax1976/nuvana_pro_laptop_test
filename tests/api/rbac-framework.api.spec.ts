@@ -51,9 +51,9 @@ test.describe("RBAC Framework - Permission Checking", () => {
     // THEN: Access is denied with 403 Forbidden
     expect(response.status()).toBe(403);
     const body = await response.json();
-    expect(body).toHaveProperty("error", "Forbidden");
-    expect(body).toHaveProperty("message");
-    expect(body.message.toLowerCase()).toContain("permission");
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("PERMISSION_DENIED");
+    expect(body.error.message.toLowerCase()).toContain("permission");
 
     // Cleanup
     await prismaClient.user.delete({ where: { user_id: testUser.user_id } });
@@ -273,7 +273,8 @@ test.describe("RBAC Framework - Permission Middleware", () => {
     // THEN: Middleware rejects request with 403 before handler runs
     expect(response.status()).toBe(403);
     const body = await response.json();
-    expect(body).toHaveProperty("error", "Forbidden");
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("PERMISSION_DENIED");
   });
 
   test("[P0] should allow authorized requests to proceed", async ({
