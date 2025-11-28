@@ -576,7 +576,8 @@ test.describe("2.9-API: Route Protection - Client cannot access admin routes", (
       expect(response.status()).toBe(403);
 
       const body = await response.json();
-      expect(body.error).toBe("Forbidden");
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe("PERMISSION_DENIED");
     } finally {
       await prismaClient.user.delete({
         where: { user_id: clientUser.user_id },

@@ -866,7 +866,8 @@ test.describe("2.8-API: User Management API - Permission Enforcement", () => {
     // THEN: Permission denied error is returned
     expect(response.status()).toBe(403);
     const body = await response.json();
-    expect(body.error).toBe("Forbidden");
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("PERMISSION_DENIED");
   });
 
   test("2.8-API-024: [P0] All endpoints should reject unauthenticated requests (AC #8)", async ({

@@ -636,15 +636,25 @@ export const test = base.extend<RBACFixture>({
 
     await use(storeManagerUser);
 
-    // Cleanup
+    // Cleanup - delete in correct order respecting foreign key constraints
+    // 1. Delete shifts for the user (shifts reference user via cashier_id)
+    await prismaClient.shift.deleteMany({
+      where: { cashier_id: user.user_id },
+    });
+    // 2. Delete user roles for the user
     await prismaClient.userRole.deleteMany({
       where: { user_id: user.user_id },
     });
+    // 3. Delete the store manager user
     await prismaClient.user.delete({ where: { user_id: user.user_id } });
+    // 4. Delete store
     await prismaClient.store.delete({ where: { store_id: store.store_id } });
+    // 5. Delete company
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
+    // 6. Delete the owner user (created for company ownership)
+    await prismaClient.user.delete({ where: { user_id: ownerUser.user_id } });
   },
 
   superadminApiRequest: async (
