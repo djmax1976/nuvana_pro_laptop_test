@@ -10,7 +10,6 @@ import {
   createTransaction,
   createTransactionLineItem,
   createTransactionPayment,
-  createTransactionPayload,
 } from "../support/factories/transaction.factory";
 import {
   createStore,
@@ -1139,7 +1138,7 @@ test.describe("3.4-API: Transaction Query with Combined Filters", () => {
       }),
     });
 
-    // Create transaction matching only store_id (wrong shift, wrong date)
+    // Create transaction matching store_id and date range, but filtered out by shift_id (wrong shift, correct date)
     await prismaClient.transaction.create({
       data: createTransaction({
         store_id: store.store_id,
@@ -1342,19 +1341,30 @@ test.describe("3.4-API: Authentication & Authorization", () => {
     );
   });
 
-  test("3.4-API-020: [P0] GET /api/transactions - should require TRANSACTION_READ permission", async ({
-    storeManagerApiRequest,
-    prismaClient,
+  test("3.4-API-020a: [P0] GET /api/transactions - should grant access with TRANSACTION_READ permission", async ({
+    superadminApiRequest,
   }) => {
-    // GIVEN: Store Manager has TRANSACTION_READ permission (should work)
-    // This test verifies permission middleware is applied
+    // GIVEN: User has TRANSACTION_READ permission (superadmin has all permissions)
 
     // WHEN: Querying transactions
-    const response = await storeManagerApiRequest.get("/api/transactions");
+    const response = await superadminApiRequest.get("/api/transactions");
 
-    // THEN: Should return 200 OK (if permission exists) or 403 Forbidden (if not)
-    // Note: This depends on whether TRANSACTION_READ permission is assigned
-    expect([200, 403], "Should return 200 or 403").toContain(response.status());
+    // THEN: Should return 200 OK
+    expect(response.status(), "Should return 200 OK").toBe(200);
+
+    // Cleanup handled by fixtures
+  });
+
+  test("3.4-API-020b: [P0] GET /api/transactions - should deny access without TRANSACTION_READ permission", async ({
+    regularUserApiRequest,
+  }) => {
+    // GIVEN: User does not have TRANSACTION_READ permission (regularUser has only SHIFT_READ and INVENTORY_READ)
+
+    // WHEN: Querying transactions
+    const response = await regularUserApiRequest.get("/api/transactions");
+
+    // THEN: Should return 403 Forbidden
+    expect(response.status(), "Should return 403 Forbidden").toBe(403);
 
     // Cleanup handled by fixtures
   });
