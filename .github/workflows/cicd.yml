@@ -492,6 +492,20 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    services:
+      postgres:
+        image: postgres:15.14
+        env:
+          POSTGRES_DB: nuvana_test
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
@@ -502,8 +516,24 @@ jobs:
             package-lock.json
             backend/package-lock.json
       - run: npm ci
+      - name: Install backend dependencies
+        run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npx prisma generate
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
+      - name: Run Prisma migrations
+        run: cd backend && npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
+      - name: Seed RBAC roles
+        run: npx tsx backend/src/db/seeds/rbac.seed.ts
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Run unit tests
         run: npm run test:unit -- --coverage
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Upload unit coverage
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
