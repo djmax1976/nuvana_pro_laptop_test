@@ -1,8 +1,9 @@
 /**
  * Transaction Routes
  *
- * API endpoints for transaction import and processing.
+ * API endpoints for transaction import, processing, and query.
  * Story 3.2: Transaction Import API
+ * Story 3.4: Transaction Query API
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
@@ -11,6 +12,7 @@ import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
 import { transactionService } from "../services/transaction.service";
 import { ZodError } from "zod";
+import { validateTransactionQuery } from "../schemas/transaction.schema";
 
 /**
  * Transaction routes
@@ -332,6 +334,532 @@ export async function transactionRoutes(fastify: FastifyInstance) {
               code: "QUEUE_UNAVAILABLE",
               message:
                 "Transaction processing service is temporarily unavailable",
+            },
+          };
+        }
+
+        // Generic server error
+        fastify.log.error(
+          { ...errorContext, type: "internal" },
+          "Internal server error",
+        );
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "An unexpected error occurred",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/transactions
+   * Query transactions with filters, pagination, and optional includes
+   * Protected route - requires TRANSACTION_READ permission
+   * Story 3.4: Transaction Query API
+   */
+  fastify.get(
+    "/api/transactions",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.TRANSACTION_READ),
+      ],
+      schema: {
+        description: "Query transactions with filters and pagination",
+        tags: ["transactions"],
+        querystring: {
+          type: "object",
+          properties: {
+            store_id: {
+              type: "string",
+              format: "uuid",
+              description: "Filter by store UUID",
+            },
+            shift_id: {
+              type: "string",
+              format: "uuid",
+              description: "Filter by shift UUID",
+            },
+            from: {
+              type: "string",
+              format: "date-time",
+              description: "Start date (ISO 8601)",
+            },
+            to: {
+              type: "string",
+              format: "date-time",
+              description: "End date (ISO 8601)",
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 200,
+              default: 50,
+              description: "Number of results per page (default: 50, max: 200)",
+            },
+            offset: {
+              type: "integer",
+              minimum: 0,
+              default: 0,
+              description: "Pagination offset",
+            },
+            include_line_items: {
+              type: "string",
+              enum: ["true", "false"],
+              default: "false",
+              description: "Include TransactionLineItem records",
+            },
+            include_payments: {
+              type: "string",
+              enum: ["true", "false"],
+              default: "false",
+              description: "Include TransactionPayment records",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  transactions: { type: "array" },
+                  meta: {
+                    type: "object",
+                    properties: {
+                      total: { type: "integer" },
+                      limit: { type: "integer" },
+                      offset: { type: "integer" },
+                      has_more: { type: "boolean" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                  details: { type: "array" },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+
+      try {
+        // Validate query parameters using Zod schema
+        fastify.log.debug(
+          { query: request.query },
+          "Validating transaction query parameters",
+        );
+        let queryParams;
+        try {
+          queryParams = validateTransactionQuery(request.query);
+        } catch (validationError: any) {
+          // Catch Zod validation errors immediately
+          if (validationError instanceof ZodError) {
+            fastify.log.warn(
+              { query: request.query, zodError: validationError },
+              "Zod validation error caught",
+            );
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Invalid query parameters",
+                details: validationError.issues.map((e: any) => ({
+                  field: e.path.join("."),
+                  message: e.message,
+                })),
+              },
+            };
+          }
+          throw validationError; // Re-throw if not a ZodError
+        }
+
+        // Build filters
+        const filters = {
+          store_id: queryParams.store_id,
+          shift_id: queryParams.shift_id,
+          from: queryParams.from ? new Date(queryParams.from) : undefined,
+          to: queryParams.to ? new Date(queryParams.to) : undefined,
+        };
+
+        // Build pagination
+        const pagination = {
+          limit: queryParams.limit,
+          offset: queryParams.offset,
+        };
+
+        // Build include options
+        const include = {
+          line_items: queryParams.include_line_items,
+          payments: queryParams.include_payments,
+        };
+
+        // Query transactions via service
+        const result = await transactionService.getTransactions(
+          user.id,
+          filters,
+          pagination,
+          include,
+        );
+
+        reply.code(200);
+        return {
+          success: true,
+          data: result,
+        };
+      } catch (error: any) {
+        const errorContext = {
+          user_id: user.id,
+          query: request.query,
+          error: error.message,
+        };
+
+        // Handle Zod validation errors
+        if (error instanceof ZodError) {
+          fastify.log.warn(
+            { ...errorContext, type: "validation" },
+            "Query validation error",
+          );
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid query parameters",
+              details: error.issues.map((e: any) => ({
+                field: e.path.join("."),
+                message: e.message,
+              })),
+            },
+          };
+        }
+
+        // Handle custom error codes
+        const statusCode = error.status || 500;
+
+        if (statusCode === 403) {
+          fastify.log.warn(
+            { ...errorContext, type: "permission" },
+            "Permission denied",
+          );
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message:
+                error.message || "You do not have access to this resource",
+            },
+          };
+        }
+
+        // Generic server error
+        fastify.log.error(
+          { ...errorContext, type: "internal" },
+          "Internal server error",
+        );
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "An unexpected error occurred",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/stores/:storeId/transactions
+   * Query transactions for a specific store
+   * Protected route - requires TRANSACTION_READ permission
+   * Story 3.4: Transaction Query API
+   */
+  fastify.get(
+    "/api/stores/:storeId/transactions",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.TRANSACTION_READ),
+      ],
+      schema: {
+        description: "Query transactions for a specific store",
+        tags: ["transactions", "stores"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        querystring: {
+          type: "object",
+          properties: {
+            from: {
+              type: "string",
+              format: "date-time",
+              description: "Start date (ISO 8601)",
+            },
+            to: {
+              type: "string",
+              format: "date-time",
+              description: "End date (ISO 8601)",
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 200,
+              default: 50,
+              description: "Number of results per page (default: 50, max: 200)",
+            },
+            offset: {
+              type: "integer",
+              minimum: 0,
+              default: 0,
+              description: "Pagination offset",
+            },
+            include_line_items: {
+              type: "string",
+              enum: ["true", "false"],
+              default: "false",
+              description: "Include TransactionLineItem records",
+            },
+            include_payments: {
+              type: "string",
+              enum: ["true", "false"],
+              default: "false",
+              description: "Include TransactionPayment records",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  transactions: { type: "array" },
+                  meta: {
+                    type: "object",
+                    properties: {
+                      total: { type: "integer" },
+                      limit: { type: "integer" },
+                      offset: { type: "integer" },
+                      has_more: { type: "boolean" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                  details: { type: "array" },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const { storeId } = request.params as { storeId: string };
+
+      try {
+        // Validate query parameters (without store_id since it comes from params)
+        const queryParams = validateTransactionQuery({
+          ...(request.query as Record<string, unknown>),
+          store_id: storeId,
+        });
+
+        // Build filters (store_id from URL params)
+        const filters = {
+          store_id: storeId,
+          from: queryParams.from ? new Date(queryParams.from) : undefined,
+          to: queryParams.to ? new Date(queryParams.to) : undefined,
+        };
+
+        // Build pagination
+        const pagination = {
+          limit: queryParams.limit,
+          offset: queryParams.offset,
+        };
+
+        // Build include options
+        const include = {
+          line_items: queryParams.include_line_items,
+          payments: queryParams.include_payments,
+        };
+
+        // Query transactions via service
+        const result = await transactionService.getTransactions(
+          user.id,
+          filters,
+          pagination,
+          include,
+        );
+
+        reply.code(200);
+        return {
+          success: true,
+          data: result,
+        };
+      } catch (error: any) {
+        const errorContext = {
+          user_id: user.id,
+          store_id: storeId,
+          query: request.query,
+          error: error.message,
+        };
+
+        // Handle Zod validation errors
+        if (error instanceof ZodError) {
+          fastify.log.warn(
+            { ...errorContext, type: "validation" },
+            "Query validation error",
+          );
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid query parameters",
+              details: error.issues.map((e: any) => ({
+                field: e.path.join("."),
+                message: e.message,
+              })),
+            },
+          };
+        }
+
+        // Handle custom error codes
+        const statusCode = error.status || 500;
+
+        if (statusCode === 403) {
+          fastify.log.warn(
+            { ...errorContext, type: "permission" },
+            "Permission denied",
+          );
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: error.message || "You do not have access to this store",
             },
           };
         }

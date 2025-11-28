@@ -5,6 +5,7 @@ import { PERMISSIONS } from "../constants/permissions";
 import { storeService } from "../services/store.service";
 import { rbacService } from "../services/rbac.service";
 import { PrismaClient } from "@prisma/client";
+import crypto from "crypto";
 
 const prisma = new PrismaClient();
 
@@ -150,6 +151,34 @@ export async function storeRoutes(fastify: FastifyInstance) {
         );
 
         if (!hasSystemScope) {
+          // Log permission denial to audit_logs
+          const ipAddress =
+            (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+            request.ip ||
+            request.socket.remoteAddress ||
+            null;
+          const userAgent = request.headers["user-agent"] || null;
+
+          try {
+            await prisma.auditLog.create({
+              data: {
+                user_id: user.id,
+                action: "PERMISSION_DENIED",
+                table_name: "api_route",
+                record_id: crypto.randomUUID(),
+                reason: `Permission denied: STORE_READ for resource: GET /api/stores - Only System Administrators can view all stores`,
+                ip_address: ipAddress,
+                user_agent: userAgent,
+              },
+            });
+          } catch (auditError) {
+            // Log error but don't fail the request
+            fastify.log.error(
+              { error: auditError },
+              "Failed to log permission denial",
+            );
+          }
+
           reply.code(403);
           return {
             error: "Forbidden",
@@ -322,6 +351,34 @@ export async function storeRoutes(fastify: FastifyInstance) {
           // Non-system admin: must create store for their assigned company only
           const userCompanyId = await getUserCompanyId(user.id);
           if (!userCompanyId || userCompanyId !== params.companyId) {
+            // Log permission denial to audit_logs
+            const ipAddress =
+              (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+              request.ip ||
+              request.socket.remoteAddress ||
+              null;
+            const userAgent = request.headers["user-agent"] || null;
+
+            try {
+              await prisma.auditLog.create({
+                data: {
+                  user_id: user.id,
+                  action: "PERMISSION_DENIED",
+                  table_name: "api_route",
+                  record_id: crypto.randomUUID(),
+                  reason: `Permission denied: STORE_CREATE for resource: POST /api/companies/${params.companyId}/stores - Company isolation violation: attempted to create store for different company`,
+                  ip_address: ipAddress,
+                  user_agent: userAgent,
+                },
+              });
+            } catch (auditError) {
+              // Log error but don't fail the request
+              fastify.log.error(
+                { error: auditError },
+                "Failed to log permission denial",
+              );
+            }
+
             reply.code(403);
             return {
               error: "Forbidden",
@@ -992,7 +1049,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
               description:
                 "IANA timezone format (e.g., America/New_York, Europe/London) - validated by service layer",
             },
-            location: {
+            location_json: {
               type: "object",
               properties: {
                 address: {
@@ -1001,6 +1058,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
                 },
               },
               description: "Store location (address only)",
+            },
+            location: {
+              type: "object",
+              properties: {
+                address: {
+                  type: "string",
+                  description: "Store address",
+                },
+              },
+              description:
+                "Store location (address only) - deprecated, use location_json",
             },
             operating_hours: {
               type: "object",
@@ -1120,6 +1188,12 @@ export async function storeRoutes(fastify: FastifyInstance) {
               store_id: { type: "string", format: "uuid" },
               company_id: { type: "string", format: "uuid" },
               name: { type: "string" },
+              timezone: { type: "string" },
+              location_json: {
+                type: "object",
+                additionalProperties: true,
+              },
+              status: { type: "string" },
               configuration: { type: "object" },
               created_at: { type: "string", format: "date-time" },
               updated_at: { type: "string", format: "date-time" },
@@ -1161,6 +1235,9 @@ export async function storeRoutes(fastify: FastifyInstance) {
         const params = request.params as { storeId: string };
         const body = request.body as {
           timezone?: string;
+          location_json?: {
+            address?: string;
+          };
           location?: {
             address?: string;
           };
@@ -1234,15 +1311,52 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
 
         // Update store configuration (service will verify company isolation and validate)
-        const store = await storeService.updateStoreConfiguration(
-          params.storeId,
-          userCompanyId || oldStore.company_id,
-          {
-            timezone: body.timezone,
-            location: body.location,
-            operating_hours: body.operating_hours as any,
-          },
-        );
+        // Support both location_json (preferred) and location (deprecated) for backward compatibility
+        const locationData = body.location_json || body.location;
+
+        // Update timezone and location_json directly on the store (not in configuration)
+        const updateData: any = {};
+        if (body.timezone !== undefined) {
+          updateData.timezone = body.timezone;
+        }
+        if (locationData !== undefined) {
+          updateData.location_json = locationData;
+        }
+
+        // Update store with timezone and location_json
+        let store = oldStore;
+        if (Object.keys(updateData).length > 0) {
+          store = await prisma.store.update({
+            where: { store_id: params.storeId },
+            data: updateData,
+          });
+        }
+
+        // If operating_hours is provided, update configuration field
+        if (body.operating_hours !== undefined) {
+          store = await storeService.updateStoreConfiguration(
+            params.storeId,
+            userCompanyId || oldStore.company_id,
+            {
+              operating_hours: body.operating_hours as any,
+            },
+          );
+        }
+
+        // Ensure we return the latest store data with all fields
+        const updatedStore = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+        });
+
+        if (!updatedStore) {
+          reply.code(404);
+          return {
+            error: "Not found",
+            message: "Store not found after update",
+          };
+        }
+
+        store = updatedStore;
 
         // Log configuration update to AuditLog (BLOCKING)
         const ipAddress =

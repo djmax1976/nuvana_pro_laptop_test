@@ -1,0 +1,193 @@
+"use client";
+
+/**
+ * Transactions Page
+ * Displays transaction list with filtering, pagination, and detail view
+ *
+ * Story: 3.5 - Transaction Display UI
+ */
+
+import { useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { TransactionList } from "@/components/transactions/TransactionList";
+import { TransactionFilters } from "@/components/transactions/TransactionFilters";
+import { TransactionDetailDialog } from "@/components/transactions/TransactionDetailDialog";
+import {
+  transactionKeys,
+  type TransactionQueryFilters,
+  type PaginationOptions,
+  type TransactionResponse,
+} from "@/lib/api/transactions";
+import { Button } from "@/components/ui/button";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+
+export default function TransactionsPage() {
+  const queryClient = useQueryClient();
+  const [filters, setFilters] = useState<TransactionQueryFilters>({});
+  const [pagination, setPagination] = useState<PaginationOptions>({
+    limit: 50,
+    offset: 0,
+  });
+  const [selectedTransactionId, setSelectedTransactionId] = useState<
+    string | null
+  >(null);
+  const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
+  const [paginationMeta, setPaginationMeta] = useState<{
+    total: number;
+    limit: number;
+    offset: number;
+    has_more: boolean;
+  } | null>(null);
+
+  // Handle filter changes
+  const handleFiltersChange = useCallback(
+    (newFilters: TransactionQueryFilters) => {
+      setFilters(newFilters);
+      // Reset pagination when filters change
+      setPagination({ limit: 50, offset: 0 });
+    },
+    [],
+  );
+
+  // Handle transaction click
+  // Pre-populates TanStack Query cache with transaction data from list
+  // This avoids refetching when opening the detail view
+  const handleTransactionClick = useCallback(
+    (transaction: TransactionResponse) => {
+      // Pre-populate the detail cache with the transaction from the list
+      // This allows useTransactionDetail to use cached data instead of fetching
+      const detailKey = transactionKeys.detail(transaction.transaction_id, {
+        include_line_items: true,
+        include_payments: true,
+      });
+
+      // Only set cache if transaction doesn't already have the required data
+      // or if we want to update it with potentially more complete data
+      const existingCache =
+        queryClient.getQueryData<TransactionResponse>(detailKey);
+
+      // If we don't have a cached version, or if the cached version is missing
+      // line_items/payments but the list version has them, update the cache
+      if (
+        !existingCache ||
+        (!existingCache.line_items && transaction.line_items) ||
+        (!existingCache.payments && transaction.payments)
+      ) {
+        // Create an enriched version with line_items and payments if available
+        // If the list query didn't include them, we'll need to fetch later
+        queryClient.setQueryData(detailKey, transaction);
+      }
+
+      setSelectedTransactionId(transaction.transaction_id);
+      setIsDetailDialogOpen(true);
+    },
+    [queryClient],
+  );
+
+  // Handle pagination
+  const handlePreviousPage = useCallback(() => {
+    setPagination((prev) => ({
+      ...prev,
+      offset: Math.max(0, prev.offset - prev.limit),
+    }));
+  }, []);
+
+  const handleNextPage = useCallback(() => {
+    setPagination((prev) => ({
+      ...prev,
+      offset: prev.offset + prev.limit,
+    }));
+  }, []);
+
+  const handlePageSizeChange = useCallback((newLimit: number) => {
+    setPagination({ limit: newLimit, offset: 0 });
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div>
+        <h1 className="text-2xl font-bold">Transactions</h1>
+        <p className="text-sm text-muted-foreground mt-2">
+          View and filter transaction history
+        </p>
+      </div>
+
+      {/* Filters */}
+      <TransactionFilters
+        filters={filters}
+        shifts={[]} // TODO: Fetch shifts from API
+        cashiers={[]} // TODO: Fetch cashiers from API
+        onFiltersChange={handleFiltersChange}
+      />
+
+      {/* Transaction List */}
+      <TransactionList
+        filters={filters}
+        pagination={pagination}
+        onTransactionClick={handleTransactionClick}
+        onMetaChange={setPaginationMeta}
+      />
+
+      {/* Pagination Controls */}
+      <div
+        className="flex items-center justify-between"
+        data-testid="pagination-controls"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Page size:</span>
+          <select
+            value={pagination.limit}
+            onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+            className="rounded-md border border-input bg-background px-3 py-1 text-sm"
+          >
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={200}>200</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePreviousPage}
+            disabled={pagination.offset === 0}
+            data-testid="pagination-previous-button"
+          >
+            <ChevronLeft className="h-4 w-4 mr-1" />
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            {paginationMeta ? (
+              <>
+                Page {Math.floor(pagination.offset / pagination.limit) + 1} of{" "}
+                {Math.ceil(paginationMeta.total / pagination.limit) || 1} (
+                {paginationMeta.total} total)
+              </>
+            ) : (
+              `Page ${Math.floor(pagination.offset / pagination.limit) + 1}`
+            )}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleNextPage}
+            disabled={paginationMeta ? !paginationMeta.has_more : false}
+            data-testid="pagination-next-button"
+          >
+            Next
+            <ChevronRight className="h-4 w-4 ml-1" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Transaction Detail Dialog */}
+      <TransactionDetailDialog
+        transactionId={selectedTransactionId}
+        open={isDetailDialogOpen}
+        onOpenChange={setIsDetailDialogOpen}
+      />
+    </div>
+  );
+}

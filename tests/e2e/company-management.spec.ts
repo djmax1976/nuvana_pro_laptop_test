@@ -234,8 +234,12 @@ test.describe("2.4-E2E: Company Status Management", () => {
     // Confirm the deactivation
     await superadminPage.getByRole("button", { name: /deactivate/i }).click();
 
-    // AND: Company should be deactivated
-    await superadminPage.waitForTimeout(1000); // Wait for mutation
+    // AND: Company should be deactivated - wait for dialog to close indicating mutation complete
+    await expect(superadminPage.getByRole("alertdialog")).not.toBeVisible({
+      timeout: 5000,
+    });
+
+    // Verify database state after UI confirms completion
     const updatedCompany = await prismaClient.company.findUnique({
       where: { company_id: company.company_id },
     });

@@ -61,8 +61,16 @@ RUN_E2E=false
 # Analyze changes
 while IFS= read -r file; do
   case "$file" in
-    # Frontend component changes
-    app/*|components/*|lib/*)
+    # Frontend component changes - src/app, src/components, src/lib
+    src/app/*)
+      RUN_COMPONENT=true
+      RUN_E2E=true
+      ;;
+    src/components/*)
+      RUN_COMPONENT=true
+      RUN_E2E=true
+      ;;
+    src/lib/*)
       RUN_COMPONENT=true
       RUN_E2E=true
       ;;
@@ -88,23 +96,59 @@ while IFS= read -r file; do
       RUN_E2E=true
       ;;
     # CI/CD and workflow changes - run ALL tests
-    .github/*|nuvana_control/workflows/11-ci_pipeline/*)
+    .github/*)
+      RUN_COMPONENT=true
+      RUN_API=true
+      RUN_E2E=true
+      ;;
+    nuvana_control/workflows/11-ci_pipeline/*)
       RUN_COMPONENT=true
       RUN_API=true
       RUN_E2E=true
       ;;
     # Styles and public assets - run component and E2E
-    styles/*|public/*|*.css)
+    src/styles/*)
+      RUN_COMPONENT=true
+      RUN_E2E=true
+      ;;
+    public/*)
+      RUN_COMPONENT=true
+      RUN_E2E=true
+      ;;
+    *.css)
       RUN_COMPONENT=true
       RUN_E2E=true
       ;;
     # Next.js and frontend configs
-    next.config.*|tailwind.config.*|postcss.config.*)
+    next.config.*)
+      RUN_COMPONENT=true
+      RUN_E2E=true
+      ;;
+    tailwind.config.*)
+      RUN_COMPONENT=true
+      RUN_E2E=true
+      ;;
+    postcss.config.*)
       RUN_COMPONENT=true
       RUN_E2E=true
       ;;
     # Config changes - run everything
-    package.json|tsconfig.json|playwright.config.ts|vitest.config.ts)
+    package.json)
+      RUN_COMPONENT=true
+      RUN_API=true
+      RUN_E2E=true
+      ;;
+    tsconfig.json)
+      RUN_COMPONENT=true
+      RUN_API=true
+      RUN_E2E=true
+      ;;
+    playwright.config.ts)
+      RUN_COMPONENT=true
+      RUN_API=true
+      RUN_E2E=true
+      ;;
+    vitest.config.*)
       RUN_COMPONENT=true
       RUN_API=true
       RUN_E2E=true

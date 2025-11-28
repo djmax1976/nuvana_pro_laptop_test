@@ -3,6 +3,12 @@ import { createUser, createCompany, createStore } from "../support/factories";
 import { createExpiredJWTAccessToken } from "../support/factories/jwt.factory";
 
 /**
+ * @test-level API
+ * @justification API integration tests for RBAC permission system - validates authorization, scopes, and middleware
+ * @story 2-1-rbac-framework
+ */
+
+/**
  * RBAC Framework API Tests
  *
  * Tests for Role-Based Access Control (RBAC) permission system:
@@ -14,8 +20,8 @@ import { createExpiredJWTAccessToken } from "../support/factories/jwt.factory";
  * Priority: P0 (Critical - Security feature)
  */
 
-test.describe("RBAC Framework - Permission Checking", () => {
-  test("[P0] should grant access when user has required permission", async ({
+test.describe("2.1-API: RBAC Framework - Permission Checking", () => {
+  test("2.1-API-001: [P0] should grant access when user has required permission", async ({
     authenticatedApiRequest,
   }) => {
     // GIVEN: User has role with USER_READ permission
@@ -26,7 +32,7 @@ test.describe("RBAC Framework - Permission Checking", () => {
     expect(response.status()).toBe(200);
   });
 
-  test("[P0] should deny access with 403 when user lacks required permission", async ({
+  test("2.1-API-002: [P0] should deny access with 403 when user lacks required permission", async ({
     storeManagerUser,
     prismaClient,
     request,
@@ -59,7 +65,7 @@ test.describe("RBAC Framework - Permission Checking", () => {
     await prismaClient.user.delete({ where: { user_id: testUser.user_id } });
   });
 
-  test("[P0] should check SYSTEM scope permissions correctly", async ({
+  test("2.1-API-003: [P0] should check SYSTEM scope permissions correctly", async ({
     authenticatedApiRequest,
   }) => {
     // GIVEN: User has SUPERADMIN role with SYSTEM scope
@@ -72,7 +78,7 @@ test.describe("RBAC Framework - Permission Checking", () => {
     expect(response.status()).toBe(200);
   });
 
-  test("[P0] should check COMPANY scope permissions correctly", async ({
+  test("2.1-API-004: [P0] should check COMPANY scope permissions correctly", async ({
     corporateAdminUser,
     request,
     backendUrl,
@@ -92,7 +98,7 @@ test.describe("RBAC Framework - Permission Checking", () => {
     expect(response.status()).toBe(200);
   });
 
-  test("[P0] should deny COMPANY scope access to different company", async ({
+  test("2.1-API-005: [P0] should deny COMPANY scope access to different company", async ({
     corporateAdminUser,
     prismaClient,
     request,
@@ -129,7 +135,7 @@ test.describe("RBAC Framework - Permission Checking", () => {
     });
   });
 
-  test("[P0] should check STORE scope permissions correctly", async ({
+  test("2.1-API-006: [P0] should check STORE scope permissions correctly", async ({
     storeManagerUser,
     request,
     backendUrl,
@@ -149,7 +155,7 @@ test.describe("RBAC Framework - Permission Checking", () => {
     expect(response.status()).toBe(200);
   });
 
-  test("[P0] should deny STORE scope access to different store", async ({
+  test("2.1-API-007: [P0] should deny STORE scope access to different store", async ({
     storeManagerUser,
     prismaClient,
     request,
@@ -196,7 +202,7 @@ test.describe("RBAC Framework - Permission Checking", () => {
     });
   });
 
-  test("[P0] should inherit COMPANY permissions to STORE scope", async ({
+  test("2.1-API-008: [P0] should inherit COMPANY permissions to STORE scope", async ({
     corporateAdminUser,
     prismaClient,
     request,
@@ -231,7 +237,7 @@ test.describe("RBAC Framework - Permission Checking", () => {
     await prismaClient.store.delete({ where: { store_id: store.store_id } });
   });
 
-  test("[P0] should handle multiple roles with different scopes", async ({
+  test("2.1-API-009: [P0] should handle multiple roles with different scopes", async ({
     storeManagerUser,
     request,
     backendUrl,
@@ -252,8 +258,8 @@ test.describe("RBAC Framework - Permission Checking", () => {
   });
 });
 
-test.describe("RBAC Framework - Permission Middleware", () => {
-  test("[P0] should validate permission before route handler executes", async ({
+test.describe("2.1-API: RBAC Framework - Permission Middleware", () => {
+  test("2.1-API-010: [P0] should validate permission before route handler executes", async ({
     storeManagerUser,
     request,
     backendUrl,
@@ -277,7 +283,7 @@ test.describe("RBAC Framework - Permission Middleware", () => {
     expect(body.error.code).toBe("PERMISSION_DENIED");
   });
 
-  test("[P0] should allow authorized requests to proceed", async ({
+  test("2.1-API-011: [P0] should allow authorized requests to proceed", async ({
     authenticatedApiRequest,
   }) => {
     // GIVEN: Superadmin has USER_CREATE permission
@@ -289,7 +295,7 @@ test.describe("RBAC Framework - Permission Middleware", () => {
     expect(response.status()).toBe(201);
   });
 
-  test("[P0] should return 401 when access token is missing", async ({
+  test("2.1-API-012: [P0] should return 401 when access token is missing", async ({
     apiRequest,
   }) => {
     // GIVEN: Request without access token cookie
@@ -307,7 +313,7 @@ test.describe("RBAC Framework - Permission Middleware", () => {
     );
   });
 
-  test("[P0] should return 401 when access token is invalid", async ({
+  test("2.1-API-013: [P0] should return 401 when access token is invalid", async ({
     apiRequest,
     backendUrl,
   }) => {
@@ -323,7 +329,7 @@ test.describe("RBAC Framework - Permission Middleware", () => {
     expect(response.status()).toBe(401);
   });
 
-  test("[P0] should return 401 when access token is expired", async ({
+  test("2.1-API-014: [P0] should return 401 when access token is expired", async ({
     request,
     backendUrl,
   }) => {
@@ -342,8 +348,8 @@ test.describe("RBAC Framework - Permission Middleware", () => {
   });
 });
 
-test.describe("RBAC Framework - Database Models and Seeding", () => {
-  test("[P1] should have Role model in database schema", async ({
+test.describe("2.1-API: RBAC Framework - Database Models and Seeding", () => {
+  test("2.1-API-015: [P1] should have Role model in database schema", async ({
     prismaClient,
   }) => {
     // GIVEN: Database schema is migrated
@@ -357,7 +363,7 @@ test.describe("RBAC Framework - Database Models and Seeding", () => {
     expect(roles).toBeDefined();
   });
 
-  test("[P1] should have Permission model in database schema", async ({
+  test("2.1-API-016: [P1] should have Permission model in database schema", async ({
     prismaClient,
   }) => {
     // GIVEN: Database schema is migrated
@@ -371,7 +377,7 @@ test.describe("RBAC Framework - Database Models and Seeding", () => {
     expect(permissions).toBeDefined();
   });
 
-  test("[P1] should have UserRole model in database schema", async ({
+  test("2.1-API-017: [P1] should have UserRole model in database schema", async ({
     prismaClient,
   }) => {
     // GIVEN: Database schema is migrated
@@ -385,7 +391,7 @@ test.describe("RBAC Framework - Database Models and Seeding", () => {
     expect(userRoles).toBeDefined();
   });
 
-  test("[P1] should have RolePermission model in database schema", async ({
+  test("2.1-API-018: [P1] should have RolePermission model in database schema", async ({
     prismaClient,
   }) => {
     // GIVEN: Database schema is migrated
@@ -399,7 +405,7 @@ test.describe("RBAC Framework - Database Models and Seeding", () => {
     expect(rolePermissions).toBeDefined();
   });
 
-  test("[P1] should seed default roles on initialization", async ({
+  test("2.1-API-019: [P1] should seed default roles on initialization", async ({
     prismaClient,
   }) => {
     // GIVEN: Database is initialized
@@ -422,7 +428,7 @@ test.describe("RBAC Framework - Database Models and Seeding", () => {
     expect(storeManager).toBeDefined();
   });
 
-  test("[P1] should seed default permissions on initialization", async ({
+  test("2.1-API-020: [P1] should seed default permissions on initialization", async ({
     prismaClient,
   }) => {
     // GIVEN: Database is initialized
@@ -440,7 +446,7 @@ test.describe("RBAC Framework - Database Models and Seeding", () => {
     expect(userRead).toBeDefined();
   });
 
-  test("[P1] should map roles to permissions correctly", async ({
+  test("2.1-API-021: [P1] should map roles to permissions correctly", async ({
     prismaClient,
   }) => {
     // GIVEN: Database is initialized with default roles and permissions
@@ -459,7 +465,7 @@ test.describe("RBAC Framework - Database Models and Seeding", () => {
     // TODO: Verify specific permissions when mappings are implemented
   });
 
-  test("[P1] should allow idempotent seeding (multiple runs safe)", async ({
+  test("2.1-API-022: [P1] should allow idempotent seeding (multiple runs safe)", async ({
     prismaClient,
   }) => {
     // GIVEN: Database already has default roles and permissions

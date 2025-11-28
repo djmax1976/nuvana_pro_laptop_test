@@ -15,6 +15,7 @@ import {
   BarChart3,
   Bot,
   Shield,
+  Receipt,
 } from "lucide-react";
 
 interface NavItem {
@@ -56,6 +57,12 @@ const allNavItems: NavItemWithRole[] = [
     href: "/stores",
     icon: Store,
     roles: ["CORPORATE_ADMIN", "STORE_MANAGER"], // Corporate Admin and Store Manager
+  },
+  {
+    title: "Transactions",
+    href: "/transactions",
+    icon: Receipt,
+    roles: ["STORE_MANAGER", "CORPORATE_ADMIN"], // Store Manager and Corporate Admin
   },
   {
     title: "Shifts",

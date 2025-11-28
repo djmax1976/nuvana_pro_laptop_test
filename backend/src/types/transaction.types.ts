@@ -142,3 +142,94 @@ export interface ShiftSummary {
   expected_cash: Decimal;
   variance?: Decimal;
 }
+
+/**
+ * Story 3.4: Transaction Query API Types
+ */
+
+/**
+ * Query filters for transaction query API
+ */
+export interface TransactionQueryFilters {
+  store_id?: string;
+  shift_id?: string;
+  from?: Date;
+  to?: Date;
+}
+
+/**
+ * Pagination options for transaction query
+ */
+export interface PaginationOptions {
+  limit: number;
+  offset: number;
+}
+
+/**
+ * Include options for transaction query
+ */
+export interface IncludeOptions {
+  line_items?: boolean;
+  payments?: boolean;
+}
+
+/**
+ * Line item response for API output
+ */
+export interface TransactionLineItemResponse {
+  line_item_id: string;
+  product_id: string | null;
+  sku: string | null;
+  name: string;
+  quantity: number;
+  unit_price: number;
+  discount: number;
+  line_total: number;
+}
+
+/**
+ * Payment response for API output
+ */
+export interface TransactionPaymentResponse {
+  payment_id: string;
+  method: string;
+  amount: number;
+  reference: string | null;
+}
+
+/**
+ * Transaction response for API output
+ */
+export interface TransactionResponse {
+  transaction_id: string;
+  store_id: string;
+  shift_id: string;
+  cashier_id: string;
+  pos_terminal_id: string | null;
+  timestamp: string;
+  subtotal: number;
+  tax: number;
+  discount: number;
+  total: number;
+  public_id: string;
+  line_items?: TransactionLineItemResponse[];
+  payments?: TransactionPaymentResponse[];
+}
+
+/**
+ * Pagination metadata for response
+ */
+export interface PaginationMeta {
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+/**
+ * Transaction query result from service
+ */
+export interface TransactionQueryResult {
+  transactions: TransactionResponse[];
+  meta: PaginationMeta;
+}

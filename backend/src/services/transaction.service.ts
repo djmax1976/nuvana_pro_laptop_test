@@ -1,11 +1,12 @@
 /**
  * Transaction Service
  *
- * Business logic for transaction processing and validation.
+ * Business logic for transaction processing, validation, and query.
  * Story 3.2: Transaction Import API
+ * Story 3.4: Transaction Query API
  */
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { v4 as uuidv4 } from "uuid";
 import { publishToTransactionsQueue } from "../utils/rabbitmq";
 import {
@@ -13,6 +14,15 @@ import {
   validateTransactionPayload,
 } from "../schemas/transaction.schema";
 import { rbacService } from "./rbac.service";
+import {
+  TransactionQueryFilters,
+  PaginationOptions,
+  IncludeOptions,
+  TransactionQueryResult,
+  TransactionResponse,
+  TransactionLineItemResponse,
+  TransactionPaymentResponse,
+} from "../types/transaction.types";
 
 const prisma = new PrismaClient();
 
@@ -224,6 +234,187 @@ export const transactionService = {
 
     // Enqueue transaction
     return await this.enqueueTransaction(payload, userId);
+  },
+
+  /**
+   * Story 3.4: Transaction Query API
+   * Get accessible store IDs for user based on RLS policies
+   * Superadmins can see all stores, company users can see their company's stores
+   * Store-scoped users can only see their specific stores
+   * @param userId - User ID to check access for
+   * @returns Array of accessible store IDs
+   */
+  async getAccessibleStoreIds(userId: string): Promise<string[]> {
+    // Get user's roles
+    const userRoles = await rbacService.getUserRoles(userId);
+
+    // Check for superadmin (system scope - can see all)
+    const hasSuperadminRole = userRoles.some(
+      (role) => role.scope === "SYSTEM" || role.role_code === "superadmin",
+    );
+
+    if (hasSuperadminRole) {
+      // Return all store IDs for superadmin
+      const allStores = await prisma.store.findMany({
+        select: { store_id: true },
+      });
+      return allStores.map((s) => s.store_id);
+    }
+
+    // Find user's company ID
+    const companyRole = userRoles.find(
+      (role) => role.scope === "COMPANY" && role.company_id,
+    );
+
+    if (companyRole?.company_id) {
+      // Get all stores for the company
+      const companyStores = await prisma.store.findMany({
+        where: { company_id: companyRole.company_id },
+        select: { store_id: true },
+      });
+      return companyStores.map((s) => s.store_id);
+    }
+
+    // Check for store-scoped roles
+    const storeRoles = userRoles.filter(
+      (role) => role.scope === "STORE" && role.store_id,
+    );
+
+    if (storeRoles.length > 0) {
+      return storeRoles.map((r) => r.store_id!);
+    }
+
+    // No accessible stores
+    return [];
+  },
+
+  /**
+   * Story 3.4: Transaction Query API
+   * Query transactions with filters, pagination, and optional includes
+   * Enforces RLS policies to filter results based on user access
+   * @param userId - User ID making the request
+   * @param filters - Query filters (store_id, shift_id, date range)
+   * @param pagination - Pagination options (limit, offset)
+   * @param include - Include options (line_items, payments)
+   * @returns TransactionQueryResult with transactions and pagination meta
+   */
+  async getTransactions(
+    userId: string,
+    filters: TransactionQueryFilters,
+    pagination: PaginationOptions,
+    include: IncludeOptions,
+  ): Promise<TransactionQueryResult> {
+    // Get accessible store IDs for RLS enforcement
+    const accessibleStoreIds = await this.getAccessibleStoreIds(userId);
+
+    // If no accessible stores, return empty result
+    if (accessibleStoreIds.length === 0) {
+      return {
+        transactions: [],
+        meta: {
+          total: 0,
+          limit: pagination.limit,
+          offset: pagination.offset,
+          has_more: false,
+        },
+      };
+    }
+
+    // Build where clause with RLS filtering
+    const where: Prisma.TransactionWhereInput = {
+      // RLS: Filter to only accessible stores
+      store_id: filters.store_id
+        ? // If store_id is specified, only allow if it's in accessible stores
+          accessibleStoreIds.includes(filters.store_id)
+          ? filters.store_id
+          : "00000000-0000-0000-0000-000000000000" // Invalid UUID to return no results
+        : { in: accessibleStoreIds },
+    };
+
+    // Add shift_id filter if provided
+    if (filters.shift_id) {
+      where.shift_id = filters.shift_id;
+    }
+
+    // Add date range filter if provided
+    if (filters.from || filters.to) {
+      where.timestamp = {};
+      if (filters.from) {
+        where.timestamp.gte = filters.from;
+      }
+      if (filters.to) {
+        where.timestamp.lte = filters.to;
+      }
+    }
+
+    // Build include clause
+    const prismaInclude: Prisma.TransactionInclude = {};
+    if (include.line_items) {
+      prismaInclude.line_items = true;
+    }
+    if (include.payments) {
+      prismaInclude.payments = true;
+    }
+
+    // Execute count query for total
+    const total = await prisma.transaction.count({ where });
+
+    // Execute main query with pagination
+    const transactions = await prisma.transaction.findMany({
+      where,
+      include:
+        Object.keys(prismaInclude).length > 0 ? prismaInclude : undefined,
+      orderBy: { timestamp: "desc" },
+      take: pagination.limit,
+      skip: pagination.offset,
+    });
+
+    // Transform to response format
+    const transformedTransactions: TransactionResponse[] = transactions.map(
+      (tx: any) => ({
+        transaction_id: tx.transaction_id,
+        store_id: tx.store_id,
+        shift_id: tx.shift_id,
+        cashier_id: tx.cashier_id,
+        pos_terminal_id: tx.pos_terminal_id,
+        timestamp: tx.timestamp.toISOString(),
+        subtotal: Number(tx.subtotal),
+        tax: Number(tx.tax),
+        discount: Number(tx.discount),
+        total: Number(tx.total),
+        public_id: tx.public_id,
+        line_items: tx.line_items?.map(
+          (li: any): TransactionLineItemResponse => ({
+            line_item_id: li.line_item_id,
+            product_id: li.product_id,
+            sku: li.sku,
+            name: li.name,
+            quantity: li.quantity,
+            unit_price: Number(li.unit_price),
+            discount: Number(li.discount),
+            line_total: Number(li.line_total),
+          }),
+        ),
+        payments: tx.payments?.map(
+          (p: any): TransactionPaymentResponse => ({
+            payment_id: p.payment_id,
+            method: p.method,
+            amount: Number(p.amount),
+            reference: p.reference,
+          }),
+        ),
+      }),
+    );
+
+    return {
+      transactions: transformedTransactions,
+      meta: {
+        total,
+        limit: pagination.limit,
+        offset: pagination.offset,
+        has_more: pagination.offset + transactions.length < total,
+      },
+    };
   },
 };
 
