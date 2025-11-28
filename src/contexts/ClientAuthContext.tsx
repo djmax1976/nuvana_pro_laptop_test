@@ -580,7 +580,7 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
     <ClientAuthContext.Provider
       value={{
         user,
-        permissions,
+        permissions: permissions ?? [],
         isLoading,
         isAuthenticated: !!user,
         isClientUser: user?.is_client_user ?? false,
@@ -597,11 +597,16 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
 /**
  * Hook to use client auth context
  * Throws error if used outside of ClientAuthProvider
+ * Ensures permissions is always an array (never null/undefined)
  */
 export function useClientAuth() {
   const context = useContext(ClientAuthContext);
   if (context === undefined) {
     throw new Error("useClientAuth must be used within a ClientAuthProvider");
   }
-  return context;
+  // Defensive: ensure permissions is always an array
+  return {
+    ...context,
+    permissions: context.permissions ?? [],
+  };
 }

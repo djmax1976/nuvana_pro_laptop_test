@@ -33,12 +33,16 @@ interface RoleListProps {
  * Get a friendly display name for a role code
  */
 function getRoleDisplayName(code: string): string {
-  const names: Record<string, string> = {
-    STORE_MANAGER: "Store Manager",
-    SHIFT_MANAGER: "Shift Manager",
-    CASHIER: "Cashier",
-  };
-  return names[code] || code.replace(/_/g, " ");
+  switch (code) {
+    case "STORE_MANAGER":
+      return "Store Manager";
+    case "SHIFT_MANAGER":
+      return "Shift Manager";
+    case "CASHIER":
+      return "Cashier";
+    default:
+      return code.replace(/_/g, " ");
+  }
 }
 
 /**
@@ -147,7 +151,9 @@ export function RoleList({ onSelectRole, selectedRoleId }: RoleListProps) {
               ? "ring-2 ring-primary border-primary"
               : ""
           }`}
+          role="button"
           tabIndex={0}
+          aria-label={`Select ${getRoleDisplayName(role.code)} role to manage permissions`}
           onClick={() => onSelectRole(role.role_id)}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
@@ -185,6 +191,8 @@ export function RoleList({ onSelectRole, selectedRoleId }: RoleListProps) {
               variant="ghost"
               size="sm"
               data-testid={`manage-permissions-button-${role.role_id}`}
+              tabIndex={-1}
+              aria-hidden="true"
               onClick={(e) => {
                 e.stopPropagation();
                 onSelectRole(role.role_id);

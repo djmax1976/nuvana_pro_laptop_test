@@ -5,9 +5,12 @@
 
 import { cookies } from "next/headers";
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
 const ADMIN_SYSTEM_CONFIG_PERMISSION = "ADMIN_SYSTEM_CONFIG";
+const AUTH_REQUEST_TIMEOUT_MS = parseInt(
+  process.env.AUTH_REQUEST_TIMEOUT_MS || "5000",
+  10,
+);
 
 /**
  * User information from /api/auth/me endpoint
@@ -50,14 +53,37 @@ export async function checkSuperAdminPermission(): Promise<{
     }
 
     // Make server-side request to backend to verify user and get permissions
-    const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
-      method: "GET",
-      headers: {
-        Cookie: `access_token=${accessToken.value}`,
-      },
-      // Disable caching to ensure fresh permission checks
-      cache: "no-store",
-    });
+    // Use AbortController to prevent hanging requests
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, AUTH_REQUEST_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+      response = await fetch(`${BACKEND_URL}/api/auth/me`, {
+        method: "GET",
+        headers: {
+          Cookie: `access_token=${accessToken.value}`,
+        },
+        // Disable caching to ensure fresh permission checks
+        cache: "no-store",
+        signal: controller.signal,
+      });
+    } catch (error) {
+      clearTimeout(timeoutId);
+      // Handle abort errors specifically - request timed out
+      if (error instanceof Error && error.name === "AbortError") {
+        console.error(
+          `Auth request timed out after ${AUTH_REQUEST_TIMEOUT_MS}ms`,
+        );
+        return { isAuthorized: false, user: null };
+      }
+      // Re-throw other errors to be handled by outer catch
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
       return { isAuthorized: false, user: null };
