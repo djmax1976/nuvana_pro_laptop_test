@@ -25,6 +25,7 @@ interface ClientUser {
  */
 interface ClientAuthContextType {
   user: ClientUser | null;
+  permissions: string[];
   isLoading: boolean;
   isAuthenticated: boolean;
   isClientUser: boolean;
@@ -46,6 +47,7 @@ const STORAGE_KEY = "auth_session";
  */
 export function ClientAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<ClientUser | null>(null);
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
@@ -163,6 +165,7 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
                 // Non-fatal: failed to clear session
               }
               setUser(null);
+              setPermissions([]);
               setIsLoading(false);
               return;
             }
@@ -173,6 +176,9 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
               name: validatedData.user.name || validatedData.user.email,
               is_client_user: true,
             };
+
+            // Store permissions from validated data
+            setPermissions(validatedData.user.permissions || []);
 
             // Update localStorage with validated user data
             // Clear legacy key to prevent conflicts
@@ -212,6 +218,7 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
               );
             }
             setUser(null);
+            setPermissions([]);
           }
         } catch (error) {
           // Clear timeout in case of error (if it was set)
@@ -246,6 +253,7 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
             );
           }
           setUser(null);
+          setPermissions([]);
         }
       } catch (error) {
         // Catch any unexpected errors to prevent propagation
@@ -254,6 +262,7 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
           error instanceof Error ? error.message : "Unknown error",
         );
         setUser(null);
+        setPermissions([]);
       } finally {
         setIsLoading(false);
       }
@@ -317,6 +326,7 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
     } finally {
       // Always execute cleanup regardless of storage errors
       setUser(null);
+      setPermissions([]);
       router.push("/login");
     }
   }, [backendUrl, router]);
@@ -442,6 +452,9 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
       is_client_user: true,
     };
 
+    // Store permissions from login response
+    setPermissions(data.user.permissions || []);
+
     // Store user info - clear legacy key to prevent conflicts
     try {
       localStorage.removeItem("client_auth_session");
@@ -504,6 +517,9 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
           is_client_user: hasClientAccess,
         };
 
+        // Store permissions from validated data
+        setPermissions(data.user.permissions || []);
+
         // Clear legacy key to prevent conflicts
         try {
           localStorage.removeItem("client_auth_session");
@@ -533,6 +549,7 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
           );
         }
         setUser(null);
+        setPermissions([]);
       }
     } catch (error) {
       // Clear timeout in case of error
@@ -555,6 +572,7 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
         );
       }
       setUser(null);
+      setPermissions([]);
     }
   }, [backendUrl, setUser]);
 
@@ -562,6 +580,7 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
     <ClientAuthContext.Provider
       value={{
         user,
+        permissions: permissions ?? [],
         isLoading,
         isAuthenticated: !!user,
         isClientUser: user?.is_client_user ?? false,
@@ -578,11 +597,16 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
 /**
  * Hook to use client auth context
  * Throws error if used outside of ClientAuthProvider
+ * Ensures permissions is always an array (never null/undefined)
  */
 export function useClientAuth() {
   const context = useContext(ClientAuthContext);
   if (context === undefined) {
     throw new Error("useClientAuth must be used within a ClientAuthProvider");
   }
-  return context;
+  // Defensive: ensure permissions is always an array
+  return {
+    ...context,
+    permissions: context.permissions ?? [],
+  };
 }

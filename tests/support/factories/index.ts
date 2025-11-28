@@ -141,3 +141,12 @@ export {
   createEmployeeRequests,
   type CreateEmployeeRequest,
 } from "./client-employee.factory";
+
+// Client Role Permission factories (Story 2.92)
+export {
+  createClientRolePermission,
+  createClientRolePermissions,
+  createUpdateRolePermissionsRequest,
+  type ClientRolePermissionData,
+  type UpdateRolePermissionsRequest,
+} from "./client-role-permission.factory";

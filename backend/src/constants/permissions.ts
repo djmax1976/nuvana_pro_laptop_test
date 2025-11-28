@@ -65,6 +65,9 @@ export const CLIENT_EMPLOYEE_CREATE = "CLIENT_EMPLOYEE_CREATE";
 export const CLIENT_EMPLOYEE_READ = "CLIENT_EMPLOYEE_READ";
 export const CLIENT_EMPLOYEE_DELETE = "CLIENT_EMPLOYEE_DELETE";
 
+// Client Role Management Permissions
+export const CLIENT_ROLE_MANAGE = "CLIENT_ROLE_MANAGE";
+
 /**
  * All permission codes as a constant object
  * Useful for validation and iteration
@@ -125,6 +128,9 @@ export const PERMISSIONS = {
   CLIENT_EMPLOYEE_CREATE,
   CLIENT_EMPLOYEE_READ,
   CLIENT_EMPLOYEE_DELETE,
+
+  // Client Role Management
+  CLIENT_ROLE_MANAGE,
 } as const;
 
 /**
@@ -199,4 +205,196 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [CLIENT_EMPLOYEE_CREATE]: "Create employees for owned stores",
   [CLIENT_EMPLOYEE_READ]: "View employees for owned stores",
   [CLIENT_EMPLOYEE_DELETE]: "Delete employees for owned stores",
+
+  // Client Role Management
+  [CLIENT_ROLE_MANAGE]: "Manage role permissions for owned stores",
 };
+
+/**
+ * Permission Categories for UI Display
+ *
+ * Groups permissions into logical categories for the role permission editor.
+ * This map includes both client-assignable permissions (for STORE scope roles)
+ * and restricted permissions (for system/admin use only). The categories are
+ * used for organizing permissions in the UI and for getPermissionCategory().
+ *
+ * Note: The presence of a permission in a category does NOT imply it's
+ * client-assignable. See CLIENT_ASSIGNABLE_PERMISSIONS for the definitive
+ * list of permissions clients can assign to roles.
+ */
+export const PERMISSION_CATEGORIES = {
+  SHIFTS: {
+    name: "Shift Operations",
+    description: "Permissions for opening, closing, and viewing shifts",
+    permissions: [SHIFT_OPEN, SHIFT_CLOSE, SHIFT_READ],
+  },
+  TRANSACTIONS: {
+    name: "Transactions",
+    description: "Permissions for creating and viewing transactions",
+    permissions: [TRANSACTION_CREATE, TRANSACTION_READ],
+  },
+  INVENTORY: {
+    name: "Inventory",
+    description: "Permissions for viewing and managing inventory",
+    permissions: [INVENTORY_READ, INVENTORY_ADJUST, INVENTORY_ORDER],
+  },
+  LOTTERY: {
+    name: "Lottery",
+    description: "Permissions for lottery pack management and reconciliation",
+    permissions: [
+      LOTTERY_PACK_RECEIVE,
+      LOTTERY_SHIFT_RECONCILE,
+      LOTTERY_REPORT,
+    ],
+  },
+  REPORTS: {
+    name: "Reports",
+    description: "Permissions for viewing and generating reports",
+    permissions: [REPORT_SHIFT, REPORT_DAILY, REPORT_ANALYTICS, REPORT_EXPORT],
+  },
+  EMPLOYEES: {
+    name: "Employee Management",
+    description: "Permissions for managing store employees",
+    permissions: [
+      CLIENT_EMPLOYEE_CREATE,
+      CLIENT_EMPLOYEE_READ,
+      CLIENT_EMPLOYEE_DELETE,
+    ],
+  },
+  ROLES: {
+    name: "Role Management",
+    description: "Permissions for managing role permissions and assignments",
+    permissions: [CLIENT_ROLE_MANAGE],
+  },
+  STORE: {
+    name: "Store",
+    description: "Permissions for viewing and updating store information",
+    permissions: [STORE_READ, STORE_UPDATE],
+  },
+} as const;
+
+/**
+ * CLIENT_ASSIGNABLE_PERMISSIONS
+ *
+ * Permissions that Client Owners can assign to STORE scope roles.
+ * These are operational permissions safe for delegation to store staff.
+ *
+ * SECURITY: This list is deny-by-default. Only explicitly listed permissions
+ * can be assigned by clients. Any new permission requires security review
+ * before being added to this list.
+ *
+ * INCLUDED (safe for client delegation):
+ * - Shift operations: Daily shift management
+ * - Transactions: POS transaction processing
+ * - Inventory: Stock management (read-only or with adjustment rights)
+ * - Lottery: Scratch-off pack management
+ * - Reports: Shift and daily reporting
+ * - Client employees: Managing store staff
+ * - Store: Read and update store info
+ *
+ * EXCLUDED (require system admin - security/compliance risk):
+ * - ADMIN_*: System administration (security risk)
+ * - COMPANY_*: Company management (scope violation)
+ * - CLIENT_DASHBOARD_ACCESS: Always required, cannot be removed
+ * - CLIENT_ROLE_MANAGE: Only for Client Owner (privilege escalation risk)
+ * - USER_CREATE/UPDATE/DELETE: System user management (scope violation)
+ * - STORE_CREATE/DELETE: Store lifecycle (scope violation)
+ */
+export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
+  // Shift Operations - Core daily operations
+  SHIFT_OPEN,
+  SHIFT_CLOSE,
+  SHIFT_READ,
+
+  // Transactions - POS transaction processing
+  TRANSACTION_CREATE,
+  TRANSACTION_READ,
+
+  // Inventory - Stock management
+  INVENTORY_READ,
+  INVENTORY_ADJUST,
+  INVENTORY_ORDER,
+
+  // Lottery - Scratch-off pack management
+  LOTTERY_PACK_RECEIVE,
+  LOTTERY_SHIFT_RECONCILE,
+  LOTTERY_REPORT,
+
+  // Reports - Shift and daily reporting
+  REPORT_SHIFT,
+  REPORT_DAILY,
+  REPORT_ANALYTICS,
+  REPORT_EXPORT,
+
+  // Client Employee Management - Managing store staff (delegation)
+  CLIENT_EMPLOYEE_CREATE,
+  CLIENT_EMPLOYEE_READ,
+  CLIENT_EMPLOYEE_DELETE,
+
+  // Store - Read and update store information
+  STORE_READ,
+  STORE_UPDATE,
+];
+
+/**
+ * CLIENT_RESTRICTED_PERMISSIONS
+ *
+ * Permissions that clients CANNOT assign to roles.
+ * These are system-managed permissions that require elevated privileges.
+ *
+ * SECURITY: Any attempt to assign these permissions via the client API
+ * must be rejected with a clear error message.
+ */
+export const CLIENT_RESTRICTED_PERMISSIONS: PermissionCode[] = [
+  // Admin - System administration (security risk)
+  ADMIN_OVERRIDE,
+  ADMIN_AUDIT_VIEW,
+  ADMIN_SYSTEM_CONFIG,
+
+  // Company Management - Scope violation (clients manage stores, not companies)
+  COMPANY_CREATE,
+  COMPANY_READ,
+  COMPANY_UPDATE,
+  COMPANY_DELETE,
+
+  // User Management - System user management (scope violation)
+  USER_CREATE,
+  USER_READ,
+  USER_UPDATE,
+  USER_DELETE,
+
+  // Store Lifecycle - Scope violation (clients cannot create/delete stores via role assignment)
+  STORE_CREATE,
+  STORE_DELETE,
+
+  // Client Dashboard Access - Always required, cannot be removed (breaks access)
+  CLIENT_DASHBOARD_ACCESS,
+
+  // Client Role Management - Only for Client Owner (privilege escalation risk)
+  CLIENT_ROLE_MANAGE,
+];
+
+/**
+ * Helper function to check if a permission is assignable by clients
+ * @param permissionCode The permission code to check
+ * @returns true if the permission can be assigned by clients
+ */
+export function isClientAssignablePermission(permissionCode: string): boolean {
+  return CLIENT_ASSIGNABLE_PERMISSIONS.includes(
+    permissionCode as PermissionCode,
+  );
+}
+
+/**
+ * Helper function to get permission category for a permission code
+ * @param permissionCode The permission code to look up
+ * @returns The category name or null if not found
+ */
+export function getPermissionCategory(permissionCode: string): string | null {
+  for (const [categoryKey, category] of Object.entries(PERMISSION_CATEGORIES)) {
+    if ((category.permissions as readonly string[]).includes(permissionCode)) {
+      return categoryKey;
+    }
+  }
+  return null;
+}

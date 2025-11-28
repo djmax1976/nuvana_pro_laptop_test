@@ -179,6 +179,7 @@ type RBACFixture = {
     roles: string[];
     permissions: string[];
     token: string;
+    _roleId?: string; // Optional property for cleanup purposes
   };
   clientUserApiRequest: ApiRequestHelper;
   regularUserApiRequest: ApiRequestHelper;
@@ -883,7 +884,8 @@ export const test = base.extend<RBACFixture>({
   },
 
   clientUser: async ({ prismaClient }, use) => {
-    // Setup: Create client user with CLIENT_USER role and own company/store
+    // Setup: Create client user with CLIENT_OWNER role and own company/store
+    // CLIENT_OWNER has full permissions including CLIENT_ROLE_MANAGE
     const userData = createClientUser();
 
     // Create user first (will be company owner)
@@ -902,17 +904,18 @@ export const test = base.extend<RBACFixture>({
       },
     });
 
-    // Get CLIENT_USER role (must exist in database)
+    // Get CLIENT_OWNER role (must exist in database)
+    // CLIENT_OWNER has CLIENT_ROLE_MANAGE permission, CLIENT_USER does not
     const role = await prismaClient.role.findUnique({
-      where: { code: "CLIENT_USER" },
+      where: { code: "CLIENT_OWNER" },
     });
     if (!role) {
       throw new Error(
-        "CLIENT_USER role not found in database. Run database seed first.",
+        "CLIENT_OWNER role not found in database. Run database seed first.",
       );
     }
 
-    // Assign CLIENT_USER role to user
+    // Assign CLIENT_OWNER role to user
     await withBypassClient(async (bypassClient) => {
       await bypassClient.userRole.create({
         data: {
@@ -923,11 +926,39 @@ export const test = base.extend<RBACFixture>({
       });
     });
 
+    // Assign default STORE scope roles to the company via CompanyAllowedRole
+    // This is required for client role permission management (Story 2.92)
+    const storeRoles = await prismaClient.role.findMany({
+      where: { scope: "STORE", deleted_at: null },
+    });
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.companyAllowedRole.createMany({
+        data: storeRoles.map((storeRole) => ({
+          company_id: company.company_id,
+          role_id: storeRole.role_id,
+          assigned_by: user.user_id,
+        })),
+        skipDuplicates: true,
+      });
+    });
+
+    // Client Owner permissions - explicit list following least privilege principle
+    // Does NOT include ADMIN_SYSTEM_CONFIG which is Super Admin only
+    const clientPermissions = [
+      "CLIENT_DASHBOARD_ACCESS",
+      "CLIENT_EMPLOYEE_CREATE",
+      "CLIENT_EMPLOYEE_READ",
+      "CLIENT_EMPLOYEE_DELETE",
+      "CLIENT_ROLE_MANAGE",
+      "STORE_READ",
+      "STORE_UPDATE",
+    ];
+
     const token = createJWTAccessToken({
       user_id: user.user_id,
       email: user.email,
-      roles: ["CLIENT_USER"],
-      permissions: ["*"], // Wildcard bypasses DB permission check, relies on service-layer auth
+      roles: ["CLIENT_OWNER"],
+      permissions: clientPermissions,
     });
 
     const clientUser = {
@@ -936,8 +967,8 @@ export const test = base.extend<RBACFixture>({
       name: user.name,
       company_id: company.company_id,
       store_id: store.store_id,
-      roles: ["CLIENT_USER"],
-      permissions: ["*"], // Wildcard for test fixture - service layer handles real authorization
+      roles: ["CLIENT_OWNER"],
+      permissions: clientPermissions,
       token,
     };
 
@@ -948,6 +979,14 @@ export const test = base.extend<RBACFixture>({
       // Delete user roles
       await bypassClient.userRole.deleteMany({
         where: { user_id: user.user_id },
+      });
+      // Delete company allowed roles
+      await bypassClient.companyAllowedRole.deleteMany({
+        where: { company_id: company.company_id },
+      });
+      // Delete client role permissions (if any were created during tests)
+      await bypassClient.clientRolePermission.deleteMany({
+        where: { owner_user_id: user.user_id },
       });
       // Delete store
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
@@ -961,19 +1000,10 @@ export const test = base.extend<RBACFixture>({
   },
 
   regularUser: async ({ prismaClient }, use) => {
-    // Setup: Create regular user without CLIENT_EMPLOYEE permissions
+    // Setup: Create regular user WITHOUT CLIENT_EMPLOYEE permissions
+    // Important: We create a custom role because system roles like CASHIER have CLIENT_EMPLOYEE_READ
     const userData = createUser({});
     const user = await prismaClient.user.create({ data: userData });
-
-    // Get a basic role without CLIENT_EMPLOYEE permissions (CASHIER - STORE scope)
-    const role = await prismaClient.role.findUnique({
-      where: { code: "CASHIER" },
-    });
-    if (!role) {
-      throw new Error(
-        "CASHIER role not found in database. Run database seed first.",
-      );
-    }
 
     // Create a company and store for context (user needs some context)
     const ownerUser = await prismaClient.user.create({
@@ -990,12 +1020,50 @@ export const test = base.extend<RBACFixture>({
       },
     });
 
-    // Assign STORE_EMPLOYEE role
+    // Create a custom role with ONLY basic permissions (no CLIENT_EMPLOYEE_*)
+    // This ensures the permission check via DB also fails
+    const restrictedRole = await prismaClient.role.create({
+      data: {
+        code: `RESTRICTED_USER_${Date.now()}`,
+        scope: "STORE",
+        description:
+          "Test role with restricted permissions for authorization tests",
+        is_system_role: false,
+      },
+    });
+
+    // Get permission IDs for the limited permissions we want to assign
+    const shiftReadPermission = await prismaClient.permission.findUnique({
+      where: { code: "SHIFT_READ" },
+    });
+    const inventoryReadPermission = await prismaClient.permission.findUnique({
+      where: { code: "INVENTORY_READ" },
+    });
+
+    // Assign only basic permissions to the role (NOT CLIENT_EMPLOYEE_*)
+    if (shiftReadPermission) {
+      await prismaClient.rolePermission.create({
+        data: {
+          role_id: restrictedRole.role_id,
+          permission_id: shiftReadPermission.permission_id,
+        },
+      });
+    }
+    if (inventoryReadPermission) {
+      await prismaClient.rolePermission.create({
+        data: {
+          role_id: restrictedRole.role_id,
+          permission_id: inventoryReadPermission.permission_id,
+        },
+      });
+    }
+
+    // Assign restricted role to user
     await withBypassClient(async (bypassClient) => {
       await bypassClient.userRole.create({
         data: {
           user_id: user.user_id,
-          role_id: role.role_id,
+          role_id: restrictedRole.role_id,
           company_id: company.company_id,
           store_id: store.store_id,
         },
@@ -1005,17 +1073,18 @@ export const test = base.extend<RBACFixture>({
     const token = createJWTAccessToken({
       user_id: user.user_id,
       email: user.email,
-      roles: ["CASHIER"],
-      permissions: ["SHIFT_READ", "INVENTORY_READ"], // Basic permissions, no CLIENT_EMPLOYEE_*
+      roles: [restrictedRole.code],
+      permissions: ["SHIFT_READ", "INVENTORY_READ"], // Must match DB role permissions
     });
 
     const regularUser = {
       user_id: user.user_id,
       email: user.email,
       name: user.name,
-      roles: ["CASHIER"],
+      roles: [restrictedRole.code],
       permissions: ["SHIFT_READ", "INVENTORY_READ"],
       token,
+      _roleId: restrictedRole.role_id, // Store for cleanup
     };
 
     await use(regularUser);
@@ -1024,6 +1093,12 @@ export const test = base.extend<RBACFixture>({
     await withBypassClient(async (bypassClient) => {
       await bypassClient.userRole.deleteMany({
         where: { user_id: user.user_id },
+      });
+      await bypassClient.rolePermission.deleteMany({
+        where: { role_id: restrictedRole.role_id },
+      });
+      await bypassClient.role.delete({
+        where: { role_id: restrictedRole.role_id },
       });
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
