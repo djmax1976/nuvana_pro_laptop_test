@@ -7,10 +7,29 @@ import { cookies } from "next/headers";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
 const ADMIN_SYSTEM_CONFIG_PERMISSION = "ADMIN_SYSTEM_CONFIG";
-const AUTH_REQUEST_TIMEOUT_MS = parseInt(
-  process.env.AUTH_REQUEST_TIMEOUT_MS || "5000",
-  10,
-);
+
+// Parse and validate AUTH_REQUEST_TIMEOUT_MS with safe fallback
+const parseAuthRequestTimeout = (): number => {
+  const envValue = process.env.AUTH_REQUEST_TIMEOUT_MS;
+  const defaultTimeout = 5000;
+
+  if (!envValue) {
+    return defaultTimeout;
+  }
+
+  const parsed = parseInt(envValue, 10);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(
+      `Invalid AUTH_REQUEST_TIMEOUT_MS value "${envValue}". Expected a positive integer. Using default: ${defaultTimeout}ms`,
+    );
+    return defaultTimeout;
+  }
+
+  return parsed;
+};
+
+const AUTH_REQUEST_TIMEOUT_MS = parseAuthRequestTimeout();
 
 /**
  * User information from /api/auth/me endpoint

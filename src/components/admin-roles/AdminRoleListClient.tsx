@@ -18,6 +18,30 @@ interface AdminRoleListClientProps {
 const ADMIN_SYSTEM_CONFIG_PERMISSION = "ADMIN_SYSTEM_CONFIG";
 
 /**
+ * Top-level BACKEND_URL constant with environment validation at module initialization.
+ * This ensures configuration failures fail fast and are not masked as authorization errors.
+ */
+const BACKEND_URL: string = (() => {
+  const backendUrlEnv = process.env.NEXT_PUBLIC_BACKEND_URL;
+  const isProduction = process.env.NODE_ENV === "production";
+
+  if (!backendUrlEnv) {
+    if (isProduction) {
+      throw new Error(
+        "NEXT_PUBLIC_BACKEND_URL is required in production but is undefined. Please set this environment variable before deploying.",
+      );
+    } else {
+      console.warn(
+        "NEXT_PUBLIC_BACKEND_URL is not set. Falling back to http://localhost:3001 for local development.",
+      );
+      return "http://localhost:3001";
+    }
+  }
+
+  return backendUrlEnv;
+})();
+
+/**
  * Check if user has Super Admin permission on the client side
  * This is a defensive check that validates permissions from the API
  */
@@ -26,24 +50,7 @@ async function checkClientSuperAdminPermission(): Promise<{
   permissions: string[];
 }> {
   try {
-    const backendUrlEnv = process.env.NEXT_PUBLIC_BACKEND_URL;
-    const isProduction = process.env.NODE_ENV === "production";
-
-    if (!backendUrlEnv) {
-      if (isProduction) {
-        const errorMessage =
-          "NEXT_PUBLIC_BACKEND_URL is required in production but is undefined. Please set this environment variable before deploying.";
-        console.error(errorMessage);
-        throw new Error(errorMessage);
-      } else {
-        console.warn(
-          "NEXT_PUBLIC_BACKEND_URL is not set. Falling back to http://localhost:3001 for local development.",
-        );
-      }
-    }
-
-    const backendUrl = backendUrlEnv || "http://localhost:3001";
-    const response = await fetch(`${backendUrl}/api/auth/me`, {
+    const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
       method: "GET",
       credentials: "include", // Send httpOnly cookies
       cache: "no-store",
