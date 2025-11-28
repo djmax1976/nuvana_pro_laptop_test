@@ -1344,17 +1344,19 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
 
         // Ensure we return the latest store data with all fields
-        store = await prisma.store.findUnique({
+        const updatedStore = await prisma.store.findUnique({
           where: { store_id: params.storeId },
         });
 
-        if (!store) {
+        if (!updatedStore) {
           reply.code(404);
           return {
             error: "Not found",
             message: "Store not found after update",
           };
         }
+
+        store = updatedStore;
 
         // Log configuration update to AuditLog (BLOCKING)
         const ipAddress =

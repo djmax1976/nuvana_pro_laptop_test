@@ -49,8 +49,6 @@ const app = Fastify({
   },
 });
 
-import { ZodError } from "zod";
-
 // Global error handler for validation and other errors
 app.setErrorHandler((error: any, _request, reply) => {
   app.log.error(
