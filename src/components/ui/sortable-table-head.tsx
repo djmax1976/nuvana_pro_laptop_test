@@ -7,8 +7,7 @@ import { TableHead } from "@/components/ui/table";
 
 export type SortDirection = "asc" | "desc" | null;
 
-export interface SortableTableHeadProps
-  extends React.ThHTMLAttributes<HTMLTableCellElement> {
+export interface SortableTableHeadProps extends React.ThHTMLAttributes<HTMLTableCellElement> {
   sortKey: string;
   currentSortKey: string | null;
   currentSortDirection: SortDirection;
@@ -53,11 +52,14 @@ export const SortableTableHead = React.forwardRef<
           {children}
           <span className="ml-1">
             {isActive && currentSortDirection === "asc" ? (
-              <ArrowUp className="h-4 w-4" />
+              <ArrowUp className="h-4 w-4" data-testid="sort-icon-asc" />
             ) : isActive && currentSortDirection === "desc" ? (
-              <ArrowDown className="h-4 w-4" />
+              <ArrowDown className="h-4 w-4" data-testid="sort-icon-desc" />
             ) : (
-              <ArrowUpDown className="h-4 w-4 text-muted-foreground/50" />
+              <ArrowUpDown
+                className="h-4 w-4 text-muted-foreground/50"
+                data-testid="sort-icon-neutral"
+              />
             )}
           </span>
         </div>

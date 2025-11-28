@@ -23,10 +23,12 @@ export async function seedRBAC() {
       const permission = await prisma.permission.upsert({
         where: { code: permissionCode },
         update: {
+          // eslint-disable-next-line security/detect-object-injection
           description: PERMISSION_DESCRIPTIONS[permissionCode],
         },
         create: {
           code: permissionCode,
+          // eslint-disable-next-line security/detect-object-injection
           description: PERMISSION_DESCRIPTIONS[permissionCode],
         },
       });
@@ -175,7 +177,7 @@ export async function seedRBAC() {
     }
     console.log("✅ SUPERADMIN: All permissions mapped");
 
-    // CORPORATE_ADMIN: User management, store management, reports, audit view
+    // CORPORATE_ADMIN: User management, store management, transactions, reports, audit view
     const corporateAdminPermissions = [
       PERMISSIONS.USER_CREATE,
       PERMISSIONS.USER_READ,
@@ -186,6 +188,8 @@ export async function seedRBAC() {
       PERMISSIONS.STORE_UPDATE,
       PERMISSIONS.STORE_DELETE,
       PERMISSIONS.SHIFT_READ,
+      PERMISSIONS.TRANSACTION_CREATE,
+      PERMISSIONS.TRANSACTION_READ,
       PERMISSIONS.INVENTORY_READ,
       PERMISSIONS.INVENTORY_ORDER,
       PERMISSIONS.LOTTERY_REPORT,
@@ -216,14 +220,18 @@ export async function seedRBAC() {
     }
     console.log("✅ CORPORATE_ADMIN: Permissions mapped");
 
-    // STORE_MANAGER: Store operations, shifts, inventory, lottery, reports
+    // STORE_MANAGER: Store operations, shifts, transactions, inventory, lottery, reports
+    // CLIENT_DASHBOARD_ACCESS allows store managers to access the client dashboard
     const storeManagerPermissions = [
+      PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
       PERMISSIONS.USER_READ,
       PERMISSIONS.STORE_READ,
       PERMISSIONS.STORE_UPDATE,
       PERMISSIONS.SHIFT_OPEN,
       PERMISSIONS.SHIFT_CLOSE,
       PERMISSIONS.SHIFT_READ,
+      PERMISSIONS.TRANSACTION_CREATE,
+      PERMISSIONS.TRANSACTION_READ,
       PERMISSIONS.INVENTORY_READ,
       PERMISSIONS.INVENTORY_ADJUST,
       PERMISSIONS.INVENTORY_ORDER,
@@ -256,11 +264,15 @@ export async function seedRBAC() {
     }
     console.log("✅ STORE_MANAGER: Permissions mapped");
 
-    // SHIFT_MANAGER: Shift operations, lottery reconciliation, basic reports
+    // SHIFT_MANAGER: Shift operations, transactions, lottery reconciliation, basic reports
+    // CLIENT_DASHBOARD_ACCESS allows shift managers to access the client dashboard
     const shiftManagerPermissions = [
+      PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
       PERMISSIONS.SHIFT_OPEN,
       PERMISSIONS.SHIFT_CLOSE,
       PERMISSIONS.SHIFT_READ,
+      PERMISSIONS.TRANSACTION_CREATE,
+      PERMISSIONS.TRANSACTION_READ,
       PERMISSIONS.INVENTORY_READ,
       PERMISSIONS.LOTTERY_PACK_RECEIVE,
       PERMISSIONS.LOTTERY_SHIFT_RECONCILE,
@@ -289,9 +301,13 @@ export async function seedRBAC() {
     }
     console.log("✅ SHIFT_MANAGER: Permissions mapped");
 
-    // CASHIER: Read-only access and basic operations
+    // CASHIER: Transactions, read-only access and basic operations
+    // CLIENT_DASHBOARD_ACCESS allows cashiers to access the client dashboard
     const cashierPermissions = [
+      PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
       PERMISSIONS.SHIFT_READ,
+      PERMISSIONS.TRANSACTION_CREATE,
+      PERMISSIONS.TRANSACTION_READ,
       PERMISSIONS.INVENTORY_READ,
       PERMISSIONS.LOTTERY_REPORT,
       PERMISSIONS.REPORT_SHIFT,
@@ -317,7 +333,7 @@ export async function seedRBAC() {
     }
     console.log("✅ CASHIER: Permissions mapped");
 
-    // CLIENT_OWNER: Full access to their own companies, stores, employees, and reports
+    // CLIENT_OWNER: Full access to their own companies, stores, employees, transactions, and reports
     const clientOwnerPermissions = [
       PERMISSIONS.COMPANY_CREATE,
       PERMISSIONS.COMPANY_READ,
@@ -332,6 +348,7 @@ export async function seedRBAC() {
       PERMISSIONS.USER_UPDATE,
       PERMISSIONS.USER_DELETE,
       PERMISSIONS.SHIFT_READ,
+      PERMISSIONS.TRANSACTION_CREATE,
       PERMISSIONS.TRANSACTION_READ,
       PERMISSIONS.INVENTORY_READ,
       PERMISSIONS.INVENTORY_ADJUST,

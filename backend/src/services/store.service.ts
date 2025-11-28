@@ -296,10 +296,19 @@ export class StoreService {
     }
 
     try {
-      // Check if store exists and verify company isolation
+      // Check if store exists and get company info for validation
       const existingStore = await prisma.store.findUnique({
         where: {
           store_id: storeId,
+        },
+        include: {
+          company: {
+            select: {
+              company_id: true,
+              name: true,
+              status: true,
+            },
+          },
         },
       });
 
@@ -311,6 +320,18 @@ export class StoreService {
       if (existingStore.company_id !== userCompanyId) {
         throw new Error(
           "Forbidden: You can only update stores for your assigned company",
+        );
+      }
+
+      // Prevent activating a store if its company is inactive
+      if (
+        data.status === "ACTIVE" &&
+        existingStore.status !== "ACTIVE" &&
+        existingStore.company &&
+        existingStore.company.status !== "ACTIVE"
+      ) {
+        throw new Error(
+          `Cannot activate store because its company "${existingStore.company.name}" is ${existingStore.company.status}. Please activate the company first.`,
         );
       }
 

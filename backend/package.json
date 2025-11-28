@@ -10,7 +10,9 @@
     "start": "node dist/app.js",
     "start:test": "cross-env NODE_ENV=test node dist/app.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "bootstrap:admin": "npx ts-node scripts/bootstrap-admin.ts"
+    "bootstrap:admin": "npx ts-node scripts/bootstrap-admin.ts",
+    "worker:transaction": "tsx src/workers/transaction.worker.ts",
+    "worker:transaction:dev": "tsx watch src/workers/transaction.worker.ts"
   },
   "keywords": [],
   "author": "",

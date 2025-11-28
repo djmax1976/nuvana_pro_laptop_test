@@ -203,6 +203,16 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+      - name: Start transaction worker (if API tests needed)
+        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
+        run: |
+          cd backend && npm run worker:transaction > ../worker.log 2>&1 &
+          echo $! > ../worker.pid
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
+          REDIS_URL: redis://localhost:6379
+          RABBITMQ_URL: amqp://guest:guest@localhost:5672
       - name: Wait for backend health (if started)
         if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: |
@@ -230,26 +240,34 @@ jobs:
       - name: Scrub secrets from logs
         if: failure()
         run: |
-          if [ -f backend.log ]; then
-            sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' backend.log
-            sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' backend.log
-            sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' backend.log
-            sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' backend.log
-            sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' backend.log
-          fi
-      - name: Upload backend logs
+          for log_file in backend.log worker.log; do
+            if [ -f "$log_file" ]; then
+              sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' "$log_file"
+              sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' "$log_file"
+              sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' "$log_file"
+              sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' "$log_file"
+              sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' "$log_file"
+            fi
+          done
+      - name: Upload backend and worker logs
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: backend-logs-selective-tests
-          path: backend.log
+          path: |
+            backend.log
+            worker.log
           retention-days: 7
-      - name: Stop backend
+      - name: Stop backend and worker
         if: always()
         run: |
           if [ -f backend.pid ]; then
             kill $(cat backend.pid) 2>/dev/null || true
             rm -f backend.pid
+          fi
+          if [ -f worker.pid ]; then
+            kill $(cat worker.pid) 2>/dev/null || true
+            rm -f worker.pid
           fi
           # Extra cleanup: kill any remaining process on port 3001
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
@@ -332,12 +350,14 @@ jobs:
         run: |
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
-      - name: Start full stack (frontend and backend)
+      - name: Start full stack (frontend, backend, and worker)
         run: |
           npm run dev:frontend > frontend.log 2>&1 &
           echo $! > frontend.pid
           cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
+          cd backend && npm run worker:transaction > ../worker.log 2>&1 &
+          echo $! > ../worker.pid
         env:
           NODE_ENV: test
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
@@ -402,7 +422,7 @@ jobs:
       - name: Scrub secrets from logs
         if: failure()
         run: |
-          for log_file in frontend.log backend.log; do
+          for log_file in frontend.log backend.log worker.log; do
             if [ -f "$log_file" ]; then
               sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' "$log_file"
               sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' "$log_file"
@@ -419,6 +439,7 @@ jobs:
           path: |
             frontend.log
             backend.log
+            worker.log
           retention-days: 7
       - name: Stop full stack
         if: always()
@@ -426,6 +447,10 @@ jobs:
           if [ -f frontend.pid ]; then
             kill $(cat frontend.pid) 2>/dev/null || true
             rm -f frontend.pid
+          fi
+          if [ -f worker.pid ]; then
+            kill $(cat worker.pid) 2>/dev/null || true
+            rm -f worker.pid
           fi
           if [ -f backend.pid ]; then
             kill $(cat backend.pid) 2>/dev/null || true
@@ -467,6 +492,29 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    services:
+      postgres:
+        image: postgres:15.14
+        env:
+          POSTGRES_DB: nuvana_test
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
@@ -477,8 +525,25 @@ jobs:
             package-lock.json
             backend/package-lock.json
       - run: npm ci
+      - name: Install backend dependencies
+        run: cd backend && npm ci
+      - name: Generate Prisma Client (backend)
+        run: cd backend && npx prisma generate
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
+      - name: Run Prisma migrations
+        run: cd backend && npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
+      - name: Seed RBAC roles
+        run: npx tsx backend/src/db/seeds/rbac.seed.ts
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Run unit tests
         run: npm run test:unit -- --coverage
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
+          REDIS_URL: redis://localhost:6379
       - name: Upload unit coverage
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2

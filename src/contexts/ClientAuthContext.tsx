@@ -138,12 +138,20 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
             const validatedData = await response.json();
 
             // Check if user has client permissions
+            // Users with CLIENT_DASHBOARD_ACCESS permission, OR
+            // Users with CLIENT_USER/CLIENT_OWNER roles, OR
+            // Users with store-level roles (STORE_MANAGER, SHIFT_MANAGER, CASHIER)
             const hasClientAccess =
               validatedData.user.permissions?.includes(
                 "CLIENT_DASHBOARD_ACCESS",
               ) ||
               validatedData.user.roles?.some(
-                (r: string) => r === "CLIENT_USER" || r === "CLIENT_OWNER",
+                (r: string) =>
+                  r === "CLIENT_USER" ||
+                  r === "CLIENT_OWNER" ||
+                  r === "STORE_MANAGER" ||
+                  r === "SHIFT_MANAGER" ||
+                  r === "CASHIER",
               );
 
             if (!hasClientAccess) {
@@ -477,10 +485,16 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
 
+        // Check for client access via permission or store-level roles
         const hasClientAccess =
           data.user.permissions?.includes("CLIENT_DASHBOARD_ACCESS") ||
           data.user.roles?.some(
-            (r: string) => r === "CLIENT_USER" || r === "CLIENT_OWNER",
+            (r: string) =>
+              r === "CLIENT_USER" ||
+              r === "CLIENT_OWNER" ||
+              r === "STORE_MANAGER" ||
+              r === "SHIFT_MANAGER" ||
+              r === "CASHIER",
           );
 
         const userData: ClientUser = {

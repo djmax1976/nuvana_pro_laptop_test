@@ -137,10 +137,13 @@ export function permissionMiddleware(requiredPermission: PermissionCode) {
           request,
         );
 
-        // Return 403 Forbidden
+        // Return 403 Forbidden with standard API response format
         return reply.code(403).send({
-          error: "Forbidden",
-          message: `Permission denied: ${requiredPermission} is required`,
+          success: false,
+          error: {
+            code: "PERMISSION_DENIED",
+            message: `Permission denied: ${requiredPermission} is required`,
+          },
         });
       }
 
@@ -150,8 +153,11 @@ export function permissionMiddleware(requiredPermission: PermissionCode) {
       // If permission check fails, deny access
       console.error("Permission check error:", error);
       return reply.code(403).send({
-        error: "Forbidden",
-        message: "Permission check failed",
+        success: false,
+        error: {
+          code: "PERMISSION_DENIED",
+          message: "Permission check failed",
+        },
       });
     }
   };
@@ -195,8 +201,11 @@ export function requireAllPermissions(requiredPermissions: PermissionCode[]) {
         if (!hasPermission) {
           await logPermissionDenial(userId, permission, resource, request);
           return reply.code(403).send({
-            error: "Forbidden",
-            message: `Permission denied: ${permission} is required`,
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: `Permission denied: ${permission} is required`,
+            },
           });
         }
       }
@@ -205,8 +214,11 @@ export function requireAllPermissions(requiredPermissions: PermissionCode[]) {
     } catch (error) {
       console.error("Permission check error:", error);
       return reply.code(403).send({
-        error: "Forbidden",
-        message: "Permission check failed",
+        success: false,
+        error: {
+          code: "PERMISSION_DENIED",
+          message: "Permission check failed",
+        },
       });
     }
   };
@@ -270,8 +282,11 @@ export function requireAnyPermission(requiredPermissions: PermissionCode[]) {
           request,
         );
         return reply.code(403).send({
-          error: "Forbidden",
-          message: `Permission denied: One of [${requiredPermissions.join(", ")}] is required`,
+          success: false,
+          error: {
+            code: "PERMISSION_DENIED",
+            message: `Permission denied: One of [${requiredPermissions.join(", ")}] is required`,
+          },
         });
       }
 
@@ -279,8 +294,11 @@ export function requireAnyPermission(requiredPermissions: PermissionCode[]) {
     } catch (error) {
       console.error("Permission check error:", error);
       return reply.code(403).send({
-        error: "Forbidden",
-        message: "Permission check failed",
+        success: false,
+        error: {
+          code: "PERMISSION_DENIED",
+          message: "Permission check failed",
+        },
       });
     }
   };

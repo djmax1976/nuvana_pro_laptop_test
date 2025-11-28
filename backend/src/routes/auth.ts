@@ -110,6 +110,34 @@ export async function authRoutes(fastify: FastifyInstance) {
           maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
         });
 
+        // Determine if user should access client dashboard
+        // A user is a client user if:
+        // 1. They have is_client_user = true in database, OR
+        // 2. They have COMPANY or STORE scope roles (CLIENT_OWNER, STORE_MANAGER, etc.)
+        // This ensures employees created before the is_client_user fix still work
+        let isClientUser = user.is_client_user;
+
+        if (!isClientUser) {
+          // Check if user has any COMPANY or STORE scope roles
+          const userRoles = await prisma.userRole.findMany({
+            where: { user_id: user.user_id },
+            include: { role: { select: { scope: true } } },
+          });
+
+          const hasClientRole = userRoles.some(
+            (ur) => ur.role.scope === "COMPANY" || ur.role.scope === "STORE",
+          );
+
+          if (hasClientRole) {
+            isClientUser = true;
+            // Update the database to fix the is_client_user flag for future logins
+            await prisma.user.update({
+              where: { user_id: user.user_id },
+              data: { is_client_user: true },
+            });
+          }
+        }
+
         // Return success response with user data (including is_client_user for routing)
         reply.code(200);
         return {
@@ -118,7 +146,7 @@ export async function authRoutes(fastify: FastifyInstance) {
             id: user.user_id,
             email: user.email,
             name: user.name,
-            is_client_user: user.is_client_user,
+            is_client_user: isClientUser,
           },
         };
       } catch (error) {

@@ -304,6 +304,209 @@ test.describe("2.4-E2E: Company Status Management", () => {
   });
 });
 
+test.describe("2.4-E2E: Company List - Sorting", () => {
+  test("2.4-E2E-040: [P1] Should sort companies by all sortable columns", async ({
+    superadminPage,
+    prismaClient,
+  }) => {
+    // GIVEN: Multiple companies exist with diverse values for each sortable column
+    // Create multiple owner users with different names for sorting
+    const ownerUser1 = await prismaClient.user.create({
+      data: createUserFactory({ name: "Alice Owner" }),
+    });
+    const ownerUser2 = await prismaClient.user.create({
+      data: createUserFactory({ name: "Bob Owner" }),
+    });
+    const ownerUser3 = await prismaClient.user.create({
+      data: createUserFactory({ name: "Charlie Owner" }),
+    });
+    const ownerUser4 = await prismaClient.user.create({
+      data: createUserFactory({ name: "David Owner" }),
+    });
+
+    // Create companies with diverse values:
+    // - Different names (for Name column sorting)
+    // - Different statuses (for Status column sorting)
+    // - Different owner_user_id values (for Owner column sorting)
+    // - Different created_at timestamps (for Created At column sorting)
+    const baseTime = new Date("2024-01-01T00:00:00Z");
+
+    const company1 = await createCompany(prismaClient, {
+      name: "Alpha Company",
+      status: "ACTIVE",
+      owner_user_id: ownerUser1.user_id,
+    });
+    // Set explicit created_at for this company
+    await prismaClient.company.update({
+      where: { company_id: company1.company_id },
+      data: { created_at: new Date(baseTime.getTime() + 1000) },
+    });
+
+    const company2 = await createCompany(prismaClient, {
+      name: "Beta Company",
+      status: "INACTIVE",
+      owner_user_id: ownerUser2.user_id,
+    });
+    await prismaClient.company.update({
+      where: { company_id: company2.company_id },
+      data: { created_at: new Date(baseTime.getTime() + 2000) },
+    });
+
+    const company3 = await createCompany(prismaClient, {
+      name: "Zeta Company",
+      status: "ACTIVE",
+      owner_user_id: ownerUser3.user_id,
+    });
+    await prismaClient.company.update({
+      where: { company_id: company3.company_id },
+      data: { created_at: new Date(baseTime.getTime() + 3000) },
+    });
+
+    const company4 = await createCompany(prismaClient, {
+      name: "Gamma Company",
+      status: "INACTIVE",
+      owner_user_id: ownerUser4.user_id,
+    });
+    await prismaClient.company.update({
+      where: { company_id: company4.company_id },
+      data: { created_at: new Date(baseTime.getTime() + 4000) },
+    });
+
+    // WHEN: Navigating to the company list page
+    await superadminPage.goto("/companies");
+    await superadminPage.waitForSelector("text=Companies");
+
+    // THEN: All sortable columns should support ascending/descending sorting
+    const columnsToTest = [
+      "Owner",
+      "Name",
+      "Status",
+      "Created At",
+      "Updated At",
+    ];
+
+    // Helper function to get column index from header text
+    const getColumnIndex = async (columnName: string): Promise<number> => {
+      const headersLocator = superadminPage.locator("thead th");
+      const headersCount = await headersLocator.count();
+      for (let i = 0; i < headersCount; i++) {
+        // Use nth() to access by index (avoids object injection lint warning)
+        const headerText = await headersLocator.nth(i).textContent();
+        if (headerText?.trim().includes(columnName)) {
+          return i;
+        }
+      }
+      throw new Error(`Column "${columnName}" not found`);
+    };
+
+    // Helper function to extract cell values for a column from all tbody rows
+    const getColumnCellValues = async (
+      columnIndex: number,
+      columnName: string,
+    ): Promise<string[]> => {
+      const rows = await superadminPage.locator("tbody tr").all();
+      const values: string[] = [];
+
+      for (const row of rows) {
+        const cells = await row.locator("td").all();
+        if (cells.length > columnIndex) {
+          let cellText: string;
+          // Use nth() to access cell by index (avoids object injection lint warning)
+          const cell = row.locator("td").nth(columnIndex);
+
+          if (columnName === "Owner") {
+            // Owner column has nested structure: get the owner name (first div with font-medium)
+            const ownerNameElement = cell.locator(".font-medium").first();
+            cellText = (await ownerNameElement.textContent()) || "";
+          } else if (columnName === "Status") {
+            // Status column has a badge component
+            cellText = (await cell.textContent()) || "";
+          } else {
+            // Other columns: get direct text content
+            cellText = (await cell.textContent()) || "";
+          }
+
+          // Normalize/trim the text
+          values.push(cellText.trim());
+        }
+      }
+
+      return values;
+    };
+
+    for (const columnName of columnsToTest) {
+      const header = superadminPage
+        .locator("th")
+        .filter({ hasText: columnName });
+      await expect(header).toBeVisible({ timeout: 10000 });
+
+      // Verify header is clickable (has cursor-pointer class)
+      await expect(header).toHaveClass(/cursor-pointer/);
+
+      // Verify an SVG sort icon exists in header
+      const sortIcon = header.locator("svg");
+      await expect(sortIcon).toBeVisible({ timeout: 5000 });
+
+      // Get column index for this column
+      const columnIndex = await getColumnIndex(columnName);
+
+      // Capture baseline/default order before any clicks
+      const baselineValues = await getColumnCellValues(columnIndex, columnName);
+      const baselineSorted = [...baselineValues].sort((a, b) => {
+        // Handle date columns differently
+        if (columnName === "Created At" || columnName === "Updated At") {
+          // Parse dates for comparison
+          const dateA = new Date(a);
+          const dateB = new Date(b);
+          return dateA.getTime() - dateB.getTime();
+        }
+        // Case-insensitive string comparison
+        return a.localeCompare(b, undefined, { sensitivity: "base" });
+      });
+
+      // Click to sort ascending
+      await header.click();
+      await superadminPage.waitForLoadState("networkidle");
+
+      // Verify sort icon still visible after click
+      await expect(sortIcon).toBeVisible();
+
+      // Collect column cell values and verify ascending order
+      const ascendingValues = await getColumnCellValues(
+        columnIndex,
+        columnName,
+      );
+      expect(ascendingValues).toEqual(baselineSorted);
+
+      // Click again to sort descending
+      await header.click();
+      await superadminPage.waitForLoadState("networkidle");
+
+      // Verify sort icon still visible
+      await expect(sortIcon).toBeVisible();
+
+      // Collect column cell values and verify descending order
+      const descendingValues = await getColumnCellValues(
+        columnIndex,
+        columnName,
+      );
+      const expectedDescending = [...baselineSorted].reverse();
+      expect(descendingValues).toEqual(expectedDescending);
+
+      // Click again to clear sort (return to default)
+      await header.click();
+      await superadminPage.waitForLoadState("networkidle");
+
+      // Verify sort icon still visible (neutral state)
+      await expect(sortIcon).toBeVisible();
+
+      // Collect column cell values and verify returned to baseline/default order
+      const defaultValues = await getColumnCellValues(columnIndex, columnName);
+      expect(defaultValues).toEqual(baselineValues);
+    }
+  });
+});
+
 test.describe("2.4-E2E: Company List - Stores Relationship", () => {
   test("2.4-E2E-030: [P1] Company with stores should show store count or navigate to stores", async ({
     superadminPage,
