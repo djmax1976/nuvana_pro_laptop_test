@@ -36,6 +36,7 @@ import { Loader2 } from "lucide-react";
 
 /**
  * Zod schema for employee creation form
+ * Password requirements match admin user creation for consistency
  */
 const employeeFormSchema = z.object({
   email: z
@@ -50,6 +51,17 @@ const employeeFormSchema = z.object({
     .refine((val) => val.trim().length > 0, {
       message: "Name cannot be whitespace only",
     }),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(255, "Password cannot exceed 255 characters")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+    .regex(/[0-9]/, "Password must contain at least one number")
+    .regex(
+      /[^A-Za-z0-9]/,
+      "Password must contain at least one special character",
+    ),
   store_id: z.string().min(1, "Store is required"),
   role_id: z.string().min(1, "Role is required"),
 });
@@ -80,6 +92,7 @@ export function EmployeeForm({ onSuccess, onCancel }: EmployeeFormProps) {
     defaultValues: {
       email: "",
       name: "",
+      password: "",
       store_id: "",
       role_id: "",
     },
@@ -153,6 +166,31 @@ export function EmployeeForm({ onSuccess, onCancel }: EmployeeFormProps) {
                   {...field}
                 />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Password Field */}
+        <FormField
+          control={form.control}
+          name="password"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Password</FormLabel>
+              <FormControl>
+                <Input
+                  type="password"
+                  placeholder="Enter a secure password"
+                  disabled={isSubmitting}
+                  data-testid="employee-password"
+                  {...field}
+                />
+              </FormControl>
+              <FormDescription>
+                Must be at least 8 characters with uppercase, lowercase, number,
+                and special character
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}

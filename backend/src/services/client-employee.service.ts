@@ -244,6 +244,7 @@ export class ClientEmployeeService {
       const result = await prisma.$transaction(
         async (tx: Prisma.TransactionClient) => {
           // Create user
+          // Employees created by clients ARE client users - they access client dashboard
           const user = await tx.user.create({
             data: {
               public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
@@ -251,7 +252,7 @@ export class ClientEmployeeService {
               name: data.name.trim(),
               password_hash: passwordHash,
               status: "ACTIVE",
-              is_client_user: false, // Employees are not client users
+              is_client_user: true, // Employees access the client dashboard
             },
           });
 

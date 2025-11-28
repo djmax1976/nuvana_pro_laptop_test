@@ -51,7 +51,7 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
 
         // Get companies owned by this user with store counts
         // RLS policies will filter to only show owned companies
-        const companies = await prisma.company.findMany({
+        const ownedCompanies = await prisma.company.findMany({
           where: {
             owner_user_id: user.id,
           },
@@ -70,13 +70,65 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
           orderBy: { name: "asc" },
         });
 
-        // Get stores within owned companies
-        const companyIds = companies.map(
+        // Also get stores where user is assigned via user_roles (for store employees)
+        // This allows STORE_MANAGER, CASHIER, etc. to see their assigned stores
+        const userRoleAssignments = await prisma.userRole.findMany({
+          where: {
+            user_id: user.id,
+            store_id: { not: null },
+          },
+          select: {
+            store_id: true,
+            company_id: true,
+          },
+        });
+
+        const assignedStoreIds = userRoleAssignments
+          .filter((r) => r.store_id !== null)
+          .map((r) => r.store_id as string);
+
+        const assignedCompanyIds = userRoleAssignments
+          .filter((r) => r.company_id !== null)
+          .map((r) => r.company_id as string);
+
+        // Get companies the user is assigned to (not owned)
+        const assignedCompanies = await prisma.company.findMany({
+          where: {
+            company_id: {
+              in: assignedCompanyIds.filter(
+                (id) => !ownedCompanies.some((c) => c.company_id === id),
+              ),
+            },
+          },
+          select: {
+            company_id: true,
+            name: true,
+            address: true,
+            status: true,
+            created_at: true,
+            _count: {
+              select: {
+                stores: true,
+              },
+            },
+          },
+          orderBy: { name: "asc" },
+        });
+
+        // Combine owned and assigned companies
+        const companies = [...ownedCompanies, ...assignedCompanies];
+
+        // Get stores: either from owned companies OR assigned via user_roles
+        const ownedCompanyIds = ownedCompanies.map(
           (c: { company_id: string }) => c.company_id,
         );
+
         const stores = await prisma.store.findMany({
           where: {
-            company_id: { in: companyIds },
+            OR: [
+              { company_id: { in: ownedCompanyIds } },
+              { store_id: { in: assignedStoreIds } },
+            ],
           },
           select: {
             store_id: true,
@@ -95,36 +147,48 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
           orderBy: { name: "asc" },
         });
 
-        // Calculate stats
-        const activeStores = stores.filter(
+        // Deduplicate stores (in case user owns company AND is assigned to store)
+        const uniqueStores = stores.filter(
+          (store, index, self) =>
+            index === self.findIndex((s) => s.store_id === store.store_id),
+        );
+
+        // Use companyIds for all accessible companies
+        const companyIds = companies.map(
+          (c: { company_id: string }) => c.company_id,
+        );
+
+        // Calculate stats using deduplicated stores
+        const activeStores = uniqueStores.filter(
           (s: { status: string }) => s.status === "ACTIVE",
         ).length;
 
         // Count employees in stores (users with role assignments to these stores)
-        // Exclude the owner user themselves from the count
+        // Exclude the current user themselves from the count
         // Use groupBy to count distinct user_ids (not role rows) to avoid double-counting
+        const storeIdsForCount = uniqueStores.map(
+          (s: { store_id: string }) => s.store_id,
+        );
         const employeeRoles = await prisma.userRole.groupBy({
           by: ["user_id"],
           where: {
             user_id: { not: user.id },
             OR: [
               { company_id: { in: companyIds } },
-              {
-                store_id: {
-                  in: stores.map((s: { store_id: string }) => s.store_id),
-                },
-              },
+              { store_id: { in: storeIdsForCount } },
             ],
           },
         });
         const employeeCount = employeeRoles.length;
 
-        // Count today's transactions across all owned stores
+        // Count today's transactions across all accessible stores
         // Uses per-store timezone-aware "today" calculation:
         // For each store, calculates local midnight to next midnight in the store's timezone,
         // converts those boundaries to UTC, then queries transactions within that UTC interval.
         // Stores are batched by timezone for efficiency. Falls back to UTC if timezone is missing/invalid.
-        const storeIds = stores.map((s: { store_id: string }) => s.store_id);
+        const storeIds = uniqueStores.map(
+          (s: { store_id: string }) => s.store_id,
+        );
         let todayTransactionCount = 0;
 
         if (storeIds.length > 0) {
@@ -135,7 +199,7 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
           >();
           const storesWithoutTimezone: Array<{ store_id: string }> = [];
 
-          for (const store of stores) {
+          for (const store of uniqueStores) {
             const timezone = store.timezone;
             if (timezone && isValidTimezone(timezone)) {
               if (!storesByTimezone.has(timezone)) {
@@ -245,7 +309,7 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
               store_count: c._count.stores,
             }),
           ),
-          stores: stores.map(
+          stores: uniqueStores.map(
             (s: {
               store_id: string;
               company_id: string;
@@ -271,7 +335,7 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
           ),
           stats: {
             total_companies: companies.length,
-            total_stores: stores.length,
+            total_stores: uniqueStores.length,
             active_stores: activeStores,
             total_employees: employeeCount,
             today_transactions: todayTransactionCount,

@@ -30,7 +30,7 @@ const prisma = new PrismaClient();
 /**
  * Worker configuration
  */
-const WORKER_CONFIG = {
+const WORKER_CONFIG = Object.freeze({
   /** Maximum retry attempts before dead-lettering */
   MAX_RETRIES: 5,
   /** Base delay for exponential backoff (ms) */
@@ -39,7 +39,7 @@ const WORKER_CONFIG = {
   PREFETCH_COUNT: 1,
   /** Cache key pattern for shift summaries */
   SHIFT_CACHE_PATTERN: "shift:summary:",
-} as const;
+} as const);
 
 /**
  * Worker state for tracking
@@ -188,6 +188,7 @@ async function validateShift(
 
 /**
  * Create transaction records in database atomically
+ * Idempotent: returns existing transaction_id if transaction already exists
  */
 async function createTransactionRecords(
   payload: TransactionPayload,
@@ -203,23 +204,67 @@ async function createTransactionRecords(
   const publicId = generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION);
 
   // Create all records in a single Prisma transaction
-  await prisma.$transaction(async (tx) => {
-    // Create Transaction record
-    await tx.transaction.create({
-      data: {
-        transaction_id: transactionId,
-        store_id: payload.store_id,
-        shift_id: payload.shift_id,
-        cashier_id: payload.cashier_id || userId, // Use payload cashier_id or user_id
-        pos_terminal_id: payload.pos_terminal_id || null,
-        timestamp: payload.timestamp ? new Date(payload.timestamp) : new Date(),
-        subtotal: new Prisma.Decimal(payload.subtotal),
-        tax: new Prisma.Decimal(payload.tax),
-        discount: new Prisma.Decimal(payload.discount),
-        total: new Prisma.Decimal(total),
-        public_id: publicId,
-      },
+  const resultTransactionId = await prisma.$transaction(async (tx) => {
+    // Check if transaction already exists (idempotency check)
+    const existingTransaction = await tx.transaction.findUnique({
+      where: { transaction_id: transactionId },
+      select: { transaction_id: true },
     });
+
+    if (existingTransaction) {
+      // Transaction already exists - return early (idempotent behavior)
+      logWorker("info", "Transaction already exists, skipping creation", {
+        correlation_id: correlationId,
+        transaction_id: transactionId,
+      });
+      return transactionId;
+    }
+
+    // Transaction doesn't exist - create it
+    try {
+      await tx.transaction.create({
+        data: {
+          transaction_id: transactionId,
+          store_id: payload.store_id,
+          shift_id: payload.shift_id,
+          cashier_id: payload.cashier_id || userId, // Use payload cashier_id or user_id
+          pos_terminal_id: payload.pos_terminal_id || null,
+          timestamp: payload.timestamp
+            ? new Date(payload.timestamp)
+            : new Date(),
+          subtotal: new Prisma.Decimal(payload.subtotal),
+          tax: new Prisma.Decimal(payload.tax),
+          discount: new Prisma.Decimal(payload.discount),
+          total: new Prisma.Decimal(total),
+          public_id: publicId,
+        },
+      });
+    } catch (error) {
+      // Handle unique constraint violation (race condition fallback)
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        // Unique constraint violation - transaction was created by another process
+        logWorker("warn", "Transaction creation race condition detected", {
+          correlation_id: correlationId,
+          transaction_id: transactionId,
+          error_code: error.code,
+        });
+        // Verify the transaction exists and return its id
+        const raceConditionTransaction = await tx.transaction.findUnique({
+          where: { transaction_id: transactionId },
+          select: { transaction_id: true },
+        });
+        if (raceConditionTransaction) {
+          return transactionId;
+        }
+        // If still not found, rethrow the error
+        throw error;
+      }
+      // Rethrow non-unique-constraint errors
+      throw error;
+    }
 
     // Create TransactionLineItem records
     const lineItemPromises = payload.line_items.map((item) => {
@@ -251,17 +296,19 @@ async function createTransactionRecords(
     );
 
     await Promise.all([...lineItemPromises, ...paymentPromises]);
+
+    return transactionId;
   });
 
   logWorker("info", "Transaction records created successfully", {
     correlation_id: correlationId,
-    transaction_id: transactionId,
+    transaction_id: resultTransactionId,
     public_id: publicId,
     line_items_count: payload.line_items.length,
     payments_count: payload.payments.length,
   });
 
-  return transactionId;
+  return resultTransactionId;
 }
 
 /**

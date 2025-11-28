@@ -221,7 +221,9 @@ export async function seedRBAC() {
     console.log("✅ CORPORATE_ADMIN: Permissions mapped");
 
     // STORE_MANAGER: Store operations, shifts, transactions, inventory, lottery, reports
+    // CLIENT_DASHBOARD_ACCESS allows store managers to access the client dashboard
     const storeManagerPermissions = [
+      PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
       PERMISSIONS.USER_READ,
       PERMISSIONS.STORE_READ,
       PERMISSIONS.STORE_UPDATE,
@@ -263,7 +265,9 @@ export async function seedRBAC() {
     console.log("✅ STORE_MANAGER: Permissions mapped");
 
     // SHIFT_MANAGER: Shift operations, transactions, lottery reconciliation, basic reports
+    // CLIENT_DASHBOARD_ACCESS allows shift managers to access the client dashboard
     const shiftManagerPermissions = [
+      PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
       PERMISSIONS.SHIFT_OPEN,
       PERMISSIONS.SHIFT_CLOSE,
       PERMISSIONS.SHIFT_READ,
@@ -298,7 +302,9 @@ export async function seedRBAC() {
     console.log("✅ SHIFT_MANAGER: Permissions mapped");
 
     // CASHIER: Transactions, read-only access and basic operations
+    // CLIENT_DASHBOARD_ACCESS allows cashiers to access the client dashboard
     const cashierPermissions = [
+      PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
       PERMISSIONS.SHIFT_READ,
       PERMISSIONS.TRANSACTION_CREATE,
       PERMISSIONS.TRANSACTION_READ,

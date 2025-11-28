@@ -242,16 +242,24 @@ export class UserAdminService {
               );
             }
 
-            // For CLIENT_OWNER role, we don't need company_id in user_roles
-            // The ownership is tracked via company.owner_user_id
+            // Determine company_id for the user role
+            // For CLIENT_OWNER with a newly created company, link to that company
+            // This ensures the company shows in the users list
+            let companyIdForRole: string | null = null;
+            if (roleAssignment.scope_type !== "SYSTEM") {
+              if (role.code === "CLIENT_OWNER" && createdCompany) {
+                // Link CLIENT_OWNER to their newly created company
+                companyIdForRole = createdCompany.company_id;
+              } else {
+                companyIdForRole = roleAssignment.company_id || null;
+              }
+            }
+
             await tx.userRole.create({
               data: {
                 user_id: user.user_id,
                 role_id: roleAssignment.role_id,
-                company_id:
-                  roleAssignment.scope_type === "SYSTEM"
-                    ? null
-                    : roleAssignment.company_id,
+                company_id: companyIdForRole,
                 store_id:
                   roleAssignment.scope_type === "STORE"
                     ? roleAssignment.store_id
@@ -860,8 +868,34 @@ export class UserAdminService {
           (c: any) => c.status === "ACTIVE",
         );
         if (activeCompanies.length > 0) {
+          const companyNames = activeCompanies
+            .map((c: any) => c.name)
+            .join(", ");
           throw new Error(
-            `Cannot delete user with ${activeCompanies.length} active company/companies. Deactivate all companies first.`,
+            `Cannot delete user with ${activeCompanies.length} active company/companies (${companyNames}). Deactivate all companies first.`,
+          );
+        }
+
+        // Check for active stores under ANY owned company (even if company is inactive)
+        const activeStores: Array<{ name: string; companyName: string }> = [];
+        for (const company of existingUser.owned_companies) {
+          const companyStores = company.stores || [];
+          for (const store of companyStores) {
+            if (store.status === "ACTIVE") {
+              activeStores.push({
+                name: store.name,
+                companyName: company.name,
+              });
+            }
+          }
+        }
+
+        if (activeStores.length > 0) {
+          const storeList = activeStores
+            .map((s) => `${s.name} (${s.companyName})`)
+            .join(", ");
+          throw new Error(
+            `Cannot delete user with ${activeStores.length} active store(s): ${storeList}. Deactivate all stores first.`,
           );
         }
       }
@@ -967,7 +1001,8 @@ export class UserAdminService {
         error instanceof Error &&
         (error.message.includes("not found") ||
           error.message.includes("ACTIVE user") ||
-          error.message.includes("active company"))
+          error.message.includes("active company") ||
+          error.message.includes("active store"))
       ) {
         throw error;
       }

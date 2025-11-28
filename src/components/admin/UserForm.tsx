@@ -3,7 +3,8 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useCreateUser, useRoles } from "@/lib/api/admin-users";
+import { useCreateUser, useRoles, adminUserKeys } from "@/lib/api/admin-users";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -78,6 +79,7 @@ type UserFormValues = z.infer<typeof userFormSchema>;
 export function UserForm() {
   const router = useRouter();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const createUserMutation = useCreateUser();
   const { data: rolesData, isLoading: rolesLoading } = useRoles();
 
@@ -163,6 +165,9 @@ export function UserForm() {
       }
 
       await createUserMutation.mutateAsync(payload);
+
+      // Invalidate user list cache BEFORE navigating to ensure fresh data
+      await queryClient.invalidateQueries({ queryKey: adminUserKeys.lists() });
 
       toast({
         title: "User created",

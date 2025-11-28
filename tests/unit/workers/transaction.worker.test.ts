@@ -45,11 +45,23 @@ describe("WORKER_CONFIG - Configuration Constants", () => {
   });
 
   it("should be immutable (const assertion)", () => {
-    // Verify the config object exists and has expected shape
-    expect(WORKER_CONFIG).toHaveProperty("MAX_RETRIES");
-    expect(WORKER_CONFIG).toHaveProperty("BASE_RETRY_DELAY");
-    expect(WORKER_CONFIG).toHaveProperty("PREFETCH_COUNT");
-    expect(WORKER_CONFIG).toHaveProperty("SHIFT_CACHE_PATTERN");
+    // Verify runtime immutability using Object.isFrozen
+    expect(Object.isFrozen(WORKER_CONFIG)).toBe(true);
+
+    // Verify that attempting to modify properties throws in strict mode
+    // (Object.freeze causes TypeError when modifying in strict mode)
+    expect(() => {
+      (WORKER_CONFIG as any).MAX_RETRIES = 999;
+    }).toThrow(TypeError);
+
+    // Verify that attempting to add new properties throws in strict mode
+    expect(() => {
+      (WORKER_CONFIG as any).NEW_PROPERTY = "test";
+    }).toThrow(TypeError);
+
+    // Verify the original values are still intact
+    expect(WORKER_CONFIG.MAX_RETRIES).toBe(5);
+    expect((WORKER_CONFIG as any).NEW_PROPERTY).toBeUndefined();
   });
 });
 
