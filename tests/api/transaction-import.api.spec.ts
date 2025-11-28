@@ -124,16 +124,17 @@ test.describe("Transaction Import API - Authentication", () => {
   });
 
   test("3.2-API-003: [P0] should return 403 when user lacks TRANSACTION_CREATE permission", async ({
-    corporateAdminApiRequest,
-    corporateAdminUser,
+    storeManagerApiRequest,
+    storeManagerUser,
     prismaClient,
   }) => {
     // GIVEN: A user without TRANSACTION_CREATE permission
-    // Note: corporateAdminUser has permissions, we need to test with restricted user
+    // storeManagerUser has: STORE_READ, SHIFT_OPEN, SHIFT_CLOSE, INVENTORY_READ
+    // storeManagerUser does NOT have: TRANSACTION_CREATE
     const { store, shift } = await createTestStoreAndShift(
       prismaClient,
-      corporateAdminUser.company_id,
-      corporateAdminUser.user_id,
+      storeManagerUser.company_id,
+      storeManagerUser.user_id,
     );
 
     const payload = createTransactionPayload({
@@ -142,19 +143,19 @@ test.describe("Transaction Import API - Authentication", () => {
     });
 
     // WHEN: User without TRANSACTION_CREATE permission sends request
-    // For this test, we're testing the endpoint exists and checks permissions
-    const response = await corporateAdminApiRequest.post(
+    const response = await storeManagerApiRequest.post(
       "/api/transactions",
       payload,
     );
 
-    // THEN: Should check permissions (endpoint may not exist yet - will fail as expected)
-    // When implemented, users without permission should get 403
-    // Note: 400 is acceptable if endpoint exists but payload validation fails
+    // THEN: Should return 403 Forbidden (permission denied)
     expect(
-      [400, 403, 404],
-      "Should return 400 (bad request), 403 (permission denied), or 404 (endpoint not found)",
-    ).toContain(response.status());
+      response.status(),
+      "Should return 403 for user without TRANSACTION_CREATE permission",
+    ).toBe(403);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("PERMISSION_DENIED");
   });
 
   test("3.2-API-004: [P0] should return 403 when store_id is not accessible to user", async ({
