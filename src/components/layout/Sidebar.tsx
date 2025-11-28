@@ -14,6 +14,7 @@ import {
   Ticket,
   BarChart3,
   Bot,
+  Shield,
 } from "lucide-react";
 
 interface NavItem {
@@ -36,6 +37,12 @@ const allNavItems: NavItemWithRole[] = [
     title: "Users",
     href: "/admin/users",
     icon: UserCog,
+    roles: ["SYSTEM_ADMIN"], // System Admin only - ADMIN_SYSTEM_CONFIG permission
+  },
+  {
+    title: "Roles",
+    href: "/admin/roles",
+    icon: Shield,
     roles: ["SYSTEM_ADMIN"], // System Admin only - ADMIN_SYSTEM_CONFIG permission
   },
   {

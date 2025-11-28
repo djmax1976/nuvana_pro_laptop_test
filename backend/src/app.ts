@@ -22,6 +22,8 @@ import { contactRoutes } from "./routes/contact";
 import { adminUserRoutes } from "./routes/admin-users";
 import { clientDashboardRoutes } from "./routes/client-dashboard";
 import { clientEmployeeRoutes } from "./routes/client-employees";
+import { clientRoleRoutes } from "./routes/client-roles";
+import { adminRolesRoutes } from "./routes/admin-roles";
 import { rlsPlugin } from "./middleware/rls.middleware";
 
 // Load environment variables
@@ -137,11 +139,17 @@ app.register(adminRoutes);
 // Register admin user management routes
 app.register(adminUserRoutes);
 
+// Register admin role management routes (Super Admin only)
+app.register(adminRolesRoutes);
+
 // Register client dashboard routes
 app.register(clientDashboardRoutes);
 
 // Register client employee management routes
 app.register(clientEmployeeRoutes);
+
+// Register client role permission management routes
+app.register(clientRoleRoutes);
 
 // Root endpoint - API information and status
 app.get("/", async () => {

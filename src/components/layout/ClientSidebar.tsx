@@ -9,6 +9,7 @@ import {
   Package,
   Ticket,
   Users,
+  Shield,
   BarChart3,
   Bot,
 } from "lucide-react";
@@ -51,6 +52,11 @@ const clientNavItems: NavItem[] = [
     title: "Employees",
     href: "/client-dashboard/employees",
     icon: Users,
+  },
+  {
+    title: "Roles & Permissions",
+    href: "/client-dashboard/roles",
+    icon: Shield,
   },
   {
     title: "Reports",

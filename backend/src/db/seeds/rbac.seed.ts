@@ -46,12 +46,14 @@ export async function seedRBAC() {
         scope: "SYSTEM",
         description:
           "System administrator with full access to all resources and operations",
+        is_system_role: true,
       },
       create: {
         code: "SUPERADMIN",
         scope: "SYSTEM",
         description:
           "System administrator with full access to all resources and operations",
+        is_system_role: true,
       },
     });
 
@@ -62,12 +64,14 @@ export async function seedRBAC() {
         scope: "COMPANY",
         description:
           "Corporate administrator with full access to company and store management",
+        is_system_role: true,
       },
       create: {
         code: "CORPORATE_ADMIN",
         scope: "COMPANY",
         description:
           "Corporate administrator with full access to company and store management",
+        is_system_role: true,
       },
     });
 
@@ -78,12 +82,14 @@ export async function seedRBAC() {
         scope: "STORE",
         description:
           "Store manager with full access to store operations and management",
+        is_system_role: true,
       },
       create: {
         code: "STORE_MANAGER",
         scope: "STORE",
         description:
           "Store manager with full access to store operations and management",
+        is_system_role: true,
       },
     });
 
@@ -94,12 +100,14 @@ export async function seedRBAC() {
         scope: "STORE",
         description:
           "Shift manager with access to shift operations and lottery reconciliation",
+        is_system_role: true,
       },
       create: {
         code: "SHIFT_MANAGER",
         scope: "STORE",
         description:
           "Shift manager with access to shift operations and lottery reconciliation",
+        is_system_role: true,
       },
     });
 
@@ -110,12 +118,14 @@ export async function seedRBAC() {
         scope: "STORE",
         description:
           "Cashier with read-only access and transaction processing capabilities",
+        is_system_role: true,
       },
       create: {
         code: "CASHIER",
         scope: "STORE",
         description:
           "Cashier with read-only access and transaction processing capabilities",
+        is_system_role: true,
       },
     });
 
@@ -126,12 +136,14 @@ export async function seedRBAC() {
         scope: "COMPANY",
         description:
           "Client owner with full access to manage their companies, stores, and employees",
+        is_system_role: true,
       },
       create: {
         code: "CLIENT_OWNER",
         scope: "COMPANY",
         description:
           "Client owner with full access to manage their companies, stores, and employees",
+        is_system_role: true,
       },
     });
 
@@ -142,12 +154,14 @@ export async function seedRBAC() {
         scope: "COMPANY",
         description:
           "Client user with read-only access to view owned companies and stores",
+        is_system_role: true,
       },
       create: {
         code: "CLIENT_USER",
         scope: "COMPANY",
         description:
           "Client user with read-only access to view owned companies and stores",
+        is_system_role: true,
       },
     });
 
@@ -224,6 +238,9 @@ export async function seedRBAC() {
     // CLIENT_DASHBOARD_ACCESS allows store managers to access the client dashboard
     const storeManagerPermissions = [
       PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
+      PERMISSIONS.CLIENT_EMPLOYEE_CREATE,
+      PERMISSIONS.CLIENT_EMPLOYEE_READ,
+      PERMISSIONS.CLIENT_EMPLOYEE_DELETE,
       PERMISSIONS.USER_READ,
       PERMISSIONS.STORE_READ,
       PERMISSIONS.STORE_UPDATE,
@@ -266,8 +283,10 @@ export async function seedRBAC() {
 
     // SHIFT_MANAGER: Shift operations, transactions, lottery reconciliation, basic reports
     // CLIENT_DASHBOARD_ACCESS allows shift managers to access the client dashboard
+    // CLIENT_EMPLOYEE_READ allows viewing employees (read-only for shift managers)
     const shiftManagerPermissions = [
       PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
+      PERMISSIONS.CLIENT_EMPLOYEE_READ,
       PERMISSIONS.SHIFT_OPEN,
       PERMISSIONS.SHIFT_CLOSE,
       PERMISSIONS.SHIFT_READ,
@@ -303,8 +322,10 @@ export async function seedRBAC() {
 
     // CASHIER: Transactions, read-only access and basic operations
     // CLIENT_DASHBOARD_ACCESS allows cashiers to access the client dashboard
+    // CLIENT_EMPLOYEE_READ allows viewing employees (read-only for cashiers)
     const cashierPermissions = [
       PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
+      PERMISSIONS.CLIENT_EMPLOYEE_READ,
       PERMISSIONS.SHIFT_READ,
       PERMISSIONS.TRANSACTION_CREATE,
       PERMISSIONS.TRANSACTION_READ,
@@ -363,6 +384,8 @@ export async function seedRBAC() {
       PERMISSIONS.CLIENT_EMPLOYEE_CREATE,
       PERMISSIONS.CLIENT_EMPLOYEE_READ,
       PERMISSIONS.CLIENT_EMPLOYEE_DELETE,
+      // Client Role Management
+      PERMISSIONS.CLIENT_ROLE_MANAGE,
     ];
 
     for (const permissionCode of clientOwnerPermissions) {

@@ -1,6 +1,7 @@
 import { getRedisClient } from "../utils/redis";
 import type { PermissionCode } from "../constants/permissions";
 import { prisma } from "../utils/db";
+import { clientRolePermissionService } from "./client-role-permission.service";
 
 // RBAC service MUST use RLS-aware Prisma client because:
 // 1. RLS policies on user_roles table require app.current_user_id to be set
@@ -235,10 +236,40 @@ export class RBACService {
       }
 
       // STORE scope: applies only to specific store
+      // For STORE scope roles, we need to check client permission overrides
       if (role.scope === "STORE") {
         if (!role.store_id) {
           continue; // STORE scope role must have store_id
         }
+
+        // Check if the permission is in the role's default permissions
+        const hasSystemDefault = role.permissions.includes(permission);
+
+        // Get the client owner for this user to check for permission overrides
+        // Client overrides can grant OR revoke permissions
+        const ownerUserId =
+          await clientRolePermissionService.getUserOwner(userId);
+
+        if (ownerUserId) {
+          // Check for client override
+          const clientOverride =
+            await clientRolePermissionService.getClientPermissionOverride(
+              role.role_id,
+              permission,
+              ownerUserId,
+            );
+
+          // Permission resolution: client override > system default
+          // If client override exists, use it; otherwise use system default
+          const effectivePermission =
+            clientOverride !== null ? clientOverride : hasSystemDefault;
+
+          if (!effectivePermission) {
+            // Permission was revoked by client override, skip this role
+            continue;
+          }
+        }
+
         // Store role applies if storeId matches
         if (scope?.storeId && role.store_id === scope.storeId) {
           // Also verify company matches if companyId provided in scope
@@ -251,6 +282,13 @@ export class RBACService {
             await this.cachePermissionCheck(cacheKey, true);
             return true;
           }
+        }
+
+        // If no scope provided (general endpoint), grant permission for STORE scope users
+        // This allows store employees to access endpoints that don't require specific store context
+        if (!scope?.storeId && !scope?.companyId) {
+          await this.cachePermissionCheck(cacheKey, true);
+          return true;
         }
       }
     }

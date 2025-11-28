@@ -615,37 +615,4 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
       }
     },
   );
-
-  /**
-   * GET /api/admin/roles
-   * Get available roles for dropdown selection
-   */
-  fastify.get(
-    "/api/admin/roles",
-    {
-      preHandler: [
-        authMiddleware,
-        permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
-      ],
-    },
-    async (_request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const roles = await userAdminService.getRoles();
-
-        reply.code(200);
-        return {
-          success: true,
-          data: roles,
-        };
-      } catch (error) {
-        fastify.log.error({ error }, "Error fetching roles");
-        reply.code(500);
-        return {
-          success: false,
-          error: "Internal server error",
-          message: "Failed to fetch roles",
-        };
-      }
-    },
-  );
 }
