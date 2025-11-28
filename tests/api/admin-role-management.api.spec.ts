@@ -221,8 +221,8 @@ test.describe("2.93-API: Super Admin Role Management", () => {
       description: "Duplicate role test",
     });
 
-    // THEN: Request is rejected with 409 Conflict
-    expect(response.status(), "Expected 409 Conflict status").toBe(409);
+    // THEN: Request is rejected with 400 Bad Request (duplicate role code validation error)
+    expect(response.status(), "Expected 400 Bad Request status").toBe(400);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

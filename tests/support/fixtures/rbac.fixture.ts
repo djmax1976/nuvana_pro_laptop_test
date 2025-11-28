@@ -179,6 +179,7 @@ type RBACFixture = {
     roles: string[];
     permissions: string[];
     token: string;
+    _roleId?: string; // Optional property for cleanup purposes
   };
   clientUserApiRequest: ApiRequestHelper;
   regularUserApiRequest: ApiRequestHelper;
@@ -883,7 +884,8 @@ export const test = base.extend<RBACFixture>({
   },
 
   clientUser: async ({ prismaClient }, use) => {
-    // Setup: Create client user with CLIENT_USER role and own company/store
+    // Setup: Create client user with CLIENT_OWNER role and own company/store
+    // CLIENT_OWNER has full permissions including CLIENT_ROLE_MANAGE
     const userData = createClientUser();
 
     // Create user first (will be company owner)
@@ -902,17 +904,18 @@ export const test = base.extend<RBACFixture>({
       },
     });
 
-    // Get CLIENT_USER role (must exist in database)
+    // Get CLIENT_OWNER role (must exist in database)
+    // CLIENT_OWNER has CLIENT_ROLE_MANAGE permission, CLIENT_USER does not
     const role = await prismaClient.role.findUnique({
-      where: { code: "CLIENT_USER" },
+      where: { code: "CLIENT_OWNER" },
     });
     if (!role) {
       throw new Error(
-        "CLIENT_USER role not found in database. Run database seed first.",
+        "CLIENT_OWNER role not found in database. Run database seed first.",
       );
     }
 
-    // Assign CLIENT_USER role to user
+    // Assign CLIENT_OWNER role to user
     await withBypassClient(async (bypassClient) => {
       await bypassClient.userRole.create({
         data: {
@@ -954,7 +957,7 @@ export const test = base.extend<RBACFixture>({
     const token = createJWTAccessToken({
       user_id: user.user_id,
       email: user.email,
-      roles: ["CLIENT_USER"],
+      roles: ["CLIENT_OWNER"],
       permissions: clientPermissions,
     });
 
@@ -964,7 +967,7 @@ export const test = base.extend<RBACFixture>({
       name: user.name,
       company_id: company.company_id,
       store_id: store.store_id,
-      roles: ["CLIENT_USER"],
+      roles: ["CLIENT_OWNER"],
       permissions: clientPermissions,
       token,
     };
