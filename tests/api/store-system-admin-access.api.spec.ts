@@ -557,8 +557,14 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
 
     const body = await response.json();
 
-    // AND: Error message is clear
-    expect(body.error).toBe("Unauthorized");
+    // AND: Error response follows structured format (production-grade)
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("UNAUTHORIZED");
+    expect(body.error.message).toBeDefined();
+    // Message should be descriptive for security and debugging
+    expect(typeof body.error.message).toBe("string");
+    expect(body.error.message.length).toBeGreaterThan(0);
   });
 
   /**

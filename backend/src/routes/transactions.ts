@@ -504,7 +504,35 @@ export async function transactionRoutes(fastify: FastifyInstance) {
 
       try {
         // Validate query parameters using Zod schema
-        const queryParams = validateTransactionQuery(request.query);
+        fastify.log.debug(
+          { query: request.query },
+          "Validating transaction query parameters",
+        );
+        let queryParams;
+        try {
+          queryParams = validateTransactionQuery(request.query);
+        } catch (validationError: any) {
+          // Catch Zod validation errors immediately
+          if (validationError instanceof ZodError) {
+            fastify.log.warn(
+              { query: request.query, zodError: validationError },
+              "Zod validation error caught",
+            );
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Invalid query parameters",
+                details: validationError.issues.map((e: any) => ({
+                  field: e.path.join("."),
+                  message: e.message,
+                })),
+              },
+            };
+          }
+          throw validationError; // Re-throw if not a ZodError
+        }
 
         // Build filters
         const filters = {

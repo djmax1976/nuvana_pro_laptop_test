@@ -5,6 +5,7 @@ import rateLimit from "@fastify/rate-limit";
 import cookie from "@fastify/cookie";
 import dotenv from "dotenv";
 import addFormats from "ajv-formats";
+import { ZodError } from "zod";
 import { initializeRedis, closeRedis } from "./utils/redis";
 import {
   initializeRabbitMQ,
@@ -48,16 +49,44 @@ const app = Fastify({
   },
 });
 
+import { ZodError } from "zod";
+
 // Global error handler for validation and other errors
 app.setErrorHandler((error: any, _request, reply) => {
-  app.log.error({ error }, "Request error");
+  app.log.error(
+    { error, errorName: error.name, errorType: error.constructor?.name },
+    "Request error",
+  );
+
+  // Handle Zod validation errors (from Zod schema validation)
+  if (error instanceof ZodError || error.issues) {
+    app.log.warn({ error }, "Zod validation error caught by global handler");
+    reply.status(400).send({
+      success: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Invalid query parameters",
+        details:
+          error.issues?.map((e: any) => ({
+            field: e.path?.join(".") || "unknown",
+            message: e.message || "Validation failed",
+          })) || [],
+      },
+    });
+    return;
+  }
 
   // Handle Fastify validation errors (schema validation failures)
+  // Return consistent format with success field for production-grade API
   if (error.validation) {
+    app.log.warn({ error }, "Fastify schema validation error");
     reply.status(400).send({
-      error: "Validation error",
-      message: error.message,
-      details: error.validation,
+      success: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Invalid query parameters",
+        details: error.validation,
+      },
     });
     return;
   }

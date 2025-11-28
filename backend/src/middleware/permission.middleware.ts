@@ -32,21 +32,40 @@ function extractScope(request: AuthenticatedRequest): RequestScope {
   const scope: RequestScope = {};
 
   // Try to get companyId from route params, query params, or body
-  const companyId =
-    (request.params as any)?.companyId ||
-    (request.query as any)?.company_id ||
-    (request.body as any)?.company_id;
-  if (companyId) {
-    scope.companyId = String(companyId);
+  // EXCEPTION: For POST /api/companies/:companyId/stores, don't extract companyId from params
+  // The route handler handles company isolation - permission middleware should
+  // only check if user has STORE_CREATE permission, not company access
+  const isStoreCreation =
+    request.method === "POST" &&
+    request.url?.match(/^\/api\/companies\/[^\/]+\/stores$/);
+
+  if (!isStoreCreation) {
+    const companyId =
+      (request.params as any)?.companyId ||
+      (request.query as any)?.company_id ||
+      (request.body as any)?.company_id;
+    if (companyId) {
+      scope.companyId = String(companyId);
+    }
   }
 
   // Try to get storeId from route params, query params, or body
-  const storeId =
-    (request.params as any)?.storeId ||
-    (request.query as any)?.store_id ||
-    (request.body as any)?.store_id;
-  if (storeId) {
-    scope.storeId = String(storeId);
+  // EXCEPTION: For GET /api/transactions, don't extract store_id from query params
+  // The service layer handles store filtering via RLS - permission middleware should
+  // only check if user has TRANSACTION_READ permission, not store access
+  const isTransactionQuery =
+    request.method === "GET" &&
+    request.url?.startsWith("/api/transactions") &&
+    !request.url.includes("/stores/");
+
+  if (!isTransactionQuery) {
+    const storeId =
+      (request.params as any)?.storeId ||
+      (request.query as any)?.store_id ||
+      (request.body as any)?.store_id;
+    if (storeId) {
+      scope.storeId = String(storeId);
+    }
   }
 
   return scope;
