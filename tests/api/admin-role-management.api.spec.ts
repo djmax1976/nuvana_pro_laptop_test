@@ -303,8 +303,8 @@ test.describe("2.93-API: Super Admin Role Management", () => {
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
     expect(
-      body.message?.toLowerCase().includes("system") ||
-        body.error?.toLowerCase().includes("system"),
+      (body.message ?? "").toLowerCase().includes("system") ||
+        (body.error ?? "").toLowerCase().includes("system"),
       "Error should mention system role",
     ).toBe(true);
   });
