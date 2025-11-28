@@ -43,7 +43,7 @@ import {
  * - Keep tests maintainable and fast
  */
 
-test.describe("System Admin Store Access Control", () => {
+test.describe("2.2-API: System Admin Store Access Control", () => {
   /**
    * BR-001: SYSTEM scope users can view ALL stores across ALL companies
    *
@@ -51,7 +51,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: If broken, system admins cannot manage stores
    * VALIDATES: Scope hierarchy (SYSTEM > COMPANY)
    */
-  test("[P0-BR-001] System admin can view ALL stores across multiple companies", async ({
+  test("2.2-API-001: [P0] System admin can view ALL stores across multiple companies", async ({
     superadminApiRequest,
     prismaClient,
     superadminUser,
@@ -121,7 +121,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: Data leak - corporate admin sees competitor stores
    * VALIDATES: Scope enforcement, 403 response
    */
-  test("[P0-BR-002] Corporate admin CANNOT access GET /api/stores", async ({
+  test("2.2-API-002: [P0] Corporate admin CANNOT access GET /api/stores", async ({
     corporateAdminApiRequest,
     prismaClient,
   }) => {
@@ -148,7 +148,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: Unauthorized access to system-wide data
    * VALIDATES: Scope enforcement at STORE level
    */
-  test("[P0-BR-003] Store manager CANNOT access GET /api/stores", async ({
+  test("2.2-API-003: [P0] Store manager CANNOT access GET /api/stores", async ({
     storeManagerApiRequest,
     prismaClient,
   }) => {
@@ -175,7 +175,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: If broken, system admins cannot help clients
    * VALIDATES: SYSTEM scope bypasses company_id matching
    */
-  test("[P0-BR-004] System admin can create store for ANY company", async ({
+  test("2.2-API-004: [P0] System admin can create store for ANY company", async ({
     superadminApiRequest,
     superadminUser,
     prismaClient,
@@ -222,7 +222,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: Data poisoning - corporate admin creates stores in competitor's account
    * VALIDATES: Company isolation in POST endpoint
    */
-  test("[P0-BR-005] Corporate admin CANNOT create store for different company", async ({
+  test("2.2-API-005: [P0] Corporate admin CANNOT create store for different company", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -276,7 +276,7 @@ test.describe("System Admin Store Access Control", () => {
    * NOTE: This test verifies that the endpoint works with RLS policies enabled.
    * If RLS context is missing, the permission check would fail.
    */
-  test("[P0-BR-006] GET /api/stores works with RLS context enabled", async ({
+  test("2.2-API-006: [P0] GET /api/stores works with RLS context enabled", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -306,7 +306,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: No evidence of unauthorized access attempts
    * VALIDATES: audit_logs table has PERMISSION_DENIED entry
    */
-  test("[P0-BR-007] Permission denial is logged to audit_logs", async ({
+  test("2.2-API-007: [P0] Permission denial is logged to audit_logs", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -362,7 +362,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: UI shows "—" for all companies (bad UX)
    * VALIDATES: Prisma include: { company: { select: { name: true } } }
    */
-  test("[P0-BR-008] GET /api/stores returns stores with company names", async ({
+  test("2.2-API-008: [P0] GET /api/stores returns stores with company names", async ({
     superadminApiRequest,
     prismaClient,
     superadminUser,
@@ -403,7 +403,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: OOM crash with 10,000+ stores
    * VALIDATES: Query parameters work correctly
    */
-  test("[P0-BR-009] GET /api/stores respects pagination parameters", async ({
+  test("2.2-API-009: [P0] GET /api/stores respects pagination parameters", async ({
     superadminApiRequest,
     prismaClient,
     superadminUser,
@@ -477,7 +477,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: Random order confuses users
    * VALIDATES: orderBy: { created_at: "desc" }
    */
-  test("[P0-BR-010] GET /api/stores sorts by created_at DESC (newest first)", async ({
+  test("2.2-API-010: [P0] GET /api/stores sorts by created_at DESC (newest first)", async ({
     superadminApiRequest,
     prismaClient,
     superadminUser,
@@ -493,15 +493,11 @@ test.describe("System Admin Store Access Control", () => {
       name: "Oldest Store",
     });
 
-    // Wait to ensure different timestamps
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
+    // Database timestamps are sufficient for ordering - no hard wait needed
     const store2 = await createStore(prismaClient, {
       company_id: company.company_id,
       name: "Middle Store",
     });
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const store3 = await createStore(prismaClient, {
       company_id: company.company_id,
@@ -545,7 +541,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: Public access to sensitive business data
    * VALIDATES: authMiddleware is applied
    */
-  test("[P0-BR-011] Unauthenticated request returns 401", async ({
+  test("2.2-API-011: [P0] Unauthenticated request returns 401", async ({
     request,
   }) => {
     // GIVEN: No authentication credentials
@@ -572,7 +568,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: If broken, system admins blocked from viewing stores
    * VALIDATES: GET /api/stores/:storeId allows SYSTEM scope
    */
-  test("[P0-BR-013] System admin can view store from any company", async ({
+  test("2.2-API-013: [P0] System admin can view store from any company", async ({
     superadminApiRequest,
     prismaClient,
     superadminUser,
@@ -611,7 +607,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: If broken, system admins cannot help clients
    * VALIDATES: PUT /api/stores/:storeId allows SYSTEM scope
    */
-  test("[P0-BR-014] System admin can update store from any company", async ({
+  test("2.2-API-014: [P0] System admin can update store from any company", async ({
     superadminApiRequest,
     prismaClient,
     superadminUser,
@@ -660,7 +656,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: If broken, system admins cannot clean up test/old data
    * VALIDATES: DELETE /api/stores/:storeId allows SYSTEM scope
    */
-  test("[P0-BR-015] System admin can delete store from any company", async ({
+  test("2.2-API-015: [P0] System admin can delete store from any company", async ({
     superadminApiRequest,
     prismaClient,
     superadminUser,
@@ -698,7 +694,7 @@ test.describe("System Admin Store Access Control", () => {
    * RISK: If broken, system admins cannot configure stores
    * VALIDATES: PUT /api/stores/:storeId/configuration allows SYSTEM scope
    */
-  test("[P0-BR-016] System admin can update store configuration for any company", async ({
+  test("2.2-API-016: [P0] System admin can update store configuration for any company", async ({
     superadminApiRequest,
     prismaClient,
     superadminUser,
@@ -754,7 +750,7 @@ test.describe("System Admin Store Access Control", () => {
    * NOTE: This test verifies the optimization path works correctly.
    * Superadmin user should have wildcard permission in their JWT.
    */
-  test("[P0-BR-012] Superadmin with wildcard permission accesses stores quickly", async ({
+  test("2.2-API-012: [P0] Superadmin with wildcard permission accesses stores quickly", async ({
     superadminApiRequest,
     superadminUser,
     prismaClient,

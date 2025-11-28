@@ -186,6 +186,7 @@ type RBACFixture = {
   prismaClient: PrismaClient;
   rlsPrismaClient: PrismaClient;
   superadminPage: import("@playwright/test").Page;
+  storeManagerPage: import("@playwright/test").Page;
 };
 
 export const test = base.extend<RBACFixture>({
@@ -615,7 +616,9 @@ export const test = base.extend<RBACFixture>({
         "STORE_READ",
         "SHIFT_OPEN",
         "SHIFT_CLOSE",
+        "SHIFT_READ",
         "INVENTORY_READ",
+        "TRANSACTION_READ",
       ],
     });
 
@@ -630,7 +633,9 @@ export const test = base.extend<RBACFixture>({
         "STORE_READ",
         "SHIFT_OPEN",
         "SHIFT_CLOSE",
+        "SHIFT_READ",
         "INVENTORY_READ",
+        "TRANSACTION_READ",
       ],
       token,
     };
@@ -1270,6 +1275,72 @@ export const test = base.extend<RBACFixture>({
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
     );
     await use(page);
+  },
+
+  storeManagerPage: async ({ page, storeManagerUser }, use) => {
+    // Setup: Set localStorage auth session (Header component reads from localStorage)
+    await page.addInitScript(
+      (userData: any) => {
+        localStorage.setItem(
+          "auth_session",
+          JSON.stringify({
+            id: userData.user_id,
+            email: userData.email,
+            name: userData.name,
+            user_metadata: {
+              email: userData.email,
+              full_name: userData.name,
+            },
+          }),
+        );
+      },
+      {
+        user_id: storeManagerUser.user_id,
+        email: storeManagerUser.email,
+        name: storeManagerUser.name,
+      },
+    );
+
+    // Intercept auth check endpoint
+    await page.route("**/api/auth/me*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          user: {
+            id: storeManagerUser.user_id,
+            email: storeManagerUser.email,
+            name: storeManagerUser.name,
+            roles: storeManagerUser.roles,
+            permissions: storeManagerUser.permissions,
+          },
+        }),
+      });
+    });
+
+    // Add authentication cookie
+    await page.context().addCookies([
+      {
+        name: "access_token",
+        value: storeManagerUser.token,
+        domain: "localhost",
+        path: "/",
+      },
+    ]);
+
+    // Navigate to dashboard
+    await page.goto(
+      `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
+    );
+
+    await use(page);
+
+    // Cleanup: Clear session state
+    await page.context().clearCookies();
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
   },
 });
 
