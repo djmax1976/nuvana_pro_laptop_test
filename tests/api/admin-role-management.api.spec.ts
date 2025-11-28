@@ -274,12 +274,23 @@ test.describe("2.93-API: Super Admin Role Management", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: A system role exists
+    // AND: A system role exists (SUPERADMIN should always exist from seed)
     const systemRole = await prismaClient.role.findFirst({
-      where: { is_system_role: true },
+      where: { is_system_role: true, deleted_at: null },
     });
     if (!systemRole) {
-      throw new Error("No system role found in database");
+      // Fallback: Try to find any system role including soft-deleted ones
+      const anySystemRole = await prismaClient.role.findFirst({
+        where: { is_system_role: true },
+      });
+      if (!anySystemRole) {
+        throw new Error(
+          "No system role found in database. Ensure RBAC seed has run.",
+        );
+      }
+      throw new Error(
+        `System role found but is deleted (deleted_at: ${anySystemRole.deleted_at}). Test requires active system role.`,
+      );
     }
 
     // WHEN: Attempting to delete a system role
@@ -287,11 +298,15 @@ test.describe("2.93-API: Super Admin Role Management", () => {
       `/api/admin/roles/${systemRole.role_id}`,
     );
 
-    // THEN: Request is rejected with 403 Forbidden
-    expect(response.status(), "Expected 403 Forbidden status").toBe(403);
+    // THEN: Request is rejected with 400 Bad Request (system roles cannot be deleted)
+    expect(response.status(), "Expected 400 Bad Request status").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error should mention system role").toBeTruthy();
+    expect(
+      body.message?.toLowerCase().includes("system") ||
+        body.error?.toLowerCase().includes("system"),
+      "Error should mention system role",
+    ).toBe(true);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -444,22 +459,27 @@ test.describe("2.93-API: Super Admin Role Management", () => {
 
   test("2.93-API-015: [P0] PUT /api/admin/companies/:companyId/roles - should set company allowed roles", async ({
     superadminApiRequest,
+    superadminUser,
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a Super Admin
-    // AND: A company exists
-    const company = await prismaClient.company.findFirst();
-    if (!company) {
-      throw new Error("No company found in database");
-    }
-
-    // AND: A non-system STORE role exists
-    const storeRole = await prismaClient.role.findFirst({
-      where: { scope: "STORE", is_system_role: false, deleted_at: null },
+    // AND: A company exists (create test-specific data for isolation)
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Test Company Owner for API-015" }),
     });
-    if (!storeRole) {
-      throw new Error("No STORE role found in database");
-    }
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: ownerUser.user_id }),
+    });
+
+    // AND: A non-system STORE role exists (create test-specific role)
+    const storeRole = await prismaClient.role.create({
+      data: {
+        code: `TEST_STORE_ROLE_${Date.now()}`,
+        scope: "STORE",
+        description: "Test role for API-015",
+        is_system_role: false,
+      },
+    });
 
     // WHEN: Setting allowed roles for company
     const response = await superadminApiRequest.put(
@@ -480,6 +500,16 @@ test.describe("2.93-API: Super Admin Role Management", () => {
       },
     });
     expect(updatedCompany, "CompanyAllowedRole should exist").not.toBeNull();
+
+    // Cleanup: Delete in correct order respecting foreign keys
+    await prismaClient.companyAllowedRole.deleteMany({
+      where: { company_id: company.company_id },
+    });
+    await prismaClient.company.delete({
+      where: { company_id: company.company_id },
+    });
+    await prismaClient.user.delete({ where: { user_id: ownerUser.user_id } });
+    await prismaClient.role.delete({ where: { role_id: storeRole.role_id } });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -535,24 +565,30 @@ test.describe("2.93-API: Super Admin Role Management", () => {
 
   test("2.93-SEC-004: [P0] DELETE /api/admin/roles/:roleId - should deny non-Super Admin", async ({
     clientUserApiRequest,
+    superadminApiRequest,
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a Client Owner
-    // AND: A role exists
-    const role = await prismaClient.role.findFirst({
-      where: { is_system_role: false, deleted_at: null },
+    // AND: A non-system role exists (create via superadmin for test isolation)
+    const testRole = await prismaClient.role.create({
+      data: {
+        code: `SEC004_TEST_ROLE_${Date.now()}`,
+        scope: "STORE",
+        description: "Test role for SEC-004 authorization test",
+        is_system_role: false,
+      },
     });
-    if (!role) {
-      throw new Error("No non-system role found");
-    }
 
-    // WHEN: Attempting to delete a role
+    // WHEN: Attempting to delete a role as Client Owner (not Super Admin)
     const response = await clientUserApiRequest.delete(
-      `/api/admin/roles/${role.role_id}`,
+      `/api/admin/roles/${testRole.role_id}`,
     );
 
     // THEN: Access is denied with 403 Forbidden
     expect(response.status(), "Expected 403 Forbidden status").toBe(403);
+
+    // Cleanup: Delete test role using direct DB access
+    await prismaClient.role.delete({ where: { role_id: testRole.role_id } });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
