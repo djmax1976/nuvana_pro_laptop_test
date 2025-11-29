@@ -70,15 +70,28 @@ async function readMagicBytes(
   }
 
   // For streams, we need to read the first bytes
+  // IMPORTANT: Ensure stream is paused initially to prevent premature consumption
+  // We'll resume it only after setting up listeners to read exactly what we need
+  if (source.readable && !source.destroyed) {
+    source.pause();
+  }
+
   const chunks: Buffer[] = [];
   let totalRead = 0;
   const targetLength = offset + length;
+  let resolved = false;
 
   return new Promise((resolve, reject) => {
     const cleanup = () => {
+      if (resolved) return;
+      resolved = true;
       source.removeListener("data", onData);
       source.removeListener("end", onEnd);
       source.removeListener("error", onError);
+      // Pause the stream to stop it from continuing to flow after we've read what we need
+      if (source.readable && !source.destroyed) {
+        source.pause();
+      }
     };
 
     const onData = (chunk: Buffer) => {
@@ -106,14 +119,25 @@ async function readMagicBytes(
       reject(err);
     };
 
+    // Set up listeners before resuming to ensure we capture all data
     source.on("data", onData);
     source.on("end", onEnd);
     source.on("error", onError);
+
+    // Resume the stream to start reading (safe even if already flowing)
+    if (source.readable && !source.destroyed) {
+      source.resume();
+    }
   });
 }
 
 /**
  * Validate file signature (magic bytes) against expected patterns
+ *
+ * IMPORTANT: This function reads from the source ONCE (for the maximum length needed)
+ * and then checks all patterns against that single buffer. This prevents stream exhaustion
+ * when validating multiple patterns.
+ *
  * @param source - Stream or buffer containing file data
  * @param expectedMagicBytes - Array of magic byte patterns to check
  * @returns Promise resolving to true if any pattern matches
@@ -128,13 +152,19 @@ async function validateMagicBytes(
   }
 
   try {
-    for (const pattern of expectedMagicBytes) {
-      const maxLength = Math.max(
-        ...expectedMagicBytes.map((p) => p.offset + p.bytes.length),
-      );
-      const readLength = maxLength;
+    // Compute maxLength once before the loop to determine how many bytes we need
+    const maxLength = Math.max(
+      ...expectedMagicBytes.map((p) => p.offset + p.bytes.length),
+    );
+    const readLength = maxLength;
 
-      const bytes = await readMagicBytes(source, 0, readLength);
+    // Perform a SINGLE read of readLength bytes from the source into a buffer
+    // This prevents stream exhaustion - we read once, then check all patterns
+    const bytes = await readMagicBytes(source, 0, readLength);
+
+    // Iterate over expectedMagicBytes comparing slices of that single buffer
+    // to each pattern's bytes (no further stream reads - stream is only consumed once)
+    for (const pattern of expectedMagicBytes) {
       const patternBytes = bytes.slice(
         pattern.offset,
         pattern.offset + pattern.bytes.length,
@@ -175,19 +205,47 @@ export function getFileExtension(filename: string): string | null {
 }
 
 /**
+ * Read a stream fully into a Buffer
+ * @param stream - Stream to read
+ * @returns Promise resolving to Buffer with all stream data
+ */
+async function streamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+
+  return new Promise((resolve, reject) => {
+    stream.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+
+    stream.on("end", () => {
+      resolve(Buffer.concat(chunks));
+    });
+
+    stream.on("error", (err: Error) => {
+      reject(err);
+    });
+  });
+}
+
+/**
  * Validate file type using MIME type, extension, and magic bytes
  * @param filename - Original filename
  * @param mimeType - Content-Type/MIME type from request
  * @param fileStream - File stream or buffer for magic byte validation
  * @param allowedTypes - Array of allowed file type keys (e.g., ['csv', 'json'])
- * @returns Validation result with success flag and error message if failed
+ * @returns Validation result with success flag, error message if failed, and buffered file data
  */
 export async function validateFileType(
   filename: string,
   mimeType: string | undefined,
   fileStream: Readable | Buffer,
   allowedTypes: string[] = ["csv", "json"],
-): Promise<{ valid: boolean; error?: string; detectedType?: string }> {
+): Promise<{
+  valid: boolean;
+  error?: string;
+  detectedType?: string;
+  fileBuffer?: Buffer;
+}> {
   // Get file extension
   const extension = getFileExtension(filename);
   if (!extension) {
@@ -240,22 +298,20 @@ export async function validateFileType(
     };
   }
 
-  // Validate magic bytes (file signature)
-  // Create a new stream/buffer for magic byte validation
-  // If fileStream is a Buffer, we can use it directly
-  // If it's a stream, we need to peek at the first bytes
-  let magicBytesSource: Readable | Buffer;
+  // Buffer the file content if it's a stream, so it can be reused after validation
+  // If fileStream is already a Buffer, use it directly
+  let fileBuffer: Buffer;
   if (Buffer.isBuffer(fileStream)) {
-    magicBytesSource = fileStream;
+    fileBuffer = fileStream;
   } else {
-    // For streams, we'll need to read the first bytes
-    // Note: This creates a new stream, so the original stream should be reusable
-    // Fastify multipart streams are typically reusable
-    magicBytesSource = fileStream;
+    // Read the entire stream into a Buffer to avoid consuming it
+    // This allows callers to continue processing the file data after validation
+    fileBuffer = await streamToBuffer(fileStream);
   }
 
+  // Validate magic bytes (file signature) using the buffered data
   const magicBytesValid = await validateMagicBytes(
-    magicBytesSource,
+    fileBuffer,
     matchedConfig.magicBytes,
   );
 
@@ -269,6 +325,7 @@ export async function validateFileType(
   return {
     valid: true,
     detectedType,
+    fileBuffer,
   };
 }
 

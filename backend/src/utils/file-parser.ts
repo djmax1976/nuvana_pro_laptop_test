@@ -152,9 +152,6 @@ export function parseJsonFile(fileContent: string): ParseResult {
         if (!record.cashier_id) {
           throw new Error("cashier_id is required");
         }
-        if (!record.timestamp) {
-          throw new Error("timestamp is required");
-        }
 
         // Validate and convert line_items to array
         let line_items: any[] = [];
@@ -178,10 +175,20 @@ export function parseJsonFile(fileContent: string): ParseResult {
           throw new Error("payments is required");
         }
 
-        // Convert numeric fields with parseFloat, fallback to 0 when NaN
+        // Parse and validate numeric fields
         const subtotal = parseFloat(record.subtotal);
         const tax = parseFloat(record.tax);
         const discount = parseFloat(record.discount);
+
+        if (isNaN(subtotal) || isNaN(tax) || isNaN(discount)) {
+          const invalidFields: string[] = [];
+          if (isNaN(subtotal)) invalidFields.push("subtotal");
+          if (isNaN(tax)) invalidFields.push("tax");
+          if (isNaN(discount)) invalidFields.push("discount");
+          throw new Error(
+            `Invalid numeric values in ${invalidFields.join(", ")} fields (record at line ${rowNumber})`,
+          );
+        }
 
         // Validate and convert to TransactionPayload
         const transaction: TransactionPayload = {
@@ -189,10 +196,10 @@ export function parseJsonFile(fileContent: string): ParseResult {
           shift_id: record.shift_id,
           cashier_id: record.cashier_id,
           pos_terminal_id: record.pos_terminal_id || undefined,
-          timestamp: record.timestamp,
-          subtotal: isNaN(subtotal) ? 0 : subtotal,
-          tax: isNaN(tax) ? 0 : tax,
-          discount: isNaN(discount) ? 0 : discount,
+          timestamp: record.timestamp || new Date().toISOString(),
+          subtotal,
+          tax,
+          discount,
           line_items,
           payments,
         };

@@ -417,10 +417,8 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
     // Error code may be "FORBIDDEN" or "PERMISSION_DENIED" depending on middleware
-    expect(
-      ["FORBIDDEN", "PERMISSION_DENIED"],
-      "Error code should indicate forbidden access",
-    ).toContain(body.error?.code);
+    // Error code should indicate forbidden access
+    expect(["FORBIDDEN", "PERMISSION_DENIED"]).toContain(body.error?.code);
   });
 
   test("3.6-API-007: [P0] should create import job record in database", async ({
@@ -1408,9 +1406,12 @@ test.describe("Bulk Import API - Input Validation Edge Cases", () => {
       "/api/transactions/bulk-import/invalid-job-id",
     );
 
-    // THEN: Request should return error (400/404/422 for validation, 500 for internal error)
-    // Note: An invalid job_id format may cause a database error (500) in some implementations
-    expect([400, 404, 422, 500]).toContain(response.status());
+    // THEN: Request should return 4xx client error (400/404/422 for validation)
+    // Invalid job_id format should be caught and return 4xx, not 500 server error
+    // TECH-DEBT: Current implementation returns 500 for invalid job_id format (non-UUID)
+    // because Prisma throws a database error when querying UUID field with invalid format.
+    // See: nuvana_docs/pending-implementation/bulk-import-job-id-validation-tech-debt.md
+    expect([400, 404, 422]).toContain(response.status());
 
     const body = await response.json();
     expect(body.success).toBe(false);

@@ -74,6 +74,18 @@ async function createTestStoreAndShift(
 }
 
 /**
+ * Escapes a value for CSV format by:
+ * 1. Converting to string
+ * 2. Replacing all " with ""
+ * 3. Wrapping the result in double quotes
+ */
+function escapeCsv(value: any): string {
+  const str = String(value ?? "");
+  const escaped = str.replace(/"/g, '""');
+  return `"${escaped}"`;
+}
+
+/**
  * Creates a CSV file content with transaction data
  */
 function createCSVContent(transactions: any[]): string {
@@ -92,16 +104,16 @@ function createCSVContent(transactions: any[]): string {
 
   const rows = transactions.map((tx) => {
     return [
-      tx.store_id,
-      tx.shift_id,
-      tx.cashier_id || "",
-      tx.timestamp || new Date().toISOString(),
-      tx.subtotal,
-      tx.tax,
-      tx.discount,
-      tx.total,
-      JSON.stringify(tx.line_items),
-      JSON.stringify(tx.payments),
+      escapeCsv(tx.store_id),
+      escapeCsv(tx.shift_id),
+      escapeCsv(tx.cashier_id || ""),
+      escapeCsv(tx.timestamp || new Date().toISOString()),
+      escapeCsv(tx.subtotal),
+      escapeCsv(tx.tax),
+      escapeCsv(tx.discount),
+      escapeCsv(tx.total),
+      escapeCsv(JSON.stringify(tx.line_items)),
+      escapeCsv(JSON.stringify(tx.payments)),
     ].join(",");
   });
 
@@ -172,11 +184,6 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     const uploadResponse = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
       formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
     );
 
     // THEN: Should return 202 with job_id
@@ -245,11 +252,6 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     const uploadResponse = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
       formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
     );
 
     const uploadBody = await uploadResponse.json();
@@ -319,11 +321,6 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     const uploadResponse = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
       formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
     );
 
     const uploadBody = await uploadResponse.json();
@@ -385,11 +382,6 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     const uploadResponse = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
       formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
     );
 
     const uploadBody = await uploadResponse.json();
@@ -457,11 +449,6 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     const uploadResponse = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
       formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
     );
 
     const uploadBody = await uploadResponse.json();
@@ -496,8 +483,8 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
       // Note: This depends on worker processing, so we check if any were created
       expect(
         dbTransactions.length,
-        "Some transactions should be created in database",
-      ).toBeGreaterThanOrEqual(0);
+        "Some transactions should be created in database when status is COMPLETED",
+      ).toBeGreaterThan(0);
     }
   });
 });

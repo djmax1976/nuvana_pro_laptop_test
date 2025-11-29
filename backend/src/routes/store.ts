@@ -1520,7 +1520,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             return {
               success: false,
               error: {
-                code: "ValidationError",
+                code: "VALIDATION_ERROR",
                 message:
                   "Invalid timezone format. Must be IANA timezone format (e.g., America/New_York, Europe/London)",
               },
@@ -1680,7 +1680,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
           return {
             success: false,
             error: {
-              code: "ValidationError",
+              code: "VALIDATION_ERROR",
               message: error.message,
             },
           };
@@ -1702,12 +1702,22 @@ export async function storeRoutes(fastify: FastifyInstance) {
             },
           };
         }
+        const errorParams = request.params as { storeId?: string } | undefined;
+        const errorUser = (request as any).user as UserIdentity | undefined;
+        fastify.log.error(
+          {
+            error,
+            storeId: errorParams?.storeId,
+            userId: errorUser?.id,
+          },
+          "Internal server error updating store configuration",
+        );
         reply.code(500);
         return {
           success: false,
           error: {
-            code: "InternalError",
-            message: error.message || "Failed to update store configuration",
+            code: "INTERNAL_ERROR",
+            message: "Failed to update store configuration",
           },
         };
       }

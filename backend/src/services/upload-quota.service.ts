@@ -80,8 +80,8 @@ export async function getUserUploadQuota(userId: string): Promise<UploadQuota> {
   const redis = await getRedisClient();
   const quotaKey = getQuotaKey(userId, today);
 
-  let dailyBytesUsed = 0;
-  let dailyUploadsUsed = 0;
+  let dailyBytesUsed: number | null = null;
+  let dailyUploadsUsed: number | null = null;
 
   // Try Redis first for fast lookup
   if (redis) {
@@ -89,10 +89,10 @@ export async function getUserUploadQuota(userId: string): Promise<UploadQuota> {
       const bytesStr = await redis.get(`${quotaKey}:bytes`);
       const countStr = await redis.get(`${quotaKey}:count`);
 
-      if (bytesStr) {
+      if (bytesStr !== null) {
         dailyBytesUsed = parseInt(bytesStr, 10);
       }
-      if (countStr) {
+      if (countStr !== null) {
         dailyUploadsUsed = parseInt(countStr, 10);
       }
     } catch (error) {
@@ -101,7 +101,7 @@ export async function getUserUploadQuota(userId: string): Promise<UploadQuota> {
   }
 
   // Fallback to database if Redis unavailable or data missing
-  if (!redis || dailyBytesUsed === 0) {
+  if (!redis || dailyBytesUsed == null) {
     try {
       // Query database for today's uploads
       const todayStart = new Date();
@@ -136,12 +136,12 @@ export async function getUserUploadQuota(userId: string): Promise<UploadQuota> {
         await redis.setEx(
           `${quotaKey}:bytes`,
           expiration,
-          dailyBytesUsed.toString(),
+          (dailyBytesUsed ?? 0).toString(),
         );
         await redis.setEx(
           `${quotaKey}:count`,
           expiration,
-          dailyUploadsUsed.toString(),
+          (dailyUploadsUsed ?? 0).toString(),
         );
       }
     } catch (error) {
@@ -150,15 +150,22 @@ export async function getUserUploadQuota(userId: string): Promise<UploadQuota> {
     }
   }
 
+  // Coerce nullish values to 0 for calculations
+  const dailyBytesUsedFinal = dailyBytesUsed ?? 0;
+  const dailyUploadsUsedFinal = dailyUploadsUsed ?? 0;
+
   const dailyBytesLimit = DEFAULT_DAILY_UPLOAD_QUOTA_MB * 1024 * 1024;
   const dailyUploadsLimit = DEFAULT_DAILY_UPLOAD_COUNT;
-  const remainingBytes = Math.max(0, dailyBytesLimit - dailyBytesUsed);
-  const remainingUploads = Math.max(0, dailyUploadsLimit - dailyUploadsUsed);
+  const remainingBytes = Math.max(0, dailyBytesLimit - dailyBytesUsedFinal);
+  const remainingUploads = Math.max(
+    0,
+    dailyUploadsLimit - dailyUploadsUsedFinal,
+  );
 
   return {
     userId,
-    dailyBytesUsed,
-    dailyUploadsUsed,
+    dailyBytesUsed: dailyBytesUsedFinal,
+    dailyUploadsUsed: dailyUploadsUsedFinal,
     dailyBytesLimit,
     dailyUploadsLimit,
     remainingBytes,
@@ -177,6 +184,20 @@ export async function checkUploadQuota(
   userId: string,
   fileSizeBytes: number,
 ): Promise<QuotaCheckResult> {
+  // Validate fileSizeBytes input before any quota logic
+  if (
+    typeof fileSizeBytes !== "number" ||
+    !Number.isFinite(fileSizeBytes) ||
+    fileSizeBytes < 0
+  ) {
+    const quota = await getUserUploadQuota(userId);
+    return {
+      allowed: false,
+      quota,
+      error: "Invalid fileSizeBytes: must be a non-negative finite number",
+    };
+  }
+
   const quota = await getUserUploadQuota(userId);
 
   // Check single file size limit
@@ -229,13 +250,15 @@ export async function recordUpload(
     (getQuotaExpiration().getTime() - Date.now()) / 1000,
   );
 
-  // Update Redis counters
+  // Update Redis counters using pipeline for atomic execution
   if (redis) {
     try {
-      await redis.incrBy(`${quotaKey}:bytes`, fileSizeBytes);
-      await redis.incr(`${quotaKey}:count`);
-      await redis.expire(`${quotaKey}:bytes`, expiration);
-      await redis.expire(`${quotaKey}:count`, expiration);
+      const pipeline = redis.multi();
+      pipeline.incrBy(`${quotaKey}:bytes`, fileSizeBytes);
+      pipeline.incr(`${quotaKey}:count`);
+      pipeline.expire(`${quotaKey}:bytes`, expiration);
+      pipeline.expire(`${quotaKey}:count`, expiration);
+      await pipeline.exec();
     } catch (error) {
       console.warn("Redis quota update failed:", error);
       // Continue - quota will be tracked in DB
