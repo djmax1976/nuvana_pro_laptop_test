@@ -8,7 +8,7 @@
  * - DST transitions
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/fixtures/rbac.fixture";
 import {
   createDateInTimezone,
   createCrossMidnightShift,
@@ -20,13 +20,21 @@ import {
   createStore,
   createShift,
   createTransaction,
+  createCompany,
 } from "../support/helpers";
 
 test.describe("Timezone-Aware Shift Management", () => {
   test.describe("Cross-Midnight Shift Assignment", () => {
-    test("should assign transactions to correct shift across midnight", async () => {
+    test("should assign transactions to correct shift across midnight", async ({
+      superadminApiRequest,
+      prismaClient,
+      superadminUser,
+    }) => {
+      // Create company for superadmin
+      const company = await createCompany(prismaClient);
       // Create store in Denver timezone
-      const store = await createStore({
+      const store = await createStore(prismaClient, {
+        company_id: company.company_id,
         name: "Denver Store",
         timezone: TEST_TIMEZONES.DENVER,
       });
@@ -77,8 +85,8 @@ test.describe("Timezone-Aware Shift Management", () => {
       });
 
       // Query shift transactions via API
-      const response = await fetch(
-        `${process.env.BACKEND_URL}/api/shifts/${shift.shift_id}/transactions`,
+      const response = await superadminApiRequest.get(
+        `/api/shifts/${shift.shift_id}/transactions`,
       );
       const data = await response.json();
 
@@ -93,8 +101,14 @@ test.describe("Timezone-Aware Shift Management", () => {
       );
     });
 
-    test("should exclude transactions outside shift boundaries", async () => {
-      const store = await createStore({
+    test("should exclude transactions outside shift boundaries", async ({
+      superadminApiRequest,
+      prismaClient,
+      superadminUser,
+    }) => {
+      const company = await createCompany(prismaClient);
+      const store = await createStore(prismaClient, {
+        company_id: company.company_id,
         timezone: TEST_TIMEZONES.DENVER,
       });
 
@@ -155,8 +169,8 @@ test.describe("Timezone-Aware Shift Management", () => {
       });
 
       // Query shift transactions
-      const response = await fetch(
-        `${process.env.BACKEND_URL}/api/shifts/${shift.shift_id}/transactions`,
+      const response = await superadminApiRequest.get(
+        `/api/shifts/${shift.shift_id}/transactions`,
       );
       const data = await response.json();
 
@@ -171,8 +185,14 @@ test.describe("Timezone-Aware Shift Management", () => {
   });
 
   test.describe("Business Day Calculation", () => {
-    test("should report night shift on correct business day", async () => {
-      const store = await createStore({
+    test("should report night shift on correct business day", async ({
+      superadminApiRequest,
+      prismaClient,
+      superadminUser,
+    }) => {
+      const company = await createCompany(prismaClient);
+      const store = await createStore(prismaClient, {
+        company_id: company.company_id,
         timezone: TEST_TIMEZONES.DENVER,
       });
 
@@ -201,8 +221,8 @@ test.describe("Timezone-Aware Shift Management", () => {
       });
 
       // Query Monday's business day report
-      const response = await fetch(
-        `${process.env.BACKEND_URL}/api/reports/daily/${store.store_id}?date=2025-11-25`,
+      const response = await superadminApiRequest.get(
+        `/api/reports/daily/${store.store_id}?date=2025-11-25`,
       );
       const report = await response.json();
 
@@ -222,8 +242,14 @@ test.describe("Timezone-Aware Shift Management", () => {
       expect(report.total_sales).toBe(50.0);
     });
 
-    test("should not include shift in next business day", async () => {
-      const store = await createStore({
+    test("should not include shift in next business day", async ({
+      superadminApiRequest,
+      prismaClient,
+      superadminUser,
+    }) => {
+      const company = await createCompany(prismaClient);
+      const store = await createStore(prismaClient, {
+        company_id: company.company_id,
         timezone: TEST_TIMEZONES.DENVER,
       });
 
@@ -241,8 +267,8 @@ test.describe("Timezone-Aware Shift Management", () => {
       });
 
       // Query Tuesday's business day report
-      const response = await fetch(
-        `${process.env.BACKEND_URL}/api/reports/daily/${store.store_id}?date=2025-11-26`,
+      const response = await superadminApiRequest.get(
+        `/api/reports/daily/${store.store_id}?date=2025-11-26`,
       );
       const report = await response.json();
 
@@ -254,8 +280,14 @@ test.describe("Timezone-Aware Shift Management", () => {
   });
 
   test.describe("DST Transition Handling", () => {
-    test("should calculate correct duration for DST fall back shift", async () => {
-      const store = await createStore({
+    test("should calculate correct duration for DST fall back shift", async ({
+      superadminApiRequest,
+      prismaClient,
+      superadminUser,
+    }) => {
+      const company = await createCompany(prismaClient);
+      const store = await createStore(prismaClient, {
+        company_id: company.company_id,
         timezone: TEST_TIMEZONES.DENVER,
       });
 
@@ -273,8 +305,8 @@ test.describe("Timezone-Aware Shift Management", () => {
       });
 
       // Query shift details
-      const response = await fetch(
-        `${process.env.BACKEND_URL}/api/shifts/${shift.shift_id}`,
+      const response = await superadminApiRequest.get(
+        `/api/shifts/${shift.shift_id}`,
       );
       const data = await response.json();
 
@@ -282,8 +314,14 @@ test.describe("Timezone-Aware Shift Management", () => {
       expect(data.duration_hours).toBe(9);
     });
 
-    test("should calculate correct duration for DST spring forward shift", async () => {
-      const store = await createStore({
+    test("should calculate correct duration for DST spring forward shift", async ({
+      superadminApiRequest,
+      prismaClient,
+      superadminUser,
+    }) => {
+      const company = await createCompany(prismaClient);
+      const store = await createStore(prismaClient, {
+        company_id: company.company_id,
         timezone: TEST_TIMEZONES.DENVER,
       });
 
@@ -300,8 +338,8 @@ test.describe("Timezone-Aware Shift Management", () => {
         ), // 6 AM Sun
       });
 
-      const response = await fetch(
-        `${process.env.BACKEND_URL}/api/shifts/${shift.shift_id}`,
+      const response = await superadminApiRequest.get(
+        `/api/shifts/${shift.shift_id}`,
       );
       const data = await response.json();
 
@@ -309,8 +347,14 @@ test.describe("Timezone-Aware Shift Management", () => {
       expect(data.duration_hours).toBe(7);
     });
 
-    test("should not trigger false cash variance during DST transition", async () => {
-      const store = await createStore({
+    test("should not trigger false cash variance during DST transition", async ({
+      superadminApiRequest,
+      prismaClient,
+      superadminUser,
+    }) => {
+      const company = await createCompany(prismaClient);
+      const store = await createStore(prismaClient, {
+        company_id: company.company_id,
         timezone: TEST_TIMEZONES.DENVER,
       });
 
@@ -350,14 +394,12 @@ test.describe("Timezone-Aware Shift Management", () => {
       });
 
       // Close shift with correct cash
-      const closeResponse = await fetch(
-        `${process.env.BACKEND_URL}/api/shifts/${shift.shift_id}/close`,
+      const closeResponse = await superadminApiRequest.post(
+        `/api/shifts/${shift.shift_id}/close`,
         {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+          data: {
             closing_cash: 300.0, // opening + sales
-          }),
+          },
         },
       );
 
@@ -370,14 +412,21 @@ test.describe("Timezone-Aware Shift Management", () => {
   });
 
   test.describe("Multi-Timezone Stores", () => {
-    test("should handle multiple stores in different timezones correctly", async () => {
+    test("should handle multiple stores in different timezones correctly", async ({
+      superadminApiRequest,
+      prismaClient,
+      superadminUser,
+    }) => {
+      const company = await createCompany(prismaClient);
       // Create stores in different timezones
-      const denverStore = await createStore({
+      const denverStore = await createStore(prismaClient, {
+        company_id: company.company_id,
         name: "Denver Store",
         timezone: TEST_TIMEZONES.DENVER,
       });
 
-      const tokyoStore = await createStore({
+      const tokyoStore = await createStore(prismaClient, {
+        company_id: company.company_id,
         name: "Tokyo Store",
         timezone: TEST_TIMEZONES.TOKYO,
       });
@@ -408,11 +457,11 @@ test.describe("Timezone-Aware Shift Management", () => {
       });
 
       // Both shifts should be 8 hours
-      const denverResponse = await fetch(
-        `${process.env.BACKEND_URL}/api/shifts/${denverShift.shift_id}`,
+      const denverResponse = await superadminApiRequest.get(
+        `/api/shifts/${denverShift.shift_id}`,
       );
-      const tokyoResponse = await fetch(
-        `${process.env.BACKEND_URL}/api/shifts/${tokyoShift.shift_id}`,
+      const tokyoResponse = await superadminApiRequest.get(
+        `/api/shifts/${tokyoShift.shift_id}`,
       );
 
       const denverData = await denverResponse.json();
@@ -422,11 +471,11 @@ test.describe("Timezone-Aware Shift Management", () => {
       expect(tokyoData.duration_hours).toBe(8);
 
       // Both should appear on Nov 25 business day report for their respective stores
-      const denverReport = await fetch(
-        `${process.env.BACKEND_URL}/api/reports/daily/${denverStore.store_id}?date=2025-11-25`,
+      const denverReport = await superadminApiRequest.get(
+        `/api/reports/daily/${denverStore.store_id}?date=2025-11-25`,
       );
-      const tokyoReport = await fetch(
-        `${process.env.BACKEND_URL}/api/reports/daily/${tokyoStore.store_id}?date=2025-11-25`,
+      const tokyoReport = await superadminApiRequest.get(
+        `/api/reports/daily/${tokyoStore.store_id}?date=2025-11-25`,
       );
 
       const denverReportData = await denverReport.json();
@@ -442,8 +491,14 @@ test.describe("Timezone-Aware Shift Management", () => {
   });
 
   test.describe("Hourly Trends in Store Timezone", () => {
-    test("should aggregate transactions by hour in store timezone", async () => {
-      const store = await createStore({
+    test("should aggregate transactions by hour in store timezone", async ({
+      superadminApiRequest,
+      prismaClient,
+      superadminUser,
+    }) => {
+      const company = await createCompany(prismaClient);
+      const store = await createStore(prismaClient, {
+        company_id: company.company_id,
         timezone: TEST_TIMEZONES.DENVER,
       });
 
@@ -492,8 +547,8 @@ test.describe("Timezone-Aware Shift Management", () => {
       });
 
       // Query hourly trends
-      const response = await fetch(
-        `${process.env.BACKEND_URL}/api/reports/daily/${store.store_id}?date=2025-11-25`,
+      const response = await superadminApiRequest.get(
+        `/api/reports/daily/${store.store_id}?date=2025-11-25`,
       );
       const report = await response.json();
 

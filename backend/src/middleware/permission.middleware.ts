@@ -13,6 +13,7 @@ interface AuthenticatedRequest extends FastifyRequest {
     accessToken?: string;
     [key: string]: string | undefined;
   };
+  routerPath?: string;
 }
 
 /**
@@ -37,7 +38,12 @@ function extractScope(request: AuthenticatedRequest): RequestScope {
   // only check if user has STORE_CREATE permission, not company access
   const isStoreCreation =
     request.method === "POST" &&
-    request.url?.match(/^\/api\/companies\/[^\/]+\/stores$/);
+    (request.routerPath === "/api/companies/:companyId/stores" ||
+      // Fallback to string check if routerPath is not available (safer than regex)
+      (!request.routerPath &&
+        request.url?.startsWith("/api/companies/") &&
+        request.url.includes("/stores") &&
+        !request.url.includes("/stores/")));
 
   if (!isStoreCreation) {
     const companyId =

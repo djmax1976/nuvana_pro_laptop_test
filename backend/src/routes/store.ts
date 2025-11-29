@@ -10,6 +10,36 @@ import crypto from "crypto";
 const prisma = new PrismaClient();
 
 /**
+ * Validate IANA timezone format (same validation as storeService)
+ * @param timezone - Timezone string to validate
+ * @returns true if valid IANA timezone format
+ */
+function isValidIANATimezone(timezone: string): boolean {
+  // Common IANA timezone patterns
+  // Examples: America/New_York, Europe/London, Asia/Tokyo, UTC
+  // Use a safer validation approach to avoid ReDoS vulnerabilities
+  if (timezone === "UTC") {
+    return true;
+  }
+  if (/^GMT[+-]\d{1,2}$/.test(timezone)) {
+    return true;
+  }
+  // IANA format: Continent/City or Continent/Region/City (e.g., America/New_York, America/Argentina/Buenos_Aires)
+  // Limit to reasonable length to prevent ReDoS
+  if (timezone.length > 50) {
+    return false;
+  }
+  // Split and validate each segment instead of using nested quantifiers
+  const parts = timezone.split("/");
+  if (parts.length < 2 || parts.length > 3) {
+    return false;
+  }
+  // Each part should contain only letters and underscores
+  const segmentPattern = /^[A-Za-z_]+$/;
+  return parts.every((part) => segmentPattern.test(part));
+}
+
+/**
  * Helper function to extract user's company_id from their roles
  * @param userId - User ID
  * @returns Company ID if user has COMPANY or STORE scope role, null otherwise
@@ -125,9 +155,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           403: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           500: {
             type: "object",
@@ -181,8 +219,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
 
           reply.code(403);
           return {
-            error: "Forbidden",
-            message: "Only System Administrators can view all stores",
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: "Only System Administrators can view all stores",
+            },
           };
         }
 
@@ -312,9 +353,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           403: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           500: {
             type: "object",
@@ -381,8 +430,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
 
             reply.code(403);
             return {
-              error: "Forbidden",
-              message: "You can only create stores for your assigned company",
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message: "You can only create stores for your assigned company",
+              },
             };
           }
         }
@@ -450,8 +502,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (error.message.includes("Forbidden")) {
           reply.code(403);
           return {
-            error: "Forbidden",
-            message: error.message,
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: error.message,
+            },
           };
         }
         if (error.message.includes("not found")) {
@@ -550,9 +605,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           403: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           500: {
             type: "object",
@@ -581,8 +644,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
           if (!userCompanyId || userCompanyId !== params.companyId) {
             reply.code(403);
             return {
-              error: "Forbidden",
-              message: "You can only view stores for your assigned company",
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message: "You can only view stores for your assigned company",
+              },
             };
           }
         }
@@ -603,8 +669,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (error.message.includes("Forbidden")) {
           reply.code(403);
           return {
-            error: "Forbidden",
-            message: error.message,
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: error.message,
+            },
           };
         }
         reply.code(500);
@@ -659,9 +728,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           403: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           404: {
             type: "object",
@@ -712,8 +789,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
           if (!userCompanyId) {
             reply.code(403);
             return {
-              error: "Forbidden",
-              message: "You must have a COMPANY scope role to access stores",
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message: "You must have a COMPANY scope role to access stores",
+              },
             };
           }
 
@@ -721,8 +801,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
           if (store.company_id !== userCompanyId) {
             reply.code(403);
             return {
-              error: "Forbidden",
-              message: "You can only access stores for your assigned company",
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message: "You can only access stores for your assigned company",
+              },
             };
           }
         }
@@ -737,8 +820,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (!hasPermission) {
           reply.code(403);
           return {
-            error: "Forbidden",
-            message: `Permission denied: ${PERMISSIONS.STORE_READ} is required`,
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: `Permission denied: ${PERMISSIONS.STORE_READ} is required`,
+            },
           };
         }
 
@@ -756,8 +842,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (error.message.includes("Forbidden")) {
           reply.code(403);
           return {
-            error: "Forbidden",
-            message: error.message,
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: error.message,
+            },
           };
         }
         reply.code(500);
@@ -853,9 +942,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           403: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           404: {
             type: "object",
@@ -914,8 +1011,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
           if (!userCompanyId) {
             reply.code(403);
             return {
-              error: "Forbidden",
-              message: "You must have a COMPANY scope role to update stores",
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message: "You must have a COMPANY scope role to update stores",
+              },
             };
           }
 
@@ -923,8 +1023,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
           if (oldStore.company_id !== userCompanyId) {
             reply.code(403);
             return {
-              error: "Forbidden",
-              message: "You can only update stores for your assigned company",
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message: "You can only update stores for your assigned company",
+              },
             };
           }
         }
@@ -1003,8 +1106,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (error.message.includes("Forbidden")) {
           reply.code(403);
           return {
-            error: "Forbidden",
-            message: error.message,
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: error.message,
+            },
           };
         }
         reply.code(500);
@@ -1209,9 +1315,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           403: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           404: {
             type: "object",
@@ -1279,9 +1393,12 @@ export async function storeRoutes(fastify: FastifyInstance) {
           if (!userCompanyId) {
             reply.code(403);
             return {
-              error: "Forbidden",
-              message:
-                "You must have a COMPANY scope role to update store configuration",
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message:
+                  "You must have a COMPANY scope role to update store configuration",
+              },
             };
           }
 
@@ -1289,8 +1406,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
           if (oldStore.company_id !== userCompanyId) {
             reply.code(403);
             return {
-              error: "Forbidden",
-              message: "You can only update stores for your assigned company",
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message: "You can only update stores for your assigned company",
+              },
             };
           }
         }
@@ -1305,8 +1425,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (!hasPermission) {
           reply.code(403);
           return {
-            error: "Forbidden",
-            message: `Permission denied: ${PERMISSIONS.STORE_UPDATE} is required`,
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: `Permission denied: ${PERMISSIONS.STORE_UPDATE} is required`,
+            },
           };
         }
 
@@ -1314,80 +1437,140 @@ export async function storeRoutes(fastify: FastifyInstance) {
         // Support both location_json (preferred) and location (deprecated) for backward compatibility
         const locationData = body.location_json || body.location;
 
-        // Update timezone and location_json directly on the store (not in configuration)
-        const updateData: any = {};
+        // Track which fields were updated and their old values for audit
+        const fieldsUpdated: {
+          timezone?: boolean;
+          location_json?: boolean;
+          configuration?: boolean;
+        } = {};
+
+        // Validate timezone format before transaction (same validation as storeService)
         if (body.timezone !== undefined) {
-          updateData.timezone = body.timezone;
-        }
-        if (locationData !== undefined) {
-          updateData.location_json = locationData;
+          if (!isValidIANATimezone(body.timezone)) {
+            reply.code(400);
+            return {
+              error: "Validation error",
+              message:
+                "Invalid timezone format. Must be IANA timezone format (e.g., America/New_York, Europe/London)",
+            };
+          }
+          fieldsUpdated.timezone = true;
         }
 
-        // Update store with timezone and location_json
-        let store = oldStore;
-        if (Object.keys(updateData).length > 0) {
-          store = await prisma.store.update({
+        // Validate location_json structure if provided (same validation as storeService)
+        if (locationData !== undefined) {
+          if (
+            locationData.address !== undefined &&
+            typeof locationData.address !== "string"
+          ) {
+            reply.code(400);
+            return {
+              error: "Validation error",
+              message: "location_json.address must be a string",
+            };
+          }
+          fieldsUpdated.location_json = true;
+        }
+
+        // Track if configuration is being updated
+        if (body.operating_hours !== undefined) {
+          fieldsUpdated.configuration = true;
+        }
+
+        // If no fields are being updated, return early
+        if (
+          !fieldsUpdated.timezone &&
+          !fieldsUpdated.location_json &&
+          !fieldsUpdated.configuration
+        ) {
+          reply.code(200);
+          return oldStore;
+        }
+
+        // Prepare old values for audit (capture before any updates)
+        const oldValues: any = {};
+        const newValues: any = {};
+        const updatedFields: string[] = [];
+
+        if (fieldsUpdated.timezone) {
+          oldValues.timezone = oldStore.timezone;
+          newValues.timezone = body.timezone;
+          updatedFields.push("timezone");
+        }
+
+        if (fieldsUpdated.location_json) {
+          oldValues.location_json = oldStore.location_json;
+          newValues.location_json = locationData;
+          updatedFields.push("location_json");
+        }
+
+        if (fieldsUpdated.configuration) {
+          oldValues.configuration = oldStore.configuration;
+          // Will be set after merge below
+          updatedFields.push("configuration");
+        }
+
+        // Perform all updates in a single Prisma transaction
+        // This ensures atomicity: if any update or audit log creation fails, everything rolls back
+        const store = await prisma.$transaction(async (tx) => {
+          // Prepare update data for store fields (timezone and location_json)
+          const updateData: any = {};
+          if (fieldsUpdated.timezone) {
+            updateData.timezone = body.timezone;
+          }
+          if (fieldsUpdated.location_json) {
+            updateData.location_json = locationData;
+          }
+
+          // Prepare configuration update if operating_hours is provided
+          if (fieldsUpdated.configuration) {
+            // Merge new configuration with existing configuration (deep merge)
+            // Same logic as storeService.updateStoreConfiguration
+            const existingConfig = (oldStore.configuration as any) || {};
+            const mergedConfig = {
+              ...existingConfig,
+              operating_hours: {
+                ...(existingConfig.operating_hours || {}),
+                ...body.operating_hours,
+              },
+            };
+            updateData.configuration = mergedConfig;
+            newValues.configuration = mergedConfig;
+          }
+
+          // Update store with all fields atomically
+          const updatedStore = await tx.store.update({
             where: { store_id: params.storeId },
             data: updateData,
           });
-        }
 
-        // If operating_hours is provided, update configuration field
-        if (body.operating_hours !== undefined) {
-          store = await storeService.updateStoreConfiguration(
-            params.storeId,
-            userCompanyId || oldStore.company_id,
-            {
-              operating_hours: body.operating_hours as any,
-            },
-          );
-        }
+          // Create audit log within the same transaction
+          // If this fails, the entire transaction (including store update) will roll back
+          if (Object.keys(oldValues).length > 0) {
+            const ipAddress =
+              (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+              request.ip ||
+              request.socket.remoteAddress ||
+              null;
+            const userAgent = request.headers["user-agent"] || null;
 
-        // Ensure we return the latest store data with all fields
-        const updatedStore = await prisma.store.findUnique({
-          where: { store_id: params.storeId },
+            await tx.auditLog.create({
+              data: {
+                user_id: user.id,
+                action: "UPDATE",
+                table_name: "stores",
+                record_id: updatedStore.store_id,
+                old_values: oldValues as any,
+                new_values: newValues as any,
+                ip_address: ipAddress,
+                user_agent: userAgent,
+                reason: `Store ${updatedFields.join(", ")} updated by ${user.email} (roles: ${user.roles.join(", ")})`,
+              },
+            });
+          }
+
+          return updatedStore;
         });
-
-        if (!updatedStore) {
-          reply.code(404);
-          return {
-            error: "Not found",
-            message: "Store not found after update",
-          };
-        }
-
-        store = updatedStore;
-
-        // Log configuration update to AuditLog (BLOCKING)
-        const ipAddress =
-          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
-          request.ip ||
-          request.socket.remoteAddress ||
-          null;
-        const userAgent = request.headers["user-agent"] || null;
-
-        try {
-          await prisma.auditLog.create({
-            data: {
-              user_id: user.id,
-              action: "UPDATE",
-              table_name: "stores",
-              record_id: store.store_id,
-              old_values: { configuration: oldStore.configuration } as any,
-              new_values: { configuration: store.configuration } as any,
-              ip_address: ipAddress,
-              user_agent: userAgent,
-              reason: `Store configuration updated by ${user.email} (roles: ${user.roles.join(", ")})`,
-            },
-          });
-        } catch (auditError) {
-          // If audit log fails, revert the update and fail the request
-          await prisma.store.update({
-            where: { store_id: params.storeId },
-            data: { configuration: oldStore.configuration as any },
-          });
-          throw new Error("Failed to create audit log - operation rolled back");
-        }
 
         reply.code(200);
         return store;
@@ -1415,8 +1598,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (error.message.includes("Forbidden")) {
           reply.code(403);
           return {
-            error: "Forbidden",
-            message: error.message,
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: error.message,
+            },
           };
         }
         reply.code(500);
@@ -1472,9 +1658,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           403: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           404: {
             type: "object",
@@ -1525,8 +1719,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
           if (!userCompanyId) {
             reply.code(403);
             return {
-              error: "Forbidden",
-              message: "You must have a COMPANY scope role to delete stores",
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message: "You must have a COMPANY scope role to delete stores",
+              },
             };
           }
 
@@ -1534,8 +1731,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
           if (oldStore.company_id !== userCompanyId) {
             reply.code(403);
             return {
-              error: "Forbidden",
-              message: "You can only delete stores for your assigned company",
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message: "You can only delete stores for your assigned company",
+              },
             };
           }
         } else {
@@ -1593,8 +1793,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (error.message.includes("Forbidden")) {
           reply.code(403);
           return {
-            error: "Forbidden",
-            message: error.message,
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: error.message,
+            },
           };
         }
         if (error.message.includes("ACTIVE store")) {

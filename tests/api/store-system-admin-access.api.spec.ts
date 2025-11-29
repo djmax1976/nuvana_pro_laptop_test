@@ -12,6 +12,11 @@ import {
 /**
  * System Admin Store Access Control Tests
  *
+ * @test-level API
+ * @justification API-level tests for store management endpoints with system admin access control, authorization, and company isolation enforcement
+ * @story 2-2-store-management-api
+ * @enhanced-by workflow-9 on 2025-11-28
+ *
  * TEST FILE: tests/api/store-system-admin-access.api.spec.ts
  * FEATURE: System Admin Store Management
  * CREATED: 2025-11-25
@@ -35,6 +40,9 @@ import {
  * - Company isolation enforcement
  * - RLS policy enforcement
  * - Audit trail completeness
+ * - Authentication bypass prevention
+ * - XSS prevention in location_json
+ * - Input validation edge cases
  *
  * TEST PHILOSOPHY:
  * - Tests represent ground truth - code must conform to tests
@@ -136,9 +144,13 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
 
     const body = await response.json();
 
-    // AND: Error message is clear
-    expect(body.error).toBe("Forbidden");
-    expect(body.message).toBe("Only System Administrators can view all stores");
+    // AND: Error response follows structured format
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("PERMISSION_DENIED");
+    expect(body.error.message).toBe(
+      "Only System Administrators can view all stores",
+    );
   });
 
   /**
@@ -163,9 +175,11 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
 
     const body = await response.json();
 
-    // AND: Error message indicates insufficient permissions
-    expect(body.error).toBe("Forbidden");
-    expect(body.message).toContain("Only System Administrators");
+    // AND: Error response follows structured format
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("PERMISSION_DENIED");
+    expect(body.error.message).toContain("Only System Administrators");
   });
 
   /**
@@ -252,9 +266,11 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
 
     const body = await response.json();
 
-    // AND: Error message indicates company isolation
-    expect(body.error).toBe("Forbidden");
-    expect(body.message).toContain("your assigned company");
+    // AND: Error response follows structured format
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("PERMISSION_DENIED");
+    expect(body.error.message).toContain("your assigned company");
 
     // AND: Verify store was NOT created in database
     const stores = await prismaClient.store.findMany({
@@ -779,5 +795,406 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
 
     // NOTE: Wildcard permission should bypass RBAC check, making this fast
     // If wildcard check was missing, duration would be higher due to DB queries
+  });
+
+  // =============================================================================
+  // SECURITY TESTS - Authentication Bypass Prevention
+  // =============================================================================
+
+  test("2.2-API-SEC-001: [P0] Invalid token format returns 401", async ({
+    request,
+  }) => {
+    // GIVEN: Invalid token format
+    // WHEN: Requesting stores with invalid token
+    const response = await request.get(
+      `${process.env.API_URL || "http://localhost:3001"}/api/stores`,
+      {
+        headers: {
+          Authorization: "Bearer invalid-token-format",
+        },
+      },
+    );
+
+    // THEN: Request is unauthorized
+    expect(response.status()).toBe(401);
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("UNAUTHORIZED");
+  });
+
+  test("2.2-API-SEC-002: [P0] Malformed JWT token returns 401", async ({
+    request,
+  }) => {
+    // GIVEN: Malformed JWT (not three parts separated by dots)
+    // WHEN: Requesting stores with malformed token
+    const response = await request.get(
+      `${process.env.API_URL || "http://localhost:3001"}/api/stores`,
+      {
+        headers: {
+          Authorization: "Bearer not.a.valid.jwt.token.format",
+        },
+      },
+    );
+
+    // THEN: Request is unauthorized
+    expect(response.status()).toBe(401);
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("UNAUTHORIZED");
+  });
+
+  test("2.2-API-SEC-003: [P0] Missing Authorization header returns 401", async ({
+    request,
+  }) => {
+    // GIVEN: No Authorization header
+    // WHEN: Requesting stores without Authorization header
+    const response = await request.get(
+      `${process.env.API_URL || "http://localhost:3001"}/api/stores`,
+    );
+
+    // THEN: Request is unauthorized
+    expect(response.status()).toBe(401);
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("UNAUTHORIZED");
+  });
+
+  // =============================================================================
+  // SECURITY TESTS - XSS Prevention
+  // =============================================================================
+
+  test("2.2-API-SEC-004: [P0] XSS attempt in location_json.address is rejected", async ({
+    superadminApiRequest,
+    prismaClient,
+    superadminUser,
+  }) => {
+    // GIVEN: A company and store
+    const company = await createCompany(prismaClient, {
+      name: "Test Company",
+      owner_user_id: superadminUser.user_id,
+    });
+    const store = await createStore(prismaClient, {
+      company_id: company.company_id,
+      name: "Test Store",
+      status: "ACTIVE",
+    });
+
+    // WHEN: Attempting to update store with XSS payload in address
+    const response = await superadminApiRequest.put(
+      `/api/stores/${store.store_id}/configuration`,
+      {
+        location_json: {
+          address: "<script>alert('xss')</script>",
+        },
+      },
+    );
+
+    // THEN: Request should be rejected (400 Bad Request)
+    expect([400, 422]).toContain(response.status());
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    // Error should indicate XSS prevention
+    expect(body.error.message).toMatch(/HTML|script|XSS|not allowed/i);
+  });
+
+  test("2.2-API-SEC-005: [P0] iframe injection in location_json.address is rejected", async ({
+    superadminApiRequest,
+    prismaClient,
+    superadminUser,
+  }) => {
+    // GIVEN: A company and store
+    const company = await createCompany(prismaClient, {
+      name: "Test Company",
+      owner_user_id: superadminUser.user_id,
+    });
+    const store = await createStore(prismaClient, {
+      company_id: company.company_id,
+      name: "Test Store",
+      status: "ACTIVE",
+    });
+
+    // WHEN: Attempting to update store with iframe injection
+    const response = await superadminApiRequest.put(
+      `/api/stores/${store.store_id}/configuration`,
+      {
+        location_json: {
+          address: "<iframe src='evil.com'></iframe>",
+        },
+      },
+    );
+
+    // THEN: Request should be rejected
+    expect([400, 422]).toContain(response.status());
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+  });
+
+  // =============================================================================
+  // INPUT VALIDATION EDGE CASES
+  // =============================================================================
+
+  test("2.2-API-EDGE-001: [P1] Invalid UUID format in store_id returns 400", async ({
+    superadminApiRequest,
+  }) => {
+    // GIVEN: Invalid UUID format
+    // WHEN: Requesting store with invalid UUID
+    const response = await superadminApiRequest.get("/api/stores/invalid-uuid");
+
+    // THEN: Request should return 400 Bad Request
+    expect([400, 422]).toContain(response.status());
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+  });
+
+  test("2.2-API-EDGE-002: [P1] Non-existent store_id returns 404", async ({
+    superadminApiRequest,
+  }) => {
+    // GIVEN: Valid UUID format but non-existent store
+    const nonExistentStoreId = "00000000-0000-0000-0000-000000000000";
+
+    // WHEN: Requesting non-existent store
+    const response = await superadminApiRequest.get(
+      `/api/stores/${nonExistentStoreId}`,
+    );
+
+    // THEN: Request should return 404 Not Found
+    expect(response.status()).toBe(404);
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+  });
+
+  test("2.2-API-EDGE-003: [P1] Invalid timezone format is rejected", async ({
+    superadminApiRequest,
+    prismaClient,
+    superadminUser,
+  }) => {
+    // GIVEN: A company and store
+    const company = await createCompany(prismaClient, {
+      name: "Test Company",
+      owner_user_id: superadminUser.user_id,
+    });
+    const store = await createStore(prismaClient, {
+      company_id: company.company_id,
+      name: "Test Store",
+      status: "ACTIVE",
+    });
+
+    // WHEN: Attempting to update store with invalid timezone
+    const response = await superadminApiRequest.put(
+      `/api/stores/${store.store_id}`,
+      {
+        timezone: "Invalid/Timezone/Format",
+      },
+    );
+
+    // THEN: Request should return 400 Bad Request
+    expect([400, 422]).toContain(response.status());
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.message).toMatch(/timezone|IANA|format/i);
+  });
+
+  test("2.2-API-EDGE-004: [P1] Store name exceeding 255 characters is rejected", async ({
+    superadminApiRequest,
+    prismaClient,
+    superadminUser,
+  }) => {
+    // GIVEN: A company
+    const company = await createCompany(prismaClient, {
+      name: "Test Company",
+      owner_user_id: superadminUser.user_id,
+    });
+
+    // WHEN: Attempting to create store with name exceeding 255 chars
+    const longName = "A".repeat(256);
+    const response = await superadminApiRequest.post(
+      `/api/companies/${company.company_id}/stores`,
+      {
+        name: longName,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      },
+    );
+
+    // THEN: Request should return 400 Bad Request
+    expect([400, 422]).toContain(response.status());
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.message).toMatch(/name|255|length|exceed/i);
+  });
+
+  test("2.2-API-EDGE-005: [P1] Empty store name is rejected", async ({
+    superadminApiRequest,
+    prismaClient,
+    superadminUser,
+  }) => {
+    // GIVEN: A company
+    const company = await createCompany(prismaClient, {
+      name: "Test Company",
+      owner_user_id: superadminUser.user_id,
+    });
+
+    // WHEN: Attempting to create store with empty name
+    const response = await superadminApiRequest.post(
+      `/api/companies/${company.company_id}/stores`,
+      {
+        name: "",
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      },
+    );
+
+    // THEN: Request should return 400 Bad Request
+    expect([400, 422]).toContain(response.status());
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.message).toMatch(/name|required|empty/i);
+  });
+
+  test("2.2-API-EDGE-006: [P1] Invalid status enum value is rejected", async ({
+    superadminApiRequest,
+    prismaClient,
+    superadminUser,
+  }) => {
+    // GIVEN: A company and store
+    const company = await createCompany(prismaClient, {
+      name: "Test Company",
+      owner_user_id: superadminUser.user_id,
+    });
+    const store = await createStore(prismaClient, {
+      company_id: company.company_id,
+      name: "Test Store",
+      status: "ACTIVE",
+    });
+
+    // WHEN: Attempting to update store with invalid status
+    const response = await superadminApiRequest.put(
+      `/api/stores/${store.store_id}`,
+      {
+        status: "INVALID_STATUS",
+      },
+    );
+
+    // THEN: Request should return 400 Bad Request
+    expect([400, 422]).toContain(response.status());
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.message).toMatch(/status|ACTIVE|INACTIVE|CLOSED/i);
+  });
+
+  // =============================================================================
+  // PAGINATION EDGE CASES
+  // =============================================================================
+
+  test("2.2-API-EDGE-007: [P1] Negative limit parameter is rejected", async ({
+    superadminApiRequest,
+  }) => {
+    // GIVEN: Negative limit parameter
+    // WHEN: Requesting stores with negative limit
+    const response = await superadminApiRequest.get("/api/stores?limit=-1");
+
+    // THEN: Request should return 400 Bad Request or use default
+    // (Implementation may reject or use default - both are acceptable)
+    if (response.status() === 400) {
+      const body = await response.json();
+      expect(body.success).toBe(false);
+      expect(body.error).toBeDefined();
+    } else {
+      // If default is used, verify it's a valid limit
+      expect(response.status()).toBe(200);
+      const body = await response.json();
+      expect(body.meta.limit).toBeGreaterThan(0);
+    }
+  });
+
+  test("2.2-API-EDGE-008: [P1] Limit exceeding maximum (200) is rejected or capped", async ({
+    superadminApiRequest,
+  }) => {
+    // GIVEN: Limit exceeding maximum
+    // WHEN: Requesting stores with limit > 200
+    const response = await superadminApiRequest.get("/api/stores?limit=201");
+
+    // THEN: Request should either return 400 or cap at 200
+    if (response.status() === 400) {
+      const body = await response.json();
+      expect(body.success).toBe(false);
+      expect(body.error).toBeDefined();
+    } else {
+      // If capped, verify limit is <= 200
+      expect(response.status()).toBe(200);
+      const body = await response.json();
+      expect(body.meta.limit).toBeLessThanOrEqual(200);
+    }
+  });
+
+  test("2.2-API-EDGE-009: [P1] Negative offset parameter is rejected", async ({
+    superadminApiRequest,
+  }) => {
+    // GIVEN: Negative offset parameter
+    // WHEN: Requesting stores with negative offset
+    const response = await superadminApiRequest.get("/api/stores?offset=-1");
+
+    // THEN: Request should return 400 Bad Request or use default
+    if (response.status() === 400) {
+      const body = await response.json();
+      expect(body.success).toBe(false);
+      expect(body.error).toBeDefined();
+    } else {
+      // If default is used, verify it's a valid offset
+      expect(response.status()).toBe(200);
+      const body = await response.json();
+      expect(body.meta.offset).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  test("2.2-API-EDGE-010: [P1] Offset exceeding total count returns empty array", async ({
+    superadminApiRequest,
+    prismaClient,
+    superadminUser,
+  }) => {
+    // GIVEN: Stores exist
+    const company = await createCompany(prismaClient, {
+      name: "Test Company",
+      owner_user_id: superadminUser.user_id,
+    });
+    await createStore(prismaClient, {
+      company_id: company.company_id,
+      name: "Test Store",
+    });
+
+    // WHEN: Requesting with offset exceeding total
+    const response = await superadminApiRequest.get(
+      "/api/stores?limit=10&offset=999999",
+    );
+
+    // THEN: Request succeeds but returns empty array
+    expect(response.status()).toBe(200);
+
+    const body = await response.json();
+    expect(body.data).toBeInstanceOf(Array);
+    expect(body.data.length).toBe(0);
+    expect(body.meta.offset).toBe(999999);
   });
 });

@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import cookie from "@fastify/cookie";
+import multipart from "@fastify/multipart";
 import dotenv from "dotenv";
 import addFormats from "ajv-formats";
 import { ZodError } from "zod";
@@ -57,7 +58,7 @@ app.setErrorHandler((error: any, _request, reply) => {
   );
 
   // Handle Zod validation errors (from Zod schema validation)
-  if (error instanceof ZodError || error.issues) {
+  if (error instanceof ZodError) {
     app.log.warn({ error }, "Zod validation error caught by global handler");
     reply.status(400).send({
       success: false,
@@ -101,6 +102,13 @@ app.setErrorHandler((error: any, _request, reply) => {
 app.register(cookie, {
   secret:
     process.env.COOKIE_SECRET || "default-cookie-secret-change-in-production",
+});
+
+// Register multipart form data parser (required for file uploads)
+app.register(multipart, {
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB max file size
+  },
 });
 
 // Register CORS

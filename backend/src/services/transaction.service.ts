@@ -336,6 +336,11 @@ export const transactionService = {
       where.shift_id = filters.shift_id;
     }
 
+    // Add cashier_id filter if provided
+    if (filters.cashier_id) {
+      where.cashier_id = filters.cashier_id;
+    }
+
     // Add date range filter if provided
     if (filters.from || filters.to) {
       where.timestamp = {};
@@ -348,7 +353,19 @@ export const transactionService = {
     }
 
     // Build include clause
-    const prismaInclude: Prisma.TransactionInclude = {};
+    const prismaInclude: Prisma.TransactionInclude = {
+      // Always include cashier and store for name fields
+      cashier: {
+        select: {
+          name: true,
+        },
+      },
+      store: {
+        select: {
+          name: true,
+        },
+      },
+    };
     if (include.line_items) {
       prismaInclude.line_items = true;
     }
@@ -362,8 +379,7 @@ export const transactionService = {
     // Execute main query with pagination
     const transactions = await prisma.transaction.findMany({
       where,
-      include:
-        Object.keys(prismaInclude).length > 0 ? prismaInclude : undefined,
+      include: prismaInclude,
       orderBy: { timestamp: "desc" },
       take: pagination.limit,
       skip: pagination.offset,
@@ -383,6 +399,8 @@ export const transactionService = {
         discount: Number(tx.discount),
         total: Number(tx.total),
         public_id: tx.public_id,
+        cashier_name: tx.cashier?.name,
+        store_name: tx.store?.name,
         line_items: tx.line_items?.map(
           (li: any): TransactionLineItemResponse => ({
             line_item_id: li.line_item_id,
@@ -415,6 +433,80 @@ export const transactionService = {
         has_more: pagination.offset + transactions.length < total,
       },
     };
+  },
+
+  /**
+   * Create a new bulk import job record
+   * @param userId - User ID who initiated the import
+   * @param fileName - Name of the uploaded file
+   * @param fileType - File type ('CSV' or 'JSON')
+   * @returns BulkImportJob record
+   */
+  async createBulkImportJob(
+    userId: string,
+    fileName: string,
+    fileType: "CSV" | "JSON",
+  ) {
+    const job = await prisma.bulkImportJob.create({
+      data: {
+        job_id: uuidv4(),
+        user_id: userId,
+        file_name: fileName,
+        file_type: fileType,
+        status: "PENDING",
+        total_rows: 0,
+        processed_rows: 0,
+        error_rows: 0,
+      },
+    });
+
+    return job;
+  },
+
+  /**
+   * Get bulk import job by ID
+   * @param jobId - Job ID
+   * @param userId - User ID (for permission check - users can only view their own jobs)
+   * @param isAdmin - Whether user is admin (can view all jobs)
+   * @returns BulkImportJob record or null
+   */
+  async getBulkImportJob(
+    jobId: string,
+    userId: string,
+    isAdmin: boolean = false,
+  ) {
+    const where: any = { job_id: jobId };
+    if (!isAdmin) {
+      where.user_id = userId;
+    }
+
+    const job = await prisma.bulkImportJob.findUnique({
+      where,
+    });
+
+    return job;
+  },
+
+  /**
+   * Update bulk import job progress
+   * @param jobId - Job ID
+   * @param updates - Fields to update
+   */
+  async updateBulkImportJob(
+    jobId: string,
+    updates: {
+      status?: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+      total_rows?: number;
+      processed_rows?: number;
+      error_rows?: number;
+      error_summary?: any;
+      completed_at?: Date;
+    },
+  ) {
+    await prisma.bulkImportJob.update({
+      where: { job_id: jobId },
+      data: updates,
+    });
   },
 };
 

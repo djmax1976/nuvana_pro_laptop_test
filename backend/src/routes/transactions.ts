@@ -8,11 +8,17 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
-import { permissionMiddleware } from "../middleware/permission.middleware";
+import {
+  permissionMiddleware,
+  requireAnyPermission,
+} from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
 import { transactionService } from "../services/transaction.service";
+import { rbacService } from "../services/rbac.service";
 import { ZodError } from "zod";
 import { validateTransactionQuery } from "../schemas/transaction.schema";
+import { v4 as uuidv4 } from "uuid";
+import { prisma } from "../utils/db";
 
 /**
  * Transaction routes
@@ -384,6 +390,11 @@ export async function transactionRoutes(fastify: FastifyInstance) {
               format: "uuid",
               description: "Filter by shift UUID",
             },
+            cashier_id: {
+              type: "string",
+              format: "uuid",
+              description: "Filter by cashier UUID",
+            },
             from: {
               type: "string",
               format: "date-time",
@@ -508,36 +519,13 @@ export async function transactionRoutes(fastify: FastifyInstance) {
           { query: request.query },
           "Validating transaction query parameters",
         );
-        let queryParams;
-        try {
-          queryParams = validateTransactionQuery(request.query);
-        } catch (validationError: any) {
-          // Catch Zod validation errors immediately
-          if (validationError instanceof ZodError) {
-            fastify.log.warn(
-              { query: request.query, zodError: validationError },
-              "Zod validation error caught",
-            );
-            reply.code(400);
-            return {
-              success: false,
-              error: {
-                code: "VALIDATION_ERROR",
-                message: "Invalid query parameters",
-                details: validationError.issues.map((e: any) => ({
-                  field: e.path.join("."),
-                  message: e.message,
-                })),
-              },
-            };
-          }
-          throw validationError; // Re-throw if not a ZodError
-        }
+        const queryParams = validateTransactionQuery(request.query);
 
         // Build filters
         const filters = {
           store_id: queryParams.store_id,
           shift_id: queryParams.shift_id,
+          cashier_id: queryParams.cashier_id,
           from: queryParams.from ? new Date(queryParams.from) : undefined,
           to: queryParams.to ? new Date(queryParams.to) : undefined,
         };
@@ -660,6 +648,16 @@ export async function transactionRoutes(fastify: FastifyInstance) {
         querystring: {
           type: "object",
           properties: {
+            shift_id: {
+              type: "string",
+              format: "uuid",
+              description: "Filter by shift UUID",
+            },
+            cashier_id: {
+              type: "string",
+              format: "uuid",
+              description: "Filter by cashier UUID",
+            },
             from: {
               type: "string",
               format: "date-time",
@@ -789,6 +787,8 @@ export async function transactionRoutes(fastify: FastifyInstance) {
         // Build filters (store_id from URL params)
         const filters = {
           store_id: storeId,
+          shift_id: queryParams.shift_id,
+          cashier_id: queryParams.cashier_id,
           from: queryParams.from ? new Date(queryParams.from) : undefined,
           to: queryParams.to ? new Date(queryParams.to) : undefined,
         };
@@ -880,4 +880,533 @@ export async function transactionRoutes(fastify: FastifyInstance) {
       }
     },
   );
+
+  /**
+   * POST /api/transactions/bulk-import
+   * Upload CSV or JSON file for bulk transaction import
+   * Protected route - requires ADMIN_SYSTEM_CONFIG permission
+   * Story 3.6: Bulk Transaction Import
+   */
+  fastify.post(
+    "/api/transactions/bulk-import",
+    {
+      preHandler: [
+        authMiddleware,
+        requireAnyPermission([
+          PERMISSIONS.ADMIN_SYSTEM_CONFIG,
+          PERMISSIONS.TRANSACTION_IMPORT,
+        ]),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user as UserIdentity;
+      const errorContext = {
+        userId: user.userId,
+        endpoint: "/api/transactions/bulk-import",
+      };
+
+      try {
+        // Get uploaded file from multipart form data
+        const data = await request.file();
+        if (!data) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "No file uploaded",
+            },
+          };
+        }
+
+        // Validate file type
+        const fileName = data.filename || "unknown";
+        const fileExtension = fileName.split(".").pop()?.toUpperCase();
+        if (fileExtension !== "CSV" && fileExtension !== "JSON") {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "File must be CSV or JSON format",
+            },
+          };
+        }
+
+        // Validate file size (50MB max)
+        const maxFileSize = 50 * 1024 * 1024; // 50MB
+        const fileBuffer = await data.toBuffer();
+        if (fileBuffer.length > maxFileSize) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: `File size exceeds maximum of ${maxFileSize / 1024 / 1024}MB`,
+            },
+          };
+        }
+
+        // Create bulk import job
+        const job = await transactionService.createBulkImportJob(
+          user.userId,
+          fileName,
+          fileExtension as "CSV" | "JSON",
+        );
+
+        // Log bulk import job creation to AuditLog
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        await prisma.auditLog.create({
+          data: {
+            user_id: user.userId,
+            action: "CREATE",
+            table_name: "bulk_import_jobs",
+            record_id: job.job_id,
+            new_values: {
+              job_id: job.job_id,
+              file_name: fileName,
+              file_type: fileExtension,
+              status: "PENDING",
+            } as any,
+            reason: `Bulk import job created by ${user.email || user.userId}`,
+            ip_address: ipAddress,
+            user_agent: userAgent,
+          },
+        });
+
+        // Process file asynchronously (don't await - return job_id immediately)
+        const fileContent = fileBuffer.toString("utf-8");
+        processBulkImport(
+          job.job_id,
+          fileContent,
+          fileExtension as "CSV" | "JSON",
+          user.userId,
+          user.email || user.userId,
+          ipAddress,
+          userAgent,
+        ).catch((error) => {
+          fastify.log.error(
+            { error, jobId: job.job_id },
+            "Bulk import processing failed",
+          );
+        });
+
+        reply.code(202);
+        return {
+          success: true,
+          data: {
+            job_id: job.job_id,
+            status: "PENDING",
+            message: "File uploaded successfully. Processing in background.",
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error(
+          { ...errorContext, error },
+          "Bulk import upload error",
+        );
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to process bulk import upload",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/transactions/bulk-import/:jobId
+   * Get bulk import job status and progress
+   * Protected route - users can only view their own jobs, admins can view all
+   * Story 3.6: Bulk Transaction Import
+   */
+  fastify.get(
+    "/api/transactions/bulk-import/:jobId",
+    {
+      preHandler: [authMiddleware],
+    },
+    async (
+      request: FastifyRequest<{ Params: { jobId: string } }>,
+      reply: FastifyReply,
+    ) => {
+      const user = request.user as UserIdentity;
+      const { jobId } = request.params;
+
+      try {
+        // Check if user is admin (has ADMIN_SYSTEM_CONFIG permission)
+        const userRoles = await rbacService.getUserRoles(user.userId);
+        const isAdmin = userRoles.some((role) =>
+          role.permissions?.includes(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
+        );
+
+        const job = await transactionService.getBulkImportJob(
+          jobId,
+          user.userId,
+          isAdmin,
+        );
+
+        if (!job) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Bulk import job not found",
+            },
+          };
+        }
+
+        reply.code(200);
+        return {
+          success: true,
+          data: {
+            job: {
+              job_id: job.job_id,
+              file_name: job.file_name,
+              file_type: job.file_type,
+              status: job.status,
+              total_rows: job.total_rows,
+              processed_rows: job.processed_rows,
+              error_rows: job.error_rows,
+              started_at: job.started_at,
+              completed_at: job.completed_at,
+            },
+            errors: (job.error_summary as any) || [],
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error({ error, jobId }, "Get bulk import status error");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to get bulk import status",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/transactions/bulk-import/:jobId/errors
+   * Get detailed error report for bulk import job
+   * Protected route - users can only view their own jobs, admins can view all
+   * Story 3.6: Bulk Transaction Import
+   */
+  fastify.get(
+    "/api/transactions/bulk-import/:jobId/errors",
+    {
+      preHandler: [authMiddleware],
+    },
+    async (
+      request: FastifyRequest<{
+        Params: { jobId: string };
+        Querystring: { format?: "csv" | "json" };
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const user = request.user as UserIdentity;
+      const { jobId } = request.params;
+      const format = request.query.format || "json";
+
+      try {
+        // Check if user is admin
+        const userRoles = await rbacService.getUserRoles(user.userId);
+        const isAdmin = userRoles.some((role) =>
+          role.permissions?.includes(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
+        );
+
+        const job = await transactionService.getBulkImportJob(
+          jobId,
+          user.userId,
+          isAdmin,
+        );
+
+        if (!job) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Bulk import job not found",
+            },
+          };
+        }
+
+        const errors = (job.error_summary as any) || [];
+
+        if (format === "csv") {
+          // Return CSV format
+          const csvHeader = "Row Number,Field,Error\n";
+          const csvRows = errors
+            .map(
+              (err: any) =>
+                `${err.row_number || ""},${err.field || ""},"${(err.error || "").replace(/"/g, '""')}"`,
+            )
+            .join("\n");
+          const csv = csvHeader + csvRows;
+
+          reply.header("Content-Type", "text/csv");
+          reply.header(
+            "Content-Disposition",
+            `attachment; filename="bulk-import-errors-${jobId}.csv"`,
+          );
+          reply.code(200);
+          return csv;
+        } else {
+          // Return JSON format
+          reply.code(200);
+          return {
+            success: true,
+            data: {
+              job_id: job.job_id,
+              file_name: job.file_name,
+              errors,
+            },
+          };
+        }
+      } catch (error: any) {
+        fastify.log.error({ error, jobId }, "Get bulk import errors error");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to get bulk import errors",
+          },
+        };
+      }
+    },
+  );
+}
+
+/**
+ * Process bulk import file asynchronously
+ * Parses file, validates transactions, and enqueues valid ones to RabbitMQ
+ */
+async function processBulkImport(
+  jobId: string,
+  fileContent: string,
+  fileType: "CSV" | "JSON",
+  userId: string,
+  userEmail: string,
+  ipAddress: string | null,
+  userAgent: string | null,
+): Promise<void> {
+  const { parseCsvFile, parseJsonFile } = await import("../utils/file-parser");
+  const { publishToTransactionsQueue } = await import("../utils/rabbitmq");
+  const { transactionService } =
+    await import("../services/transaction.service");
+  const { prisma } = await import("../utils/db");
+
+  try {
+    // Update job status to PROCESSING
+    await transactionService.updateBulkImportJob(jobId, {
+      status: "PROCESSING",
+    });
+
+    // Parse file
+    const parseResult =
+      fileType === "CSV"
+        ? parseCsvFile(fileContent)
+        : parseJsonFile(fileContent);
+
+    // Update total rows
+    await transactionService.updateBulkImportJob(jobId, {
+      total_rows: parseResult.transactions.length + parseResult.errors.length,
+    });
+
+    // Validate each transaction and collect errors
+    const validationErrors: Array<{
+      row_number: number;
+      field: string;
+      error: string;
+    }> = [...parseResult.errors];
+
+    const validTransactions: any[] = [];
+
+    for (const [index, transaction] of parseResult.transactions.entries()) {
+      const rowNumber = index + 1;
+
+      try {
+        // Validate transaction payload
+        const validated =
+          transactionService.validateTransactionPayload(transaction);
+
+        // Check store access
+        const hasAccess = await transactionService.checkStoreAccess(
+          userId,
+          validated.store_id,
+        );
+        if (!hasAccess) {
+          validationErrors.push({
+            row_number: rowNumber,
+            field: "store_id",
+            error: "User does not have access to this store",
+          });
+          continue;
+        }
+
+        // Validate shift
+        const shiftValidation = await transactionService.validateShift(
+          validated.shift_id,
+          validated.store_id,
+        );
+        if (!shiftValidation.valid) {
+          validationErrors.push({
+            row_number: rowNumber,
+            field: "shift_id",
+            error: shiftValidation.error?.message || "Invalid shift",
+          });
+          continue;
+        }
+
+        // Validate product_ids exist in product catalog (if provided)
+        // Note: Product model not yet available (Epic 5), so we validate UUID format only
+        // Product existence validation will be added when Product model is available
+        for (const lineItem of validated.line_items) {
+          if (lineItem.product_id) {
+            // UUID format is already validated by schema, but we can add additional checks here
+            // when Product model becomes available, we'll check: await prisma.product.findUnique({ where: { product_id: lineItem.product_id } })
+            // For now, product_id format validation is sufficient (handled by schema)
+          }
+        }
+
+        // Validate payment methods are valid
+        // Payment methods are already validated by schema (PaymentMethodEnum), but we explicitly check here
+        const validPaymentMethods = [
+          "CASH",
+          "CREDIT",
+          "DEBIT",
+          "EBT",
+          "OTHER",
+        ] as const;
+        let hasInvalidPayment = false;
+        for (const payment of validated.payments) {
+          if (!validPaymentMethods.includes(payment.method as any)) {
+            validationErrors.push({
+              row_number: rowNumber,
+              field: `payments[${validated.payments.indexOf(payment)}].method`,
+              error: `Invalid payment method: ${payment.method}. Must be one of: ${validPaymentMethods.join(", ")}`,
+            });
+            hasInvalidPayment = true;
+            break;
+          }
+        }
+        if (hasInvalidPayment) {
+          continue;
+        }
+
+        validTransactions.push(validated);
+      } catch (error: any) {
+        validationErrors.push({
+          row_number: rowNumber,
+          field: "transaction",
+          error: error.message || "Validation failed",
+        });
+      }
+    }
+
+    // Update error summary
+    await transactionService.updateBulkImportJob(jobId, {
+      error_rows: validationErrors.length,
+      error_summary: validationErrors,
+    });
+
+    // Enqueue valid transactions in batches of 100
+    const batchSize = 100;
+    let processedCount = 0;
+
+    for (let i = 0; i < validTransactions.length; i += batchSize) {
+      const batch = validTransactions.slice(i, i + batchSize);
+
+      const enqueuePromises = batch.map((tx) => {
+        const correlationId = uuidv4();
+        const message = {
+          correlation_id: correlationId,
+          timestamp: new Date().toISOString(),
+          source: "BULK_IMPORT" as const,
+          user_id: userId,
+          payload: tx,
+        };
+
+        return publishToTransactionsQueue(message, correlationId);
+      });
+
+      await Promise.all(enqueuePromises);
+      processedCount += batch.length;
+
+      // Update progress
+      await transactionService.updateBulkImportJob(jobId, {
+        processed_rows: processedCount,
+      });
+    }
+
+    // Get final job state
+    const finalJob = await transactionService.getBulkImportJob(
+      jobId,
+      userId,
+      true,
+    );
+
+    // Mark job as completed
+    await transactionService.updateBulkImportJob(jobId, {
+      status: "COMPLETED",
+      completed_at: new Date(),
+    });
+
+    // Log import completion to AuditLog
+    await prisma.auditLog.create({
+      data: {
+        user_id: userId,
+        action: "UPDATE",
+        table_name: "bulk_import_jobs",
+        record_id: jobId,
+        old_values: { status: "PROCESSING" } as any,
+        new_values: {
+          status: "COMPLETED",
+          total_rows: finalJob?.total_rows || 0,
+          processed_rows: finalJob?.processed_rows || 0,
+          error_rows: finalJob?.error_rows || 0,
+        } as any,
+        reason: `Bulk import completed by ${userEmail} - ${finalJob?.processed_rows || 0} processed, ${finalJob?.error_rows || 0} errors`,
+        ip_address: ipAddress,
+        user_agent: userAgent,
+      },
+    });
+  } catch (error: any) {
+    // Mark job as failed
+    await transactionService.updateBulkImportJob(jobId, {
+      status: "FAILED",
+      completed_at: new Date(),
+    });
+
+    // Log import failure to AuditLog
+    const { prisma: prismaClient } = await import("../utils/db");
+    await prismaClient.auditLog.create({
+      data: {
+        user_id: userId,
+        action: "UPDATE",
+        table_name: "bulk_import_jobs",
+        record_id: jobId,
+        old_values: { status: "PROCESSING" } as any,
+        new_values: { status: "FAILED" } as any,
+        reason: `Bulk import failed by ${userEmail}: ${error.message || "Unknown error"}`,
+        ip_address: ipAddress,
+        user_agent: userAgent,
+      },
+    });
+
+    throw error;
+  }
 }

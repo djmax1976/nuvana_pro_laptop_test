@@ -36,6 +36,7 @@ model User {
   roles_created            Role[]                 @relation("RoleCreator")
   roles_deleted            Role[]                 @relation("RoleDeleter")
   company_roles_assigned   CompanyAllowedRole[]   @relation("CompanyAllowedRoleAssigner")
+  bulk_import_jobs         BulkImportJob[]        @relation("BulkImportJobUser")
 
   @@index([email])
   @@index([status])
@@ -324,4 +325,27 @@ model TransactionPayment {
 
   @@index([transaction_id])
   @@map("transaction_payments")
+}
+
+/// Bulk Import Job - Tracks bulk transaction import progress and errors
+/// Story 3.6: Bulk Transaction Import
+/// Tenant isolation enforced via user_id (users can only view their own jobs, admins can view all)
+model BulkImportJob {
+  job_id        String   @id @default(uuid()) @db.Uuid
+  user_id       String   @db.Uuid
+  file_name     String   @db.VarChar(255)
+  file_type     String   @db.VarChar(10) // 'CSV' or 'JSON'
+  total_rows    Int      @default(0)
+  processed_rows Int    @default(0)
+  error_rows    Int      @default(0)
+  status        String   @default("PENDING") @db.VarChar(50) // 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED'
+  started_at    DateTime @default(now()) @db.Timestamptz(6)
+  completed_at  DateTime? @db.Timestamptz(6)
+  error_summary Json?    // Array of { row_number: number, field: string, error: string }
+  user          User     @relation("BulkImportJobUser", fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([status])
+  @@index([started_at])
+  @@map("bulk_import_jobs")
 }
