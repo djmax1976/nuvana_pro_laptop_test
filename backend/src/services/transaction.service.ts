@@ -155,9 +155,9 @@ export const transactionService = {
       return {
         valid: false,
         error: {
-          code: "SHIFT_NOT_FOUND",
-          message: `Shift with ID ${shiftId} not found for store ${storeId}`,
-          status: 404,
+          code: "SHIFT_STORE_MISMATCH",
+          message: `Shift with ID ${shiftId} does not belong to store ${storeId}`,
+          status: 400,
         },
       };
     }

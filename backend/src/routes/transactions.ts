@@ -293,6 +293,21 @@ export async function transactionRoutes(fastify: FastifyInstance) {
         const errorCode = error.code || "INTERNAL_ERROR";
         const statusCode = error.status || 500;
 
+        if (statusCode === 400) {
+          fastify.log.warn(
+            { ...errorContext, type: "validation" },
+            "Validation error",
+          );
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: errorCode,
+              message: error.message,
+            },
+          };
+        }
+
         if (statusCode === 403) {
           fastify.log.warn(
             { ...errorContext, type: "permission" },

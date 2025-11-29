@@ -10,36 +10,25 @@ import crypto from "crypto";
 const prisma = new PrismaClient();
 
 /**
- * Validate IANA timezone format (same validation as storeService)
+ * Validate IANA timezone using Intl.DateTimeFormat
+ * This validates that the timezone is an actual valid IANA timezone,
+ * not just a format that looks valid.
  * @param timezone - Timezone string to validate
- * @returns true if valid IANA timezone format
+ * @returns true if valid IANA timezone
  */
 function isValidIANATimezone(timezone: string): boolean {
-  // Common IANA timezone patterns
-  // Examples: America/New_York, Europe/London, Asia/Tokyo, UTC
-  // Use a safer validation approach to avoid ReDoS vulnerabilities
-  if (timezone === "UTC") {
-    return true;
-  }
-  // Validate GMT offset format and range: -12 to +14
-  // Pattern matches: GMT+0 through GMT+14, or GMT-0 through GMT-12
-  // Rejects invalid two-digit offsets like GMT+99 or GMT-50
-  if (/^GMT(\+([0-9]|1[0-4])|-([0-9]|1[0-2]))$/.test(timezone)) {
-    return true;
-  }
-  // IANA format: Continent/City or Continent/Region/City (e.g., America/New_York, America/Argentina/Buenos_Aires)
-  // Limit to reasonable length to prevent ReDoS
-  if (timezone.length > 50) {
+  // Limit to reasonable length to prevent abuse
+  if (!timezone || timezone.length > 50) {
     return false;
   }
-  // Split and validate each segment instead of using nested quantifiers
-  const parts = timezone.split("/");
-  if (parts.length < 2 || parts.length > 3) {
+
+  // Use Intl.DateTimeFormat to validate actual timezone existence
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: timezone });
+    return true;
+  } catch {
     return false;
   }
-  // Each part should contain only letters and underscores
-  const segmentPattern = /^[A-Za-z_]+$/;
-  return parts.every((part) => segmentPattern.test(part));
 }
 
 /**
@@ -349,9 +338,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           400: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           403: {
             type: "object",
@@ -527,8 +524,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         ) {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: error.message,
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: error.message,
+            },
           };
         }
         if (error.message.includes("Forbidden")) {
@@ -544,8 +544,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (error.message.includes("not found")) {
           reply.code(404);
           return {
-            error: "Not found",
-            message: error.message,
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: error.message,
+            },
           };
         }
         reply.code(500);
@@ -775,9 +778,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           404: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           500: {
             type: "object",
@@ -803,8 +814,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (!store) {
           reply.code(404);
           return {
-            error: "Not found",
-            message: "Store not found",
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
           };
         }
 
@@ -867,8 +881,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (error.message.includes("not found")) {
           reply.code(404);
           return {
-            error: "Not found",
-            message: error.message,
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: error.message,
+            },
           };
         }
         if (error.message.includes("Forbidden")) {
@@ -967,9 +984,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           400: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           403: {
             type: "object",
@@ -989,9 +1014,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           404: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           500: {
             type: "object",
@@ -1153,15 +1186,21 @@ export async function storeRoutes(fastify: FastifyInstance) {
         ) {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: error.message,
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: error.message,
+            },
           };
         }
         if (error.message.includes("not found")) {
           reply.code(404);
           return {
-            error: "Not found",
-            message: error.message,
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: error.message,
+            },
           };
         }
         if (error.message.includes("Forbidden")) {
@@ -1399,9 +1438,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           404: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           500: {
             type: "object",
@@ -1697,8 +1744,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (error.message.includes("not found")) {
           reply.code(404);
           return {
-            error: "Not found",
-            message: error.message,
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: error.message,
+            },
           };
         }
         if (error.message.includes("Forbidden")) {
@@ -1757,9 +1807,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           400: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           403: {
             type: "object",
@@ -1779,9 +1837,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           404: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           500: {
             type: "object",
@@ -1892,8 +1958,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (error.message.includes("not found")) {
           reply.code(404);
           return {
-            error: "Not found",
-            message: error.message,
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: error.message,
+            },
           };
         }
         if (error.message.includes("Forbidden")) {

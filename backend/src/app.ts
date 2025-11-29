@@ -79,12 +79,37 @@ app.setErrorHandler((error: any, _request, reply) => {
   // Return consistent format with success field for production-grade API
   if (error.validation) {
     app.log.warn({ error }, "Fastify schema validation error");
+    // Build a descriptive error message from validation details
+    const validationDetails = error.validation || [];
+    let message = "Validation failed";
+    if (validationDetails.length > 0) {
+      const firstError = validationDetails[0];
+      // Include field name and specific error in the message
+      const field =
+        firstError.instancePath?.replace(/^\//, "").replace(/\//g, ".") ||
+        firstError.params?.missingProperty ||
+        "field";
+      const errorMessage = firstError.message || "validation failed";
+      // Special handling for common validation errors
+      if (firstError.keyword === "maxLength" && firstError.params?.limit) {
+        message = `${field} cannot exceed ${firstError.params.limit} characters`;
+      } else if (firstError.keyword === "minLength") {
+        message = `${field} is required and cannot be empty`;
+      } else if (
+        firstError.keyword === "format" &&
+        firstError.params?.format === "uuid"
+      ) {
+        message = `${field} must be a valid UUID format`;
+      } else {
+        message = `${field}: ${errorMessage}`;
+      }
+    }
     reply.status(400).send({
       success: false,
       error: {
         code: "VALIDATION_ERROR",
-        message: "Invalid query parameters",
-        details: error.validation,
+        message,
+        details: validationDetails,
       },
     });
     return;
