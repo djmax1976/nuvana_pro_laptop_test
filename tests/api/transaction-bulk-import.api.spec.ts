@@ -500,8 +500,14 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
       },
     );
 
+    // THEN: Response should be successful
+    expect(response.status(), "Upload should succeed").toBe(202);
     const body = await response.json();
-    const jobId = body.data?.job_id;
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(body.data, "Response should include data").toBeDefined();
+    expect(body.data?.job_id, "Response should include job_id").toBeDefined();
+
+    const jobId = body.data.job_id;
 
     // THEN: Import job should exist in database
     const job = await prismaClient.bulkImportJob.findUnique({
