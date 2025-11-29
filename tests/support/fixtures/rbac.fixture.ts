@@ -416,11 +416,48 @@ export const test = base.extend<RBACFixture>({
 
     await use(superadminUser);
 
-    // Cleanup: Delete user and roles
-    await prismaClient.userRole.deleteMany({
-      where: { user_id: user.user_id },
+    // Cleanup: Delete all related data in correct FK order using bypass client
+    await withBypassClient(async (bypassClient) => {
+      // 1. Find shifts created by this user (cashier_id references user)
+      const userShifts = await bypassClient.shift.findMany({
+        where: { cashier_id: user.user_id },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        // Delete transaction payments (child of transaction)
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transaction line items (child of transaction)
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transactions (child of shift)
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      // 2. Delete shifts for this user
+      await bypassClient.shift.deleteMany({
+        where: { cashier_id: user.user_id },
+      });
+
+      // 3. Delete bulk import jobs for this user
+      await bypassClient.bulkImportJob.deleteMany({
+        where: { user_id: user.user_id },
+      });
+
+      // 4. Delete user roles
+      await bypassClient.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+
+      // 5. Delete the user
+      await bypassClient.user.delete({ where: { user_id: user.user_id } });
     });
-    await prismaClient.user.delete({ where: { user_id: user.user_id } });
   },
 
   corporateAdminUser: async ({ prismaClient }, use) => {
@@ -548,6 +585,11 @@ export const test = base.extend<RBACFixture>({
         },
       });
 
+      // 3.5. Delete bulk import jobs for this user (FK to users)
+      await bypassClient.bulkImportJob.deleteMany({
+        where: { user_id: user.user_id },
+      });
+
       // 4. Delete user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
@@ -651,6 +693,12 @@ export const test = base.extend<RBACFixture>({
     await prismaClient.userRole.deleteMany({
       where: { user_id: user.user_id },
     });
+    // 2.5. Delete bulk import jobs for the user (FK to users)
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.bulkImportJob.deleteMany({
+        where: { user_id: user.user_id },
+      });
+    });
     // 3. Delete the store manager user
     await prismaClient.user.delete({ where: { user_id: user.user_id } });
     // 4. Delete store
@@ -684,13 +732,30 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Check if data is FormData - if so, use multipart and don't set Content-Type
+        const isFormData = data instanceof FormData;
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${superadminUser.token}`,
+        };
+        // Only set Content-Type for non-FormData requests
+        if (!isFormData) {
+          headers["Content-Type"] = "application/json";
+        }
+        // Merge with provided headers (but filter out Content-Type for FormData)
+        if (options?.headers) {
+          Object.entries(options.headers).forEach(([key, value]) => {
+            // For FormData, skip Content-Type header to let Playwright set it with boundary
+            if (isFormData && key.toLowerCase() === "content-type") {
+              return;
+            }
+            // eslint-disable-next-line security/detect-object-injection -- Safe: key comes from Object.entries on options.headers
+            headers[key] = value;
+          });
+        }
         return request.post(`${backendUrl}${path}`, {
-          data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${superadminUser.token}`,
-            ...options?.headers,
-          },
+          data: isFormData ? undefined : data,
+          multipart: isFormData ? data : undefined,
+          headers,
         });
       },
       put: async (
@@ -759,13 +824,30 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Check if data is FormData - if so, use multipart and don't set Content-Type
+        const isFormData = data instanceof FormData;
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${corporateAdminUser.token}`,
+        };
+        // Only set Content-Type for non-FormData requests
+        if (!isFormData) {
+          headers["Content-Type"] = "application/json";
+        }
+        // Merge with provided headers (but filter out Content-Type for FormData)
+        if (options?.headers) {
+          Object.entries(options.headers).forEach(([key, value]) => {
+            // For FormData, skip Content-Type header to let Playwright set it with boundary
+            if (isFormData && key.toLowerCase() === "content-type") {
+              return;
+            }
+            // eslint-disable-next-line security/detect-object-injection -- Safe: key comes from Object.entries on options.headers
+            headers[key] = value;
+          });
+        }
         return request.post(`${backendUrl}${path}`, {
-          data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${corporateAdminUser.token}`,
-            ...options?.headers,
-          },
+          data: isFormData ? undefined : data,
+          multipart: isFormData ? data : undefined,
+          headers,
         });
       },
       put: async (

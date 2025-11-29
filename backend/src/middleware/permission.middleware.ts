@@ -39,11 +39,16 @@ function extractScope(request: AuthenticatedRequest): RequestScope {
   const isStoreCreation =
     request.method === "POST" &&
     (request.routerPath === "/api/companies/:companyId/stores" ||
-      // Fallback to string check if routerPath is not available (safer than regex)
+      // Fallback to regex check if routerPath is not available
       (!request.routerPath &&
-        request.url?.startsWith("/api/companies/") &&
-        request.url.includes("/stores") &&
-        !request.url.includes("/stores/")));
+        (() => {
+          // Strip query parameters from URL
+          const cleanPath = request.url?.split("?")[0] || "";
+          // Precise regex matching /api/companies/:companyId/stores with optional trailing slash
+          // Enforces segment boundaries to prevent false positives
+          const storeCreationPattern = /^\/api\/companies\/[^\/]+\/stores\/?$/;
+          return storeCreationPattern.test(cleanPath);
+        })()));
 
   if (!isStoreCreation) {
     const companyId =

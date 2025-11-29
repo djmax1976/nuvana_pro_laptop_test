@@ -19,6 +19,20 @@ import { ZodError } from "zod";
 import { validateTransactionQuery } from "../schemas/transaction.schema";
 import { v4 as uuidv4 } from "uuid";
 import { prisma } from "../utils/db";
+import { promises as fs } from "fs";
+import { join } from "path";
+import { pipeline } from "stream/promises";
+import { createWriteStream } from "fs";
+import { tmpdir } from "os";
+import {
+  validateFileType,
+  validateFileSize,
+  getFileExtension,
+} from "../utils/upload-validation";
+import {
+  checkUploadQuota,
+  recordUpload,
+} from "../services/upload-quota.service";
 
 /**
  * Transaction routes
@@ -886,10 +900,28 @@ export async function transactionRoutes(fastify: FastifyInstance) {
    * Upload CSV or JSON file for bulk transaction import
    * Protected route - requires ADMIN_SYSTEM_CONFIG permission
    * Story 3.6: Bulk Transaction Import
+   *
+   * SECURITY: Stricter rate limiting for upload endpoints
+   * - Limits concurrent uploads per user
+   * - Reduces requests per minute for large file uploads
+   * - Prevents abuse of upload bandwidth
    */
   fastify.post(
     "/api/transactions/bulk-import",
     {
+      // Upload-specific rate limiting: stricter than global limits
+      // Configurable via env: UPLOAD_RATE_LIMIT_MAX (default: 5) and UPLOAD_RATE_LIMIT_WINDOW (default: "1 minute")
+      config: {
+        rateLimit: {
+          max: parseInt(process.env.UPLOAD_RATE_LIMIT_MAX || "5", 10), // 5 uploads per window
+          timeWindow: process.env.UPLOAD_RATE_LIMIT_WINDOW || "1 minute",
+          // Use user ID for rate limiting key (more accurate than IP)
+          keyGenerator: (request: FastifyRequest) => {
+            const user = (request as any).user as UserIdentity | undefined;
+            return user?.id || request.ip || "anonymous";
+          },
+        },
+      },
       preHandler: [
         authMiddleware,
         requireAnyPermission([
@@ -901,9 +933,13 @@ export async function transactionRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = (request as any).user as UserIdentity;
       const errorContext = {
-        userId: user.id,
+        user_id: user.id,
         endpoint: "/api/transactions/bulk-import",
       };
+
+      // SECURITY: Use streaming for file uploads - NEVER use toBuffer() for large files
+      // Stream files directly to disk/temp location to avoid memory exhaustion
+      let tempFilePath: string | null = null;
 
       try {
         // Get uploaded file from multipart form data
@@ -925,30 +961,71 @@ export async function transactionRoutes(fastify: FastifyInstance) {
         fileName = fileName.replace(/\.\./g, "").replace(/[\/\\]/g, "_");
         // Remove null bytes
         fileName = fileName.replace(/\0/g, "");
-        // Extract file extension from sanitized filename
-        const fileExtension = fileName.split(".").pop()?.toUpperCase();
 
-        // Validate file type - must have valid extension
-        if (
-          !fileExtension ||
-          (fileExtension !== "CSV" && fileExtension !== "JSON")
-        ) {
+        // Get MIME type from request
+        const mimeType = data.mimetype || data.type || undefined;
+
+        // Get file extension
+        const fileExtension = getFileExtension(fileName);
+        if (!fileExtension) {
           reply.code(400);
           return {
             success: false,
             error: {
               code: "VALIDATION_ERROR",
-              message: "File must be CSV or JSON format",
+              message: "File must have a valid extension",
             },
           };
         }
 
-        // Validate file size (50MB max)
-        const maxFileSize = 50 * 1024 * 1024; // 50MB
-        const fileBuffer = await data.toBuffer();
+        // SECURITY: Validate file type using both MIME type and file signature
+        // Stream file to temp location for validation and processing
+        const tempDir = process.env.TEMP_DIR || tmpdir();
+        tempFilePath = join(tempDir, `bulk-import-${uuidv4()}-${fileName}`);
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: path is constructed from controlled tempDir and UUID
+        const writeStream = createWriteStream(tempFilePath);
+
+        // Stream file to disk (prevents memory exhaustion for large files)
+        // SECURITY: Use streaming - NEVER use toBuffer() for large files
+        const fileStream = data.file; // Fastify multipart file stream
+
+        // Pipe file stream to disk
+        await pipeline(fileStream, writeStream);
+
+        // Get file size from filesystem after streaming completes
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is constructed from controlled tempDir and UUID
+        const fileStats = await fs.stat(tempFilePath);
+        const fileSizeBytes = fileStats.size;
+
+        // Get max file size from env (default: 10MB)
+        const maxFileSizeMB = parseInt(
+          process.env.MAX_UPLOAD_FILE_SIZE_MB || "10",
+          10,
+        );
+        const maxFileSizeBytes = maxFileSizeMB * 1024 * 1024;
+
+        // Validate file size
+        const sizeValidation = validateFileSize(
+          fileSizeBytes,
+          maxFileSizeBytes,
+        );
+        if (!sizeValidation.valid) {
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is controlled
+          await fs.unlink(tempFilePath).catch(() => {});
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: sizeValidation.error || "File size validation failed",
+            },
+          };
+        }
 
         // Check for empty file
-        if (fileBuffer.length === 0) {
+        if (fileSizeBytes === 0) {
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is controlled
+          await fs.unlink(tempFilePath).catch(() => {});
           reply.code(400);
           return {
             success: false,
@@ -959,13 +1036,67 @@ export async function transactionRoutes(fastify: FastifyInstance) {
           };
         }
 
-        if (fileBuffer.length > maxFileSize) {
+        // SECURITY: Check upload quota before accepting file
+        const quotaCheck = await checkUploadQuota(user.id, fileSizeBytes);
+        if (!quotaCheck.allowed) {
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is controlled
+          await fs.unlink(tempFilePath).catch(() => {});
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "QUOTA_EXCEEDED",
+              message: quotaCheck.error || "Upload quota exceeded",
+              quota: {
+                remaining_bytes: quotaCheck.quota.remainingBytes,
+                remaining_uploads: quotaCheck.quota.remainingUploads,
+                reset_at: quotaCheck.quota.resetAt,
+              },
+            },
+          };
+        }
+
+        // SECURITY: Validate file type using MIME type and magic bytes
+        // Read first bytes for magic byte validation
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is controlled
+        const fileHandle = await fs.open(tempFilePath, "r");
+        const magicBytesBuffer = Buffer.alloc(1024); // Read first 1KB for validation
+        await fileHandle.read(magicBytesBuffer, 0, 1024, 0);
+        await fileHandle.close();
+
+        const typeValidation = await validateFileType(
+          fileName,
+          mimeType,
+          magicBytesBuffer,
+          ["csv", "json"],
+        );
+
+        if (!typeValidation.valid) {
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is controlled
+          await fs.unlink(tempFilePath).catch(() => {});
           reply.code(400);
           return {
             success: false,
             error: {
               code: "VALIDATION_ERROR",
-              message: `File size exceeds maximum of ${maxFileSize / 1024 / 1024}MB`,
+              message: typeValidation.error || "File type validation failed",
+            },
+          };
+        }
+
+        // Determine file type from validation result
+        const detectedType =
+          typeValidation.detectedType?.toUpperCase() ||
+          fileExtension.toUpperCase();
+        if (detectedType !== "CSV" && detectedType !== "JSON") {
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is controlled
+          await fs.unlink(tempFilePath).catch(() => {});
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "File must be CSV or JSON format",
             },
           };
         }
@@ -974,8 +1105,11 @@ export async function transactionRoutes(fastify: FastifyInstance) {
         const job = await transactionService.createBulkImportJob(
           user.id,
           fileName,
-          fileExtension as "CSV" | "JSON",
+          detectedType as "CSV" | "JSON",
         );
+
+        // Record upload to quota system
+        await recordUpload(user.id, fileSizeBytes);
 
         // Log bulk import job creation to AuditLog
         const ipAddress =
@@ -994,8 +1128,9 @@ export async function transactionRoutes(fastify: FastifyInstance) {
             new_values: {
               job_id: job.job_id,
               file_name: fileName,
-              file_type: fileExtension,
+              file_type: detectedType,
               status: "PENDING",
+              file_size: fileSizeBytes,
             } as any,
             reason: `Bulk import job created by ${user.email || user.id}`,
             ip_address: ipAddress,
@@ -1003,16 +1138,21 @@ export async function transactionRoutes(fastify: FastifyInstance) {
           },
         });
 
+        // Read file content from temp file for processing
+        // Note: For very large files, consider processing in chunks instead
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is controlled
+        const fileContent = await fs.readFile(tempFilePath, "utf-8");
+
         // Process file asynchronously (don't await - return job_id immediately)
-        const fileContent = fileBuffer.toString("utf-8");
         processBulkImport(
           job.job_id,
           fileContent,
-          fileExtension as "CSV" | "JSON",
+          detectedType as "CSV" | "JSON",
           user.id,
           user.email || user.id,
           ipAddress,
           userAgent,
+          tempFilePath, // Pass temp file path for cleanup
         ).catch((error) => {
           fastify.log.error(
             { error, jobId: job.job_id },
@@ -1030,8 +1170,20 @@ export async function transactionRoutes(fastify: FastifyInstance) {
           },
         };
       } catch (error: any) {
+        // Clean up temp file on error
+        if (tempFilePath) {
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is constructed from controlled tempDir and UUID
+          await fs.unlink(tempFilePath).catch(() => {});
+        }
+
         fastify.log.error(
-          { ...errorContext, error },
+          {
+            ...errorContext,
+            error: error.message || error,
+            stack: error.stack,
+            code: error.code,
+            name: error.name,
+          },
           "Bulk import upload error",
         );
         reply.code(500);
@@ -1040,6 +1192,8 @@ export async function transactionRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to process bulk import upload",
+            details:
+              process.env.NODE_ENV === "test" ? error.message : undefined,
           },
         };
       }
@@ -1118,6 +1272,41 @@ export async function transactionRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * Escapes a CSV field value to prevent CSV injection and malformed CSV output.
+   * Handles:
+   * - Double quotes (escaped by doubling)
+   * - Newlines and carriage returns (preserved inside quoted fields)
+   * - CSV injection characters (leading =, +, -, @, \t, \r are escaped)
+   * - All fields are consistently wrapped in double quotes
+   *
+   * @param value - The field value to escape
+   * @returns Properly escaped CSV field value (always wrapped in double quotes)
+   */
+  function escapeCsvField(value: string | number | null | undefined): string {
+    if (value === null || value === undefined) {
+      return '""';
+    }
+
+    const str = String(value);
+
+    // Check for CSV injection on original string (before any modifications)
+    // Excel/Google Sheets interpret =, +, -, @, \t, \r at the start as formulas
+    const csvInjectionPattern = /^([=+\-@\t\r])/;
+    const hasInjectionRisk = csvInjectionPattern.test(str);
+
+    // Escape double quotes by doubling them (RFC 4180 standard)
+    let escaped = str.replace(/"/g, '""');
+
+    // Prevent CSV injection by prefixing with a single quote (Excel treats '= as literal)
+    if (hasInjectionRisk) {
+      escaped = "'" + escaped;
+    }
+
+    // Always wrap field in double quotes to preserve commas, newlines, and other special characters
+    return `"${escaped}"`;
+  }
+
+  /**
    * GET /api/transactions/bulk-import/:jobId/errors
    * Get detailed error report for bulk import job
    * Protected route - users can only view their own jobs, admins can view all
@@ -1166,7 +1355,7 @@ export async function transactionRoutes(fastify: FastifyInstance) {
           const csvRows = errors
             .map(
               (err: any) =>
-                `${err.row_number || ""},${err.field || ""},"${(err.error || "").replace(/"/g, '""')}"`,
+                `${escapeCsvField(err.row_number)},${escapeCsvField(err.field)},${escapeCsvField(err.error)}`,
             )
             .join("\n");
           const csv = csvHeader + csvRows;
@@ -1208,6 +1397,7 @@ export async function transactionRoutes(fastify: FastifyInstance) {
 /**
  * Process bulk import file asynchronously
  * Parses file, validates transactions, and enqueues valid ones to RabbitMQ
+ * @param tempFilePath - Optional path to temp file for cleanup after processing
  */
 async function processBulkImport(
   jobId: string,
@@ -1217,6 +1407,7 @@ async function processBulkImport(
   userEmail: string,
   ipAddress: string | null,
   userAgent: string | null,
+  tempFilePath?: string,
 ): Promise<void> {
   const { parseCsvFile, parseJsonFile } = await import("../utils/file-parser");
   const { publishToTransactionsQueue } = await import("../utils/rabbitmq");
@@ -1460,5 +1651,19 @@ async function processBulkImport(
     });
 
     throw error;
+  } finally {
+    // Clean up temp file if it exists
+    if (tempFilePath) {
+      try {
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is constructed from controlled tempDir and UUID
+        await fs.unlink(tempFilePath);
+      } catch (cleanupError) {
+        // Log but don't throw - cleanup errors shouldn't fail the job
+        console.warn(
+          `Failed to cleanup temp file ${tempFilePath}:`,
+          cleanupError,
+        );
+      }
+    }
   }
 }

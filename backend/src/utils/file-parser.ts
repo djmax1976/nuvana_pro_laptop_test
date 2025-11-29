@@ -20,13 +20,9 @@ export interface ParseResult {
 /**
  * Parse CSV file into transaction records
  * @param fileContent - CSV file content as string
- * @param encoding - File encoding (default: 'utf-8')
  * @returns ParseResult with transactions and errors
  */
-export function parseCsvFile(
-  fileContent: string,
-  _encoding: string = "utf-8",
-): ParseResult {
+export function parseCsvFile(fileContent: string): ParseResult {
   const errors: ParseResult["errors"] = [];
   const transactions: TransactionPayload[] = [];
 
@@ -53,17 +49,35 @@ export function parseCsvFile(
       const rowNumber = index + 2; // +2 because index is 0-based and we skip header row
 
       try {
+        // Validate required fields
+        if (!record.store_id || !record.shift_id || !record.cashier_id) {
+          throw new Error(
+            "Missing required fields: store_id, shift_id, and cashier_id are required",
+          );
+        }
+
+        // Parse and validate numeric fields
+        const subtotal = parseFloat(record.subtotal);
+        const tax = parseFloat(record.tax);
+        const discount = parseFloat(record.discount);
+
+        if (isNaN(subtotal) || isNaN(tax) || isNaN(discount)) {
+          throw new Error(
+            "Invalid numeric values in subtotal, tax, or discount fields",
+          );
+        }
+
         // Convert CSV record to TransactionPayload
-        // Expected columns: store_id, shift_id, cashier_id, timestamp, line_items (JSON), payments (JSON), subtotal, tax, discount, total
+        // Expected columns: store_id, shift_id, cashier_id, timestamp, line_items (JSON), payments (JSON), subtotal, tax, discount
         const transaction: TransactionPayload = {
           store_id: record.store_id,
           shift_id: record.shift_id,
           cashier_id: record.cashier_id,
           pos_terminal_id: record.pos_terminal_id || undefined,
           timestamp: record.timestamp || new Date().toISOString(),
-          subtotal: parseFloat(record.subtotal) || 0,
-          tax: parseFloat(record.tax) || 0,
-          discount: parseFloat(record.discount) || 0,
+          subtotal,
+          tax,
+          discount,
           line_items: parseJsonField(
             record.line_items,
             "line_items",
@@ -95,13 +109,9 @@ export function parseCsvFile(
 /**
  * Parse JSON file into transaction records
  * @param fileContent - JSON file content as string
- * @param encoding - File encoding (default: 'utf-8')
  * @returns ParseResult with transactions and errors
  */
-export function parseJsonFile(
-  fileContent: string,
-  _encoding: string = "utf-8",
-): ParseResult {
+export function parseJsonFile(fileContent: string): ParseResult {
   const errors: ParseResult["errors"] = [];
   const transactions: TransactionPayload[] = [];
 
@@ -132,18 +142,59 @@ export function parseJsonFile(
       const rowNumber = index + 1;
 
       try {
+        // Validate required fields
+        if (!record.store_id) {
+          throw new Error("store_id is required");
+        }
+        if (!record.shift_id) {
+          throw new Error("shift_id is required");
+        }
+        if (!record.cashier_id) {
+          throw new Error("cashier_id is required");
+        }
+        if (!record.timestamp) {
+          throw new Error("timestamp is required");
+        }
+
+        // Validate and convert line_items to array
+        let line_items: any[] = [];
+        if (record.line_items !== undefined && record.line_items !== null) {
+          if (!Array.isArray(record.line_items)) {
+            throw new Error("line_items must be an array");
+          }
+          line_items = record.line_items;
+        } else {
+          throw new Error("line_items is required");
+        }
+
+        // Validate and convert payments to array
+        let payments: any[] = [];
+        if (record.payments !== undefined && record.payments !== null) {
+          if (!Array.isArray(record.payments)) {
+            throw new Error("payments must be an array");
+          }
+          payments = record.payments;
+        } else {
+          throw new Error("payments is required");
+        }
+
+        // Convert numeric fields with parseFloat, fallback to 0 when NaN
+        const subtotal = parseFloat(record.subtotal);
+        const tax = parseFloat(record.tax);
+        const discount = parseFloat(record.discount);
+
         // Validate and convert to TransactionPayload
         const transaction: TransactionPayload = {
           store_id: record.store_id,
           shift_id: record.shift_id,
           cashier_id: record.cashier_id,
           pos_terminal_id: record.pos_terminal_id || undefined,
-          timestamp: record.timestamp || new Date().toISOString(),
-          subtotal: record.subtotal || 0,
-          tax: record.tax || 0,
-          discount: record.discount || 0,
-          line_items: record.line_items || [],
-          payments: record.payments || [],
+          timestamp: record.timestamp,
+          subtotal: isNaN(subtotal) ? 0 : subtotal,
+          tax: isNaN(tax) ? 0 : tax,
+          discount: isNaN(discount) ? 0 : discount,
+          line_items,
+          payments,
         };
 
         transactions.push(transaction);

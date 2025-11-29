@@ -105,9 +105,20 @@ app.register(cookie, {
 });
 
 // Register multipart form data parser (required for file uploads)
+// SECURITY: File upload configuration
+// - File size limit: Configurable via MAX_UPLOAD_FILE_SIZE_MB env var (default: 10MB)
+// - Route handlers MUST:
+//   1. Enforce file-type whitelists (check both MIME type and file signature/magic bytes)
+//   2. Use streaming (file.file or file.stream) - NEVER use toBuffer() for large files
+//   3. Validate content-type header matches actual file content (prevent MIME spoofing)
+//   4. Implement per-user upload quota checks before accepting uploads
+//   5. Reject any buffered-toBuffer() usage patterns for files > 1MB
+const maxFileSizeMB = parseInt(process.env.MAX_UPLOAD_FILE_SIZE_MB || "10", 10);
+const maxFileSizeBytes = maxFileSizeMB * 1024 * 1024;
+
 app.register(multipart, {
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB max file size
+    fileSize: maxFileSizeBytes, // Configurable max file size (default: 10MB)
   },
 });
 
@@ -141,6 +152,11 @@ app.register(rateLimit, {
   timeWindow: "1 minute",
   // Note: Per-company rate limiting (500/min) would require custom implementation
   // based on company context from authentication middleware
+  //
+  // SECURITY: Upload endpoints have stricter rate limits configured per-route:
+  // - UPLOAD_RATE_LIMIT_MAX: Max uploads per time window (default: 5)
+  // - UPLOAD_RATE_LIMIT_WINDOW: Time window for upload rate limit (default: "1 minute")
+  // This prevents abuse of upload bandwidth and ensures fair resource usage
 });
 
 // Register RLS (Row-Level Security) plugin

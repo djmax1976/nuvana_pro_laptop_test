@@ -480,7 +480,7 @@ export const transactionService = {
       where.user_id = userId;
     }
 
-    const job = await prisma.bulkImportJob.findUnique({
+    const job = await prisma.bulkImportJob.findFirst({
       where,
     });
 

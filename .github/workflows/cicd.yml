@@ -203,6 +203,8 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
+          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
       - name: Start transaction worker (if API tests needed)
         if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: |
@@ -368,6 +370,8 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
+          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
       - name: Wait for frontend and backend
         run: |
           echo "Waiting for frontend..."
@@ -639,6 +643,8 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
+          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
       - name: Wait for backend health
         id: wait_backend_api_smoke
         run: |
@@ -793,6 +799,8 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
+          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
       - name: Wait for frontend and backend
         run: |
           echo "Waiting for frontend..."
@@ -1013,6 +1021,8 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
+          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
       - name: Wait for backend
         id: wait_backend
         run: |

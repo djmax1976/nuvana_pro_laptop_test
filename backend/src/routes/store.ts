@@ -21,7 +21,10 @@ function isValidIANATimezone(timezone: string): boolean {
   if (timezone === "UTC") {
     return true;
   }
-  if (/^GMT[+-]\d{1,2}$/.test(timezone)) {
+  // Validate GMT offset format and range: -12 to +14
+  // Pattern matches: GMT+0 through GMT+14, or GMT-0 through GMT-12
+  // Rejects invalid two-digit offsets like GMT+99 or GMT-50
+  if (/^GMT(\+([0-9]|1[0-4])|-([0-9]|1[0-2]))$/.test(timezone)) {
     return true;
   }
   // IANA format: Continent/City or Continent/Region/City (e.g., America/New_York, America/Argentina/Buenos_Aires)
@@ -439,6 +442,35 @@ export async function storeRoutes(fastify: FastifyInstance) {
           }
         }
         // System admins bypass company isolation - they can create stores for any company
+
+        // Validate location_json.address if provided
+        if (body.location_json?.address !== undefined) {
+          // Ensure address is a string
+          if (typeof body.location_json.address !== "string") {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "location_json.address must be a string",
+              },
+            };
+          }
+          // TODO: Replace regex-based XSS protection with a dedicated sanitization library (e.g., DOMPurify, sanitize-html)
+          // XSS protection: Reject addresses containing script tags or other dangerous HTML
+          const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+          if (xssPattern.test(body.location_json.address)) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message:
+                  "Invalid address: HTML tags and scripts are not allowed",
+              },
+            };
+          }
+        }
 
         // Create store (with validation from service)
         const store = await storeService.createStore({
@@ -1032,6 +1064,35 @@ export async function storeRoutes(fastify: FastifyInstance) {
           }
         }
 
+        // Validate location_json.address if provided
+        if (body.location_json?.address !== undefined) {
+          // Ensure address is a string
+          if (typeof body.location_json.address !== "string") {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "location_json.address must be a string",
+              },
+            };
+          }
+          // TODO: Replace regex-based XSS protection with a dedicated sanitization library (e.g., DOMPurify, sanitize-html)
+          // XSS protection: Reject addresses containing script tags or other dangerous HTML
+          const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+          if (xssPattern.test(body.location_json.address)) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message:
+                  "Invalid address: HTML tags and scripts are not allowed",
+              },
+            };
+          }
+        }
+
         // Update store (service will verify company isolation)
         const store = await storeService.updateStore(
           params.storeId,
@@ -1457,9 +1518,12 @@ export async function storeRoutes(fastify: FastifyInstance) {
           if (!isValidIANATimezone(body.timezone)) {
             reply.code(400);
             return {
-              error: "Validation error",
-              message:
-                "Invalid timezone format. Must be IANA timezone format (e.g., America/New_York, Europe/London)",
+              success: false,
+              error: {
+                code: "ValidationError",
+                message:
+                  "Invalid timezone format. Must be IANA timezone format (e.g., America/New_York, Europe/London)",
+              },
             };
           }
           fieldsUpdated.timezone = true;
@@ -1480,6 +1544,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
               },
             };
           }
+          // TODO: Replace regex-based XSS protection with a dedicated sanitization library (e.g., DOMPurify, sanitize-html)
           // XSS protection: Reject addresses containing script tags or other dangerous HTML
           if (
             locationData.address &&
@@ -1613,8 +1678,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         ) {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: error.message,
+            success: false,
+            error: {
+              code: "ValidationError",
+              message: error.message,
+            },
           };
         }
         if (error.message.includes("not found")) {
@@ -1636,8 +1704,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to update store configuration",
+          success: false,
+          error: {
+            code: "InternalError",
+            message: error.message || "Failed to update store configuration",
+          },
         };
       }
     },
