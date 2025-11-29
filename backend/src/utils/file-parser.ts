@@ -30,6 +30,16 @@ export function parseCsvFile(
   const errors: ParseResult["errors"] = [];
   const transactions: TransactionPayload[] = [];
 
+  // Check for empty file
+  if (!fileContent || fileContent.trim().length === 0) {
+    errors.push({
+      row_number: 1,
+      field: "file",
+      error: "File is empty",
+    });
+    return { transactions, errors };
+  }
+
   try {
     // Parse CSV with header row
     const records = parseCsv(fileContent, {
@@ -94,6 +104,16 @@ export function parseJsonFile(
 ): ParseResult {
   const errors: ParseResult["errors"] = [];
   const transactions: TransactionPayload[] = [];
+
+  // Check for empty file
+  if (!fileContent || fileContent.trim().length === 0) {
+    errors.push({
+      row_number: 1,
+      field: "file",
+      error: "File is empty",
+    });
+    return { transactions, errors };
+  }
 
   try {
     const data = JSON.parse(fileContent);

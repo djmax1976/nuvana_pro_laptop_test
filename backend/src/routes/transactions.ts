@@ -919,10 +919,20 @@ export async function transactionRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Validate file type
-        const fileName = data.filename || "unknown";
+        // Sanitize filename: remove path traversal and null bytes
+        let fileName = data.filename || "unknown";
+        // Remove path traversal sequences
+        fileName = fileName.replace(/\.\./g, "").replace(/[\/\\]/g, "_");
+        // Remove null bytes
+        fileName = fileName.replace(/\0/g, "");
+        // Extract file extension from sanitized filename
         const fileExtension = fileName.split(".").pop()?.toUpperCase();
-        if (fileExtension !== "CSV" && fileExtension !== "JSON") {
+
+        // Validate file type - must have valid extension
+        if (
+          !fileExtension ||
+          (fileExtension !== "CSV" && fileExtension !== "JSON")
+        ) {
           reply.code(400);
           return {
             success: false,
@@ -936,6 +946,19 @@ export async function transactionRoutes(fastify: FastifyInstance) {
         // Validate file size (50MB max)
         const maxFileSize = 50 * 1024 * 1024; // 50MB
         const fileBuffer = await data.toBuffer();
+
+        // Check for empty file
+        if (fileBuffer.length === 0) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "File cannot be empty",
+            },
+          };
+        }
+
         if (fileBuffer.length > maxFileSize) {
           reply.code(400);
           return {
@@ -1213,6 +1236,27 @@ async function processBulkImport(
         ? parseCsvFile(fileContent)
         : parseJsonFile(fileContent);
 
+    // If file parsing resulted in errors and no transactions, mark as failed
+    if (
+      parseResult.errors.length > 0 &&
+      parseResult.transactions.length === 0
+    ) {
+      // Check if it's a critical error (empty file, invalid format)
+      const criticalError = parseResult.errors.find(
+        (e) => e.field === "file" || e.error.toLowerCase().includes("empty"),
+      );
+      if (criticalError) {
+        await transactionService.updateBulkImportJob(jobId, {
+          status: "FAILED",
+          total_rows: 0,
+          error_rows: parseResult.errors.length,
+          error_summary: parseResult.errors,
+          completed_at: new Date(),
+        });
+        return;
+      }
+    }
+
     // Update total rows
     await transactionService.updateBulkImportJob(jobId, {
       total_rows: parseResult.transactions.length + parseResult.errors.length,
@@ -1266,12 +1310,28 @@ async function processBulkImport(
         // Validate product_ids exist in product catalog (if provided)
         // Note: Product model not yet available (Epic 5), so we validate UUID format only
         // Product existence validation will be added when Product model is available
+        // XSS protection: Validate line item names for dangerous HTML/script content
+        const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+        let hasXssInLineItems = false;
         for (const lineItem of validated.line_items) {
           if (lineItem.product_id) {
             // UUID format is already validated by schema, but we can add additional checks here
             // when Product model becomes available, we'll check: await prisma.product.findUnique({ where: { product_id: lineItem.product_id } })
             // For now, product_id format validation is sufficient (handled by schema)
           }
+          // Check for XSS in line item name
+          if (lineItem.name && xssPattern.test(lineItem.name)) {
+            validationErrors.push({
+              row_number: rowNumber,
+              field: `line_items[${validated.line_items.indexOf(lineItem)}].name`,
+              error: "Invalid name: HTML tags and scripts are not allowed",
+            });
+            hasXssInLineItems = true;
+            break;
+          }
+        }
+        if (hasXssInLineItems) {
+          continue;
         }
 
         // Validate payment methods are valid

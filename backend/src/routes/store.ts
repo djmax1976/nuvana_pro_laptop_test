@@ -1308,9 +1308,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           400: {
             type: "object",
             properties: {
-              error: { type: "string" },
-              message: { type: "string" },
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
             },
+            required: ["success", "error"],
           },
           403: {
             type: "object",
@@ -1465,9 +1473,30 @@ export async function storeRoutes(fastify: FastifyInstance) {
           ) {
             reply.code(400);
             return {
-              error: "Validation error",
-              message: "location_json.address must be a string",
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "location_json.address must be a string",
+              },
             };
+          }
+          // XSS protection: Reject addresses containing script tags or other dangerous HTML
+          if (
+            locationData.address &&
+            typeof locationData.address === "string"
+          ) {
+            const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+            if (xssPattern.test(locationData.address)) {
+              reply.code(400);
+              return {
+                success: false,
+                error: {
+                  code: "VALIDATION_ERROR",
+                  message:
+                    "Invalid address: HTML tags and scripts are not allowed",
+                },
+              };
+            }
           }
           fieldsUpdated.location_json = true;
         }
