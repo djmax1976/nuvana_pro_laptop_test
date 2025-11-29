@@ -545,28 +545,38 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
 
       expect(
         processedRows,
-        "Should have processed at least some transactions",
+        "Should have enqueued at least some transactions",
       ).toBeGreaterThan(0);
 
-      // Wait a bit more for worker to process the queued messages
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      // Wait for worker to process the queued messages (polling up to 30 seconds)
+      let dbTransactions: any[] = [];
+      let workerAttempts = 0;
+      const maxWorkerAttempts = 30; // 30 seconds for worker to process
 
-      // Check that transactions exist in database
-      const dbTransactions = await prismaClient.transaction.findMany({
-        where: {
-          store_id: store.store_id,
-          shift_id: shift.shift_id,
-        },
-        take: 10,
-      });
+      while (workerAttempts < maxWorkerAttempts) {
+        dbTransactions = await prismaClient.transaction.findMany({
+          where: {
+            store_id: store.store_id,
+            shift_id: shift.shift_id,
+          },
+          take: 10,
+        });
 
-      // At least some transactions should have been created by the worker
-      // Note: This depends on worker processing, so we check if any were created
-      // In a real scenario, all enqueued transactions should be processed
+        // If we found transactions, worker has processed them
+        if (dbTransactions.length > 0) {
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        workerAttempts++;
+      }
+
+      // THEN: At least some transactions should have been created by the worker
+      // This verifies that RabbitMQ messages were actually processed, not just enqueued
       expect(
         dbTransactions.length,
-        "Some transactions should be created in database by worker",
-      ).toBeGreaterThanOrEqual(0);
+        `Worker should have processed at least some transactions within 30 seconds. Found ${dbTransactions.length} transactions. Processed rows: ${processedRows}`,
+      ).toBeGreaterThan(0);
     } else if (jobStatus === "PROCESSING") {
       // If still processing, at least verify that transactions were enqueued
       const processingStatusResponse = await superadminApiRequest.get(
