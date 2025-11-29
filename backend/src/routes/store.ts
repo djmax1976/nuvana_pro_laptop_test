@@ -223,11 +223,13 @@ export async function storeRoutes(fastify: FastifyInstance) {
         const offset = query.offset || 0;
 
         // Get all stores with company info
+        // Use deterministic ordering: created_at desc, then store_id desc as tiebreaker
+        // This ensures pagination is stable even when stores have identical created_at timestamps
         const [stores, total] = await Promise.all([
           prisma.store.findMany({
             skip: offset,
             take: limit,
-            orderBy: { created_at: "desc" },
+            orderBy: [{ created_at: "desc" }, { store_id: "desc" }],
             include: {
               company: {
                 select: {
