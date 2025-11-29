@@ -899,9 +899,9 @@ export async function transactionRoutes(fastify: FastifyInstance) {
       ],
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const user = request.user as UserIdentity;
+      const user = (request as any).user as UserIdentity;
       const errorContext = {
-        userId: user.userId,
+        userId: user.id,
         endpoint: "/api/transactions/bulk-import",
       };
 
@@ -949,7 +949,7 @@ export async function transactionRoutes(fastify: FastifyInstance) {
 
         // Create bulk import job
         const job = await transactionService.createBulkImportJob(
-          user.userId,
+          user.id,
           fileName,
           fileExtension as "CSV" | "JSON",
         );
@@ -964,7 +964,7 @@ export async function transactionRoutes(fastify: FastifyInstance) {
 
         await prisma.auditLog.create({
           data: {
-            user_id: user.userId,
+            user_id: user.id,
             action: "CREATE",
             table_name: "bulk_import_jobs",
             record_id: job.job_id,
@@ -974,7 +974,7 @@ export async function transactionRoutes(fastify: FastifyInstance) {
               file_type: fileExtension,
               status: "PENDING",
             } as any,
-            reason: `Bulk import job created by ${user.email || user.userId}`,
+            reason: `Bulk import job created by ${user.email || user.id}`,
             ip_address: ipAddress,
             user_agent: userAgent,
           },
@@ -986,8 +986,8 @@ export async function transactionRoutes(fastify: FastifyInstance) {
           job.job_id,
           fileContent,
           fileExtension as "CSV" | "JSON",
-          user.userId,
-          user.email || user.userId,
+          user.id,
+          user.email || user.id,
           ipAddress,
           userAgent,
         ).catch((error) => {
@@ -1034,23 +1034,20 @@ export async function transactionRoutes(fastify: FastifyInstance) {
     {
       preHandler: [authMiddleware],
     },
-    async (
-      request: FastifyRequest<{ Params: { jobId: string } }>,
-      reply: FastifyReply,
-    ) => {
-      const user = request.user as UserIdentity;
-      const { jobId } = request.params;
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const { jobId } = request.params as { jobId: string };
 
       try {
         // Check if user is admin (has ADMIN_SYSTEM_CONFIG permission)
-        const userRoles = await rbacService.getUserRoles(user.userId);
+        const userRoles = await rbacService.getUserRoles(user.id);
         const isAdmin = userRoles.some((role) =>
           role.permissions?.includes(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
         );
 
         const job = await transactionService.getBulkImportJob(
           jobId,
-          user.userId,
+          user.id,
           isAdmin,
         );
 
@@ -1108,27 +1105,22 @@ export async function transactionRoutes(fastify: FastifyInstance) {
     {
       preHandler: [authMiddleware],
     },
-    async (
-      request: FastifyRequest<{
-        Params: { jobId: string };
-        Querystring: { format?: "csv" | "json" };
-      }>,
-      reply: FastifyReply,
-    ) => {
-      const user = request.user as UserIdentity;
-      const { jobId } = request.params;
-      const format = request.query.format || "json";
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const { jobId } = request.params as { jobId: string };
+      const format =
+        (request.query as { format?: "csv" | "json" }).format || "json";
 
       try {
         // Check if user is admin
-        const userRoles = await rbacService.getUserRoles(user.userId);
+        const userRoles = await rbacService.getUserRoles(user.id);
         const isAdmin = userRoles.some((role) =>
           role.permissions?.includes(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
         );
 
         const job = await transactionService.getBulkImportJob(
           jobId,
-          user.userId,
+          user.id,
           isAdmin,
         );
 
@@ -1229,7 +1221,7 @@ async function processBulkImport(
     // Validate each transaction and collect errors
     const validationErrors: Array<{
       row_number: number;
-      field: string;
+      field?: string;
       error: string;
     }> = [...parseResult.errors];
 

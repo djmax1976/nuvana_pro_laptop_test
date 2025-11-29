@@ -6,7 +6,7 @@
  */
 
 import { parse as parseCsv } from "csv-parse/sync";
-import { TransactionPayload } from "../types/transaction.types";
+import { TransactionPayload } from "../schemas/transaction.schema";
 
 export interface ParseResult {
   transactions: TransactionPayload[];
@@ -25,7 +25,7 @@ export interface ParseResult {
  */
 export function parseCsvFile(
   fileContent: string,
-  encoding: string = "utf-8",
+  _encoding: string = "utf-8",
 ): ParseResult {
   const errors: ParseResult["errors"] = [];
   const transactions: TransactionPayload[] = [];
@@ -90,7 +90,7 @@ export function parseCsvFile(
  */
 export function parseJsonFile(
   fileContent: string,
-  encoding: string = "utf-8",
+  _encoding: string = "utf-8",
 ): ParseResult {
   const errors: ParseResult["errors"] = [];
   const transactions: TransactionPayload[] = [];
@@ -152,7 +152,7 @@ export function parseJsonFile(
 function parseJsonField(
   value: string | undefined,
   fieldName: string,
-  rowNumber: number,
+  _rowNumber: number,
 ): any {
   if (!value) {
     return [];
