@@ -62,8 +62,12 @@ export function parseCsvFile(fileContent: string): ParseResult {
         const discount = parseFloat(record.discount);
 
         if (isNaN(subtotal) || isNaN(tax) || isNaN(discount)) {
+          const invalidFields: string[] = [];
+          if (isNaN(subtotal)) invalidFields.push("subtotal");
+          if (isNaN(tax)) invalidFields.push("tax");
+          if (isNaN(discount)) invalidFields.push("discount");
           throw new Error(
-            "Invalid numeric values in subtotal, tax, or discount fields",
+            `Invalid numeric values in ${invalidFields.join(", ")} fields`,
           );
         }
 
@@ -186,7 +190,7 @@ export function parseJsonFile(fileContent: string): ParseResult {
           if (isNaN(tax)) invalidFields.push("tax");
           if (isNaN(discount)) invalidFields.push("discount");
           throw new Error(
-            `Invalid numeric values in ${invalidFields.join(", ")} fields (record at line ${rowNumber})`,
+            `Invalid numeric values in ${invalidFields.join(", ")} fields`,
           );
         }
 

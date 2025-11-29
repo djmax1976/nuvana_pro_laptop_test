@@ -1669,7 +1669,16 @@ export async function storeRoutes(fastify: FastifyInstance) {
         reply.code(200);
         return store;
       } catch (error: any) {
-        fastify.log.error({ error }, "Error updating store configuration");
+        const errorParams = request.params as { storeId?: string } | undefined;
+        const errorUser = (request as any).user as UserIdentity | undefined;
+        fastify.log.error(
+          {
+            error,
+            storeId: errorParams?.storeId,
+            userId: errorUser?.id,
+          },
+          "Error updating store configuration",
+        );
         if (
           error.message.includes("required") ||
           error.message.includes("Invalid") ||
@@ -1702,23 +1711,10 @@ export async function storeRoutes(fastify: FastifyInstance) {
             },
           };
         }
-        const errorParams = request.params as { storeId?: string } | undefined;
-        const errorUser = (request as any).user as UserIdentity | undefined;
-        fastify.log.error(
-          {
-            error,
-            storeId: errorParams?.storeId,
-            userId: errorUser?.id,
-          },
-          "Internal server error updating store configuration",
-        );
         reply.code(500);
         return {
-          success: false,
-          error: {
-            code: "INTERNAL_ERROR",
-            message: "Failed to update store configuration",
-          },
+          error: "Internal server error",
+          message: "Failed to update store configuration",
         };
       }
     },
