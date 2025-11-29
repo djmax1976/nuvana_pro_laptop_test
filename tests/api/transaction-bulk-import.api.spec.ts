@@ -707,25 +707,26 @@ test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
 
     const uploadBody = await uploadResponse.json();
     const jobId = uploadBody.data?.job_id;
+    expect(jobId).toBeDefined();
 
-    // Wait for validation
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    // WHEN: Checking import status
-    const response = await superadminApiRequest.get(
-      `/api/transactions/bulk-import/${jobId}`,
+    // Wait for validation using polling
+    const result = await waitForJobCompletion(
+      superadminApiRequest,
+      jobId,
+      ["COMPLETED", "FAILED"],
+      30000,
     );
 
     // THEN: Should include validation errors with row numbers
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-    expect(body.data?.errors, "Should include errors array").toBeTruthy();
+    expect(result, "Job should complete within timeout").not.toBeNull();
     expect(
-      body.data.errors.length,
-      "Should have at least one error",
-    ).toBeGreaterThan(0);
+      result?.job?.errors || [],
+      "Should include errors array",
+    ).toBeTruthy();
+    const errors = result?.job?.errors || [];
+    expect(errors.length, "Should have at least one error").toBeGreaterThan(0);
 
-    const error = body.data.errors[0];
+    const error = errors[0];
     expect(error.row_number, "Error should include row_number").toBeTruthy();
     expect(error.field, "Error should include field").toBeTruthy();
     expect(error.error, "Error should include error message").toBeTruthy();
@@ -831,9 +832,16 @@ test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
 
     const uploadBody = await uploadResponse.json();
     const jobId = uploadBody.data?.job_id;
+    expect(jobId).toBeDefined();
 
-    // Wait for job to complete
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    // Wait for job to complete using polling
+    const result = await waitForJobCompletion(
+      superadminApiRequest,
+      jobId,
+      ["COMPLETED", "FAILED"],
+      45000,
+    );
+    expect(result, "Job should complete within timeout").not.toBeNull();
 
     // WHEN: Checking AuditLog
     // THEN: Should find audit log entry for import completion
@@ -895,9 +903,15 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
 
     const uploadBody = await uploadResponse.json();
     const jobId = uploadBody.data?.job_id;
+    expect(jobId).toBeDefined();
 
-    // Wait for processing
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    // Wait for processing using polling
+    await waitForJobCompletion(
+      superadminApiRequest,
+      jobId,
+      ["COMPLETED", "FAILED"],
+      30000,
+    );
 
     // WHEN: Requesting error report in CSV format
     const response = await superadminApiRequest.get(
@@ -959,9 +973,15 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
 
     const uploadBody = await uploadResponse.json();
     const jobId = uploadBody.data?.job_id;
+    expect(jobId).toBeDefined();
 
-    // Wait for processing
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    // Wait for processing using polling
+    await waitForJobCompletion(
+      superadminApiRequest,
+      jobId,
+      ["COMPLETED", "FAILED"],
+      30000,
+    );
 
     // WHEN: Requesting error report in JSON format
     const response = await superadminApiRequest.get(
@@ -1415,19 +1435,19 @@ test.describe("Bulk Import API - XSS Prevention", () => {
 
     const body = await response.json();
     const jobId = body.data?.job_id;
+    expect(jobId).toBeDefined();
 
-    // Wait for validation
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    // Check if XSS was caught during validation or will be sanitized at render
-    const statusResponse = await superadminApiRequest.get(
-      `/api/transactions/bulk-import/${jobId}`,
+    // Wait for validation using polling
+    const result = await waitForJobCompletion(
+      superadminApiRequest,
+      jobId,
+      ["COMPLETED", "FAILED"],
+      30000,
     );
-    const statusBody = await statusResponse.json();
 
     // XSS should either be caught in validation or sanitized
     // Accept either validation error or successful processing (with sanitization)
-    expect([200, 400, 404]).toContain(statusResponse.status());
+    expect(result).not.toBeNull();
   });
 });
 
@@ -1504,18 +1524,18 @@ test.describe("Bulk Import API - Input Validation Edge Cases", () => {
 
     const body = await response.json();
     const jobId = body.data?.job_id;
+    expect(jobId).toBeDefined();
 
-    // Wait for parsing
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    // Check job status for parsing errors
-    const statusResponse = await superadminApiRequest.get(
-      `/api/transactions/bulk-import/${jobId}`,
+    // Wait for parsing using polling
+    const result = await waitForJobCompletion(
+      superadminApiRequest,
+      jobId,
+      ["COMPLETED", "FAILED"],
+      30000,
     );
-    const statusBody = await statusResponse.json();
 
     // Should have errors from malformed CSV
-    expect(statusBody.data?.errors?.length || 0).toBeGreaterThan(0);
+    expect(result?.job?.errors?.length || 0).toBeGreaterThan(0);
   });
 
   test("3.6-API-EDGE-004: [P1] JSON file that is not an array is rejected", async ({
@@ -1544,17 +1564,17 @@ test.describe("Bulk Import API - Input Validation Edge Cases", () => {
 
     const body = await response.json();
     const jobId = body.data?.job_id;
+    expect(jobId).toBeDefined();
 
-    // Wait for parsing
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    // Check job status for parsing errors
-    const statusResponse = await superadminApiRequest.get(
-      `/api/transactions/bulk-import/${jobId}`,
+    // Wait for parsing using polling
+    const result = await waitForJobCompletion(
+      superadminApiRequest,
+      jobId,
+      ["COMPLETED", "FAILED"],
+      30000,
     );
-    const statusBody = await statusResponse.json();
 
     // Should have errors from invalid JSON structure
-    expect(statusBody.data?.errors?.length || 0).toBeGreaterThan(0);
+    expect(result?.job?.errors?.length || 0).toBeGreaterThan(0);
   });
 });
