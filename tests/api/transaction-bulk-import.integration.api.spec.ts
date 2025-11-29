@@ -73,6 +73,24 @@ async function createTestStoreAndShift(
 }
 
 /**
+ * Escapes a CSV field value according to RFC 4180
+ * - If the field contains commas, newlines, or double quotes, wrap it in double quotes
+ * - Double quotes within the field are escaped by doubling them
+ */
+function escapeCsvField(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  const str = String(value);
+  // If the field contains comma, newline, or double quote, wrap in quotes
+  if (str.includes(",") || str.includes("\n") || str.includes('"')) {
+    // Escape double quotes by doubling them
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+/**
  * Creates a CSV file content with transaction data
  */
 function createCSVContent(transactions: any[]): string {
@@ -91,16 +109,16 @@ function createCSVContent(transactions: any[]): string {
 
   const rows = transactions.map((tx) => {
     return [
-      tx.store_id,
-      tx.shift_id,
-      tx.cashier_id || "",
-      tx.timestamp || new Date().toISOString(),
-      tx.subtotal,
-      tx.tax,
-      tx.discount,
-      tx.total,
-      JSON.stringify(tx.line_items),
-      JSON.stringify(tx.payments),
+      escapeCsvField(tx.store_id),
+      escapeCsvField(tx.shift_id),
+      escapeCsvField(tx.cashier_id || ""),
+      escapeCsvField(tx.timestamp || new Date().toISOString()),
+      escapeCsvField(tx.subtotal),
+      escapeCsvField(tx.tax),
+      escapeCsvField(tx.discount),
+      escapeCsvField(tx.total),
+      escapeCsvField(JSON.stringify(tx.line_items)),
+      escapeCsvField(JSON.stringify(tx.payments)),
     ].join(",");
   });
 
@@ -145,6 +163,9 @@ async function waitForJobStatus(
 // =============================================================================
 
 test.describe("Bulk Import Integration - End-to-End Flow", () => {
+  // Run tests serially to avoid rate limiting on bulk import endpoint
+  // The endpoint has a rate limit of 5 uploads per minute per user
+  test.describe.configure({ mode: "serial" });
   test("3.6-INT-001: [P0] should complete full bulk import flow (upload → process → status)", async ({
     superadminApiRequest,
     superadminUser,
@@ -360,13 +381,16 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
       "Should have at least one error",
     ).toBeGreaterThan(0);
 
-    // Find error for row 2 (invalid transaction)
-    const row2Error = statusBody.data.errors.find(
-      (err: any) => err.row_number === 2,
+    // Find error for row 3 (invalid transaction - row 1 is header, row 2 is valid, row 3 is invalid)
+    const row3Error = statusBody.data.errors.find(
+      (err: any) => err.row_number === 3,
     );
-    expect(row2Error, "Should have error for row 2").toBeTruthy();
-    expect(row2Error.field, "Error should include field name").toBeTruthy();
-    expect(row2Error.error, "Error should include error message").toBeTruthy();
+    expect(
+      row3Error,
+      "Should have error for row 3 (invalid transaction)",
+    ).toBeTruthy();
+    expect(row3Error.field, "Error should include field name").toBeTruthy();
+    expect(row3Error.error, "Error should include error message").toBeTruthy();
 
     // Verify error report endpoint
     const errorReportResponse = await superadminApiRequest.get(
@@ -418,24 +442,31 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
       },
     );
 
+    expect(
+      uploadResponse.status(),
+      "Should return 202 for accepted import",
+    ).toBe(202);
     const uploadBody = await uploadResponse.json();
     const jobId = uploadBody.data?.job_id;
+    expect(jobId, "Should return job_id").toBeTruthy();
 
     // Wait for job to complete
     await new Promise((resolve) => setTimeout(resolve, 5000));
 
     // THEN: Audit log should have entries for job creation and completion
+    // Query with both record_id AND user_id to ensure we get the right log
     const createAuditLogs = await prismaClient.auditLog.findMany({
       where: {
         table_name: "bulk_import_jobs",
         record_id: jobId,
         action: "CREATE",
+        user_id: superadminUser.user_id,
       },
     });
 
     expect(
       createAuditLogs.length,
-      "Should have audit log for job creation",
+      `Should have audit log for job creation (jobId: ${jobId}, userId: ${superadminUser.user_id})`,
     ).toBeGreaterThan(0);
     const createLog = createAuditLogs[0];
     expect(createLog.user_id, "Audit log should include user_id").toBe(
@@ -452,6 +483,7 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
         table_name: "bulk_import_jobs",
         record_id: jobId,
         action: "UPDATE",
+        user_id: superadminUser.user_id,
       },
     });
 
@@ -503,8 +535,14 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     const jobId = uploadBody.data?.job_id;
     expect(jobId, "Should have job_id").toBeTruthy();
 
-    // Wait for job to reach PROCESSING or COMPLETED status (polling)
+    // Wait for job to complete with processed rows (polling)
+    // The job needs time to:
+    // 1. Parse the CSV file
+    // 2. Validate each transaction
+    // 3. Enqueue valid transactions to RabbitMQ
+    // 4. Update processed_rows count
     let jobStatus: string = "PENDING";
+    let processedRows = 0;
     let attempts = 0;
     const maxAttempts = 30; // 30 seconds max wait
     while (attempts < maxAttempts) {
@@ -513,82 +551,76 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
       );
       const statusBody = await statusResponse.json();
       jobStatus = statusBody.data?.job?.status || "PENDING";
+      processedRows = statusBody.data?.job?.processed_rows || 0;
 
-      if (jobStatus === "PROCESSING" || jobStatus === "COMPLETED") {
+      // Success: Job completed and we have processed rows
+      if (jobStatus === "COMPLETED" && processedRows > 0) {
         break;
       }
 
-      if (jobStatus === "FAILED") {
-        throw new Error(
-          `Bulk import job failed: ${statusBody.data?.job?.error_summary || "Unknown error"}`,
-        );
+      // Keep waiting if still processing
+      if (jobStatus === "PROCESSING") {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        attempts++;
+        continue;
       }
 
+      if (jobStatus === "FAILED") {
+        const errorSummary = JSON.stringify(
+          statusBody.data?.job?.error_summary || "Unknown error",
+        );
+        throw new Error(`Bulk import job failed: ${errorSummary}`);
+      }
+
+      // Keep waiting if still pending
       await new Promise((resolve) => setTimeout(resolve, 1000));
       attempts++;
     }
 
-    // THEN: Job should be PROCESSING or COMPLETED
+    // THEN: Job should be COMPLETED with processed rows
+    expect(jobStatus, "Job should be COMPLETED after waiting").toBe(
+      "COMPLETED",
+    );
+
+    // THEN: Transactions should have been enqueued to RabbitMQ
+    // processed_rows > 0 indicates messages were successfully published to the queue
     expect(
-      jobStatus,
-      "Job should be COMPLETED or PROCESSING after waiting",
-    ).toMatch(/COMPLETED|PROCESSING/);
+      processedRows,
+      "Should have enqueued at least some transactions to RabbitMQ",
+    ).toBeGreaterThan(0);
 
-    // If job is COMPLETED, verify transactions were enqueued and processed
-    if (jobStatus === "COMPLETED") {
-      // Check that transactions were enqueued (processed_rows > 0)
-      const finalStatusResponse = await superadminApiRequest.get(
-        `/api/transactions/bulk-import/${jobId}`,
-      );
-      const finalStatusBody = await finalStatusResponse.json();
-      const processedRows = finalStatusBody.data?.job?.processed_rows || 0;
+    // Wait for worker to process the queued messages
+    // The worker consumes from RabbitMQ and creates Transaction records in the database
+    // Poll the database for up to 30 seconds to verify worker processing
+    let dbTransactions: any[] = [];
+    let workerAttempts = 0;
+    const maxWorkerAttempts = 30;
 
-      expect(
-        processedRows,
-        "Should have enqueued at least some transactions",
-      ).toBeGreaterThan(0);
+    while (workerAttempts < maxWorkerAttempts) {
+      dbTransactions = await prismaClient.transaction.findMany({
+        where: {
+          store_id: store.store_id,
+          shift_id: shift.shift_id,
+        },
+        take: 10,
+      });
 
-      // Wait for worker to process the queued messages (polling up to 30 seconds)
-      let dbTransactions: any[] = [];
-      let workerAttempts = 0;
-      const maxWorkerAttempts = 30; // 30 seconds for worker to process
-
-      while (workerAttempts < maxWorkerAttempts) {
-        dbTransactions = await prismaClient.transaction.findMany({
-          where: {
-            store_id: store.store_id,
-            shift_id: shift.shift_id,
-          },
-          take: 10,
-        });
-
-        // If we found transactions, worker has processed them
-        if (dbTransactions.length > 0) {
-          break;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        workerAttempts++;
+      // If we found transactions, worker has processed them
+      if (dbTransactions.length > 0) {
+        break;
       }
 
-      // THEN: At least some transactions should have been created by the worker
-      // This verifies that RabbitMQ messages were actually processed, not just enqueued
-      expect(
-        dbTransactions.length,
-        `Worker should have processed at least some transactions within 30 seconds. Found ${dbTransactions.length} transactions. Processed rows: ${processedRows}`,
-      ).toBeGreaterThan(0);
-    } else if (jobStatus === "PROCESSING") {
-      // If still processing, at least verify that transactions were enqueued
-      const processingStatusResponse = await superadminApiRequest.get(
-        `/api/transactions/bulk-import/${jobId}`,
-      );
-      const processingStatusBody = await processingStatusResponse.json();
-      const processedRows = processingStatusBody.data?.job?.processed_rows || 0;
-
-      expect(
-        processedRows,
-        "Should have enqueued at least some transactions",
-      ).toBeGreaterThan(0);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      workerAttempts++;
     }
+
+    // THEN: Worker should have created Transaction records in the database
+    // This verifies the full end-to-end flow: API -> RabbitMQ -> Worker -> Database
+    expect(
+      dbTransactions.length,
+      `Worker should have processed at least some transactions within ${maxWorkerAttempts} seconds. ` +
+        `Enqueued: ${processedRows}, Found in DB: ${dbTransactions.length}. ` +
+        `Ensure the transaction worker is running (npm run worker:transaction).`,
+    ).toBeGreaterThan(0);
   });
 });

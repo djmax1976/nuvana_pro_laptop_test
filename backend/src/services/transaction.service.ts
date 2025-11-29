@@ -82,13 +82,32 @@ export const transactionService = {
     // Get user's roles
     const userRoles = await rbacService.getUserRoles(userId);
 
+    // Check for superadmin (system scope - can access all stores)
+    const hasSuperadminRole = userRoles.some(
+      (role) => role.scope === "SYSTEM" || role.role_code === "superadmin",
+    );
+
+    if (hasSuperadminRole) {
+      // Superadmins can access any store, just verify store exists
+      const store = await prisma.store.findUnique({
+        where: { store_id: storeId },
+        select: { store_id: true },
+      });
+      return !!store;
+    }
+
     // Find user's company ID
     const companyRole = userRoles.find(
       (role) => role.scope === "COMPANY" && role.company_id,
     );
 
     if (!companyRole?.company_id) {
-      return false;
+      // Check for store-scoped roles
+      const storeRoles = userRoles.filter(
+        (role) => role.scope === "STORE" && role.store_id,
+      );
+      // User can access if they have a role scoped to this specific store
+      return storeRoles.some((role) => role.store_id === storeId);
     }
 
     // Check if store belongs to user's company
