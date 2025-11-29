@@ -1123,9 +1123,6 @@ export async function transactionRoutes(fastify: FastifyInstance) {
           detectedType as "CSV" | "JSON",
         );
 
-        // Record upload to quota system
-        await recordUpload(user.id, fileSizeBytes);
-
         // Log bulk import job creation to AuditLog
         const ipAddress =
           (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
@@ -1153,21 +1150,21 @@ export async function transactionRoutes(fastify: FastifyInstance) {
           },
         });
 
-        // Read file content from temp file for processing
-        // Note: For very large files, consider processing in chunks instead
-        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is controlled
-        const fileContent = await fs.readFile(tempFilePath, "utf-8");
+        // Record upload to quota system only after all synchronous operations succeed
+        // This prevents quota exhaustion from failed uploads (e.g., audit log failures)
+        await recordUpload(user.id, fileSizeBytes);
 
         // Process file asynchronously (don't await - return job_id immediately)
+        // File will be read from disk inside processBulkImport to avoid keeping content in memory
+        // during the upload response. This reduces memory pressure for large files.
         processBulkImport(
           job.job_id,
-          fileContent,
+          tempFilePath,
           detectedType as "CSV" | "JSON",
           user.id,
           user.email || user.id,
           ipAddress,
           userAgent,
-          tempFilePath, // Pass temp file path for cleanup
         ).catch((error) => {
           fastify.log.error(
             { error, jobId: job.job_id },
@@ -1304,9 +1301,9 @@ export async function transactionRoutes(fastify: FastifyInstance) {
   /**
    * Escapes a CSV field value to prevent CSV injection and malformed CSV output.
    * Handles:
-   * - Double quotes (escaped by doubling)
-   * - Newlines and carriage returns (preserved inside quoted fields)
-   * - CSV injection characters (leading =, +, -, @, \t, \r are escaped)
+   * - Double quotes (escaped by doubling per RFC 4180)
+   * - Newlines and carriage returns (properly contained within quoted fields)
+   * - CSV injection characters (leading =, +, -, @, \t, \r are escaped with tab prefix)
    * - All fields are consistently wrapped in double quotes
    *
    * @param value - The field value to escape
@@ -1319,20 +1316,29 @@ export async function transactionRoutes(fastify: FastifyInstance) {
 
     const str = String(value);
 
-    // Check for CSV injection on original string (before any modifications)
+    // Check for CSV injection risk on original string (before any modifications)
     // Excel/Google Sheets interpret =, +, -, @, \t, \r at the start as formulas
+    // This check must happen before quote escaping to catch all injection vectors
     const csvInjectionPattern = /^([=+\-@\t\r])/;
     const hasInjectionRisk = csvInjectionPattern.test(str);
 
     // Escape double quotes by doubling them (RFC 4180 standard)
+    // This must be done to prevent breaking out of quoted field
     let escaped = str.replace(/"/g, '""');
 
-    // Prevent CSV injection by prefixing with a single quote (Excel treats '= as literal)
+    // Prevent CSV injection by prefixing dangerous leading characters with a tab
+    // Tab prefix is invisible to users but prevents formula execution across CSV parsers
+    // This is more reliable than single quote prefix and works with all major spreadsheet apps
     if (hasInjectionRisk) {
-      escaped = "'" + escaped;
+      escaped = "\t" + escaped;
     }
 
+    // Newlines (\n) and carriage returns (\r) are preserved inside quoted fields per RFC 4180
+    // The wrapping in double quotes below ensures they are properly contained
+    // No additional escaping needed as long as the field is properly quoted
+
     // Always wrap field in double quotes to preserve commas, newlines, and other special characters
+    // This ensures proper CSV structure and prevents injection/malformation
     return `"${escaped}"`;
   }
 
@@ -1442,17 +1448,16 @@ export async function transactionRoutes(fastify: FastifyInstance) {
 /**
  * Process bulk import file asynchronously
  * Parses file, validates transactions, and enqueues valid ones to RabbitMQ
- * @param tempFilePath - Optional path to temp file for cleanup after processing
+ * @param tempFilePath - Path to temp file containing the uploaded file content
  */
 async function processBulkImport(
   jobId: string,
-  fileContent: string,
+  tempFilePath: string,
   fileType: "CSV" | "JSON",
   userId: string,
   userEmail: string,
   ipAddress: string | null,
   userAgent: string | null,
-  tempFilePath?: string,
 ): Promise<void> {
   const { parseCsvFile, parseJsonFile } = await import("../utils/file-parser");
   const { publishToTransactionsQueue } = await import("../utils/rabbitmq");
@@ -1466,6 +1471,11 @@ async function processBulkImport(
       status: "PROCESSING",
     });
 
+    // Read file content from disk only when processing starts
+    // This avoids keeping file content in memory during the upload response
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is constructed from controlled tempDir and UUID
+    const fileContent = await fs.readFile(tempFilePath, "utf-8");
+
     // Parse file
     const parseResult =
       fileType === "CSV"
@@ -1473,24 +1483,40 @@ async function processBulkImport(
         : parseJsonFile(fileContent);
 
     // If file parsing resulted in errors and no transactions, mark as failed
+    // All rows failed to parse, so there are no valid transactions to process
     if (
       parseResult.errors.length > 0 &&
       parseResult.transactions.length === 0
     ) {
-      // Check if it's a critical error (empty file, invalid format)
-      const criticalError = parseResult.errors.find(
-        (e) => e.field === "file" || e.error.toLowerCase().includes("empty"),
-      );
-      if (criticalError) {
-        await transactionService.updateBulkImportJob(jobId, {
-          status: "FAILED",
-          total_rows: 0,
-          error_rows: parseResult.errors.length,
-          error_summary: parseResult.errors,
-          completed_at: new Date(),
-        });
-        return;
-      }
+      await transactionService.updateBulkImportJob(jobId, {
+        status: "FAILED",
+        total_rows: parseResult.errors.length,
+        error_rows: parseResult.errors.length,
+        error_summary: parseResult.errors,
+        completed_at: new Date(),
+      });
+
+      // Log parsing failure to AuditLog for compliance and debugging
+      // This ensures all job status transitions to FAILED are audited
+      await prisma.auditLog.create({
+        data: {
+          user_id: userId,
+          action: "UPDATE",
+          table_name: "bulk_import_jobs",
+          record_id: jobId,
+          old_values: { status: "PROCESSING" } as any,
+          new_values: {
+            status: "FAILED",
+            total_rows: parseResult.errors.length,
+            error_rows: parseResult.errors.length,
+          } as any,
+          reason: `Bulk import failed by ${userEmail}: All rows failed to parse. ${parseResult.errors.length} parsing error(s)`,
+          ip_address: ipAddress,
+          user_agent: userAgent,
+        },
+      });
+
+      return;
     }
 
     // Update total rows
@@ -1697,18 +1723,16 @@ async function processBulkImport(
 
     throw error;
   } finally {
-    // Clean up temp file if it exists
-    if (tempFilePath) {
-      try {
-        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is constructed from controlled tempDir and UUID
-        await fs.unlink(tempFilePath);
-      } catch (cleanupError) {
-        // Log but don't throw - cleanup errors shouldn't fail the job
-        console.warn(
-          `Failed to cleanup temp file ${tempFilePath}:`,
-          cleanupError,
-        );
-      }
+    // Clean up temp file after processing
+    try {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is constructed from controlled tempDir and UUID
+      await fs.unlink(tempFilePath);
+    } catch (cleanupError) {
+      // Log but don't throw - cleanup errors shouldn't fail the job
+      console.warn(
+        `Failed to cleanup temp file ${tempFilePath}:`,
+        cleanupError,
+      );
     }
   }
 }

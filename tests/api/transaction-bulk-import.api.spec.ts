@@ -74,8 +74,9 @@ async function createTestStoreAndShift(
   const shift = await prismaClient.shift.create({
     data: {
       store_id: store.store_id,
+      opened_by: cashierId,
       cashier_id: cashierId,
-      opening_amount: 100.0,
+      opening_cash: 100.0,
       status: "OPEN",
     },
   });

@@ -75,8 +75,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -113,8 +114,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -155,8 +157,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -225,8 +228,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift1 = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -234,8 +238,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 200.0,
+        opening_cash: 200.0,
         status: "OPEN",
       },
     });
@@ -301,8 +306,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift1 = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier1.user_id,
         cashier_id: cashier1.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -310,8 +316,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier2.user_id,
         cashier_id: cashier2.user_id,
-        opening_amount: 200.0,
+        opening_cash: 200.0,
         status: "OPEN",
       },
     });
@@ -373,8 +380,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -439,8 +447,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -506,8 +515,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -577,8 +587,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift1 = await prismaClient.shift.create({
       data: {
         store_id: store1.store_id,
+        opened_by: cashier1.user_id,
         cashier_id: cashier1.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -586,8 +597,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store2.store_id,
+        opened_by: cashier2.user_id,
         cashier_id: cashier2.user_id,
-        opening_amount: 200.0,
+        opening_cash: 200.0,
         status: "OPEN",
       },
     });
@@ -738,8 +750,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -784,8 +797,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -862,8 +876,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -927,8 +942,9 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });

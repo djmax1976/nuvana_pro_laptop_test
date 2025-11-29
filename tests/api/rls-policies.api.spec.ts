@@ -364,17 +364,19 @@ test.describe("RLS Policies - Store-Level Isolation", () => {
     const shift1 = await prismaClient.shift.create({
       data: {
         store_id: store1.store_id,
+        opened_by: storeManagerUser.user_id,
         cashier_id: storeManagerUser.user_id,
-        start_time: new Date(),
-        opening_amount: 1000,
+        opened_at: new Date(),
+        opening_cash: 1000,
       },
     });
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store2.store_id,
+        opened_by: storeManagerUser.user_id,
         cashier_id: storeManagerUser.user_id,
-        start_time: new Date(),
-        opening_amount: 1000,
+        opened_at: new Date(),
+        opening_cash: 1000,
       },
     });
 
@@ -431,9 +433,10 @@ test.describe("RLS Policies - Store-Level Isolation", () => {
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store2.store_id,
+        opened_by: storeManagerUser.user_id,
         cashier_id: storeManagerUser.user_id,
-        start_time: new Date(),
-        opening_amount: 1000,
+        opened_at: new Date(),
+        opening_cash: 1000,
       },
     });
 
@@ -492,17 +495,19 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     const shift1 = await prismaClient.shift.create({
       data: {
         store_id: store1.store_id,
+        opened_by: storeManagerUser.user_id,
         cashier_id: storeManagerUser.user_id,
-        start_time: new Date(),
-        opening_amount: 1000,
+        opened_at: new Date(),
+        opening_cash: 1000,
       },
     });
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store2.store_id,
+        opened_by: storeManagerUser.user_id,
         cashier_id: storeManagerUser.user_id,
-        start_time: new Date(),
-        opening_amount: 1000,
+        opened_at: new Date(),
+        opening_cash: 1000,
       },
     });
 
@@ -594,9 +599,10 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store2.store_id,
+        opened_by: storeManagerUser.user_id,
         cashier_id: storeManagerUser.user_id,
-        start_time: new Date(),
-        opening_amount: 1000,
+        opened_at: new Date(),
+        opening_cash: 1000,
       },
     });
 
@@ -664,9 +670,10 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
       const shift = await prismaClient.shift.create({
         data: {
           store_id: store.store_id,
+          opened_by: storeManagerUser.user_id,
           cashier_id: storeManagerUser.user_id,
-          start_time: new Date(),
-          opening_amount: 1000,
+          opened_at: new Date(),
+          opening_cash: 1000,
         },
       });
       shifts.push(shift);
@@ -747,9 +754,10 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
       const shift = await prismaClient.shift.create({
         data: {
           store_id: store.store_id,
+          opened_by: storeManagerUser.user_id,
           cashier_id: storeManagerUser.user_id,
-          start_time: new Date(),
-          opening_amount: 1000,
+          opened_at: new Date(),
+          opening_cash: 1000,
         },
       });
       shiftsA.push(shift);
@@ -771,9 +779,10 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     const shiftB = await prismaClient.shift.create({
       data: {
         store_id: storesB[0].store_id,
+        opened_by: storeManagerUser.user_id,
         cashier_id: storeManagerUser.user_id,
-        start_time: new Date(),
-        opening_amount: 1000,
+        opened_at: new Date(),
+        opening_cash: 1000,
       },
     });
     const transactionB = await prismaClient.transaction.create({
