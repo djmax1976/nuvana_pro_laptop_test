@@ -5,7 +5,7 @@
  * These wrap the factory functions and handle the database creation.
  */
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, ShiftStatus } from "@prisma/client";
 import {
   createUser as createUserFactory,
   createCompany as createCompanyFactory,
@@ -203,12 +203,13 @@ export async function createStore(
 export async function createShift(
   overrides: {
     store_id: string;
+    opened_by?: string;
     cashier_id?: string;
-    start_time: Date;
-    end_time?: Date | null;
-    status?: string;
-    opening_amount?: number;
-    closing_amount?: number | null;
+    opened_at?: Date;
+    closed_at?: Date | null;
+    status?: ShiftStatus;
+    opening_cash?: number;
+    closing_cash?: number | null;
     pos_terminal_id?: string | null;
   },
   prisma?: PrismaClient,
@@ -227,15 +228,23 @@ export async function createShift(
     cashierId = cashier.user_id;
   }
 
+  // Create an opener user if not provided
+  let openedById = overrides.opened_by;
+  if (!openedById) {
+    const opener = await createUser(prismaClient, {});
+    openedById = opener.user_id;
+  }
+
   const result = await prismaClient.shift.create({
     data: {
       store_id: overrides.store_id,
+      opened_by: openedById,
       cashier_id: cashierId,
-      start_time: overrides.start_time,
-      end_time: overrides.end_time ?? null,
-      status: overrides.status ?? "OPEN",
-      opening_amount: overrides.opening_amount ?? 0,
-      closing_amount: overrides.closing_amount ?? null,
+      opened_at: overrides.opened_at ?? new Date(),
+      closed_at: overrides.closed_at ?? null,
+      status: overrides.status ?? ShiftStatus.OPEN,
+      opening_cash: overrides.opening_cash ?? 0,
+      closing_cash: overrides.closing_cash ?? null,
       pos_terminal_id: overrides.pos_terminal_id ?? null,
       public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
     },

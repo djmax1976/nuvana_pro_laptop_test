@@ -74,8 +74,9 @@ async function createTestStoreAndShift(
   const shift = await prismaClient.shift.create({
     data: {
       store_id: store.store_id,
+      opened_by: cashierId,
       cashier_id: cashierId,
-      opening_amount: 100.0,
+      opening_cash: 100.0,
       status: "OPEN",
     },
   });
@@ -188,6 +189,10 @@ async function waitForJobCompletion(
 // =============================================================================
 
 test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
+  // Run tests serially to avoid rate limiting on bulk import endpoint
+  // The endpoint has a rate limit of 5 uploads per minute per user
+  // Running serially ensures tests don't interfere with each other
+  test.describe.configure({ mode: "serial" });
   test("3.6-API-001: [P0] should accept valid CSV file and return job_id", async ({
     superadminApiRequest,
     superadminUser,
@@ -481,6 +486,7 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const transaction = createTransactionPayload({
       store_id: store.store_id,
       shift_id: shift.shift_id,
+      cashier_id: superadminUser.user_id,
     });
     const csvContent = createCSVContent([transaction]);
 
@@ -499,8 +505,14 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
       },
     );
 
+    // THEN: Response should be successful
+    expect(response.status(), "Upload should succeed").toBe(202);
     const body = await response.json();
-    const jobId = body.data?.job_id;
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(body.data, "Response should include data").toBeDefined();
+    expect(body.data?.job_id, "Response should include job_id").toBeDefined();
+
+    const jobId = body.data.job_id;
 
     // THEN: Import job should exist in database
     const job = await prismaClient.bulkImportJob.findUnique({
@@ -608,6 +620,8 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
 // =============================================================================
 
 test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
+  // Run tests serially to avoid rate limiting on bulk import endpoint
+  test.describe.configure({ mode: "serial" });
   test("3.6-API-009: [P1] should return job status and progress metrics", async ({
     superadminApiRequest,
     superadminUser,
@@ -867,6 +881,8 @@ test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
 // =============================================================================
 
 test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
+  // Run tests serially to avoid rate limiting on bulk import endpoint
+  test.describe.configure({ mode: "serial" });
   test("3.6-API-013: [P1] should return error report in CSV format", async ({
     superadminApiRequest,
     superadminUser,
@@ -1216,6 +1232,8 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
 // =============================================================================
 
 test.describe("Bulk Import API - Authentication Security", () => {
+  // Run tests serially to avoid rate limiting on bulk import endpoint
+  test.describe.configure({ mode: "serial" });
   test("3.6-API-SEC-001: [P0] Missing token returns 401", async ({
     request,
   }) => {
@@ -1279,6 +1297,8 @@ test.describe("Bulk Import API - Authentication Security", () => {
 // =============================================================================
 
 test.describe("Bulk Import API - File Upload Security", () => {
+  // Run tests serially to avoid rate limiting on bulk import endpoint
+  test.describe.configure({ mode: "serial" });
   test("3.6-API-SEC-003: [P0] Empty file is rejected", async ({
     superadminApiRequest,
   }) => {
@@ -1396,6 +1416,8 @@ test.describe("Bulk Import API - File Upload Security", () => {
 // =============================================================================
 
 test.describe("Bulk Import API - XSS Prevention", () => {
+  // Run tests serially to avoid rate limiting on bulk import endpoint
+  test.describe.configure({ mode: "serial" });
   test("3.6-API-SEC-006: [P0] XSS attempt in transaction name is sanitized or rejected", async ({
     superadminApiRequest,
     superadminUser,
@@ -1461,6 +1483,8 @@ test.describe("Bulk Import API - XSS Prevention", () => {
 // =============================================================================
 
 test.describe("Bulk Import API - Input Validation Edge Cases", () => {
+  // Run tests serially to avoid rate limiting on bulk import endpoint
+  test.describe.configure({ mode: "serial" });
   test("3.6-API-EDGE-001: [P1] Invalid job_id format returns 400", async ({
     superadminApiRequest,
   }) => {

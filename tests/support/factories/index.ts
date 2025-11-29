@@ -150,3 +150,11 @@ export {
   type ClientRolePermissionData,
   type UpdateRolePermissionsRequest,
 } from "./client-role-permission.factory";
+
+// Shift factories (Story 4.1)
+export {
+  createShift,
+  createShifts,
+  type ShiftData,
+  type ShiftStatus,
+} from "./shift.factory";

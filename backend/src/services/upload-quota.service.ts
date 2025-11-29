@@ -101,7 +101,8 @@ export async function getUserUploadQuota(userId: string): Promise<UploadQuota> {
   }
 
   // Fallback to database if Redis unavailable or data missing
-  if (!redis || dailyBytesUsed == null) {
+  // Check both values to ensure we fetch from DB when either is missing
+  if (!redis || dailyBytesUsed == null || dailyUploadsUsed == null) {
     try {
       // Query database for today's uploads
       const todayStart = new Date();
@@ -122,11 +123,20 @@ export async function getUserUploadQuota(userId: string): Promise<UploadQuota> {
         },
       });
 
-      dailyUploadsUsed = todayJobs.length;
+      // Set upload count from database
+      if (dailyUploadsUsed == null) {
+        dailyUploadsUsed = todayJobs.length;
+      }
+
+      // If bytes are missing from Redis and we have no jobs in DB, set to 0
+      // This ensures first upload of the day correctly starts at 0 bytes
       // If Redis is unavailable, we can't accurately track bytes from DB without file_size field
       // In this case, dailyBytesUsed remains 0 and we rely on Redis cache
       // This is acceptable since Redis should be available in production
       // TODO: Add file_size field to BulkImportJob schema for complete quota tracking
+      if (dailyBytesUsed == null) {
+        dailyBytesUsed = 0;
+      }
 
       // Cache in Redis if available
       if (redis) {
@@ -136,12 +146,12 @@ export async function getUserUploadQuota(userId: string): Promise<UploadQuota> {
         await redis.setEx(
           `${quotaKey}:bytes`,
           expiration,
-          (dailyBytesUsed ?? 0).toString(),
+          dailyBytesUsed.toString(),
         );
         await redis.setEx(
           `${quotaKey}:count`,
           expiration,
-          (dailyUploadsUsed ?? 0).toString(),
+          dailyUploadsUsed.toString(),
         );
       }
     } catch (error) {

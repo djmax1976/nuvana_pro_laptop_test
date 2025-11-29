@@ -79,8 +79,9 @@ async function createTestStoreAndShift(
   const shift = await prismaClient.shift.create({
     data: {
       store_id: store.store_id,
+      opened_by: cashierId,
       cashier_id: cashierId,
-      opening_amount: 100.0,
+      opening_cash: 100.0,
       status: "OPEN",
     },
   });
@@ -412,11 +413,12 @@ test.describe("Transaction Processing Worker - Validation", () => {
     const closedShift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: corporateAdminUser.user_id,
         cashier_id: corporateAdminUser.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "CLOSED",
-        closing_amount: 500.0,
-        end_time: new Date(),
+        closing_cash: 500.0,
+        closed_at: new Date(),
       },
     });
 

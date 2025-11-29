@@ -85,8 +85,9 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -161,16 +162,18 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     const shiftA = await prismaClient.shift.create({
       data: {
         store_id: storeA.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
     const shiftB = await prismaClient.shift.create({
       data: {
         store_id: storeB.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -244,8 +247,9 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -306,8 +310,9 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -371,8 +376,9 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -439,8 +445,9 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -499,16 +506,18 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
     const shiftA = await prismaClient.shift.create({
       data: {
         store_id: storeA.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
     const shiftB = await prismaClient.shift.create({
       data: {
         store_id: storeB.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -586,8 +595,9 @@ test.describe("3.4-API: Transaction Query by Date Range", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -714,8 +724,9 @@ test.describe("3.4-API: Transaction Query by Date Range", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -803,8 +814,9 @@ test.describe("3.4-API: Transaction Query with Line Items", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -886,8 +898,9 @@ test.describe("3.4-API: Transaction Query with Line Items", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -964,8 +977,9 @@ test.describe("3.4-API: Transaction Query with Payments", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -1039,8 +1053,9 @@ test.describe("3.4-API: Transaction Query with Payments", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -1111,16 +1126,18 @@ test.describe("3.4-API: Transaction Query with Combined Filters", () => {
     const shift1 = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -1198,8 +1215,9 @@ test.describe("3.4-API: Transaction Query with Combined Filters", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -1269,8 +1287,9 @@ test.describe("3.4-API: Store-Specific Transaction Query", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -1390,8 +1409,9 @@ test.describe("3.4-API: Query Performance", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -1582,8 +1602,9 @@ test.describe("3.4-API: Security - Authorization & RLS Enforcement", () => {
     const shiftB = await prismaClient.shift.create({
       data: {
         store_id: storeB.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -1671,8 +1692,9 @@ test.describe("3.4-API: Security - Data Leakage Prevention", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: cashier.user_id,
         cashier_id: cashier.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });

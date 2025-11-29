@@ -68,8 +68,9 @@ async function createTestStoreAndShift(
   const shift = await prismaClient.shift.create({
     data: {
       store_id: store.store_id,
+      opened_by: cashierId,
       cashier_id: cashierId,
-      opening_amount: 100.0,
+      opening_cash: 100.0,
       status: "OPEN",
     },
   });
@@ -419,8 +420,9 @@ test.describe("Transaction Data Models - Query Operations", () => {
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: corporateAdminUser.user_id,
         cashier_id: corporateAdminUser.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -1153,8 +1155,9 @@ test.describe("Transaction Data Models - Security", () => {
     const otherShift = await prismaClient.shift.create({
       data: {
         store_id: otherStore.store_id,
+        opened_by: otherUser.user_id,
         cashier_id: otherUser.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -1229,8 +1232,9 @@ test.describe("Transaction Data Models - Security", () => {
     const unauthorizedShift = await prismaClient.shift.create({
       data: {
         store_id: unauthorizedStore.store_id,
+        opened_by: otherUser.user_id,
         cashier_id: otherUser.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "OPEN",
       },
     });
@@ -1413,11 +1417,12 @@ test.describe("Transaction Data Models - Shift Rules", () => {
     const closedShift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: corporateAdminUser.user_id,
         cashier_id: corporateAdminUser.user_id,
-        opening_amount: 100.0,
+        opening_cash: 100.0,
         status: "CLOSED",
-        closing_amount: 500.0,
-        end_time: new Date(),
+        closing_cash: 500.0,
+        closed_at: new Date(),
       },
     });
 
@@ -1466,14 +1471,15 @@ test.describe("Transaction Data Models - Shift Rules", () => {
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
+        opened_by: corporateAdminUser.user_id,
         cashier_id: corporateAdminUser.user_id,
-        opening_amount: 0, // Zero instead of null if required
+        opening_cash: 0, // Zero instead of null if required
         status: "OPEN",
       },
     });
 
     // THEN: Shift is created
     expect(shift, "Shift should be created").toHaveProperty("shift_id");
-    expect(Number(shift.opening_amount), "Opening amount can be zero").toBe(0);
+    expect(Number(shift.opening_cash), "Opening amount can be zero").toBe(0);
   });
 });
