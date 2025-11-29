@@ -20,6 +20,7 @@ import { userRoutes } from "./routes/users";
 import { companyRoutes } from "./routes/companies";
 import { storeRoutes } from "./routes/store";
 import { transactionRoutes } from "./routes/transactions";
+import { shiftRoutes } from "./routes/shifts";
 import { contactRoutes } from "./routes/contact";
 import { adminUserRoutes } from "./routes/admin-users";
 import { clientDashboardRoutes } from "./routes/client-dashboard";
@@ -205,6 +206,9 @@ app.register(storeRoutes);
 
 // Register transaction routes
 app.register(transactionRoutes);
+
+// Register shift routes
+app.register(shiftRoutes);
 
 // Register contact routes (public - no auth required)
 app.register(contactRoutes);
