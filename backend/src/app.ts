@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import cookie from "@fastify/cookie";
+import multipart from "@fastify/multipart";
 import dotenv from "dotenv";
 import addFormats from "ajv-formats";
 import { ZodError } from "zod";
@@ -57,7 +58,7 @@ app.setErrorHandler((error: any, _request, reply) => {
   );
 
   // Handle Zod validation errors (from Zod schema validation)
-  if (error instanceof ZodError || error.issues) {
+  if (error instanceof ZodError) {
     app.log.warn({ error }, "Zod validation error caught by global handler");
     reply.status(400).send({
       success: false,
@@ -78,12 +79,37 @@ app.setErrorHandler((error: any, _request, reply) => {
   // Return consistent format with success field for production-grade API
   if (error.validation) {
     app.log.warn({ error }, "Fastify schema validation error");
+    // Build a descriptive error message from validation details
+    const validationDetails = error.validation || [];
+    let message = "Validation failed";
+    if (validationDetails.length > 0) {
+      const firstError = validationDetails[0];
+      // Include field name and specific error in the message
+      const field =
+        firstError.instancePath?.replace(/^\//, "").replace(/\//g, ".") ||
+        firstError.params?.missingProperty ||
+        "field";
+      const errorMessage = firstError.message || "validation failed";
+      // Special handling for common validation errors
+      if (firstError.keyword === "maxLength" && firstError.params?.limit) {
+        message = `${field} cannot exceed ${firstError.params.limit} characters`;
+      } else if (firstError.keyword === "minLength") {
+        message = `${field} is required and cannot be empty`;
+      } else if (
+        firstError.keyword === "format" &&
+        firstError.params?.format === "uuid"
+      ) {
+        message = `${field} must be a valid UUID format`;
+      } else {
+        message = `${field}: ${errorMessage}`;
+      }
+    }
     reply.status(400).send({
       success: false,
       error: {
         code: "VALIDATION_ERROR",
-        message: "Invalid query parameters",
-        details: error.validation,
+        message,
+        details: validationDetails,
       },
     });
     return;
@@ -101,6 +127,24 @@ app.setErrorHandler((error: any, _request, reply) => {
 app.register(cookie, {
   secret:
     process.env.COOKIE_SECRET || "default-cookie-secret-change-in-production",
+});
+
+// Register multipart form data parser (required for file uploads)
+// SECURITY: File upload configuration
+// - File size limit: Configurable via MAX_UPLOAD_FILE_SIZE_MB env var (default: 10MB)
+// - Route handlers MUST:
+//   1. Enforce file-type whitelists (check both MIME type and file signature/magic bytes)
+//   2. Use streaming (file.file or file.stream) - NEVER use toBuffer() for large files
+//   3. Validate content-type header matches actual file content (prevent MIME spoofing)
+//   4. Implement per-user upload quota checks before accepting uploads
+//   5. Reject any buffered-toBuffer() usage patterns for files > 1MB
+const maxFileSizeMB = parseInt(process.env.MAX_UPLOAD_FILE_SIZE_MB || "10", 10);
+const maxFileSizeBytes = maxFileSizeMB * 1024 * 1024;
+
+app.register(multipart, {
+  limits: {
+    fileSize: maxFileSizeBytes, // Configurable max file size (default: 10MB)
+  },
 });
 
 // Register CORS
@@ -133,6 +177,11 @@ app.register(rateLimit, {
   timeWindow: "1 minute",
   // Note: Per-company rate limiting (500/min) would require custom implementation
   // based on company context from authentication middleware
+  //
+  // SECURITY: Upload endpoints have stricter rate limits configured per-route:
+  // - UPLOAD_RATE_LIMIT_MAX: Max uploads per time window (default: 5)
+  // - UPLOAD_RATE_LIMIT_WINDOW: Time window for upload rate limit (default: "1 minute")
+  // This prevents abuse of upload bandwidth and ensures fair resource usage
 });
 
 // Register RLS (Row-Level Security) plugin

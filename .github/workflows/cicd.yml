@@ -203,6 +203,8 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
+          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
       - name: Start transaction worker (if API tests needed)
         if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: |
@@ -227,6 +229,31 @@ jobs:
           done
           echo "Backend health check timeout - may not be needed for this test run"
         continue-on-error: false
+      - name: Wait for transaction worker readiness (if started)
+        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
+        run: |
+          echo "Waiting for transaction worker to be ready..."
+          for i in {1..30}; do
+            if grep -q "Transaction worker started successfully" worker.log 2>/dev/null; then
+              echo "✅ Transaction worker is ready"
+              exit 0
+            fi
+            # Also check if worker process crashed
+            if [ -f worker.pid ]; then
+              if ! kill -0 $(cat worker.pid) 2>/dev/null; then
+                echo "❌ Transaction worker process died"
+                echo "Worker logs:"
+                cat worker.log || echo "No worker.log found"
+                exit 1
+              fi
+            fi
+            echo "Waiting for worker... ($i/30)"
+            sleep $((i > 10 ? 3 : 1))
+          done
+          echo "❌ Transaction worker readiness timeout"
+          echo "Worker logs:"
+          cat worker.log || echo "No worker.log found"
+          exit 1
       - name: Run selective tests
         env:
           NODE_ENV: test
@@ -368,6 +395,8 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
+          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
       - name: Wait for frontend and backend
         run: |
           echo "Waiting for frontend..."
@@ -409,6 +438,30 @@ jobs:
           fi
 
           echo "✅ Both services are ready"
+      - name: Wait for transaction worker readiness
+        run: |
+          echo "Waiting for transaction worker to be ready..."
+          for i in {1..30}; do
+            if grep -q "Transaction worker started successfully" worker.log 2>/dev/null; then
+              echo "✅ Transaction worker is ready"
+              exit 0
+            fi
+            # Also check if worker process crashed
+            if [ -f worker.pid ]; then
+              if ! kill -0 $(cat worker.pid) 2>/dev/null; then
+                echo "❌ Transaction worker process died"
+                echo "Worker logs:"
+                cat worker.log || echo "No worker.log found"
+                exit 1
+              fi
+            fi
+            echo "Waiting for worker... ($i/30)"
+            sleep $((i > 10 ? 3 : 1))
+          done
+          echo "❌ Transaction worker readiness timeout"
+          echo "Worker logs:"
+          cat worker.log || echo "No worker.log found"
+          exit 1
       - name: Run burn-in loop
         env:
           BURN_IN_ITERATIONS: ${{ env.BURN_IN_ITERATIONS }}
@@ -639,6 +692,8 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
+          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
       - name: Wait for backend health
         id: wait_backend_api_smoke
         run: |
@@ -793,6 +848,8 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
+          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
       - name: Wait for frontend and backend
         run: |
           echo "Waiting for frontend..."
@@ -1013,6 +1070,8 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
+          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
       - name: Wait for backend
         id: wait_backend
         run: |

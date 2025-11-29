@@ -126,6 +126,7 @@ export const TransactionQuerySchema = z
   .object({
     store_id: z.string().uuid("store_id must be a valid UUID").optional(),
     shift_id: z.string().uuid("shift_id must be a valid UUID").optional(),
+    cashier_id: z.string().uuid("cashier_id must be a valid UUID").optional(),
     from: z
       .string()
       .datetime({ message: "from must be a valid ISO 8601 datetime" })

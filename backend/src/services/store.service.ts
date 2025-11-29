@@ -69,33 +69,25 @@ export interface StoreConfiguration {
 }
 
 /**
- * Valid IANA timezone database format validation
+ * Validate IANA timezone using Intl.DateTimeFormat
+ * This validates that the timezone is an actual valid IANA timezone,
+ * not just a format that looks valid.
  * @param timezone - Timezone string to validate
- * @returns true if valid IANA timezone format
+ * @returns true if valid IANA timezone
  */
 function isValidIANATimezone(timezone: string): boolean {
-  // Common IANA timezone patterns
-  // Examples: America/New_York, Europe/London, Asia/Tokyo, UTC
-  // Use a safer validation approach to avoid ReDoS vulnerabilities
-  if (timezone === "UTC") {
-    return true;
-  }
-  if (/^GMT[+-]\d{1,2}$/.test(timezone)) {
-    return true;
-  }
-  // IANA format: Continent/City or Continent/Region/City (e.g., America/New_York, America/Argentina/Buenos_Aires)
-  // Limit to reasonable length to prevent ReDoS
-  if (timezone.length > 50) {
+  // Limit to reasonable length to prevent abuse
+  if (!timezone || timezone.length > 50) {
     return false;
   }
-  // Split and validate each segment instead of using nested quantifiers
-  const parts = timezone.split("/");
-  if (parts.length < 2 || parts.length > 3) {
+
+  // Use Intl.DateTimeFormat to validate actual timezone existence
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: timezone });
+    return true;
+  } catch {
     return false;
   }
-  // Each part should contain only letters and underscores
-  const segmentPattern = /^[A-Za-z_]+$/;
-  return parts.every((part) => segmentPattern.test(part));
 }
 
 /**

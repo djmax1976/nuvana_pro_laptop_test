@@ -153,6 +153,7 @@ export interface ShiftSummary {
 export interface TransactionQueryFilters {
   store_id?: string;
   shift_id?: string;
+  cashier_id?: string;
   from?: Date;
   to?: Date;
 }
@@ -214,6 +215,9 @@ export interface TransactionResponse {
   public_id: string;
   line_items?: TransactionLineItemResponse[];
   payments?: TransactionPaymentResponse[];
+  // Extended fields from joins (optional, populated by backend)
+  cashier_name?: string;
+  store_name?: string;
 }
 
 /**

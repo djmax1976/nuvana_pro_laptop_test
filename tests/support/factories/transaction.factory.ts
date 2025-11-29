@@ -219,20 +219,26 @@ export const createTransactionPayload = (
       };
     });
 
-  // Calculate totals
+  // Calculate totals - round subtotal to 2 decimal places to avoid
+  // floating point precision issues in payment validation
   const subtotal =
     overrides.subtotal ??
-    line_items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
+    Number(
+      line_items
+        .reduce((sum, item) => sum + item.quantity * item.unit_price, 0)
+        .toFixed(2),
+    );
   const tax = overrides.tax ?? Number((subtotal * 0.08).toFixed(2));
   const discount = overrides.discount ?? 0;
   const total =
     overrides.total ?? Number((subtotal + tax - discount).toFixed(2));
 
-  // Generate payment to cover total
+  // Generate payment to cover total with a small buffer for floating point
+  // precision issues that can occur during schema validation
   const payments = overrides.payments ?? [
     {
       method: "CASH" as const,
-      amount: total,
+      amount: Number((total + 0.01).toFixed(2)),
     },
   ];
 

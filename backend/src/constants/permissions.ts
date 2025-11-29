@@ -35,6 +35,7 @@ export const SHIFT_READ = "SHIFT_READ";
 // Transaction Permissions
 export const TRANSACTION_CREATE = "TRANSACTION_CREATE";
 export const TRANSACTION_READ = "TRANSACTION_READ";
+export const TRANSACTION_IMPORT = "TRANSACTION_IMPORT";
 
 // Inventory Permissions
 export const INVENTORY_READ = "INVENTORY_READ";
@@ -99,6 +100,7 @@ export const PERMISSIONS = {
   // Transactions
   TRANSACTION_CREATE,
   TRANSACTION_READ,
+  TRANSACTION_IMPORT,
 
   // Inventory
   INVENTORY_READ,
@@ -175,6 +177,7 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   // Transactions
   [TRANSACTION_CREATE]: "Create transactions",
   [TRANSACTION_READ]: "View transactions",
+  [TRANSACTION_IMPORT]: "Import transactions in bulk",
 
   // Inventory
   [INVENTORY_READ]: "View inventory levels",
@@ -309,6 +312,7 @@ export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
   // Transactions - POS transaction processing
   TRANSACTION_CREATE,
   TRANSACTION_READ,
+  TRANSACTION_IMPORT,
 
   // Inventory - Stock management
   INVENTORY_READ,

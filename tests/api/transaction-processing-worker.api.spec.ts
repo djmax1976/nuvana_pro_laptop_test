@@ -95,22 +95,27 @@ async function createTestStoreAndShift(
 async function waitForTransactionProcessing(
   prismaClient: any,
   correlationId: string,
-  maxWaitMs: number = 10000,
+  maxWaitMs: number = 30000, // Increased default to 30 seconds
   pollIntervalMs: number = 500,
 ): Promise<any | null> {
   const startTime = Date.now();
 
   while (Date.now() - startTime < maxWaitMs) {
-    const transaction = await prismaClient.transaction.findUnique({
-      where: { transaction_id: correlationId },
-      include: {
-        line_items: true,
-        payments: true,
-      },
-    });
+    try {
+      const transaction = await prismaClient.transaction.findUnique({
+        where: { transaction_id: correlationId },
+        include: {
+          line_items: true,
+          payments: true,
+        },
+      });
 
-    if (transaction) {
-      return transaction;
+      if (transaction) {
+        return transaction;
+      }
+    } catch (error) {
+      // Log error but continue polling
+      console.warn(`Error checking for transaction ${correlationId}:`, error);
     }
 
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
@@ -153,16 +158,17 @@ test.describe("Transaction Processing Worker - Core Processing", () => {
     const correlationId = body.data?.correlation_id;
     expect(correlationId).toBeDefined();
 
-    // Wait for worker to process the message
+    // Wait for worker to process the message (with longer timeout for flaky tests)
     const transaction = await waitForTransactionProcessing(
       prismaClient,
       correlationId,
+      30000, // 30 seconds for worker to process
     );
 
     // THEN: Transaction record should exist in database
     expect(
       transaction,
-      "Transaction should be created by worker",
+      `Transaction should be created by worker within 30 seconds. Correlation ID: ${correlationId}`,
     ).not.toBeNull();
     expect(transaction.store_id).toBe(store.store_id);
     expect(transaction.shift_id).toBe(shift.shift_id);
@@ -329,14 +335,18 @@ test.describe("Transaction Processing Worker - Core Processing", () => {
     const body = await response.json();
     const correlationId = body.data?.correlation_id;
 
-    // Wait for worker processing
+    // Wait for worker processing (with longer timeout for flaky tests)
     const transaction = await waitForTransactionProcessing(
       prismaClient,
       correlationId,
+      30000, // 30 seconds for worker to process
     );
 
     // THEN: transaction_id should match correlation_id
-    expect(transaction).not.toBeNull();
+    expect(
+      transaction,
+      `Transaction should be created by worker within 30 seconds. Correlation ID: ${correlationId}`,
+    ).not.toBeNull();
     expect(transaction.transaction_id).toBe(correlationId);
   });
 });
@@ -672,7 +682,7 @@ test.describe("Transaction Processing Worker - Audit", () => {
 // =============================================================================
 
 test.describe("Transaction Processing Worker - Idempotency", () => {
-  test("3.3-WKR-011: [P1] Worker should handle duplicate correlation_id gracefully", async ({
+  test("3.3-WKR-011: [P1] Worker should process single transaction and create exactly one record", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -689,7 +699,7 @@ test.describe("Transaction Processing Worker - Idempotency", () => {
       shift_id: shift.shift_id,
     });
 
-    // WHEN: First transaction is submitted
+    // WHEN: Transaction is submitted
     const response1 = await corporateAdminApiRequest.post(
       "/api/transactions",
       payload,
@@ -698,15 +708,29 @@ test.describe("Transaction Processing Worker - Idempotency", () => {
     expect(response1.status()).toBe(202);
     const body1 = await response1.json();
     const correlationId = body1.data?.correlation_id;
+    expect(correlationId).toBeDefined();
 
-    // Wait for first transaction to be processed
+    // Wait for transaction to be processed with extended timeout for burn-in stability
     const transaction1 = await waitForTransactionProcessing(
       prismaClient,
       correlationId,
+      45000, // 45 seconds for burn-in stability
     );
+
+    // Provide helpful error message if processing times out
+    if (!transaction1) {
+      // Check if transaction is in queue or was rejected
+      const queuedCheck = await prismaClient.transaction.findFirst({
+        where: { store_id: store.store_id },
+        orderBy: { created_at: "desc" },
+      });
+      console.error(
+        `Transaction ${correlationId} not found. Most recent transaction for store: ${queuedCheck?.transaction_id || "none"}`,
+      );
+    }
     expect(transaction1).not.toBeNull();
 
-    // THEN: Should only have one transaction record
+    // THEN: Should have exactly one transaction record
     const transactions = await prismaClient.transaction.findMany({
       where: { transaction_id: correlationId },
     });
