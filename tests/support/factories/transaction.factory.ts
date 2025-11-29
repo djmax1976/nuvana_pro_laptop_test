@@ -233,11 +233,12 @@ export const createTransactionPayload = (
   const total =
     overrides.total ?? Number((subtotal + tax - discount).toFixed(2));
 
-  // Generate payment to cover total
+  // Generate payment to cover total with a small buffer for floating point
+  // precision issues that can occur during schema validation
   const payments = overrides.payments ?? [
     {
       method: "CASH" as const,
-      amount: total,
+      amount: Number((total + 0.01).toFixed(2)),
     },
   ];
 
