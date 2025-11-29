@@ -149,7 +149,7 @@ async function waitForJobCompletion(
   expectedStatus: string | string[] = ["COMPLETED", "FAILED"],
   maxWaitMs: number = 30000,
   pollIntervalMs: number = 500,
-): Promise<{ status: string; job: any } | null> {
+): Promise<{ status: string; job: any; errors: any[] } | null> {
   const startTime = Date.now();
   const expectedStatuses = Array.isArray(expectedStatus)
     ? expectedStatus
@@ -164,7 +164,12 @@ async function waitForJobCompletion(
         const body = await response.json();
         const status = body.data?.job?.status;
         if (expectedStatuses.includes(status)) {
-          return { status, job: body.data?.job };
+          // Include errors from body.data.errors (API structure)
+          // Also add errors to job object for convenience
+          const job = body.data?.job || {};
+          const errors = body.data?.errors || [];
+          job.errors = errors;
+          return { status, job, errors };
         }
       }
     } catch (error) {

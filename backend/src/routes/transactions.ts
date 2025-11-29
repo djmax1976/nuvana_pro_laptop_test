@@ -1230,6 +1230,20 @@ export async function transactionRoutes(fastify: FastifyInstance) {
       const user = (request as any).user as UserIdentity;
       const { jobId } = request.params as { jobId: string };
 
+      // Validate job_id format (must be valid UUID)
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(jobId)) {
+        reply.code(400);
+        return {
+          success: false,
+          error: {
+            code: "INVALID_JOB_ID",
+            message: "Invalid job_id format - must be a valid UUID",
+          },
+        };
+      }
+
       try {
         // Check if user is admin (has ADMIN_SYSTEM_CONFIG permission)
         const userRoles = await rbacService.getUserRoles(user.id);
@@ -1337,6 +1351,20 @@ export async function transactionRoutes(fastify: FastifyInstance) {
       const { jobId } = request.params as { jobId: string };
       const format =
         (request.query as { format?: "csv" | "json" }).format || "json";
+
+      // Validate job_id format (must be valid UUID)
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(jobId)) {
+        reply.code(400);
+        return {
+          success: false,
+          error: {
+            code: "INVALID_JOB_ID",
+            message: "Invalid job_id format - must be a valid UUID",
+          },
+        };
+      }
 
       try {
         // Check if user is admin
