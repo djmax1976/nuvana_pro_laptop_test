@@ -486,6 +486,7 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const transaction = createTransactionPayload({
       store_id: store.store_id,
       shift_id: shift.shift_id,
+      cashier_id: superadminUser.user_id,
     });
     const csvContent = createCSVContent([transaction]);
 
