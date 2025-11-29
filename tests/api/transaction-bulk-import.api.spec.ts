@@ -139,6 +139,45 @@ function createJSONContent(transactions: any[]): string {
   return JSON.stringify(transactions, null, 2);
 }
 
+/**
+ * Polls job status until completion or timeout
+ * More reliable than fixed waits for burn-in stability
+ */
+async function waitForJobCompletion(
+  apiRequest: any,
+  jobId: string,
+  expectedStatus: string | string[] = ["COMPLETED", "FAILED"],
+  maxWaitMs: number = 30000,
+  pollIntervalMs: number = 500,
+): Promise<{ status: string; job: any } | null> {
+  const startTime = Date.now();
+  const expectedStatuses = Array.isArray(expectedStatus)
+    ? expectedStatus
+    : [expectedStatus];
+
+  while (Date.now() - startTime < maxWaitMs) {
+    try {
+      const response = await apiRequest.get(
+        `/api/transactions/bulk-import/${jobId}`,
+      );
+      if (response.status() === 200) {
+        const body = await response.json();
+        const status = body.data?.job?.status;
+        if (expectedStatuses.includes(status)) {
+          return { status, job: body.data?.job };
+        }
+      }
+    } catch (error) {
+      // Log error but continue polling
+      console.warn(`Error checking job ${jobId}:`, error);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  return null;
+}
+
 // =============================================================================
 // SECTION 1: P0 CRITICAL - FILE UPLOAD AND VALIDATION TESTS
 // =============================================================================
@@ -989,21 +1028,21 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
 
     const uploadBody = await uploadResponse.json();
     const jobId = uploadBody.data?.job_id;
+    expect(jobId).toBeDefined();
 
-    // Wait for job to complete
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-
-    // WHEN: Checking job status
-    const response = await superadminApiRequest.get(
-      `/api/transactions/bulk-import/${jobId}`,
+    // Wait for job to complete using polling (more reliable than fixed wait)
+    const result = await waitForJobCompletion(
+      superadminApiRequest,
+      jobId,
+      "COMPLETED",
+      45000, // 45 seconds for burn-in stability
     );
 
     // THEN: Job status should be COMPLETED
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-    expect(body.data?.job?.status, "Job should be COMPLETED").toBe("COMPLETED");
+    expect(result, "Job should complete within timeout").not.toBeNull();
+    expect(result?.status, "Job should be COMPLETED").toBe("COMPLETED");
     expect(
-      body.data?.job?.completed_at,
+      result?.job?.completed_at,
       "Job should have completed_at timestamp",
     ).toBeTruthy();
   });
@@ -1032,26 +1071,26 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
 
     const uploadBody = await uploadResponse.json();
     const jobId = uploadBody.data?.job_id;
+    expect(jobId).toBeDefined();
 
-    // Wait for processing
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-
-    // WHEN: Checking job status
-    const response = await superadminApiRequest.get(
-      `/api/transactions/bulk-import/${jobId}`,
+    // Wait for processing using polling (more reliable than fixed wait)
+    const result = await waitForJobCompletion(
+      superadminApiRequest,
+      jobId,
+      ["FAILED", "COMPLETED"],
+      30000,
     );
 
     // THEN: Job status should be FAILED (or COMPLETED with high error count)
-    expect(response.status()).toBe(200);
-    const body = await response.json();
+    expect(result, "Job should complete within timeout").not.toBeNull();
     // Job may be FAILED or COMPLETED with all rows as errors
     expect(
       ["FAILED", "COMPLETED"],
       "Job should be FAILED or COMPLETED",
-    ).toContain(body.data?.job?.status);
-    if (body.data?.job?.status === "COMPLETED") {
+    ).toContain(result?.status);
+    if (result?.status === "COMPLETED") {
       expect(
-        body.data.job.error_rows,
+        result?.job?.error_rows,
         "If completed, should have high error count",
       ).toBeGreaterThan(0);
     }

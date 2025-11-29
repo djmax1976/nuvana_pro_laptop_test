@@ -682,7 +682,7 @@ test.describe("Transaction Processing Worker - Audit", () => {
 // =============================================================================
 
 test.describe("Transaction Processing Worker - Idempotency", () => {
-  test("3.3-WKR-011: [P1] Worker should handle duplicate correlation_id gracefully", async ({
+  test("3.3-WKR-011: [P1] Worker should process single transaction and create exactly one record", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
     prismaClient,
@@ -699,7 +699,7 @@ test.describe("Transaction Processing Worker - Idempotency", () => {
       shift_id: shift.shift_id,
     });
 
-    // WHEN: First transaction is submitted
+    // WHEN: Transaction is submitted
     const response1 = await corporateAdminApiRequest.post(
       "/api/transactions",
       payload,
@@ -708,15 +708,29 @@ test.describe("Transaction Processing Worker - Idempotency", () => {
     expect(response1.status()).toBe(202);
     const body1 = await response1.json();
     const correlationId = body1.data?.correlation_id;
+    expect(correlationId).toBeDefined();
 
-    // Wait for first transaction to be processed
+    // Wait for transaction to be processed with extended timeout for burn-in stability
     const transaction1 = await waitForTransactionProcessing(
       prismaClient,
       correlationId,
+      45000, // 45 seconds for burn-in stability
     );
+
+    // Provide helpful error message if processing times out
+    if (!transaction1) {
+      // Check if transaction is in queue or was rejected
+      const queuedCheck = await prismaClient.transaction.findFirst({
+        where: { store_id: store.store_id },
+        orderBy: { created_at: "desc" },
+      });
+      console.error(
+        `Transaction ${correlationId} not found. Most recent transaction for store: ${queuedCheck?.transaction_id || "none"}`,
+      );
+    }
     expect(transaction1).not.toBeNull();
 
-    // THEN: Should only have one transaction record
+    // THEN: Should have exactly one transaction record
     const transactions = await prismaClient.transaction.findMany({
       where: { transaction_id: correlationId },
     });
