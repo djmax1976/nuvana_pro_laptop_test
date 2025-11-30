@@ -108,6 +108,60 @@ export class ShiftServiceError extends Error {
  */
 export class ShiftService {
   /**
+   * Check if user has access to a store
+   * @param userId - User UUID
+   * @param storeId - Store UUID
+   * @returns true if user has access, false otherwise
+   */
+  async checkUserStoreAccess(
+    userId: string,
+    storeId: string,
+  ): Promise<boolean> {
+    // Get user's roles
+    const userRoles = await rbacService.getUserRoles(userId);
+
+    // Check for superadmin (system scope - can access all stores)
+    const hasSuperadminRole = userRoles.some(
+      (role) => role.scope === "SYSTEM" || role.role_code === "SUPERADMIN",
+    );
+
+    if (hasSuperadminRole) {
+      // Superadmins can access any store, just verify store exists
+      const store = await prisma.store.findUnique({
+        where: { store_id: storeId },
+        select: { store_id: true },
+      });
+      return !!store;
+    }
+
+    // Find user's company ID from company-scoped role
+    const companyRole = userRoles.find(
+      (role) => role.scope === "COMPANY" && role.company_id,
+    );
+
+    if (!companyRole?.company_id) {
+      // Check for store-scoped roles
+      const storeRoles = userRoles.filter(
+        (role) => role.scope === "STORE" && role.store_id,
+      );
+      // User can access if they have a role scoped to this specific store
+      return storeRoles.some((role) => role.store_id === storeId);
+    }
+
+    // Check if store belongs to user's company
+    const store = await prisma.store.findUnique({
+      where: { store_id: storeId },
+      select: { company_id: true },
+    });
+
+    if (!store) {
+      return false;
+    }
+
+    return store.company_id === companyRole.company_id;
+  }
+
+  /**
    * Check if an active shift exists for a POS terminal
    * Active shifts are those with status: OPEN, ACTIVE, CLOSING, RECONCILING
    * and closed_at IS NULL
@@ -1055,7 +1109,7 @@ export class ShiftService {
    */
   async generateShiftReport(
     shiftId: string,
-    _userId: string,
+    userId: string,
   ): Promise<ShiftReportData> {
     // Validate shiftId format (basic validation)
     if (!shiftId || typeof shiftId !== "string") {
@@ -1084,7 +1138,7 @@ export class ShiftService {
       }
     }
 
-    // Query shift with RLS check (RLS policies automatically filter by user access)
+    // Query shift data (access check done after fetching)
     const shift = await prisma.shift.findUnique({
       where: { shift_id: shiftId },
       include: {
@@ -1111,8 +1165,19 @@ export class ShiftService {
       },
     });
 
-    // Validate shift exists and user has access (RLS check)
+    // Validate shift exists
     if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found or you do not have access`,
+        { shift_id: shiftId },
+      );
+    }
+
+    // Validate user has access to the store this shift belongs to
+    const hasAccess = await this.checkUserStoreAccess(userId, shift.store_id);
+    if (!hasAccess) {
+      // Return same error as "not found" to avoid leaking information about shift existence
       throw new ShiftServiceError(
         ShiftErrorCode.SHIFT_NOT_FOUND,
         `Shift with ID ${shiftId} not found or you do not have access`,

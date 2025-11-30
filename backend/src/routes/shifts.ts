@@ -829,6 +829,7 @@ export async function shiftRoutes(fastify: FastifyInstance) {
               data: {
                 type: "object",
                 description: "Shift report data",
+                additionalProperties: true,
               },
             },
           },
