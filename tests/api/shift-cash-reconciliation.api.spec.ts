@@ -151,7 +151,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: 150.0,
           },
           headers: {
-            Authorization: `Bearer ${authenticatedUser.token}`,
+            Cookie: `access_token=${authenticatedUser.token}`,
           },
         },
       );
@@ -195,7 +195,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: 152.0,
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -245,7 +245,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             variance_reason: "Extra cash from tips",
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -295,7 +295,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             variance_reason: "Cash discrepancy found",
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -341,7 +341,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             variance_reason: "Minor rounding difference",
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -388,7 +388,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: 150.0,
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -413,7 +413,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: 150.0,
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -455,7 +455,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: -10.0,
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -501,7 +501,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             // variance_reason missing
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -552,7 +552,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: 150.0,
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -596,7 +596,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: 152.0,
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -652,7 +652,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: 152.0,
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -703,7 +703,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: 152.0,
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -751,7 +751,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: 152.0,
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -786,7 +786,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
               closing_cash: 150.0,
             },
             headers: {
-              Authorization: `Bearer ${authenticatedShiftManager.token}`,
+              Cookie: `access_token=${authenticatedShiftManager.token}`,
             },
           },
         );
@@ -835,7 +835,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
               closing_cash: maliciousValue as any,
             },
             headers: {
-              Authorization: `Bearer ${authenticatedShiftManager.token}`,
+              Cookie: `access_token=${authenticatedShiftManager.token}`,
             },
           },
         );
@@ -859,7 +859,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: 150.0,
           },
           headers: {
-            Authorization: "Bearer invalid-token-format",
+            Cookie: "access_token=invalid-token-format",
           },
         },
       );
@@ -880,8 +880,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: 150.0,
           },
           headers: {
-            Authorization:
-              "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid",
+            Cookie: "access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid",
           },
         },
       );
@@ -922,7 +921,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: 0,
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -965,7 +964,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         {
           data: {},
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -1009,7 +1008,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             closing_cash: "not-a-number",
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -1052,7 +1051,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             variance_reason: "",
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
@@ -1095,7 +1094,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
             variance_reason: "   ",
           },
           headers: {
-            Authorization: `Bearer ${authenticatedShiftManager.token}`,
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
           },
         },
       );
