@@ -450,9 +450,11 @@ export const test = base.extend<RBACFixture>({
 
     // Cleanup: Delete all related data in correct FK order using bypass client
     await withBypassClient(async (bypassClient) => {
-      // 1. Find shifts created by this user (cashier_id references user)
+      // 1. Find shifts created by this user (cashier_id or opened_by references user)
       const userShifts = await bypassClient.shift.findMany({
-        where: { cashier_id: user.user_id },
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
         select: { shift_id: true },
       });
       const shiftIds = userShifts.map((s) => s.shift_id);
@@ -474,7 +476,9 @@ export const test = base.extend<RBACFixture>({
 
       // 2. Delete shifts for this user
       await bypassClient.shift.deleteMany({
-        where: { cashier_id: user.user_id },
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
       });
 
       // 3. Delete bulk import jobs for this user
@@ -571,7 +575,9 @@ export const test = base.extend<RBACFixture>({
       // 1. Delete transaction-related data FIRST (children of transactions)
       // Get all shifts for this user to find related transactions
       const userShifts = await bypassClient.shift.findMany({
-        where: { cashier_id: user.user_id },
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
         select: { shift_id: true },
       });
       const shiftIds = userShifts.map((s) => s.shift_id);
@@ -595,7 +601,9 @@ export const test = base.extend<RBACFixture>({
 
       // 2. NOW delete shifts (after transactions are gone)
       await bypassClient.shift.deleteMany({
-        where: { cashier_id: user.user_id },
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
       });
 
       // 2. Get all stores for this company to delete their user roles
@@ -691,6 +699,7 @@ export const test = base.extend<RBACFixture>({
         "SHIFT_OPEN",
         "SHIFT_CLOSE",
         "SHIFT_READ",
+        "SHIFT_REPORT_VIEW",
         "INVENTORY_READ",
         "TRANSACTION_READ",
       ],
@@ -708,6 +717,7 @@ export const test = base.extend<RBACFixture>({
         "SHIFT_OPEN",
         "SHIFT_CLOSE",
         "SHIFT_READ",
+        "SHIFT_REPORT_VIEW",
         "INVENTORY_READ",
         "TRANSACTION_READ",
       ],
@@ -717,22 +727,52 @@ export const test = base.extend<RBACFixture>({
     await use(storeManagerUser);
 
     // Cleanup - delete in correct order respecting foreign key constraints
-    // 1. Delete shifts for the user (shifts reference user via cashier_id)
-    await prismaClient.shift.deleteMany({
-      where: { cashier_id: user.user_id },
-    });
-    // 2. Delete user roles for the user
-    await prismaClient.userRole.deleteMany({
-      where: { user_id: user.user_id },
-    });
-    // 2.5. Delete bulk import jobs for the user (FK to users)
+    // Use bypass client to delete all related data properly
     await withBypassClient(async (bypassClient) => {
+      // 1. Find shifts for the user
+      const userShifts = await bypassClient.shift.findMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        // Delete transaction payments (child of transaction)
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transaction line items (child of transaction)
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transactions (child of shift)
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      // 2. Delete shifts for the user
+      await bypassClient.shift.deleteMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+      });
+
+      // 3. Delete user roles for the user
+      await bypassClient.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+
+      // 4. Delete bulk import jobs for the user
       await bypassClient.bulkImportJob.deleteMany({
         where: { user_id: user.user_id },
       });
+
+      // 5. Delete the store manager user
+      await bypassClient.user.delete({ where: { user_id: user.user_id } });
     });
-    // 3. Delete the store manager user
-    await prismaClient.user.delete({ where: { user_id: user.user_id } });
     // 4. Delete store
     await prismaClient.store.delete({ where: { store_id: store.store_id } });
     // 5. Delete company
@@ -867,9 +907,11 @@ export const test = base.extend<RBACFixture>({
 
     // Cleanup - delete in correct order respecting foreign key constraints
     await withBypassClient(async (bypassClient) => {
-      // 1. Delete shifts for the user (shifts reference user via cashier_id)
+      // 1. Delete shifts for the user (shifts reference user via cashier_id and opened_by)
       const userShifts = await bypassClient.shift.findMany({
-        where: { cashier_id: user.user_id },
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
         select: { shift_id: true },
       });
       const shiftIds = userShifts.map((s) => s.shift_id);
@@ -890,7 +932,9 @@ export const test = base.extend<RBACFixture>({
       }
 
       await bypassClient.shift.deleteMany({
-        where: { cashier_id: user.user_id },
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
       });
 
       // 2. Delete user roles for the user
@@ -990,9 +1034,11 @@ export const test = base.extend<RBACFixture>({
 
     // Cleanup - delete in correct order respecting foreign key constraints
     await withBypassClient(async (bypassClient) => {
-      // 1. Delete shifts for the user (shifts reference user via cashier_id)
+      // 1. Delete shifts for the user (shifts reference user via cashier_id and opened_by)
       const userShifts = await bypassClient.shift.findMany({
-        where: { cashier_id: user.user_id },
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
         select: { shift_id: true },
       });
       const shiftIds = userShifts.map((s) => s.shift_id);
@@ -1013,7 +1059,9 @@ export const test = base.extend<RBACFixture>({
       }
 
       await bypassClient.shift.deleteMany({
-        where: { cashier_id: user.user_id },
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
       });
 
       // 2. Delete user roles for the user

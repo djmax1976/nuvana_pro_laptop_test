@@ -9,6 +9,8 @@ import { ShiftStatus, Prisma } from "@prisma/client";
 import { prisma } from "../utils/db";
 import { OpenShiftInput } from "../schemas/shift.schema";
 import { rbacService } from "./rbac.service";
+import { ShiftReportData } from "../types/shift-report.types";
+import { getRedisClient } from "../utils/redis";
 
 /**
  * Audit context for logging operations
@@ -84,6 +86,7 @@ export enum ShiftErrorCode {
   VARIANCE_REASON_REQUIRED = "VARIANCE_REASON_REQUIRED",
   SHIFT_NOT_VARIANCE_REVIEW = "SHIFT_NOT_VARIANCE_REVIEW",
   SHIFT_LOCKED = "SHIFT_LOCKED",
+  SHIFT_NOT_CLOSED = "SHIFT_NOT_CLOSED",
 }
 
 /**
@@ -104,6 +107,60 @@ export class ShiftServiceError extends Error {
  * Shift service for managing shift operations
  */
 export class ShiftService {
+  /**
+   * Check if user has access to a store
+   * @param userId - User UUID
+   * @param storeId - Store UUID
+   * @returns true if user has access, false otherwise
+   */
+  async checkUserStoreAccess(
+    userId: string,
+    storeId: string,
+  ): Promise<boolean> {
+    // Get user's roles
+    const userRoles = await rbacService.getUserRoles(userId);
+
+    // Check for superadmin (system scope - can access all stores)
+    const hasSuperadminRole = userRoles.some(
+      (role) => role.scope === "SYSTEM" || role.role_code === "SUPERADMIN",
+    );
+
+    if (hasSuperadminRole) {
+      // Superadmins can access any store, just verify store exists
+      const store = await prisma.store.findUnique({
+        where: { store_id: storeId },
+        select: { store_id: true },
+      });
+      return !!store;
+    }
+
+    // Find user's company ID from company-scoped role
+    const companyRole = userRoles.find(
+      (role) => role.scope === "COMPANY" && role.company_id,
+    );
+
+    if (!companyRole?.company_id) {
+      // Check for store-scoped roles
+      const storeRoles = userRoles.filter(
+        (role) => role.scope === "STORE" && role.store_id,
+      );
+      // User can access if they have a role scoped to this specific store
+      return storeRoles.some((role) => role.store_id === storeId);
+    }
+
+    // Check if store belongs to user's company
+    const store = await prisma.store.findUnique({
+      where: { store_id: storeId },
+      select: { company_id: true },
+    });
+
+    if (!store) {
+      return false;
+    }
+
+    return store.company_id === companyRole.company_id;
+  }
+
   /**
    * Check if an active shift exists for a POS terminal
    * Active shifts are those with status: OPEN, ACTIVE, CLOSING, RECONCILING
@@ -855,6 +912,9 @@ export class ShiftService {
       };
     });
 
+    // Invalidate report cache since shift data changed
+    await this.invalidateReportCache(shiftId);
+
     return result;
   }
 
@@ -1033,7 +1093,303 @@ export class ShiftService {
       };
     });
 
+    // Invalidate report cache since shift data changed
+    await this.invalidateReportCache(shiftId);
+
     return result;
+  }
+
+  /**
+   * Generate shift report for a CLOSED shift
+   * @param shiftId - Shift UUID
+   * @param userId - User UUID (for RLS validation)
+   * @returns Shift report data
+   * @throws ShiftServiceError if validation fails
+   * @note Full implementation will be completed in Task 2
+   */
+  async generateShiftReport(
+    shiftId: string,
+    userId: string,
+  ): Promise<ShiftReportData> {
+    // Validate shiftId format (basic validation)
+    if (!shiftId || typeof shiftId !== "string") {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        "Invalid shift ID",
+      );
+    }
+
+    // Check Redis cache for existing report data
+    const redis = await getRedisClient();
+    const cacheKey = this.getReportCacheKey(shiftId);
+    if (redis) {
+      try {
+        const cachedData = await redis.get(cacheKey);
+        if (cachedData) {
+          // Return cached data
+          return JSON.parse(cachedData) as ShiftReportData;
+        }
+      } catch (error) {
+        // Log but continue - cache miss is acceptable
+        console.warn(
+          "Redis cache read failed, generating fresh report:",
+          error,
+        );
+      }
+    }
+
+    // Query shift data (access check done after fetching)
+    const shift = await prisma.shift.findUnique({
+      where: { shift_id: shiftId },
+      include: {
+        store: {
+          select: {
+            store_id: true,
+            name: true,
+          },
+        },
+        opener: {
+          select: {
+            user_id: true,
+            name: true,
+            email: true,
+          },
+        },
+        cashier: {
+          select: {
+            user_id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    // Validate shift exists
+    if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found or you do not have access`,
+        { shift_id: shiftId },
+      );
+    }
+
+    // Validate user has access to the store this shift belongs to
+    const hasAccess = await this.checkUserStoreAccess(userId, shift.store_id);
+    if (!hasAccess) {
+      // Return same error as "not found" to avoid leaking information about shift existence
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found or you do not have access`,
+        { shift_id: shiftId },
+      );
+    }
+
+    // Validate shift status is CLOSED
+    if (shift.status !== ShiftStatus.CLOSED) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_CLOSED,
+        `Shift is not in CLOSED status. Current status: ${shift.status}. Reports are only available for closed shifts.`,
+        {
+          shift_id: shiftId,
+          current_status: shift.status,
+          expected_status: ShiftStatus.CLOSED,
+        },
+      );
+    }
+
+    // Query all transactions for this shift with line items and payments
+    // RLS policies automatically filter by user access
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        shift_id: shiftId,
+      },
+      include: {
+        line_items: true,
+        payments: true,
+        cashier: {
+          select: {
+            user_id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: {
+        timestamp: "asc",
+      },
+    });
+
+    // Aggregate transaction data
+    let totalSales = 0;
+    const transactionCount = transactions.length;
+
+    // Calculate total sales from transaction totals
+    transactions.forEach((tx) => {
+      totalSales += Number(tx.total);
+    });
+
+    // Calculate payment method breakdown
+    const paymentMethodMap = new Map<
+      string,
+      { total: number; count: number }
+    >();
+    transactions.forEach((tx) => {
+      tx.payments.forEach((payment) => {
+        const method = payment.method;
+        const amount = Number(payment.amount);
+        const existing = paymentMethodMap.get(method);
+        if (existing) {
+          existing.total += amount;
+          existing.count += 1;
+        } else {
+          paymentMethodMap.set(method, { total: amount, count: 1 });
+        }
+      });
+    });
+
+    // Convert payment method map to array
+    const paymentMethods = Array.from(paymentMethodMap.entries()).map(
+      ([method, data]) => ({
+        method,
+        total: data.total,
+        count: data.count,
+      }),
+    );
+
+    // Get variance approval details if applicable
+    let approvedByUser = null;
+    if (shift.approved_by) {
+      const approver = await prisma.user.findUnique({
+        where: { user_id: shift.approved_by },
+        select: {
+          user_id: true,
+          name: true,
+        },
+      });
+      if (approver) {
+        approvedByUser = {
+          user_id: approver.user_id,
+          name: approver.name,
+        };
+      }
+    }
+
+    // Format transaction list for report
+    const formattedTransactions = transactions.map((tx) => ({
+      transaction_id: tx.transaction_id,
+      timestamp: tx.timestamp.toISOString(),
+      total: Number(tx.total),
+      cashier: tx.cashier
+        ? {
+            user_id: tx.cashier.user_id,
+            name: tx.cashier.name,
+          }
+        : null,
+      line_items: tx.line_items.map((li) => ({
+        product_name: li.name,
+        quantity: li.quantity,
+        price: Number(li.unit_price),
+        subtotal: Number(li.line_total),
+      })),
+      payments: tx.payments.map((p) => ({
+        method: p.method,
+        amount: Number(p.amount),
+      })),
+    }));
+
+    // Calculate variance amount and percentage
+    const varianceAmount = shift.variance ? Number(shift.variance) : 0;
+    const expectedCash = shift.expected_cash ? Number(shift.expected_cash) : 0;
+    const variancePercentage =
+      expectedCash > 0 ? (varianceAmount / expectedCash) * 100 : 0;
+
+    // Return structured report data
+    const reportData: ShiftReportData = {
+      shift: {
+        shift_id: shift.shift_id,
+        store_id: shift.store_id,
+        store_name: shift.store?.name || null,
+        opened_by: shift.opener
+          ? {
+              user_id: shift.opener.user_id,
+              name: shift.opener.name,
+            }
+          : null,
+        cashier_id: shift.cashier_id,
+        cashier_name: shift.cashier
+          ? {
+              user_id: shift.cashier.user_id,
+              name: shift.cashier.name,
+            }
+          : null,
+        opened_at: shift.opened_at.toISOString(),
+        closed_at: shift.closed_at?.toISOString() || null,
+        status: shift.status,
+      },
+      summary: {
+        total_sales: totalSales,
+        transaction_count: transactionCount,
+        opening_cash: Number(shift.opening_cash),
+        closing_cash: Number(shift.closing_cash || 0),
+        expected_cash: expectedCash,
+        variance_amount: varianceAmount,
+        variance_percentage: variancePercentage,
+      },
+      payment_methods: paymentMethods,
+      variance:
+        varianceAmount !== 0
+          ? {
+              variance_amount: varianceAmount,
+              variance_percentage: variancePercentage,
+              variance_reason: shift.variance_reason || null,
+              approved_by: approvedByUser,
+              approved_at: shift.approved_at?.toISOString() || null,
+            }
+          : null,
+      transactions: formattedTransactions,
+    };
+
+    // Cache report data in Redis with 1 hour expiration
+    if (redis) {
+      try {
+        await redis.setEx(
+          cacheKey,
+          3600, // 1 hour expiration
+          JSON.stringify(reportData),
+        );
+      } catch (error) {
+        // Log but don't fail - caching is best effort
+        console.warn("Failed to cache report data:", error);
+      }
+    }
+
+    return reportData;
+  }
+
+  /**
+   * Get Redis cache key for shift report
+   * @param shiftId - Shift UUID
+   * @returns Cache key string
+   */
+  private getReportCacheKey(shiftId: string): string {
+    return `shift:report:${shiftId}`;
+  }
+
+  /**
+   * Invalidate cached report data for a shift
+   * @param shiftId - Shift UUID
+   */
+  async invalidateReportCache(shiftId: string): Promise<void> {
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        const cacheKey = this.getReportCacheKey(shiftId);
+        await redis.del(cacheKey);
+      } catch (error) {
+        // Log but don't fail - cache invalidation is best effort
+        console.warn("Failed to invalidate report cache:", error);
+      }
+    }
   }
 }
 

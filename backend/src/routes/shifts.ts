@@ -15,10 +15,12 @@ import {
   ShiftErrorCode,
   AuditContext,
 } from "../services/shift.service";
+import { reportService } from "../services/report.service";
 import {
   validateOpenShiftInput,
   validateReconcileCashInput,
   validateApproveVarianceInput,
+  validateShiftId,
 } from "../schemas/shift.schema";
 import { ZodError } from "zod";
 import { ShiftStatus } from "@prisma/client";
@@ -782,6 +784,299 @@ export async function shiftRoutes(fastify: FastifyInstance) {
 
         // Handle unexpected errors
         fastify.log.error({ error }, "Unexpected error in cash reconciliation");
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "An unexpected error occurred",
+          },
+        });
+      }
+    },
+  );
+
+  /**
+   * GET /api/shifts/:shiftId/report
+   * Get shift report for a CLOSED shift
+   * Protected route - requires SHIFT_REPORT_VIEW permission
+   */
+  fastify.get(
+    "/api/shifts/:shiftId/report",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.SHIFT_REPORT_VIEW),
+      ],
+      schema: {
+        description: "Get shift report for a CLOSED shift",
+        tags: ["shifts"],
+        params: {
+          type: "object",
+          required: ["shiftId"],
+          properties: {
+            shiftId: {
+              type: "string",
+              format: "uuid",
+              description: "Shift UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                description: "Shift report data",
+                additionalProperties: true,
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                  details: { type: "object" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                  details: { type: "object" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as any).user as UserIdentity;
+        const params = request.params as { shiftId: string };
+
+        // Validate shiftId using Zod schema
+        const shiftId = validateShiftId(params.shiftId);
+
+        // Get audit context
+        const auditContext = getAuditContext(request, user);
+
+        // Generate shift report using service layer
+        // Note: generateShiftReport() will be implemented in Task 2
+        const report = await shiftService.generateShiftReport(
+          shiftId,
+          auditContext.userId,
+        );
+
+        // Return success response with report data
+        return reply.code(200).send({
+          success: true,
+          data: report,
+        });
+      } catch (error) {
+        // Handle Zod validation errors
+        if (error instanceof ZodError) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid request data",
+              details: error.issues.map((issue) => ({
+                field: issue.path.join("."),
+                message: issue.message,
+              })),
+            },
+          });
+        }
+
+        // Handle ShiftServiceError
+        if (error instanceof ShiftServiceError) {
+          let statusCode = 400;
+          if (error.code === ShiftErrorCode.SHIFT_NOT_FOUND) {
+            statusCode = 404;
+          } else if (error.code === ShiftErrorCode.SHIFT_NOT_CLOSED) {
+            statusCode = 400;
+          } else if (error.code === ShiftErrorCode.STORE_NOT_FOUND) {
+            statusCode = 404;
+          }
+
+          return reply.code(statusCode).send({
+            success: false,
+            error: {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+            },
+          });
+        }
+
+        // Handle unexpected errors
+        fastify.log.error(
+          { error },
+          "Unexpected error in shift report generation",
+        );
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "An unexpected error occurred",
+          },
+        });
+      }
+    },
+  );
+
+  /**
+   * GET /api/shifts/:shiftId/report/export
+   * Export shift report as PDF
+   * Protected route - requires SHIFT_REPORT_VIEW permission
+   */
+  fastify.get(
+    "/api/shifts/:shiftId/report/export",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.SHIFT_REPORT_VIEW),
+      ],
+      schema: {
+        description: "Export shift report as PDF",
+        tags: ["shifts"],
+        params: {
+          type: "object",
+          required: ["shiftId"],
+          properties: {
+            shiftId: {
+              type: "string",
+              format: "uuid",
+              description: "Shift UUID",
+            },
+          },
+        },
+        querystring: {
+          type: "object",
+          properties: {
+            format: {
+              type: "string",
+              enum: ["pdf"],
+              default: "pdf",
+              description: "Export format (currently only PDF supported)",
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as any).user as UserIdentity;
+        const params = request.params as { shiftId: string };
+        const query = request.query as { format?: string };
+
+        // Validate format (currently only PDF supported)
+        const format = query.format || "pdf";
+        if (format !== "pdf") {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "INVALID_FORMAT",
+              message: `Unsupported export format: ${format}. Only 'pdf' is supported.`,
+            },
+          });
+        }
+
+        // Validate shiftId using Zod schema
+        const shiftId = validateShiftId(params.shiftId);
+
+        // Get audit context
+        const auditContext = getAuditContext(request, user);
+
+        // Generate shift report data
+        const reportData = await shiftService.generateShiftReport(
+          shiftId,
+          auditContext.userId,
+        );
+
+        // Generate PDF from report data
+        const pdfBuffer =
+          await reportService.generateShiftReportPDF(reportData);
+
+        // Return PDF file with appropriate headers
+        reply
+          .code(200)
+          .header("Content-Type", "application/pdf")
+          .header(
+            "Content-Disposition",
+            `attachment; filename="shift-report-${shiftId}.pdf"`,
+          )
+          .send(pdfBuffer);
+      } catch (error) {
+        // Handle Zod validation errors
+        if (error instanceof ZodError) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid request data",
+              details: error.issues.map((issue) => ({
+                field: issue.path.join("."),
+                message: issue.message,
+              })),
+            },
+          });
+        }
+
+        // Handle ShiftServiceError
+        if (error instanceof ShiftServiceError) {
+          let statusCode = 400;
+          if (error.code === ShiftErrorCode.SHIFT_NOT_FOUND) {
+            statusCode = 404;
+          } else if (error.code === ShiftErrorCode.SHIFT_NOT_CLOSED) {
+            statusCode = 400;
+          } else if (error.code === ShiftErrorCode.STORE_NOT_FOUND) {
+            statusCode = 404;
+          }
+
+          return reply.code(statusCode).send({
+            success: false,
+            error: {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+            },
+          });
+        }
+
+        // Handle unexpected errors
+        fastify.log.error(
+          { error },
+          "Unexpected error in shift report PDF export",
+        );
         return reply.code(500).send({
           success: false,
           error: {
