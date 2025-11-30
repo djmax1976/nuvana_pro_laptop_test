@@ -7,6 +7,7 @@ import {
   createTransaction,
   createTransactionLineItem,
   createTransactionPayment,
+  createExpiredJWTAccessToken,
 } from "../support/factories";
 import { Prisma } from "@prisma/client";
 
@@ -248,9 +249,8 @@ test.describe("4.6-API: Shift Report - Authentication", () => {
   test("4.6-API-002b: [P0] should return 401 when JWT token is expired", async ({
     apiRequest,
   }) => {
-    // GIVEN: An expired JWT token (if test framework supports token generation)
-    // Note: This test may need token generation utility
-    const expiredToken = "expired.jwt.token";
+    // GIVEN: An expired JWT token (properly signed with past expiration)
+    const expiredToken = createExpiredJWTAccessToken();
     const shiftId = "00000000-0000-0000-0000-000000000000";
 
     // WHEN: Requesting shift report with expired token
@@ -314,6 +314,9 @@ test.describe("4.6-API: Shift Report - Authorization", () => {
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    await prismaClient.pOSTerminal.delete({
+      where: { pos_terminal_id: terminal.pos_terminal_id },
+    });
     await prismaClient.store.delete({ where: { store_id: store.store_id } });
     await prismaClient.company.delete({
       where: { company_id: company.company_id },

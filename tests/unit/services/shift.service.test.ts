@@ -2956,8 +2956,8 @@ describe("ShiftService - generateShiftReport", () => {
             pos_terminal_id: isolatedTerminal.pos_terminal_id,
             opening_cash: new Prisma.Decimal(100.0),
             closing_cash: new Prisma.Decimal(250.0),
-            expected_cash: new Prisma.Decimal(200.0),
-            variance: new Prisma.Decimal(50.0),
+            expected_cash: new Prisma.Decimal(150.0),
+            variance: new Prisma.Decimal(100.0),
             status: "CLOSED",
             opened_at: new Date(Date.now() - 8 * 60 * 60 * 1000),
             closed_at: new Date(),
@@ -3044,9 +3044,9 @@ describe("ShiftService - generateShiftReport", () => {
       expect(report.summary.transaction_count).toBe(2);
       expect(report.summary.opening_cash).toBe(100.0);
       expect(report.summary.closing_cash).toBe(250.0);
-      expect(report.summary.expected_cash).toBe(200.0);
-      expect(report.summary.variance_amount).toBe(50.0);
-      expect(report.summary.variance_percentage).toBe(25.0);
+      expect(report.summary.expected_cash).toBe(150.0);
+      expect(report.summary.variance_amount).toBe(100.0);
+      expect(report.summary.variance_percentage).toBeCloseTo(66.67, 2);
 
       expect(report.payment_methods).toBeDefined();
       expect(report.payment_methods.length).toBe(2);
@@ -3090,8 +3090,8 @@ describe("ShiftService - generateShiftReport", () => {
             pos_terminal_id: isolatedTerminal.pos_terminal_id,
             opening_cash: new Prisma.Decimal(100.0),
             closing_cash: new Prisma.Decimal(250.0),
-            expected_cash: new Prisma.Decimal(200.0),
-            variance: new Prisma.Decimal(50.0),
+            expected_cash: new Prisma.Decimal(100.0),
+            variance: new Prisma.Decimal(150.0),
             variance_reason: "Test variance reason",
             approved_by: testShiftManagerUser.user_id,
             approved_at: new Date(),
@@ -3111,8 +3111,8 @@ describe("ShiftService - generateShiftReport", () => {
 
       // THEN: Variance details should be included
       expect(report.variance).toBeDefined();
-      expect(report.variance?.variance_amount).toBe(50.0);
-      expect(report.variance?.variance_percentage).toBe(25.0);
+      expect(report.variance?.variance_amount).toBe(150.0);
+      expect(report.variance?.variance_percentage).toBe(150.0);
       expect(report.variance?.variance_reason).toBe("Test variance reason");
       expect(report.variance?.approved_by).toBeDefined();
       expect(report.variance?.approved_at).toBeDefined();

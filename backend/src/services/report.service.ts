@@ -14,6 +14,29 @@ import { ShiftReportData } from "../types/shift-report.types";
  */
 export class ReportService {
   /**
+   * Format a currency value safely, handling null/undefined
+   * @param value - Currency value (number, null, or undefined)
+   * @returns Formatted currency string (e.g., "$0.00" for null/undefined)
+   */
+  private formatCurrency(value: number | null | undefined): string {
+    if (value == null || isNaN(value)) {
+      return "$0.00";
+    }
+    return `$${value.toFixed(2)}`;
+  }
+
+  /**
+   * Format a percentage value safely, handling null/undefined
+   * @param value - Percentage value (number, null, or undefined)
+   * @returns Formatted percentage string (e.g., "0.00%" for null/undefined)
+   */
+  private formatPercentage(value: number | null | undefined): string {
+    if (value == null || isNaN(value)) {
+      return "0.00%";
+    }
+    return `${value.toFixed(2)}%`;
+  }
+  /**
    * Generate PDF from shift report data
    * @param reportData - Shift report data
    * @returns PDF buffer
@@ -57,22 +80,24 @@ export class ReportService {
         // Summary Section
         doc.fontSize(14).text("Summary", { underline: true });
         doc.fontSize(10);
-        doc.text(`Total Sales: $${reportData.summary.total_sales.toFixed(2)}`);
+        doc.text(
+          `Total Sales: ${this.formatCurrency(reportData.summary.total_sales)}`,
+        );
         doc.text(`Transaction Count: ${reportData.summary.transaction_count}`);
         doc.text(
-          `Opening Cash: $${reportData.summary.opening_cash.toFixed(2)}`,
+          `Opening Cash: ${this.formatCurrency(reportData.summary.opening_cash)}`,
         );
         doc.text(
-          `Closing Cash: $${reportData.summary.closing_cash.toFixed(2)}`,
+          `Closing Cash: ${this.formatCurrency(reportData.summary.closing_cash)}`,
         );
         doc.text(
-          `Expected Cash: $${reportData.summary.expected_cash.toFixed(2)}`,
+          `Expected Cash: ${this.formatCurrency(reportData.summary.expected_cash)}`,
         );
         doc.text(
-          `Variance Amount: $${reportData.summary.variance_amount.toFixed(2)}`,
+          `Variance Amount: ${this.formatCurrency(reportData.summary.variance_amount)}`,
         );
         doc.text(
-          `Variance Percentage: ${reportData.summary.variance_percentage.toFixed(2)}%`,
+          `Variance Percentage: ${this.formatPercentage(reportData.summary.variance_percentage)}`,
         );
         doc.moveDown();
 
@@ -82,7 +107,7 @@ export class ReportService {
           doc.fontSize(10);
           reportData.payment_methods.forEach((pm) => {
             doc.text(
-              `${pm.method}: $${pm.total.toFixed(2)} (${pm.count} transactions)`,
+              `${pm.method}: ${this.formatCurrency(pm.total)} (${pm.count} transactions)`,
             );
           });
           doc.moveDown();
@@ -93,10 +118,10 @@ export class ReportService {
           doc.fontSize(14).text("Variance Details", { underline: true });
           doc.fontSize(10);
           doc.text(
-            `Variance Amount: $${reportData.variance.variance_amount.toFixed(2)}`,
+            `Variance Amount: ${this.formatCurrency(reportData.variance.variance_amount)}`,
           );
           doc.text(
-            `Variance Percentage: ${reportData.variance.variance_percentage.toFixed(2)}%`,
+            `Variance Percentage: ${this.formatPercentage(reportData.variance.variance_percentage)}`,
           );
           if (reportData.variance.variance_reason) {
             doc.text(`Reason: ${reportData.variance.variance_reason}`);
@@ -122,7 +147,7 @@ export class ReportService {
             }
             doc.text(`Transaction ${index + 1}: ${tx.transaction_id}`);
             doc.text(`Timestamp: ${tx.timestamp}`);
-            doc.text(`Total: $${tx.total.toFixed(2)}`);
+            doc.text(`Total: ${this.formatCurrency(tx.total)}`);
             if (tx.cashier) {
               doc.text(`Cashier: ${tx.cashier.name}`);
             }
@@ -130,7 +155,7 @@ export class ReportService {
               doc.text("Line Items:");
               tx.line_items.forEach((li) => {
                 doc.text(
-                  `  - ${li.product_name}: ${li.quantity} x $${li.price.toFixed(2)} = $${li.subtotal.toFixed(2)}`,
+                  `  - ${li.product_name}: ${li.quantity} x ${this.formatCurrency(li.price)} = ${this.formatCurrency(li.subtotal)}`,
                   { indent: 20 },
                 );
               });
@@ -138,7 +163,7 @@ export class ReportService {
             if (tx.payments.length > 0) {
               doc.text("Payments:");
               tx.payments.forEach((p) => {
-                doc.text(`  - ${p.method}: $${p.amount.toFixed(2)}`, {
+                doc.text(`  - ${p.method}: ${this.formatCurrency(p.amount)}`, {
                   indent: 20,
                 });
               });
