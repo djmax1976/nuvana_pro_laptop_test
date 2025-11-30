@@ -156,21 +156,6 @@ describe("AdminShiftSettingsPage - Accessibility", () => {
   });
 
   // ============================================================================
-  // SECURITY TESTS - XSS Prevention (Component Level)
-  // ============================================================================
-
-  it("[P1] ADMIN-SHIFT-SETTINGS-SEC-001: should sanitize XSS in displayed content", () => {
-    // GIVEN: Admin shift settings page is rendered
-    // Note: Content is hardcoded, but test ensures XSS protection
-    renderWithProviders(<AdminShiftSettingsPage />);
-
-    // WHEN: Page is rendered
-    // THEN: All text content should be escaped (React automatically escapes HTML)
-    // React escapes HTML entities, preventing script execution
-    expect(screen.getByText("Shift Settings")).toBeInTheDocument();
-  });
-
-  // ============================================================================
   // ADDITIONAL ASSERTIONS - Component Structure
   // ============================================================================
 

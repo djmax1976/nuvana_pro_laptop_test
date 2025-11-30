@@ -96,7 +96,7 @@ export interface ShiftResponse {
   store_id: string;
   opened_by: string;
   cashier_id: string;
-  pos_terminal_id: string;
+  pos_terminal_id: string | null;
   status: ShiftStatus;
   opening_cash: number;
   closing_cash: number | null;
@@ -1186,7 +1186,9 @@ export class ShiftService {
 
     // Check for superadmin (system scope - can see all)
     const hasSuperadminRole = userRoles.some(
-      (role) => role.scope === "SYSTEM" || role.role_code === "superadmin",
+      (role) =>
+        role.scope === "SYSTEM" ||
+        role.role_code?.toUpperCase() === "SUPERADMIN",
     );
 
     if (hasSuperadminRole) {
@@ -1425,12 +1427,18 @@ export class ShiftService {
         : null;
 
     // Transform to response format
+    // Warn if pos_terminal_id is missing to surface data integrity issues
+    if (shift.pos_terminal_id === null || shift.pos_terminal_id === undefined) {
+      console.warn(
+        `[ShiftService] Missing pos_terminal_id for shift ${shift.shift_id}. This may indicate a data integrity issue.`,
+      );
+    }
     const response: ShiftDetailResponse = {
       shift_id: shift.shift_id,
       store_id: shift.store_id,
       opened_by: shift.opened_by,
       cashier_id: shift.cashier_id,
-      pos_terminal_id: shift.pos_terminal_id || "",
+      pos_terminal_id: shift.pos_terminal_id as string | null,
       status: shift.status,
       opening_cash: Number(shift.opening_cash),
       closing_cash: shift.closing_cash ? Number(shift.closing_cash) : null,

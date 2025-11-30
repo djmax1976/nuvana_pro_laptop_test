@@ -47,7 +47,7 @@ import { formatCurrency } from "@/lib/utils";
  */
 const reconcileFormSchema = z.object({
   closing_cash: z
-    .number("Closing cash must be a number")
+    .number({ invalid_type_error: "Closing cash must be a number" } as any)
     .positive("Closing cash must be a positive number"),
   variance_reason: z.string().optional(),
 });
@@ -106,6 +106,8 @@ export function ShiftClosingForm({
 
   const form = useForm<ReconcileFormValues>({
     resolver: zodResolver(reconcileFormSchema),
+    mode: "onSubmit",
+    reValidateMode: "onChange",
     defaultValues: {
       closing_cash: 0,
       variance_reason: "",
@@ -264,8 +266,24 @@ export function ShiftClosingForm({
   // Watch closing_cash to update actualCash for variance calculation
   const watchedClosingCash = form.watch("closing_cash");
   useEffect(() => {
-    if (watchedClosingCash && closeData) {
+    // Update actualCash when closing_cash changes and closeData exists
+    // Check for null/undefined, not just truthy (0 is a valid value)
+    // Also check that the value is > 0 (positive validation)
+    if (
+      closeData &&
+      watchedClosingCash !== null &&
+      watchedClosingCash !== undefined &&
+      watchedClosingCash > 0
+    ) {
       setActualCash(watchedClosingCash);
+    } else if (
+      closeData &&
+      (watchedClosingCash === 0 ||
+        watchedClosingCash === null ||
+        watchedClosingCash === undefined)
+    ) {
+      // Reset actualCash when value is cleared or set to 0
+      setActualCash(null);
     }
   }, [watchedClosingCash, closeData]);
 
@@ -348,9 +366,17 @@ export function ShiftClosingForm({
                         {...field}
                         onChange={(e) => {
                           const value = e.target.value;
-                          const numValue =
-                            value === "" ? 0 : parseFloat(value) || 0;
-                          field.onChange(numValue);
+                          if (value === "") {
+                            field.onChange(0);
+                          } else {
+                            const numValue = parseFloat(value);
+                            // Only update if it's a valid number
+                            if (!isNaN(numValue)) {
+                              field.onChange(numValue);
+                            } else {
+                              field.onChange(0);
+                            }
+                          }
                         }}
                         value={field.value === 0 ? "" : field.value}
                         disabled={isReconciling}

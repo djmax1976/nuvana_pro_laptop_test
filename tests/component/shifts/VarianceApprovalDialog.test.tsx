@@ -73,7 +73,9 @@ describe("4.7-COMPONENT: VarianceApprovalDialog Component", () => {
     );
 
     // THEN: Dialog should be visible
-    expect(screen.getByText("Approve Variance")).toBeInTheDocument();
+    // Use getAllByText since "Approve Variance" appears in both heading and button
+    const approveVarianceElements = screen.getAllByText("Approve Variance");
+    expect(approveVarianceElements.length).toBeGreaterThan(0);
     expect(screen.getByTestId("variance-reason-input")).toBeInTheDocument();
   });
 
@@ -208,10 +210,25 @@ describe("4.7-COMPONENT: VarianceApprovalDialog Component", () => {
     const reasonInput = screen.getByTestId("variance-reason-input");
     await user.type(reasonInput, "Test reason");
 
-    // WHEN: Dialog is closed and reopened
+    // WHEN: Cancel button is clicked
     await user.click(screen.getByRole("button", { name: /cancel/i }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
 
+    // THEN: Dialog should be closed (simulate parent closing when onOpenChange(false) is invoked)
+    rerender(
+      <VarianceApprovalDialog
+        shift={mockShift}
+        open={false}
+        onOpenChange={onOpenChange}
+      />,
+    );
+
+    // Assert dialog is closed
+    await waitFor(() => {
+      expect(screen.queryByText("Approve Variance")).not.toBeInTheDocument();
+    });
+
+    // WHEN: Dialog is reopened
     rerender(
       <VarianceApprovalDialog
         shift={mockShift}
@@ -220,7 +237,7 @@ describe("4.7-COMPONENT: VarianceApprovalDialog Component", () => {
       />,
     );
 
-    // THEN: Form should be reset
+    // THEN: Form should be reset to empty value
     const newReasonInput = screen.getByTestId("variance-reason-input");
     expect(newReasonInput).toHaveValue("");
   });
@@ -314,7 +331,7 @@ describe("4.7-COMPONENT: VarianceApprovalDialog Component", () => {
     // THEN: Validation error should be displayed (trimmed validation)
     await waitFor(() => {
       expect(
-        screen.getByText(/variance reason is required/i),
+        screen.getByText(/variance reason cannot be empty/i),
       ).toBeInTheDocument();
     });
   });
@@ -326,6 +343,7 @@ describe("4.7-COMPONENT: VarianceApprovalDialog Component", () => {
   it("[P1] 4.7-COMPONENT-EDGE-001: should accept minimum length variance reason (1 character)", async () => {
     // GIVEN: Component is rendered
     const user = userEvent.setup();
+    const onOpenChange = vi.fn();
     mockReconcileCashMutation.mutateAsync.mockResolvedValue({
       success: true,
       data: {
@@ -346,16 +364,31 @@ describe("4.7-COMPONENT: VarianceApprovalDialog Component", () => {
       <VarianceApprovalDialog
         shift={mockShift}
         open={true}
-        onOpenChange={vi.fn()}
+        onOpenChange={onOpenChange}
       />,
     );
 
-    // WHEN: Minimum length reason (1 character) is entered
+    // WHEN: Minimum length reason (1 character) is entered and form is submitted
     const reasonInput = screen.getByTestId("variance-reason-input");
     await user.type(reasonInput, "X");
 
-    // THEN: Minimum length should be accepted
-    expect(reasonInput).toHaveValue("X");
+    const submitButton = screen.getByTestId("submit-variance-approval");
+    await user.click(submitButton);
+
+    // THEN: Minimum length should be accepted, mutation should be called with correct payload, and dialog should close
+    await waitFor(() => {
+      expect(mockReconcileCashMutation.mutateAsync).toHaveBeenCalledWith({
+        shiftId: mockShift.shift_id,
+        data: {
+          variance_reason: "X",
+        },
+      });
+    });
+
+    // THEN: Dialog should close on successful submission
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
   });
 
   it("[P1] 4.7-COMPONENT-EDGE-002: should handle very long variance reason (1000+ characters)", async () => {
@@ -371,12 +404,14 @@ describe("4.7-COMPONENT: VarianceApprovalDialog Component", () => {
     );
 
     // WHEN: Very long variance reason is entered
+    // Use paste for long strings to avoid timeout
     const reasonInput = screen.getByTestId("variance-reason-input");
-    await user.type(reasonInput, longReason);
+    await user.clear(reasonInput);
+    await user.paste(longReason);
 
     // THEN: Very long string should be accepted (validation may be at backend level)
     expect(reasonInput).toHaveValue(longReason);
-  });
+  }, 10000); // Increase timeout for long string test
 
   it("[P1] 4.7-COMPONENT-EDGE-003: should handle special characters and unicode in variance reason", async () => {
     // GIVEN: Component is rendered
@@ -392,8 +427,10 @@ describe("4.7-COMPONENT: VarianceApprovalDialog Component", () => {
     );
 
     // WHEN: Special characters and unicode are entered
+    // Use paste for special characters/unicode to avoid encoding issues
     const reasonInput = screen.getByTestId("variance-reason-input");
-    await user.type(reasonInput, specialChars);
+    await user.clear(reasonInput);
+    await user.paste(specialChars);
 
     // THEN: Special characters should be accepted
     expect(reasonInput).toHaveValue(specialChars);

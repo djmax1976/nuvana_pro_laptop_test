@@ -31,7 +31,7 @@ export default function ClientShiftsPage() {
     has_more: boolean;
   } | null>(null);
 
-  // Handle filter changes (filters are managed internally by ShiftList)
+  // Handle filter changes - parent controls filter state to reset pagination
   const handleFiltersChange = useCallback((newFilters: ShiftQueryFilters) => {
     setFilters(newFilters);
     // Reset pagination when filters change
@@ -78,6 +78,7 @@ export default function ClientShiftsPage() {
         filters={filters}
         pagination={pagination}
         onShiftClick={handleShiftClick}
+        onFiltersChange={handleFiltersChange}
         onMetaChange={setPaginationMeta}
       />
 
@@ -125,7 +126,7 @@ export default function ClientShiftsPage() {
             variant="outline"
             size="sm"
             onClick={handleNextPage}
-            disabled={paginationMeta ? !paginationMeta.has_more : false}
+            disabled={!paginationMeta || !paginationMeta.has_more}
             data-testid="pagination-next-button"
           >
             Next

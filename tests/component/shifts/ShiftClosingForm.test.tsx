@@ -398,7 +398,8 @@ describe("4.7-COMPONENT: ShiftClosingForm Component", () => {
     await user.type(actualCashInput, "<script>alert('xss')</script>");
 
     // THEN: Input should be sanitized (number input should reject non-numeric)
-    expect(actualCashInput).toHaveValue("");
+    // Number input returns null for invalid input
+    expect(actualCashInput).toHaveValue(null);
   });
 
   it("[P1] 4.7-COMPONENT-SEC-002: should validate closing cash accepts only numeric input", async () => {
@@ -474,11 +475,24 @@ describe("4.7-COMPONENT: ShiftClosingForm Component", () => {
       expect(screen.getByTestId("actual-cash-input")).toBeInTheDocument();
     });
 
-    const actualCashInput = screen.getByTestId("actual-cash-input");
-    await user.type(actualCashInput, "0.01");
+    const actualCashInput = screen.getByTestId(
+      "actual-cash-input",
+    ) as HTMLInputElement;
+    await user.clear(actualCashInput);
+    // Use paste for decimal values to avoid character-by-character typing issues
+    await user.click(actualCashInput);
+    await user.paste("0.01");
 
     // THEN: Minimum value should be accepted (positive validation)
-    expect(actualCashInput).toHaveValue(0.01);
+    // Wait for the value to be set - the input should contain "0.01"
+    await waitFor(
+      () => {
+        const value = actualCashInput.value;
+        // The input should have the pasted value "0.01"
+        expect(value).toBe("0.01");
+      },
+      { timeout: 2000 },
+    );
   });
 
   it("[P1] 4.7-COMPONENT-EDGE-002: should handle very large closing cash values", async () => {
@@ -630,14 +644,31 @@ describe("4.7-COMPONENT: ShiftClosingForm Component", () => {
       expect(screen.getByTestId("actual-cash-input")).toBeInTheDocument();
     });
 
-    const actualCashInput = screen.getByTestId("actual-cash-input");
-    await user.type(actualCashInput, "110"); // Variance = $10
+    const actualCashInput = screen.getByTestId(
+      "actual-cash-input",
+    ) as HTMLInputElement;
+    await user.clear(actualCashInput);
+    await user.type(actualCashInput, "110"); // Variance = 110 - 100 = 10
+
+    // Wait for the form value to be updated first
+    await waitFor(() => {
+      expect(actualCashInput.value).toBe("110");
+    });
 
     // THEN: Variance should be calculated correctly
-    await waitFor(() => {
-      const varianceAmount = screen.getByTestId("variance-amount-display");
-      expect(varianceAmount).toBeInTheDocument();
-      // Variance = 110 - 100 = 10
-    });
+    // Wait for actualCash to be updated and variance to be calculated
+    await waitFor(
+      () => {
+        const varianceAmount = screen.getByTestId(
+          "variance-amount-display",
+        ) as HTMLInputElement;
+        expect(varianceAmount).toBeInTheDocument();
+        // Variance = 110 - 100 = 10, formatted as currency
+        // Input elements use 'value' attribute, not textContent
+        const value = varianceAmount.value || "";
+        expect(value).toMatch(/\$?\s*\+?\s*10(\.00)?/);
+      },
+      { timeout: 3000 },
+    );
   });
 });

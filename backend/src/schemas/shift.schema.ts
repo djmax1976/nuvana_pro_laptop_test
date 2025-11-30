@@ -162,13 +162,13 @@ export const ShiftQuerySchema = z.object({
     .datetime("from must be a valid ISO 8601 datetime")
     .optional(),
   to: z.string().datetime("to must be a valid ISO 8601 datetime").optional(),
-  limit: z
+  limit: z.coerce
     .number()
     .int("limit must be an integer")
     .min(1, "limit must be at least 1")
     .max(200, "limit must be at most 200")
     .default(50),
-  offset: z
+  offset: z.coerce
     .number()
     .int("offset must be an integer")
     .min(0, "offset must be non-negative")

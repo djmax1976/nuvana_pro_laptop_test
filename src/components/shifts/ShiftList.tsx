@@ -44,6 +44,7 @@ interface ShiftListProps {
   filters?: ShiftQueryFilters;
   pagination?: PaginationOptions;
   onShiftClick?: (shift: ShiftResponse) => void;
+  onFiltersChange?: (filters: ShiftQueryFilters) => void;
   onMetaChange?: (meta: {
     total: number;
     limit: number;
@@ -108,6 +109,7 @@ export function ShiftList({
   filters,
   pagination,
   onShiftClick,
+  onFiltersChange,
   onMetaChange,
 }: ShiftListProps) {
   const [localFilters, setLocalFilters] = React.useState<ShiftQueryFilters>(
@@ -158,6 +160,7 @@ export function ShiftList({
       newFilters.store_id = filters.store_id;
     }
     setLocalFilters(newFilters);
+    onFiltersChange?.(newFilters);
   };
 
   const handleClearFilters = () => {
@@ -169,6 +172,7 @@ export function ShiftList({
       clearedFilters.store_id = filters.store_id;
     }
     setLocalFilters(clearedFilters);
+    onFiltersChange?.(clearedFilters);
   };
 
   const hasActiveFilters = statusFilter !== "all" || fromDate || toDate;

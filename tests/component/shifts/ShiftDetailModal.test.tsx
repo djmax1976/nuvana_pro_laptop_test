@@ -5,7 +5,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  waitFor,
+  within,
+} from "../../support/test-utils";
 import { ShiftDetailModal } from "@/components/shifts/ShiftDetailModal";
 import * as shiftsApi from "@/lib/api/shifts";
 import type { ShiftResponse, ShiftDetailResponse } from "@/lib/api/shifts";
@@ -144,8 +149,14 @@ describe("4.7-COMPONENT: ShiftDetailModal Component", () => {
     );
 
     // THEN: Transaction count should be displayed
-    expect(screen.getByText(/total transactions/i)).toBeInTheDocument();
-    expect(screen.getByText("50")).toBeInTheDocument();
+    const totalTransactionsLabel = screen.getByText(/total transactions/i);
+    expect(totalTransactionsLabel).toBeInTheDocument();
+    // Use within to scope the query to the transaction section container,
+    // ensuring we match the correct "50" value next to "Total Transactions:"
+    // The label and value are siblings in a flex container div
+    const transactionContainer = totalTransactionsLabel.parentElement;
+    expect(transactionContainer).toBeTruthy();
+    expect(within(transactionContainer!).getByText("50")).toBeInTheDocument();
   });
 
   it("[P0] 4.7-COMPONENT-064: should display variance details when applicable", () => {
@@ -287,6 +298,21 @@ describe("4.7-COMPONENT: ShiftDetailModal Component", () => {
     // THEN: XSS should be escaped (React automatically escapes HTML)
     // React escapes HTML entities, preventing script execution
     expect(screen.getByText(/store 1/i)).toBeInTheDocument();
+
+    // Verify that injected script text is rendered as plain text (escaped)
+    // React escapes HTML, so the script tag should appear as literal text
+    // Check store_name field
+    // There are multiple elements with this text (store and cashier), so use getAllByText
+    const xssElements = screen.getAllByText(
+      /<script>alert\('xss'\)<\/script>/i,
+    );
+    expect(xssElements.length).toBeGreaterThan(0);
+
+    // Check cashier_name field - verify John is visible and script is escaped
+    expect(screen.getByText(/john/i)).toBeInTheDocument();
+
+    // Verify that no actual script element exists in the DOM
+    expect(document.querySelector("script")).toBeNull();
   });
 
   // ============================================================================
@@ -309,11 +335,16 @@ describe("4.7-COMPONENT: ShiftDetailModal Component", () => {
       <ShiftDetailModal shift={mockShift} open={true} onOpenChange={vi.fn()} />,
     );
 
-    // THEN: Shift detail should have required fields
-    expect(mockShiftDetail).toHaveProperty("shift_id");
-    expect(mockShiftDetail).toHaveProperty("transaction_count");
-    expect(typeof mockShiftDetail.transaction_count).toBe("number");
-    expect(mockShiftDetail.transaction_count).toBeGreaterThanOrEqual(0);
+    // THEN: Component should display the transaction count from shift detail
+    const totalTransactionsLabel = screen.getByText(/total transactions/i);
+    expect(totalTransactionsLabel).toBeInTheDocument();
+    // Verify the transaction count value is displayed in the component
+    const transactionContainer = totalTransactionsLabel.parentElement;
+    expect(transactionContainer).toBeTruthy();
+    const transactionCountElement = within(transactionContainer!).getByText(
+      mockShiftDetail.transaction_count.toString(),
+    );
+    expect(transactionCountElement).toBeInTheDocument();
   });
 
   it("[P1] 4.7-COMPONENT-ASSERT-002: should verify variance details structure when present", () => {
@@ -332,13 +363,16 @@ describe("4.7-COMPONENT: ShiftDetailModal Component", () => {
       <ShiftDetailModal shift={mockShift} open={true} onOpenChange={vi.fn()} />,
     );
 
-    // THEN: Variance details should have correct structure
-    if (mockShiftDetail.variance_reason) {
-      expect(typeof mockShiftDetail.variance_reason).toBe("string");
-      expect(mockShiftDetail.variance_reason.length).toBeGreaterThan(0);
-    }
-    if (mockShiftDetail.approved_by) {
-      expect(typeof mockShiftDetail.approved_by).toBe("string");
-    }
+    // THEN: Variance details should be displayed in the DOM
+    // Verify variance reason label and value are displayed
+    expect(screen.getByText("Variance Reason")).toBeInTheDocument();
+    expect(screen.getByText("Minor cash discrepancy")).toBeInTheDocument();
+
+    // Verify approved by label and value are displayed
+    expect(screen.getByText("Approved By")).toBeInTheDocument();
+    expect(screen.getByText("Manager")).toBeInTheDocument();
+
+    // Verify approved at label is displayed (value is formatted timestamp)
+    expect(screen.getByText("Approved At")).toBeInTheDocument();
   });
 });

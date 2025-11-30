@@ -345,6 +345,10 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                 properties: {
                   code: { type: "string" },
                   message: { type: "string" },
+                  details: {
+                    type: "array",
+                    items: { type: "object" },
+                  },
                 },
               },
             },
@@ -505,6 +509,17 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                 properties: {
                   code: { type: "string" },
                   message: { type: "string" },
+                  details: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        field: { type: "string" },
+                        message: { type: "string" },
+                      },
+                      required: ["field", "message"],
+                    },
+                  },
                 },
               },
             },

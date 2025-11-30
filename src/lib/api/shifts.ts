@@ -354,7 +354,8 @@ export const shiftKeys = {
       pagination || { limit: 50, offset: 0 },
     ] as const,
   details: () => [...shiftKeys.all, "detail"] as const,
-  detail: (shiftId: string) => [...shiftKeys.details(), shiftId] as const,
+  detail: (shiftId: string | undefined) =>
+    [...shiftKeys.details(), shiftId] as const,
 };
 
 // ============ TanStack Query Hooks ============
@@ -428,8 +429,15 @@ export function useOpenShift() {
  * @returns Mutation hook for closing shifts
  */
 export function useCloseShift() {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: closeShift,
+    onSuccess: () => {
+      // Invalidate shift list and detail queries to refresh after closing
+      queryClient.invalidateQueries({ queryKey: shiftKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: shiftKeys.details() });
+    },
   });
 }
 
@@ -468,10 +476,10 @@ export function useShiftDetail(
   options?: { enabled?: boolean },
 ) {
   return useQuery({
-    queryKey: shiftKeys.detail(shiftId || ""),
+    queryKey: shiftKeys.detail(shiftId ?? undefined),
     queryFn: () => getShiftById(shiftId!),
     enabled: options?.enabled !== false && shiftId !== null,
-    refetchOnMount: "always",
+    refetchOnMount: true,
     refetchOnWindowFocus: true,
     staleTime: 30000, // Consider data fresh for 30 seconds
     select: (response) => response.data,

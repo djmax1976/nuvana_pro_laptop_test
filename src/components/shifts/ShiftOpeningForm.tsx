@@ -50,9 +50,8 @@ const openShiftFormSchema = z.object({
   cashier_id: z.string().uuid("Cashier must be selected"),
   pos_terminal_id: z.string().uuid("Terminal must be selected"),
   opening_cash: z
-    .number("Opening cash must be a number")
-    .nonnegative("Opening cash must be a non-negative number")
-    .min(0, "Opening cash must be at least 0"),
+    .number({ error: "Opening cash must be a number" })
+    .nonnegative({ message: "Opening cash must be a non-negative number" }),
 });
 
 type OpenShiftFormValues = z.infer<typeof openShiftFormSchema>;
@@ -103,6 +102,9 @@ export function ShiftOpeningForm({
 
   const form = useForm<OpenShiftFormValues>({
     resolver: zodResolver(openShiftFormSchema),
+    mode: "onSubmit",
+    reValidateMode: "onChange",
+    shouldFocusError: true,
     defaultValues: {
       store_id: storeId,
       cashier_id: "",
@@ -326,15 +328,23 @@ export function ShiftOpeningForm({
                     <Input
                       type="number"
                       step="0.01"
-                      min="0"
                       placeholder="0.00"
                       {...field}
                       onChange={(e) => {
                         const value = e.target.value;
+                        // Allow negative values to pass through for validation
                         // Convert empty string to 0, otherwise parse as number
-                        const numValue =
-                          value === "" ? 0 : parseFloat(value) || 0;
-                        field.onChange(numValue);
+                        if (value === "") {
+                          field.onChange(0);
+                        } else {
+                          const numValue = parseFloat(value);
+                          // Only update if it's a valid number (including negative)
+                          if (!isNaN(numValue)) {
+                            field.onChange(numValue);
+                          } else {
+                            field.onChange(0);
+                          }
+                        }
                       }}
                       value={field.value === 0 ? "" : field.value}
                       disabled={isSubmitting}
