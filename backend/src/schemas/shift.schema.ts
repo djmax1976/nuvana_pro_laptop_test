@@ -63,9 +63,13 @@ export function validateShiftId(shiftId: string): string {
 /**
  * Reconcile Cash Request Schema
  * Validates the request body for PUT /api/shifts/:shiftId/reconcile
+ * Supports both reconciliation (CLOSING status) and variance approval (VARIANCE_REVIEW status)
  */
 export const ReconcileCashSchema = z.object({
-  closing_cash: z.number().positive("closing_cash must be a positive number"),
+  closing_cash: z
+    .number()
+    .positive("closing_cash must be a positive number")
+    .optional(),
   variance_reason: z
     .string()
     .optional()
@@ -73,6 +77,16 @@ export const ReconcileCashSchema = z.object({
       (val) => val === undefined || val.trim().length > 0,
       "variance_reason cannot be empty if provided",
     ),
+});
+
+/**
+ * Variance Approval Request Schema
+ * Validates the request body for variance approval (VARIANCE_REVIEW status)
+ */
+export const ApproveVarianceSchema = z.object({
+  variance_reason: z
+    .string()
+    .min(1, "variance_reason is required when approving variance"),
 });
 
 /**
@@ -97,4 +111,30 @@ export function validateReconcileCashInput(data: unknown): ReconcileCashInput {
  */
 export function safeValidateReconcileCashInput(data: unknown) {
   return ReconcileCashSchema.safeParse(data);
+}
+
+/**
+ * Type inference from variance approval schema
+ */
+export type ApproveVarianceInput = z.infer<typeof ApproveVarianceSchema>;
+
+/**
+ * Validate variance approval request and return typed result
+ * @param data - Raw payload data
+ * @returns Validated and typed variance approval input
+ * @throws ZodError if validation fails
+ */
+export function validateApproveVarianceInput(
+  data: unknown,
+): ApproveVarianceInput {
+  return ApproveVarianceSchema.parse(data);
+}
+
+/**
+ * Safe validation that returns result object instead of throwing
+ * @param data - Raw payload data
+ * @returns SafeParseResult with success flag and data/error
+ */
+export function safeValidateApproveVarianceInput(data: unknown) {
+  return ApproveVarianceSchema.safeParse(data);
 }
