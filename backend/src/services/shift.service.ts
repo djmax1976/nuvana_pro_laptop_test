@@ -69,6 +69,81 @@ export interface ApprovalResult {
 }
 
 /**
+ * Shift query filters
+ * Story 4.7: Shift Management UI
+ */
+export interface ShiftQueryFilters {
+  status?: ShiftStatus;
+  store_id?: string;
+  from?: string; // ISO 8601 date string
+  to?: string; // ISO 8601 date string
+}
+
+/**
+ * Pagination options
+ */
+export interface PaginationOptions {
+  limit: number;
+  offset: number;
+}
+
+/**
+ * Shift response for list queries
+ * Story 4.7: Shift Management UI
+ */
+export interface ShiftResponse {
+  shift_id: string;
+  store_id: string;
+  opened_by: string;
+  cashier_id: string;
+  pos_terminal_id: string | null;
+  status: ShiftStatus;
+  opening_cash: number;
+  closing_cash: number | null;
+  expected_cash: number | null;
+  variance_amount: number | null;
+  variance_percentage: number | null;
+  opened_at: string; // ISO 8601
+  closed_at: string | null; // ISO 8601
+  // Extended fields from joins (optional, populated by backend)
+  store_name?: string;
+  cashier_name?: string;
+  opener_name?: string;
+}
+
+/**
+ * Pagination metadata
+ */
+export interface PaginationMeta {
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+/**
+ * Shift query result
+ * Story 4.7: Shift Management UI
+ */
+export interface ShiftQueryResult {
+  shifts: ShiftResponse[];
+  meta: PaginationMeta;
+}
+
+/**
+ * Shift detail response
+ * Story 4.7: Shift Management UI
+ * Extended response for shift detail view with transaction count and variance details
+ */
+export interface ShiftDetailResponse extends ShiftResponse {
+  transaction_count: number;
+  variance_reason: string | null;
+  approved_by: string | null;
+  approved_by_name: string | null;
+  approved_at: string | null;
+}
+
+/**
  * Error codes for shift operations
  */
 export enum ShiftErrorCode {
@@ -1097,6 +1172,292 @@ export class ShiftService {
     await this.invalidateReportCache(shiftId);
 
     return result;
+  }
+
+  /**
+   * Get accessible store IDs for RLS enforcement
+   * Story 4.7: Shift Management UI
+   * @param userId - User ID
+   * @returns Array of store IDs the user can access
+   */
+  async getAccessibleStoreIds(userId: string): Promise<string[]> {
+    // Get user's roles
+    const userRoles = await rbacService.getUserRoles(userId);
+
+    // Check for superadmin (system scope - can see all)
+    const hasSuperadminRole = userRoles.some(
+      (role) =>
+        role.scope === "SYSTEM" ||
+        role.role_code?.toUpperCase() === "SUPERADMIN",
+    );
+
+    if (hasSuperadminRole) {
+      // Return all store IDs for superadmin
+      const allStores = await prisma.store.findMany({
+        select: { store_id: true },
+      });
+      return allStores.map((s) => s.store_id);
+    }
+
+    // Find user's company ID
+    const companyRole = userRoles.find(
+      (role) => role.scope === "COMPANY" && role.company_id,
+    );
+
+    if (companyRole?.company_id) {
+      // Get all stores for the company
+      const companyStores = await prisma.store.findMany({
+        where: { company_id: companyRole.company_id },
+        select: { store_id: true },
+      });
+      return companyStores.map((s) => s.store_id);
+    }
+
+    // Check for store-scoped roles
+    const storeRoles = userRoles.filter(
+      (role) => role.scope === "STORE" && role.store_id,
+    );
+
+    if (storeRoles.length > 0) {
+      return storeRoles.map((r) => r.store_id!);
+    }
+
+    // No accessible stores
+    return [];
+  }
+
+  /**
+   * Query shifts with filters, pagination, and RLS enforcement
+   * Story 4.7: Shift Management UI
+   * Enforces RLS policies to filter results based on user access
+   * @param userId - User ID making the request
+   * @param filters - Query filters (status, store_id, date range)
+   * @param pagination - Pagination options (limit, offset)
+   * @returns ShiftQueryResult with shifts and pagination meta
+   */
+  async getShifts(
+    userId: string,
+    filters: ShiftQueryFilters,
+    pagination: PaginationOptions,
+  ): Promise<ShiftQueryResult> {
+    // Get accessible store IDs for RLS enforcement
+    const accessibleStoreIds = await this.getAccessibleStoreIds(userId);
+
+    // If no accessible stores, return empty result
+    if (accessibleStoreIds.length === 0) {
+      return {
+        shifts: [],
+        meta: {
+          total: 0,
+          limit: pagination.limit,
+          offset: pagination.offset,
+          has_more: false,
+        },
+      };
+    }
+
+    // Build where clause with RLS filtering
+    const where: Prisma.ShiftWhereInput = {
+      // RLS: Filter to only accessible stores
+      store_id: filters.store_id
+        ? // If store_id is specified, only allow if it's in accessible stores
+          accessibleStoreIds.includes(filters.store_id)
+          ? filters.store_id
+          : "00000000-0000-0000-0000-000000000000" // Invalid UUID to return no results
+        : { in: accessibleStoreIds },
+    };
+
+    // Add status filter if provided
+    if (filters.status) {
+      where.status = filters.status;
+    }
+
+    // Add date range filter if provided (filter by opened_at)
+    if (filters.from || filters.to) {
+      where.opened_at = {};
+      if (filters.from) {
+        where.opened_at.gte = new Date(filters.from);
+      }
+      if (filters.to) {
+        where.opened_at.lte = new Date(filters.to);
+      }
+    }
+
+    // Build include clause for related data
+    const prismaInclude: Prisma.ShiftInclude = {
+      store: {
+        select: {
+          name: true,
+        },
+      },
+      cashier: {
+        select: {
+          name: true,
+        },
+      },
+      opener: {
+        select: {
+          name: true,
+        },
+      },
+    };
+
+    // Execute count query for total
+    const total = await prisma.shift.count({ where });
+
+    // Execute main query with pagination
+    const shifts = await prisma.shift.findMany({
+      where,
+      include: prismaInclude,
+      orderBy: { opened_at: "desc" },
+      take: pagination.limit,
+      skip: pagination.offset,
+    });
+
+    // Transform to response format
+    const transformedShifts: ShiftResponse[] = shifts.map((shift: any) => ({
+      shift_id: shift.shift_id,
+      store_id: shift.store_id,
+      opened_by: shift.opened_by,
+      cashier_id: shift.cashier_id,
+      pos_terminal_id: shift.pos_terminal_id,
+      status: shift.status,
+      opening_cash: Number(shift.opening_cash),
+      closing_cash: shift.closing_cash ? Number(shift.closing_cash) : null,
+      expected_cash: shift.expected_cash ? Number(shift.expected_cash) : null,
+      variance_amount: shift.variance_amount
+        ? Number(shift.variance_amount)
+        : null,
+      variance_percentage: shift.variance_percentage
+        ? Number(shift.variance_percentage)
+        : null,
+      opened_at: shift.opened_at.toISOString(),
+      closed_at: shift.closed_at ? shift.closed_at.toISOString() : null,
+      store_name: shift.store?.name,
+      cashier_name: shift.cashier?.name,
+      opener_name: shift.opener?.name,
+    }));
+
+    return {
+      shifts: transformedShifts,
+      meta: {
+        total,
+        limit: pagination.limit,
+        offset: pagination.offset,
+        has_more: pagination.offset + shifts.length < total,
+      },
+    };
+  }
+
+  /**
+   * Get shift by ID with full details including transaction count and variance information
+   * Story 4.7: Shift Management UI
+   * Enforces RLS policies to ensure user can only access shifts for their accessible stores
+   * @param shiftId - Shift UUID
+   * @param userId - User ID making the request
+   * @returns Shift detail response with transaction count and variance details
+   * @throws ShiftServiceError if shift not found or user lacks access
+   */
+  async getShiftById(
+    shiftId: string,
+    userId: string,
+  ): Promise<ShiftDetailResponse> {
+    // Validate shift access (RLS check)
+    await this.validateShiftAccess(shiftId, userId);
+
+    // Build include clause for related data
+    const prismaInclude: Prisma.ShiftInclude = {
+      store: {
+        select: {
+          name: true,
+        },
+      },
+      cashier: {
+        select: {
+          name: true,
+        },
+      },
+      opener: {
+        select: {
+          name: true,
+        },
+      },
+    };
+
+    // Get shift with related data
+    const shift = await prisma.shift.findUnique({
+      where: { shift_id: shiftId },
+      include: prismaInclude,
+    });
+
+    if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found or you do not have access`,
+      );
+    }
+
+    // Calculate transaction count for this shift
+    const transactionCount = await prisma.transaction.count({
+      where: {
+        shift_id: shiftId,
+      },
+    });
+
+    // Get approved_by user name if applicable
+    let approvedByName: string | null = null;
+    if (shift.approved_by) {
+      const approver = await prisma.user.findUnique({
+        where: { user_id: shift.approved_by },
+        select: { name: true },
+      });
+      if (approver) {
+        approvedByName = approver.name;
+      }
+    }
+
+    // Calculate variance_amount and variance_percentage from stored variance field
+    const varianceAmount = shift.variance ? Number(shift.variance) : null;
+    const expectedCash = shift.expected_cash
+      ? Number(shift.expected_cash)
+      : null;
+    const variancePercentage =
+      varianceAmount !== null && expectedCash !== null && expectedCash > 0
+        ? (varianceAmount / expectedCash) * 100
+        : null;
+
+    // Transform to response format
+    // Warn if pos_terminal_id is missing to surface data integrity issues
+    if (shift.pos_terminal_id === null || shift.pos_terminal_id === undefined) {
+      console.warn(
+        `[ShiftService] Missing pos_terminal_id for shift ${shift.shift_id}. This may indicate a data integrity issue.`,
+      );
+    }
+    const response: ShiftDetailResponse = {
+      shift_id: shift.shift_id,
+      store_id: shift.store_id,
+      opened_by: shift.opened_by,
+      cashier_id: shift.cashier_id,
+      pos_terminal_id: shift.pos_terminal_id as string | null,
+      status: shift.status,
+      opening_cash: Number(shift.opening_cash),
+      closing_cash: shift.closing_cash ? Number(shift.closing_cash) : null,
+      expected_cash: expectedCash,
+      variance_amount: varianceAmount,
+      variance_percentage: variancePercentage,
+      opened_at: shift.opened_at.toISOString(),
+      closed_at: shift.closed_at ? shift.closed_at.toISOString() : null,
+      store_name: shift.store?.name,
+      cashier_name: shift.cashier?.name,
+      opener_name: shift.opener?.name,
+      transaction_count: transactionCount,
+      variance_reason: shift.variance_reason || null,
+      approved_by: shift.approved_by || null,
+      approved_by_name: approvedByName,
+      approved_at: shift.approved_at ? shift.approved_at.toISOString() : null,
+    };
+
+    return response;
   }
 
   /**
