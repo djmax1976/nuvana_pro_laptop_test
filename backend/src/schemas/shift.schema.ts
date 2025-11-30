@@ -138,3 +138,63 @@ export function validateApproveVarianceInput(
 export function safeValidateApproveVarianceInput(data: unknown) {
   return ApproveVarianceSchema.safeParse(data);
 }
+
+/**
+ * Shift Query Parameters Schema
+ * Validates query parameters for GET /api/shifts
+ * Story 4.7: Shift Management UI
+ */
+export const ShiftQuerySchema = z.object({
+  status: z
+    .enum([
+      "NOT_STARTED",
+      "OPEN",
+      "ACTIVE",
+      "CLOSING",
+      "RECONCILING",
+      "CLOSED",
+      "VARIANCE_REVIEW",
+    ])
+    .optional(),
+  store_id: z.string().uuid("store_id must be a valid UUID").optional(),
+  from: z
+    .string()
+    .datetime("from must be a valid ISO 8601 datetime")
+    .optional(),
+  to: z.string().datetime("to must be a valid ISO 8601 datetime").optional(),
+  limit: z
+    .number()
+    .int("limit must be an integer")
+    .min(1, "limit must be at least 1")
+    .max(200, "limit must be at most 200")
+    .default(50),
+  offset: z
+    .number()
+    .int("offset must be an integer")
+    .min(0, "offset must be non-negative")
+    .default(0),
+});
+
+/**
+ * Type inference from shift query schema
+ */
+export type ShiftQueryInput = z.infer<typeof ShiftQuerySchema>;
+
+/**
+ * Validate shift query parameters and return typed result
+ * @param data - Raw query parameters
+ * @returns Validated and typed shift query input
+ * @throws ZodError if validation fails
+ */
+export function validateShiftQueryInput(data: unknown): ShiftQueryInput {
+  return ShiftQuerySchema.parse(data);
+}
+
+/**
+ * Safe validation that returns result object instead of throwing
+ * @param data - Raw query parameters
+ * @returns SafeParseResult with success flag and data/error
+ */
+export function safeValidateShiftQueryInput(data: unknown) {
+  return ShiftQuerySchema.safeParse(data);
+}

@@ -65,9 +65,10 @@ const allNavItems: NavItemWithRole[] = [
     roles: ["STORE_MANAGER", "CORPORATE_ADMIN"], // Store Manager and Corporate Admin
   },
   {
-    title: "Shifts",
-    href: "/dashboard/shifts",
+    title: "Shift Settings",
+    href: "/admin/shifts",
     icon: Clock,
+    roles: ["SYSTEM_ADMIN", "CORPORATE_ADMIN"], // Admin shift configuration
   },
   {
     title: "Inventory",

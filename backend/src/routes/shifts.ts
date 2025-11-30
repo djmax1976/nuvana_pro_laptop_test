@@ -21,6 +21,7 @@ import {
   validateReconcileCashInput,
   validateApproveVarianceInput,
   validateShiftId,
+  validateShiftQueryInput,
 } from "../schemas/shift.schema";
 import { ZodError } from "zod";
 import { ShiftStatus } from "@prisma/client";
@@ -217,6 +218,377 @@ export async function shiftRoutes(fastify: FastifyInstance) {
 
         // Handle unexpected errors
         fastify.log.error({ error }, "Unexpected error in shift opening");
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "An unexpected error occurred",
+          },
+        });
+      }
+    },
+  );
+
+  /**
+   * GET /api/shifts
+   * Query shifts with filters, pagination, and RLS enforcement
+   * Protected route - requires SHIFT_READ permission (or appropriate shift permission)
+   * Story 4.7: Shift Management UI
+   */
+  fastify.get(
+    "/api/shifts",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.SHIFT_READ),
+      ],
+      schema: {
+        description: "Query shifts with filters and pagination",
+        tags: ["shifts"],
+        querystring: {
+          type: "object",
+          properties: {
+            status: {
+              type: "string",
+              enum: [
+                "NOT_STARTED",
+                "OPEN",
+                "ACTIVE",
+                "CLOSING",
+                "RECONCILING",
+                "CLOSED",
+                "VARIANCE_REVIEW",
+              ],
+              description: "Filter by shift status",
+            },
+            store_id: {
+              type: "string",
+              format: "uuid",
+              description: "Filter by store UUID",
+            },
+            from: {
+              type: "string",
+              format: "date-time",
+              description: "Start date (ISO 8601)",
+            },
+            to: {
+              type: "string",
+              format: "date-time",
+              description: "End date (ISO 8601)",
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 200,
+              default: 50,
+              description: "Number of results per page (default: 50, max: 200)",
+            },
+            offset: {
+              type: "integer",
+              minimum: 0,
+              default: 0,
+              description: "Pagination offset",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  shifts: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        shift_id: { type: "string", format: "uuid" },
+                        store_id: { type: "string", format: "uuid" },
+                        opened_by: { type: "string", format: "uuid" },
+                        cashier_id: { type: "string", format: "uuid" },
+                        pos_terminal_id: { type: "string", format: "uuid" },
+                        status: { type: "string" },
+                        opening_cash: { type: "number" },
+                        closing_cash: { type: "number", nullable: true },
+                        expected_cash: { type: "number", nullable: true },
+                        variance_amount: { type: "number", nullable: true },
+                        variance_percentage: { type: "number", nullable: true },
+                        opened_at: { type: "string" },
+                        closed_at: { type: "string", nullable: true },
+                        store_name: { type: "string" },
+                        cashier_name: { type: "string" },
+                        opener_name: { type: "string" },
+                      },
+                    },
+                  },
+                  meta: {
+                    type: "object",
+                    properties: {
+                      total: { type: "integer" },
+                      limit: { type: "integer" },
+                      offset: { type: "integer" },
+                      has_more: { type: "boolean" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as any).user as UserIdentity;
+        const query = request.query as any;
+
+        // Validate query parameters using Zod schema
+        const validatedQuery = validateShiftQueryInput(query);
+
+        // Extract filters and pagination
+        const filters = {
+          status: validatedQuery.status as ShiftStatus | undefined,
+          store_id: validatedQuery.store_id,
+          from: validatedQuery.from,
+          to: validatedQuery.to,
+        };
+
+        const pagination = {
+          limit: validatedQuery.limit,
+          offset: validatedQuery.offset,
+        };
+
+        // Query shifts using service
+        const result = await shiftService.getShifts(
+          user.id,
+          filters,
+          pagination,
+        );
+
+        return reply.code(200).send({
+          success: true,
+          data: result,
+        });
+      } catch (error) {
+        // Handle Zod validation errors
+        if (error instanceof ZodError) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid query parameters",
+              details: error.issues.map((issue) => ({
+                field: issue.path.join("."),
+                message: issue.message,
+              })),
+            },
+          });
+        }
+
+        // Handle unexpected errors
+        fastify.log.error({ error }, "Unexpected error in shift query");
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "An unexpected error occurred",
+          },
+        });
+      }
+    },
+  );
+
+  /**
+   * GET /api/shifts/:shiftId
+   * Get shift details by ID
+   * Protected route - requires SHIFT_READ permission
+   * Story 4.7: Shift Management UI
+   */
+  fastify.get(
+    "/api/shifts/:shiftId",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.SHIFT_READ),
+      ],
+      schema: {
+        description: "Get shift details by ID",
+        tags: ["shifts"],
+        params: {
+          type: "object",
+          required: ["shiftId"],
+          properties: {
+            shiftId: {
+              type: "string",
+              format: "uuid",
+              description: "Shift UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  shift_id: { type: "string", format: "uuid" },
+                  store_id: { type: "string", format: "uuid" },
+                  opened_by: { type: "string", format: "uuid" },
+                  cashier_id: { type: "string", format: "uuid" },
+                  pos_terminal_id: { type: "string", format: "uuid" },
+                  status: {
+                    type: "string",
+                    enum: [
+                      "NOT_STARTED",
+                      "OPEN",
+                      "ACTIVE",
+                      "CLOSING",
+                      "RECONCILING",
+                      "CLOSED",
+                      "VARIANCE_REVIEW",
+                    ],
+                  },
+                  opening_cash: { type: "number" },
+                  closing_cash: { type: "number", nullable: true },
+                  expected_cash: { type: "number", nullable: true },
+                  variance_amount: { type: "number", nullable: true },
+                  variance_percentage: { type: "number", nullable: true },
+                  opened_at: { type: "string", format: "date-time" },
+                  closed_at: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
+                  store_name: { type: "string", nullable: true },
+                  cashier_name: { type: "string", nullable: true },
+                  opener_name: { type: "string", nullable: true },
+                  transaction_count: { type: "integer" },
+                  variance_reason: { type: "string", nullable: true },
+                  approved_by: {
+                    type: "string",
+                    format: "uuid",
+                    nullable: true,
+                  },
+                  approved_by_name: { type: "string", nullable: true },
+                  approved_at: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as any).user as UserIdentity;
+        const params = request.params as { shiftId: string };
+
+        // Validate shiftId using Zod schema
+        const shiftId = validateShiftId(params.shiftId);
+
+        // Get shift details using service layer
+        const shiftDetail = await shiftService.getShiftById(shiftId, user.id);
+
+        // Return success response
+        return reply.code(200).send({
+          success: true,
+          data: shiftDetail,
+        });
+      } catch (error) {
+        // Handle Zod validation errors
+        if (error instanceof ZodError) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid request data",
+              details: error.issues.map((issue) => ({
+                field: issue.path.join("."),
+                message: issue.message,
+              })),
+            },
+          });
+        }
+
+        // Handle ShiftServiceError
+        if (error instanceof ShiftServiceError) {
+          let statusCode = 400;
+          if (error.code === ShiftErrorCode.SHIFT_NOT_FOUND) {
+            statusCode = 404;
+          }
+
+          return reply.code(statusCode).send({
+            success: false,
+            error: {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+            },
+          });
+        }
+
+        // Handle unexpected errors
+        fastify.log.error({ error }, "Unexpected error in shift detail query");
         return reply.code(500).send({
           success: false,
           error: {
