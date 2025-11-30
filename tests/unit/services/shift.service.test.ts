@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  afterEach,
+  beforeEach,
+} from "vitest";
 import { PrismaClient, Prisma, ShiftStatus } from "@prisma/client";
 import {
   ShiftService,
@@ -1852,5 +1860,307 @@ describe("ShiftService - validateShiftCanClose", () => {
         ShiftErrorCode.SHIFT_NOT_FOUND,
       );
     }
+  });
+});
+
+/**
+ * Unit Tests: Shift Service - Cash Reconciliation
+ *
+ * Story 4.4: Cash Reconciliation
+ *
+ * CRITICAL TEST COVERAGE:
+ * - Cash reconciliation with acceptable variance (status → RECONCILING)
+ * - Cash reconciliation with variance > $5 (status → VARIANCE_REVIEW)
+ * - Cash reconciliation with variance > 1% (status → VARIANCE_REVIEW)
+ * - Variance calculation accuracy (actual - expected)
+ * - Variance threshold evaluation ($5 absolute OR 1% relative)
+ * - Validation: shift must be in CLOSING status
+ * - variance_reason required when status is VARIANCE_REVIEW
+ * - variance_reason optional when status is RECONCILING
+ * - Audit log creation
+ * - Error handling and error codes
+ */
+describe("Shift Service - Cash Reconciliation (Story 4.4)", () => {
+  let testClosingShift: any;
+
+  beforeEach(async () => {
+    // Create a shift in CLOSING status for reconciliation tests
+    testClosingShift = await prisma.shift.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: new Prisma.Decimal(100.0),
+        expected_cash: new Prisma.Decimal(150.0),
+        status: ShiftStatus.CLOSING,
+        opened_at: new Date(),
+      },
+    });
+    createdShiftIds.push(testClosingShift.shift_id);
+  });
+
+  it("4.4-UNIT-001: should reconcile cash with acceptable variance (status → RECONCILING)", async () => {
+    // GIVEN: Shift in CLOSING status with expected_cash = 150.0
+    const closingCash = 152.0; // variance = $2, < $5 and < 1%
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Reconciling cash
+    const result = await shiftService.reconcileCash(
+      testClosingShift.shift_id,
+      closingCash,
+      undefined, // optional variance_reason
+      auditContext,
+    );
+
+    // THEN: Reconciliation succeeds with RECONCILING status
+    expect(result.shift_id).toBe(testClosingShift.shift_id);
+    expect(result.status).toBe(ShiftStatus.RECONCILING);
+    expect(result.closing_cash).toBe(closingCash);
+    expect(result.expected_cash).toBe(150.0);
+    expect(result.variance_amount).toBe(2.0);
+    expect(result.variance_percentage).toBeCloseTo(1.33, 2);
+    expect(result.reconciled_by).toBe(testShiftManagerUser.user_id);
+    expect(result.reconciled_at).toBeTruthy();
+
+    // Verify shift status updated in database
+    const updatedShift = await prisma.shift.findUnique({
+      where: { shift_id: testClosingShift.shift_id },
+    });
+    expect(updatedShift?.status).toBe(ShiftStatus.RECONCILING);
+    expect(updatedShift?.closing_cash).toEqual(new Prisma.Decimal(closingCash));
+    expect(updatedShift?.variance).toEqual(new Prisma.Decimal(2.0));
+  });
+
+  it("4.4-UNIT-002: should reconcile cash with variance > $5 (status → VARIANCE_REVIEW)", async () => {
+    // GIVEN: Shift in CLOSING status with expected_cash = 150.0
+    const closingCash = 156.0; // variance = $6, > $5
+    const varianceReason = "Extra cash from tips";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Reconciling cash with variance exceeding $5 threshold
+    const result = await shiftService.reconcileCash(
+      testClosingShift.shift_id,
+      closingCash,
+      varianceReason,
+      auditContext,
+    );
+
+    // THEN: Reconciliation succeeds with VARIANCE_REVIEW status
+    expect(result.status).toBe(ShiftStatus.VARIANCE_REVIEW);
+    expect(result.variance_amount).toBe(6.0);
+    expect(result.variance_percentage).toBeCloseTo(4.0, 2);
+    expect(result.variance_reason).toBe(varianceReason);
+
+    // Verify shift status updated in database
+    const updatedShift = await prisma.shift.findUnique({
+      where: { shift_id: testClosingShift.shift_id },
+    });
+    expect(updatedShift?.status).toBe(ShiftStatus.VARIANCE_REVIEW);
+    expect(updatedShift?.variance_reason).toBe(varianceReason);
+  });
+
+  it("4.4-UNIT-003: should reconcile cash with variance > 1% (status → VARIANCE_REVIEW)", async () => {
+    // GIVEN: Shift in CLOSING status with expected_cash = 1000.0
+    const highValueShift = await prisma.shift.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: new Prisma.Decimal(500.0),
+        expected_cash: new Prisma.Decimal(1000.0),
+        status: ShiftStatus.CLOSING,
+        opened_at: new Date(),
+      },
+    });
+    createdShiftIds.push(highValueShift.shift_id);
+
+    const closingCash = 1015.0; // variance = $15, < $5 but > 1% of 1000 = $10
+    const varianceReason = "Cash discrepancy found";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Reconciling cash with variance exceeding 1% threshold
+    const result = await shiftService.reconcileCash(
+      highValueShift.shift_id,
+      closingCash,
+      varianceReason,
+      auditContext,
+    );
+
+    // THEN: Reconciliation succeeds with VARIANCE_REVIEW status
+    expect(result.status).toBe(ShiftStatus.VARIANCE_REVIEW);
+    expect(result.variance_amount).toBe(15.0);
+    expect(result.variance_percentage).toBeCloseTo(1.5, 2);
+  });
+
+  it("4.4-UNIT-004: should calculate variance correctly (actual - expected)", async () => {
+    // GIVEN: Shift in CLOSING status with expected_cash = 150.0
+    const closingCash = 145.0; // variance = -$5 (shortage)
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Reconciling cash
+    const result = await shiftService.reconcileCash(
+      testClosingShift.shift_id,
+      closingCash,
+      undefined,
+      auditContext,
+    );
+
+    // THEN: Variance is calculated correctly (actual - expected)
+    expect(result.variance_amount).toBe(-5.0); // negative = shortage
+    expect(result.variance_percentage).toBeCloseTo(-3.33, 2);
+  });
+
+  it("4.4-UNIT-005: should require variance_reason when variance exceeds threshold", async () => {
+    // GIVEN: Shift in CLOSING status with expected_cash = 150.0
+    const closingCash = 156.0; // variance = $6, > $5
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Reconciling cash with variance > $5 but no variance_reason
+    // THEN: Should throw error requiring variance_reason
+    await expect(
+      shiftService.reconcileCash(
+        testClosingShift.shift_id,
+        closingCash,
+        undefined, // missing variance_reason
+        auditContext,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.reconcileCash(
+        testClosingShift.shift_id,
+        closingCash,
+        undefined,
+        auditContext,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.VARIANCE_REASON_REQUIRED,
+      );
+    }
+  });
+
+  it("4.4-UNIT-006: should reject reconciliation when shift is not in CLOSING status", async () => {
+    // GIVEN: Shift in OPEN status (not CLOSING)
+    const openShift = await prisma.shift.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: new Prisma.Decimal(100.0),
+        status: ShiftStatus.OPEN,
+        opened_at: new Date(),
+      },
+    });
+    createdShiftIds.push(openShift.shift_id);
+
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Attempting to reconcile
+    // THEN: Should throw ShiftServiceError with SHIFT_INVALID_STATUS code
+    await expect(
+      shiftService.reconcileCash(
+        openShift.shift_id,
+        150.0,
+        undefined,
+        auditContext,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.reconcileCash(
+        openShift.shift_id,
+        150.0,
+        undefined,
+        auditContext,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_INVALID_STATUS,
+      );
+    }
+  });
+
+  it("4.4-UNIT-007: should create audit log entry when reconciling cash", async () => {
+    // GIVEN: Shift in CLOSING status
+    const closingCash = 152.0;
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Reconciling cash
+    await shiftService.reconcileCash(
+      testClosingShift.shift_id,
+      closingCash,
+      undefined,
+      auditContext,
+    );
+
+    // THEN: Audit log entry is created
+    const auditLogs = await prisma.auditLog.findMany({
+      where: {
+        table_name: "shifts",
+        record_id: testClosingShift.shift_id,
+        action: "SHIFT_CASH_RECONCILED",
+      },
+      orderBy: { timestamp: "desc" },
+    });
+
+    expect(auditLogs.length).toBeGreaterThan(0);
+    const auditLog = auditLogs[0];
+    expect(auditLog.user_id).toBe(testShiftManagerUser.user_id);
+    expect(auditLog.action).toBe("SHIFT_CASH_RECONCILED");
+    expect(auditLog.new_values).toHaveProperty("closing_cash");
+    expect(auditLog.new_values).toHaveProperty("expected_cash");
+    expect(auditLog.new_values).toHaveProperty("variance_amount");
+    expect(auditLog.new_values).toHaveProperty("status");
   });
 });

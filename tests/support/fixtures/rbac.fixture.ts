@@ -162,6 +162,38 @@ type RBACFixture = {
     permissions: string[];
     token: string;
   };
+  authenticatedShiftManager: {
+    user: any;
+    company: any;
+    store: any;
+    prisma: PrismaClient;
+    token: string;
+    get: (
+      path: string,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+    post: (
+      path: string,
+      data?: unknown,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+    put: (
+      path: string,
+      data?: unknown,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+    delete: (
+      path: string,
+      options?: { headers?: Record<string, string> },
+    ) => Promise<import("@playwright/test").APIResponse>;
+  };
+  authenticatedUser: {
+    user: any;
+    company: any;
+    store: any;
+    prisma: PrismaClient;
+    token: string;
+  };
   clientUser: {
     user_id: string;
     email: string;
@@ -709,6 +741,305 @@ export const test = base.extend<RBACFixture>({
     });
     // 6. Delete the owner user (created for company ownership)
     await prismaClient.user.delete({ where: { user_id: ownerUser.user_id } });
+  },
+
+  authenticatedShiftManager: async (
+    { prismaClient, request, backendUrl },
+    use,
+  ) => {
+    // Setup: Create shift manager user with SHIFT_MANAGER role and SHIFT_RECONCILE permission
+    const userData = createUser({});
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Shift Manager Company Owner" }),
+    });
+    const companyData = createCompany({ owner_user_id: ownerUser.user_id });
+
+    // Create company
+    const company = await prismaClient.company.create({ data: companyData });
+
+    // Create store
+    const storeData = createStore({ company_id: company.company_id });
+    const store = await prismaClient.store.create({
+      data: {
+        ...storeData,
+        location_json: storeData.location_json as any,
+      },
+    });
+
+    // Create user
+    const user = await prismaClient.user.create({ data: userData });
+
+    // Get SHIFT_MANAGER role (must exist in database)
+    const role = await prismaClient.role.findUnique({
+      where: { code: "SHIFT_MANAGER" },
+    });
+    if (!role) {
+      throw new Error(
+        "SHIFT_MANAGER role not found in database. Run database seed first.",
+      );
+    }
+
+    // Assign SHIFT_MANAGER role to user with store_id (STORE scope)
+    // Use bypass client to avoid RLS restrictions during test setup
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: role.role_id,
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      });
+    });
+
+    const token = createJWTAccessToken({
+      user_id: user.user_id,
+      email: user.email,
+      roles: ["SHIFT_MANAGER"],
+      permissions: [
+        "SHIFT_OPEN",
+        "SHIFT_CLOSE",
+        "SHIFT_READ",
+        "SHIFT_RECONCILE",
+      ],
+    });
+
+    const authenticatedShiftManager = {
+      user,
+      company,
+      store,
+      prisma: prismaClient,
+      token,
+      // Provide API request helper similar to authenticatedApiRequest
+      get: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.get(`${backendUrl}${path}`, {
+          headers: {
+            Cookie: `access_token=${token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      post: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.post(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      put: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.put(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      delete: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.delete(`${backendUrl}${path}`, {
+          headers: {
+            Cookie: `access_token=${token}`,
+            ...options?.headers,
+          },
+        });
+      },
+    };
+
+    await use(authenticatedShiftManager);
+
+    // Cleanup - delete in correct order respecting foreign key constraints
+    await withBypassClient(async (bypassClient) => {
+      // 1. Delete shifts for the user (shifts reference user via cashier_id)
+      const userShifts = await bypassClient.shift.findMany({
+        where: { cashier_id: user.user_id },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        // Delete transaction payments (child of transaction)
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transaction line items (child of transaction)
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transactions (child of shift)
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      await bypassClient.shift.deleteMany({
+        where: { cashier_id: user.user_id },
+      });
+
+      // 2. Delete user roles for the user
+      await bypassClient.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+
+      // 3. Delete bulk import jobs for the user (FK to users)
+      await bypassClient.bulkImportJob.deleteMany({
+        where: { user_id: user.user_id },
+      });
+
+      // 4. Delete the shift manager user
+      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+
+      // 5. Delete store
+      await bypassClient.store.delete({ where: { store_id: store.store_id } });
+
+      // 6. Delete company
+      await bypassClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+
+      // 7. Delete the owner user (created for company ownership)
+      await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
+    });
+  },
+
+  authenticatedUser: async ({ prismaClient }, use) => {
+    // Setup: Create authenticated user without SHIFT_RECONCILE permission (for permission testing)
+    const userData = createUser({});
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Authenticated User Company Owner" }),
+    });
+    const companyData = createCompany({ owner_user_id: ownerUser.user_id });
+
+    // Create company
+    const company = await prismaClient.company.create({ data: companyData });
+
+    // Create store
+    const storeData = createStore({ company_id: company.company_id });
+    const store = await prismaClient.store.create({
+      data: {
+        ...storeData,
+        location_json: storeData.location_json as any,
+      },
+    });
+
+    // Create user
+    const user = await prismaClient.user.create({ data: userData });
+
+    // Get STORE_MANAGER role (without SHIFT_RECONCILE permission)
+    const role = await prismaClient.role.findUnique({
+      where: { code: "STORE_MANAGER" },
+    });
+    if (!role) {
+      throw new Error(
+        "STORE_MANAGER role not found in database. Run database seed first.",
+      );
+    }
+
+    // Assign STORE_MANAGER role to user with store_id (STORE scope)
+    // Use bypass client to avoid RLS restrictions during test setup
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: role.role_id,
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      });
+    });
+
+    const token = createJWTAccessToken({
+      user_id: user.user_id,
+      email: user.email,
+      roles: ["STORE_MANAGER"],
+      permissions: [
+        "STORE_READ",
+        "SHIFT_OPEN",
+        "SHIFT_CLOSE",
+        "SHIFT_READ",
+        // Note: SHIFT_RECONCILE is intentionally omitted for permission testing
+      ],
+    });
+
+    const authenticatedUser = {
+      user,
+      company,
+      store,
+      prisma: prismaClient,
+      token,
+    };
+
+    await use(authenticatedUser);
+
+    // Cleanup - delete in correct order respecting foreign key constraints
+    await withBypassClient(async (bypassClient) => {
+      // 1. Delete shifts for the user (shifts reference user via cashier_id)
+      const userShifts = await bypassClient.shift.findMany({
+        where: { cashier_id: user.user_id },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        // Delete transaction payments (child of transaction)
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transaction line items (child of transaction)
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transactions (child of shift)
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      await bypassClient.shift.deleteMany({
+        where: { cashier_id: user.user_id },
+      });
+
+      // 2. Delete user roles for the user
+      await bypassClient.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+
+      // 3. Delete bulk import jobs for the user (FK to users)
+      await bypassClient.bulkImportJob.deleteMany({
+        where: { user_id: user.user_id },
+      });
+
+      // 4. Delete the authenticated user
+      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+
+      // 5. Delete store
+      await bypassClient.store.delete({ where: { store_id: store.store_id } });
+
+      // 6. Delete company
+      await bypassClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+
+      // 7. Delete the owner user (created for company ownership)
+      await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
+    });
   },
 
   superadminApiRequest: async (

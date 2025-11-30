@@ -14,8 +14,12 @@ import {
   ShiftServiceError,
   ShiftErrorCode,
   AuditContext,
+  ReconciliationResult,
 } from "../services/shift.service";
-import { validateOpenShiftInput } from "../schemas/shift.schema";
+import {
+  validateOpenShiftInput,
+  validateReconcileCashInput,
+} from "../schemas/shift.schema";
 import { ZodError } from "zod";
 
 /**
@@ -394,6 +398,210 @@ export async function shiftRoutes(fastify: FastifyInstance) {
 
         // Handle unexpected errors
         fastify.log.error({ error }, "Unexpected error in shift closing");
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "An unexpected error occurred",
+          },
+        });
+      }
+    },
+  );
+
+  /**
+   * PUT /api/shifts/:shiftId/reconcile
+   * Reconcile cash for a shift in CLOSING status
+   * Protected route - requires SHIFT_RECONCILE permission
+   */
+  fastify.put(
+    "/api/shifts/:shiftId/reconcile",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.SHIFT_RECONCILE),
+      ],
+      schema: {
+        description: "Reconcile cash for a shift in CLOSING status",
+        tags: ["shifts"],
+        params: {
+          type: "object",
+          required: ["shiftId"],
+          properties: {
+            shiftId: {
+              type: "string",
+              format: "uuid",
+              description: "Shift UUID",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          required: ["closing_cash"],
+          properties: {
+            closing_cash: {
+              type: "number",
+              minimum: 0.01,
+              description: "Actual cash count (positive number)",
+            },
+            variance_reason: {
+              type: "string",
+              description:
+                "Reason for variance (required if variance exceeds threshold)",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  shift_id: { type: "string", format: "uuid" },
+                  status: {
+                    type: "string",
+                    enum: ["RECONCILING", "VARIANCE_REVIEW"],
+                  },
+                  closing_cash: { type: "number" },
+                  expected_cash: { type: "number" },
+                  variance_amount: { type: "number" },
+                  variance_percentage: { type: "number" },
+                  variance_reason: {
+                    type: "string",
+                    nullable: true,
+                  },
+                  reconciled_at: { type: "string", format: "date-time" },
+                  reconciled_by: { type: "string", format: "uuid" },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                  details: { type: "object" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as any).user as UserIdentity;
+        const params = request.params as { shiftId: string };
+
+        // shiftId is already validated by Fastify schema (UUID format)
+        const shiftId = params.shiftId;
+
+        // Validate request body using Zod schema
+        const validatedData = validateReconcileCashInput(request.body);
+
+        // Get audit context
+        const auditContext = getAuditContext(request, user);
+
+        // Reconcile cash using service layer
+        const result = await shiftService.reconcileCash(
+          shiftId,
+          validatedData.closing_cash,
+          validatedData.variance_reason,
+          auditContext,
+        );
+
+        // Return success response
+        return reply.code(200).send({
+          success: true,
+          data: {
+            shift_id: result.shift_id,
+            status: result.status,
+            closing_cash: result.closing_cash,
+            expected_cash: result.expected_cash,
+            variance_amount: result.variance_amount,
+            variance_percentage: result.variance_percentage,
+            variance_reason: result.variance_reason || null,
+            reconciled_at: result.reconciled_at.toISOString(),
+            reconciled_by: result.reconciled_by,
+          },
+        });
+      } catch (error) {
+        // Handle Zod validation errors
+        if (error instanceof ZodError) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid request data",
+              details: error.issues.map((issue) => ({
+                field: issue.path.join("."),
+                message: issue.message,
+              })),
+            },
+          });
+        }
+
+        // Handle ShiftServiceError
+        if (error instanceof ShiftServiceError) {
+          let statusCode = 400;
+          if (error.code === ShiftErrorCode.SHIFT_NOT_FOUND) {
+            statusCode = 404;
+          } else if (
+            error.code === ShiftErrorCode.SHIFT_NOT_CLOSING ||
+            error.code === ShiftErrorCode.SHIFT_INVALID_STATUS
+          ) {
+            statusCode = 400;
+          } else if (error.code === ShiftErrorCode.VARIANCE_REASON_REQUIRED) {
+            statusCode = 400;
+          } else if (error.code === ShiftErrorCode.INVALID_CASH_AMOUNT) {
+            statusCode = 400;
+          }
+
+          return reply.code(statusCode).send({
+            success: false,
+            error: {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+            },
+          });
+        }
+
+        // Handle unexpected errors
+        fastify.log.error({ error }, "Unexpected error in cash reconciliation");
         return reply.code(500).send({
           success: false,
           error: {

@@ -31,6 +31,7 @@ export const STORE_DELETE = "STORE_DELETE";
 export const SHIFT_OPEN = "SHIFT_OPEN";
 export const SHIFT_CLOSE = "SHIFT_CLOSE";
 export const SHIFT_READ = "SHIFT_READ";
+export const SHIFT_RECONCILE = "SHIFT_RECONCILE";
 
 // Transaction Permissions
 export const TRANSACTION_CREATE = "TRANSACTION_CREATE";
@@ -96,6 +97,7 @@ export const PERMISSIONS = {
   SHIFT_OPEN,
   SHIFT_CLOSE,
   SHIFT_READ,
+  SHIFT_RECONCILE,
 
   // Transactions
   TRANSACTION_CREATE,
@@ -173,6 +175,7 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [SHIFT_OPEN]: "Open shifts",
   [SHIFT_CLOSE]: "Close shifts",
   [SHIFT_READ]: "View shift information",
+  [SHIFT_RECONCILE]: "Reconcile cash for shifts",
 
   // Transactions
   [TRANSACTION_CREATE]: "Create transactions",
@@ -228,8 +231,9 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
 export const PERMISSION_CATEGORIES = {
   SHIFTS: {
     name: "Shift Operations",
-    description: "Permissions for opening, closing, and viewing shifts",
-    permissions: [SHIFT_OPEN, SHIFT_CLOSE, SHIFT_READ],
+    description:
+      "Permissions for opening, closing, reconciling, and viewing shifts",
+    permissions: [SHIFT_OPEN, SHIFT_CLOSE, SHIFT_RECONCILE, SHIFT_READ],
   },
   TRANSACTIONS: {
     name: "Transactions",
@@ -307,6 +311,7 @@ export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
   // Shift Operations - Core daily operations
   SHIFT_OPEN,
   SHIFT_CLOSE,
+  SHIFT_RECONCILE,
   SHIFT_READ,
 
   // Transactions - POS transaction processing
