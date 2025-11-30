@@ -8,6 +8,7 @@
 import { ShiftStatus, Prisma } from "@prisma/client";
 import { prisma } from "../utils/db";
 import { OpenShiftInput } from "../schemas/shift.schema";
+import { rbacService } from "./rbac.service";
 
 /**
  * Audit context for logging operations
@@ -318,16 +319,93 @@ export class ShiftService {
   }
 
   /**
+   * Validate that user has access to a shift's store
+   * Uses RBAC to check if user can access the store where the shift belongs
+   * @param shiftId - Shift UUID
+   * @param userId - User ID requesting access
+   * @returns The shift if access is allowed
+   * @throws ShiftServiceError if shift not found or access denied
+   */
+  async validateShiftAccess(
+    shiftId: string,
+    userId: string,
+  ): Promise<{ shift_id: string; store_id: string; status: ShiftStatus }> {
+    // First, get the shift with its store info
+    const shift = await prisma.shift.findUnique({
+      where: { shift_id: shiftId },
+      select: {
+        shift_id: true,
+        store_id: true,
+        status: true,
+        store: {
+          select: {
+            company_id: true,
+          },
+        },
+      },
+    });
+
+    if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found or you do not have access`,
+      );
+    }
+
+    // Get user's roles to check access
+    const userRoles = await rbacService.getUserRoles(userId);
+
+    // Check if user has access to this shift's store/company
+    let hasAccess = false;
+
+    for (const role of userRoles) {
+      // SYSTEM scope users can access all shifts
+      if (role.scope === "SYSTEM") {
+        hasAccess = true;
+        break;
+      }
+
+      // COMPANY scope users can access shifts in their company's stores
+      if (
+        role.scope === "COMPANY" &&
+        role.company_id === shift.store.company_id
+      ) {
+        hasAccess = true;
+        break;
+      }
+
+      // STORE scope users can only access shifts in their store
+      if (role.scope === "STORE" && role.store_id === shift.store_id) {
+        hasAccess = true;
+        break;
+      }
+    }
+
+    if (!hasAccess) {
+      // Return "not found" to avoid leaking information about shift existence
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found or you do not have access`,
+      );
+    }
+
+    return {
+      shift_id: shift.shift_id,
+      store_id: shift.store_id,
+      status: shift.status,
+    };
+  }
+
+  /**
    * Validate that shift can be closed
    * Shift must be in OPEN or ACTIVE status
    * @param shiftId - Shift UUID
+   * @param userId - User ID requesting the close (for access check)
    * @throws ShiftServiceError if shift cannot be closed
    */
-  async validateShiftCanClose(shiftId: string): Promise<void> {
-    const shift = await prisma.shift.findUnique({
-      where: { shift_id: shiftId },
-      select: { shift_id: true, status: true },
-    });
+  async validateShiftCanClose(shiftId: string, userId: string): Promise<void> {
+    // First validate access to the shift
+    const shift = await this.validateShiftAccess(shiftId, userId);
 
     if (!shift) {
       throw new ShiftServiceError(
@@ -386,8 +464,8 @@ export class ShiftService {
     shiftId: string,
     auditContext: AuditContext,
   ): Promise<ShiftClosingResult> {
-    // Validate shift can be closed (status check)
-    await this.validateShiftCanClose(shiftId);
+    // Validate shift can be closed (access check + status check)
+    await this.validateShiftCanClose(shiftId, auditContext.userId);
 
     // Calculate expected cash
     const expectedCash = await this.calculateExpectedCash(shiftId);

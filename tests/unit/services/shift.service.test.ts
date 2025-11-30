@@ -48,6 +48,8 @@ let testCashierUser: any;
 let testCompany: any;
 let testStore: any;
 let testTerminal: any;
+let testStoreRole: any;
+let testUserRoleId: string;
 
 const createdUserIds: string[] = [];
 const createdCompanyIds: string[] = [];
@@ -129,6 +131,30 @@ beforeAll(async () => {
     },
   });
   createdTerminalIds.push(testTerminal.pos_terminal_id);
+
+  // Create or find a STORE scope role for testing
+  testStoreRole = await prisma.role.upsert({
+    where: { code: "TEST_STORE_MANAGER" },
+    update: {},
+    create: {
+      code: "TEST_STORE_MANAGER",
+      scope: "STORE",
+      description: "Test store manager role for unit tests",
+      is_system_role: false,
+    },
+  });
+
+  // Assign the role to testShiftManagerUser for the test store
+  const userRole = await prisma.userRole.create({
+    data: {
+      user_id: testShiftManagerUser.user_id,
+      role_id: testStoreRole.role_id,
+      company_id: testCompany.company_id,
+      store_id: testStore.store_id,
+      status: "ACTIVE",
+    },
+  });
+  testUserRoleId = userRole.user_role_id;
 });
 
 // Cleanup shifts after each test to prevent interference
@@ -1662,7 +1688,10 @@ describe("ShiftService - validateShiftCanClose", () => {
     // WHEN: Validating shift can be closed
     // THEN: Should not throw error
     await expect(
-      shiftService.validateShiftCanClose(shift.shift_id),
+      shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      ),
     ).resolves.not.toThrow();
   });
 
@@ -1683,7 +1712,10 @@ describe("ShiftService - validateShiftCanClose", () => {
     // WHEN: Validating shift can be closed
     // THEN: Should not throw error
     await expect(
-      shiftService.validateShiftCanClose(shift.shift_id),
+      shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      ),
     ).resolves.not.toThrow();
   });
 
@@ -1704,11 +1736,17 @@ describe("ShiftService - validateShiftCanClose", () => {
     // WHEN: Validating shift can be closed
     // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_CLOSING code
     await expect(
-      shiftService.validateShiftCanClose(shift.shift_id),
+      shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      ),
     ).rejects.toThrow(ShiftServiceError);
 
     try {
-      await shiftService.validateShiftCanClose(shift.shift_id);
+      await shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      );
     } catch (error) {
       expect(error).toBeInstanceOf(ShiftServiceError);
       expect((error as ShiftServiceError).code).toBe(
@@ -1735,11 +1773,17 @@ describe("ShiftService - validateShiftCanClose", () => {
     // WHEN: Validating shift can be closed
     // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_CLOSED code
     await expect(
-      shiftService.validateShiftCanClose(shift.shift_id),
+      shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      ),
     ).rejects.toThrow(ShiftServiceError);
 
     try {
-      await shiftService.validateShiftCanClose(shift.shift_id);
+      await shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      );
     } catch (error) {
       expect(error).toBeInstanceOf(ShiftServiceError);
       expect((error as ShiftServiceError).code).toBe(
@@ -1765,11 +1809,17 @@ describe("ShiftService - validateShiftCanClose", () => {
     // WHEN: Validating shift can be closed
     // THEN: Should throw ShiftServiceError with SHIFT_INVALID_STATUS code
     await expect(
-      shiftService.validateShiftCanClose(shift.shift_id),
+      shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      ),
     ).rejects.toThrow(ShiftServiceError);
 
     try {
-      await shiftService.validateShiftCanClose(shift.shift_id);
+      await shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      );
     } catch (error) {
       expect(error).toBeInstanceOf(ShiftServiceError);
       expect((error as ShiftServiceError).code).toBe(
@@ -1785,11 +1835,17 @@ describe("ShiftService - validateShiftCanClose", () => {
     // WHEN: Validating shift can be closed
     // THEN: Should throw ShiftServiceError with SHIFT_NOT_FOUND code
     await expect(
-      shiftService.validateShiftCanClose(nonExistentShiftId),
+      shiftService.validateShiftCanClose(
+        nonExistentShiftId,
+        testShiftManagerUser.user_id,
+      ),
     ).rejects.toThrow(ShiftServiceError);
 
     try {
-      await shiftService.validateShiftCanClose(nonExistentShiftId);
+      await shiftService.validateShiftCanClose(
+        nonExistentShiftId,
+        testShiftManagerUser.user_id,
+      );
     } catch (error) {
       expect(error).toBeInstanceOf(ShiftServiceError);
       expect((error as ShiftServiceError).code).toBe(

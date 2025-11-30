@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { AsyncLocalStorage } from "async_hooks";
 
 /**
@@ -8,101 +8,18 @@ import { AsyncLocalStorage } from "async_hooks";
 const rlsContext = new AsyncLocalStorage<string | null>();
 
 /**
- * Create RLS-aware Prisma Client using modern client extensions
- * Automatically sets app.current_user_id session variable before queries
+ * Standard Prisma client
  *
- * Uses Prisma Client Extensions (query component) instead of deprecated $use middleware
+ * RLS enforcement is handled via:
+ * 1. PostgreSQL RLS policies that check app.current_user_id session variable
+ * 2. withRLSTransaction() helper for operations that need RLS enforcement
+ * 3. Service-layer access control as a defense-in-depth measure
+ *
+ * NOTE: Simple Prisma queries do NOT automatically enforce RLS because
+ * Prisma's connection pooling makes session variables unreliable.
+ * For RLS-critical operations, use withRLSTransaction() explicitly.
  */
-function createRLSPrismaClient() {
-  const baseClient = new PrismaClient();
-
-  // Extend client with RLS middleware using query extensions
-  const extendedClient = baseClient.$extends({
-    name: "rls-middleware",
-    query: {
-      async $allOperations({ args, query }: { args: any; query: any }) {
-        const userId = rlsContext.getStore();
-
-        // Only set RLS context if userId is provided (from withRLSContext)
-        // Use SET instead of SET LOCAL because SET LOCAL only works in transactions
-        // SET sets the variable for the current session (connection)
-        // We only reset if WE set it (to avoid interfering with test-set contexts)
-        if (userId) {
-          let variableSetByUs = false;
-          try {
-            // IMPORTANT: Use baseClient for ALL operations to ensure same connection
-            // Prisma connection pooling means we must use the same client instance
-            // to check and set the variable on the same database connection
-
-            // Check if variable is already set (e.g., by tests)
-            // Using baseClient ensures we check the same connection that will run the query
-            const existing = await baseClient.$queryRaw<
-              Array<{ current_setting: string | null }>
-            >`
-              SELECT current_setting('app.current_user_id', true) as current_setting
-            `;
-            const alreadySet = existing[0]?.current_setting !== null;
-
-            // Only set if not already set
-            if (!alreadySet) {
-              try {
-                // Validate UUID format before setting (SQL injection prevention)
-                if (!isValidUUID(userId)) {
-                  throw new Error(
-                    `Invalid user ID format for RLS context: ${userId}. Expected valid UUID.`,
-                  );
-                }
-                await baseClient.$executeRaw`SET app.current_user_id = ${userId}`;
-                variableSetByUs = true;
-              } catch (setError: any) {
-                // If SET fails, log but continue - RLS policies will use NULL/default
-                console.warn(
-                  `Failed to set RLS context: ${setError?.message || setError}`,
-                );
-              }
-            }
-
-            // Execute the query - this MUST use baseClient to use the same connection
-            // where we just set app.current_user_id
-            const result = await query(args);
-
-            // Only clear if WE set it (don't interfere with test-set contexts)
-            if (variableSetByUs) {
-              try {
-                await baseClient.$executeRaw`RESET app.current_user_id`;
-              } catch (resetError) {
-                // Ignore reset errors - variable will be cleared when connection is reused
-                console.warn(
-                  `Failed to reset RLS context: ${resetError instanceof Error ? resetError.message : resetError}`,
-                );
-              }
-            }
-            return result;
-          } catch (error) {
-            // Ensure we clear the variable even if query fails (only if WE set it)
-            if (variableSetByUs) {
-              try {
-                await baseClient.$executeRaw`RESET app.current_user_id`;
-              } catch (resetError) {
-                // Ignore reset errors
-              }
-            }
-            throw error;
-          }
-        }
-
-        // No RLS context from withRLSContext - execute query normally
-        // (but respect any session variable already set, e.g., by tests)
-        return query(args);
-      },
-    },
-  });
-
-  return extendedClient;
-}
-
-// Export singleton instance
-export const prisma = createRLSPrismaClient();
+export const prisma = new PrismaClient();
 
 /**
  * UUID validation regex (RFC 4122)
@@ -155,4 +72,48 @@ export async function withRLSContext<T>(
  */
 export function getRLSContext(): string | null {
   return rlsContext.getStore() ?? null;
+}
+
+/**
+ * Execute a function within an RLS-enforced transaction
+ * This guarantees that SET LOCAL and all database operations run on the same connection
+ *
+ * Use this for operations that MUST enforce RLS (e.g., checking data access, updates)
+ *
+ * @param userId - User ID to set as RLS context (must be valid UUID)
+ * @param fn - Function receiving the transaction client to execute operations
+ * @returns Result of the function
+ *
+ * @example
+ * ```typescript
+ * const shift = await withRLSTransaction(userId, async (tx) => {
+ *   return await tx.shift.findUnique({ where: { shift_id: shiftId } });
+ * });
+ * ```
+ */
+export async function withRLSTransaction<T>(
+  userId: string,
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  // Validate UUID format
+  if (!isValidUUID(userId)) {
+    throw new Error(
+      `Invalid user ID format for RLS transaction: ${userId}. Expected valid UUID.`,
+    );
+  }
+
+  // Use interactive transaction to ensure SET LOCAL and operations share the same connection
+  return prisma.$transaction(
+    async (tx) => {
+      // Set RLS context using SET LOCAL (scoped to this transaction)
+      await tx.$executeRawUnsafe(`SET LOCAL app.current_user_id = '${userId}'`);
+
+      // Execute the function with the transaction client
+      return fn(tx);
+    },
+    {
+      timeout: 60000, // 60 second timeout
+      isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+    },
+  );
 }
