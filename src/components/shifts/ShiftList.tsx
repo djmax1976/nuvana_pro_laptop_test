@@ -272,7 +272,7 @@ export function ShiftList({
         {/* Filters */}
         <div
           className="space-y-4 p-4 border rounded-lg"
-          data-testid="shift-filter-status"
+          data-testid="shift-filters-container"
         >
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
@@ -351,7 +351,7 @@ export function ShiftList({
       {/* Filters */}
       <div
         className="space-y-4 p-4 border rounded-lg"
-        data-testid="shift-filter-status"
+        data-testid="shift-filters-container"
       >
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-2">
