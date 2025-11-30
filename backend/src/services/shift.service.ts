@@ -408,6 +408,13 @@ export class ShiftService {
     await this.validateStoreAccess(data.store_id, auditContext.userId);
 
     // Validate cashier exists and is active
+    // Note: cashier_id should be defined by the route layer, but we check defensively
+    if (!data.cashier_id) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.CASHIER_NOT_FOUND,
+        "cashier_id is required",
+      );
+    }
     await this.validateCashier(data.cashier_id);
 
     // Validate terminal exists and belongs to store
@@ -430,11 +437,12 @@ export class ShiftService {
     // Create shift and audit log in a transaction for atomicity
     const shift = await prisma.$transaction(async (tx) => {
       // Create shift record
+      // Note: cashier_id is guaranteed to be defined by route layer, but TypeScript needs assertion
       const newShift = await tx.shift.create({
         data: {
           store_id: data.store_id,
           opened_by: auditContext.userId,
-          cashier_id: data.cashier_id,
+          cashier_id: data.cashier_id!, // Non-null assertion: route ensures this is defined
           pos_terminal_id: data.pos_terminal_id,
           opening_cash: data.opening_cash,
           status: ShiftStatus.OPEN,
@@ -1240,32 +1248,48 @@ export class ShiftService {
     filters: ShiftQueryFilters,
     pagination: PaginationOptions,
   ): Promise<ShiftQueryResult> {
-    // Get accessible store IDs for RLS enforcement
-    const accessibleStoreIds = await this.getAccessibleStoreIds(userId);
-
-    // If no accessible stores, return empty result
-    if (accessibleStoreIds.length === 0) {
-      return {
-        shifts: [],
-        meta: {
-          total: 0,
-          limit: pagination.limit,
-          offset: pagination.offset,
-          has_more: false,
-        },
-      };
-    }
+    // Story 4.8: Check if user has CASHIER role for cashier-specific filtering
+    const userRoles = await rbacService.getUserRoles(userId);
+    const hasCashierRole = userRoles.some(
+      (role) => role.role_code === "CASHIER",
+    );
 
     // Build where clause with RLS filtering
-    const where: Prisma.ShiftWhereInput = {
+    const where: Prisma.ShiftWhereInput = {};
+
+    if (hasCashierRole) {
+      // Story 4.8: If CASHIER role, filter shifts where cashier_id = user.id
+      where.cashier_id = userId;
+
+      // Also apply store_id filter if provided (cashiers can still filter by store)
+      if (filters.store_id) {
+        where.store_id = filters.store_id;
+      }
+    } else {
+      // If not CASHIER role, use existing store-based RLS filtering
+      const accessibleStoreIds = await this.getAccessibleStoreIds(userId);
+
+      // If no accessible stores, return empty result
+      if (accessibleStoreIds.length === 0) {
+        return {
+          shifts: [],
+          meta: {
+            total: 0,
+            limit: pagination.limit,
+            offset: pagination.offset,
+            has_more: false,
+          },
+        };
+      }
+
       // RLS: Filter to only accessible stores
-      store_id: filters.store_id
+      where.store_id = filters.store_id
         ? // If store_id is specified, only allow if it's in accessible stores
           accessibleStoreIds.includes(filters.store_id)
           ? filters.store_id
           : "00000000-0000-0000-0000-000000000000" // Invalid UUID to return no results
-        : { in: accessibleStoreIds },
-    };
+        : { in: accessibleStoreIds };
+    }
 
     // Add status filter if provided
     if (filters.status) {

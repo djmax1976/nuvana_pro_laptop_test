@@ -158,3 +158,11 @@ export {
   type ShiftData,
   type ShiftStatus,
 } from "./shift.factory";
+
+// Terminal factories (Story 4.8)
+export {
+  createTerminal,
+  createTerminals,
+  type TerminalData,
+  type TerminalStatus,
+} from "./terminal.factory";

@@ -505,6 +505,84 @@ export class StoreService {
   }
 
   /**
+   * Get terminals for a store with active shift status
+   * Story 4.8: Cashier Shift Start Flow
+   * @param storeId - Store UUID
+   * @param userCompanyId - User's assigned company ID (for isolation check)
+   * @returns Array of terminals with has_active_shift boolean flag
+   * @throws Error if store not found or user tries to access store from different company
+   */
+  async getStoreTerminals(storeId: string, userCompanyId: string) {
+    try {
+      // Verify store exists and user has access (company isolation)
+      const store = await prisma.store.findUnique({
+        where: {
+          store_id: storeId,
+        },
+      });
+
+      if (!store) {
+        throw new Error(`Store with ID ${storeId} not found`);
+      }
+
+      // Company isolation check: user can only access terminals for their company
+      if (store.company_id !== userCompanyId) {
+        throw new Error(
+          "Forbidden: You can only access terminals for your assigned company",
+        );
+      }
+
+      // Get all terminals for the store
+      const terminals = await prisma.pOSTerminal.findMany({
+        where: {
+          store_id: storeId,
+        },
+        orderBy: {
+          name: "asc",
+        },
+      });
+
+      // For each terminal, check if it has an active shift
+      const terminalsWithStatus = await Promise.all(
+        terminals.map(async (terminal) => {
+          // Check for active shifts (status IN ['OPEN', 'ACTIVE', 'CLOSING', 'RECONCILING'])
+          const activeShift = await prisma.shift.findFirst({
+            where: {
+              pos_terminal_id: terminal.pos_terminal_id,
+              status: {
+                in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"],
+              },
+              closed_at: null,
+            },
+          });
+
+          return {
+            pos_terminal_id: terminal.pos_terminal_id,
+            store_id: terminal.store_id,
+            name: terminal.name,
+            device_id: terminal.device_id,
+            status: terminal.status,
+            has_active_shift: !!activeShift,
+            created_at: terminal.created_at,
+            updated_at: terminal.updated_at,
+          };
+        }),
+      );
+
+      return terminalsWithStatus;
+    } catch (error: any) {
+      if (
+        error.message.includes("not found") ||
+        error.message.includes("Forbidden")
+      ) {
+        throw error;
+      }
+      console.error("Error retrieving store terminals:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Hard delete store with company isolation check
    * Permanently removes the store and cascades to all user roles associated with this store
    * @param storeId - Store UUID

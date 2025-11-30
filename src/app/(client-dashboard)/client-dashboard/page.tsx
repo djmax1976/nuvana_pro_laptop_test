@@ -1,14 +1,25 @@
 "use client";
 
+import { useState } from "react";
 import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Store, Users, Activity, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Building2,
+  Store,
+  Users,
+  Activity,
+  Loader2,
+  Clock,
+} from "lucide-react";
 import {
   useClientDashboard,
   OwnedCompany,
   OwnedStore,
 } from "@/lib/api/client-dashboard";
+import { CashierShiftStartDialog } from "@/components/shifts/CashierShiftStartDialog";
+import Link from "next/link";
 
 /**
  * Status badge variant mapping
@@ -105,8 +116,31 @@ function StatsLoadingSkeleton() {
  * - Show active stores count and total employees
  */
 export default function ClientDashboardPage() {
-  const { user } = useClientAuth();
+  const { user, permissions } = useClientAuth();
   const { data, isLoading, isError, error } = useClientDashboard();
+  const [isShiftDialogOpen, setIsShiftDialogOpen] = useState(false);
+  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
+
+  // Check if user has SHIFT_OPEN permission
+  const hasShiftOpenPermission = permissions.includes("SHIFT_OPEN");
+
+  // Check if user has SHIFT_MANAGE permission (typically for Store Managers)
+  // Store Managers typically have both SHIFT_OPEN and SHIFT_MANAGE permissions
+  const hasShiftManagePermission = permissions.includes("SHIFT_MANAGE");
+
+  // Get first active store for shift start (or first store if no active stores)
+  const firstStoreId =
+    data?.stores.find((s) => s.status === "ACTIVE")?.store_id ||
+    data?.stores[0]?.store_id ||
+    null;
+
+  // Handle "Start Shift" button click
+  const handleStartShift = () => {
+    if (firstStoreId) {
+      setSelectedStoreId(firstStoreId);
+      setIsShiftDialogOpen(true);
+    }
+  };
 
   // Loading state
   if (isLoading) {
@@ -156,18 +190,39 @@ export default function ClientDashboardPage() {
   return (
     <div className="space-y-6" data-testid="client-dashboard-page">
       {/* Welcome Header */}
-      <div className="space-y-1">
-        <h1 className="text-heading-2 font-bold text-foreground">
-          Welcome back
-          {data?.user?.name
-            ? `, ${data.user.name}`
-            : user?.name
-              ? `, ${user.name}`
-              : ""}
-        </h1>
-        <p className="text-muted-foreground">
-          Here&apos;s an overview of your business
-        </p>
+      <div className="flex items-start justify-between">
+        <div className="space-y-1">
+          <h1 className="text-heading-2 font-bold text-foreground">
+            Welcome back
+            {data?.user?.name
+              ? `, ${data.user.name}`
+              : user?.name
+                ? `, ${user.name}`
+                : ""}
+          </h1>
+          <p className="text-muted-foreground">
+            Here&apos;s an overview of your business
+          </p>
+        </div>
+
+        {/* Action Buttons */}
+        {hasShiftOpenPermission && (
+          <div className="flex gap-2">
+            <Button
+              onClick={handleStartShift}
+              disabled={!firstStoreId}
+              data-testid="start-shift-button"
+            >
+              <Clock className="mr-2 h-4 w-4" />
+              Start Shift
+            </Button>
+            {hasShiftManagePermission && (
+              <Button asChild variant="outline" data-testid="open-shift-button">
+                <Link href="/client-dashboard/shifts">Open Shift</Link>
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Quick Stats */}
@@ -276,6 +331,15 @@ export default function ClientDashboardPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Cashier Shift Start Dialog */}
+      {selectedStoreId && (
+        <CashierShiftStartDialog
+          storeId={selectedStoreId}
+          open={isShiftDialogOpen}
+          onOpenChange={setIsShiftDialogOpen}
+        />
+      )}
     </div>
   );
 }

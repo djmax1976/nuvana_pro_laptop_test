@@ -228,10 +228,11 @@ export async function getShiftById(
 
 /**
  * Open shift input
+ * cashier_id is optional - if not provided, backend auto-assigns from authenticated user
  */
 export interface OpenShiftInput {
   store_id: string;
-  cashier_id: string;
+  cashier_id?: string;
   pos_terminal_id: string;
   opening_cash: number;
 }

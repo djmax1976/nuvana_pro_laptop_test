@@ -75,12 +75,7 @@ export async function shiftRoutes(fastify: FastifyInstance) {
         tags: ["shifts"],
         body: {
           type: "object",
-          required: [
-            "store_id",
-            "cashier_id",
-            "pos_terminal_id",
-            "opening_cash",
-          ],
+          required: ["store_id", "pos_terminal_id", "opening_cash"],
           properties: {
             store_id: {
               type: "string",
@@ -90,7 +85,8 @@ export async function shiftRoutes(fastify: FastifyInstance) {
             cashier_id: {
               type: "string",
               format: "uuid",
-              description: "Cashier UUID",
+              description:
+                "Cashier UUID (optional - if not provided, auto-assigned from authenticated user)",
             },
             pos_terminal_id: {
               type: "string",
@@ -164,6 +160,13 @@ export async function shiftRoutes(fastify: FastifyInstance) {
 
         // Validate request body using Zod schema
         const validatedData = validateOpenShiftInput(request.body);
+
+        // Story 4.8: Auto-assign cashier_id if not provided (cashier self-service flow)
+        // If cashier_id IS provided, use it (backward compatibility for manager flow)
+        const isCashierSelfService = !validatedData.cashier_id;
+        if (isCashierSelfService) {
+          validatedData.cashier_id = user.id;
+        }
 
         // Get audit context
         const auditContext = getAuditContext(request, user);

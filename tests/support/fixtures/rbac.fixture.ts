@@ -219,6 +219,17 @@ type RBACFixture = {
   rlsPrismaClient: PrismaClient;
   superadminPage: import("@playwright/test").Page;
   storeManagerPage: import("@playwright/test").Page;
+  cashierUser: {
+    user_id: string;
+    email: string;
+    name: string;
+    company_id: string;
+    store_id: string;
+    roles: string[];
+    permissions: string[];
+    token: string;
+  };
+  cashierPage: import("@playwright/test").Page;
 };
 
 export const test = base.extend<RBACFixture>({
@@ -1736,6 +1747,151 @@ export const test = base.extend<RBACFixture>({
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
     );
     await use(page);
+  },
+
+  cashierUser: async ({ prismaClient }, use) => {
+    // Setup: Create cashier user with SHIFT_OPEN permission
+    const userData = createClientUser();
+    const user = await prismaClient.user.create({ data: userData });
+
+    // Create company and store
+    const companyData = createCompany({ owner_user_id: user.user_id });
+    const company = await prismaClient.company.create({ data: companyData });
+    const storeData = createStore({ company_id: company.company_id });
+    const store = await prismaClient.store.create({
+      data: {
+        ...storeData,
+        location_json: storeData.location_json as any,
+      },
+    });
+
+    // Get CLIENT_USER role (cashier role)
+    const role = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_USER" },
+    });
+    if (!role) {
+      throw new Error(
+        "CLIENT_USER role not found in database. Run database seed first.",
+      );
+    }
+
+    // Assign CLIENT_USER role to user
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: role.role_id,
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      });
+    });
+
+    // Cashier permissions - includes SHIFT_OPEN for self-service shift start
+    const cashierPermissions = [
+      "CLIENT_DASHBOARD_ACCESS",
+      "SHIFT_OPEN",
+      "SHIFT_READ",
+      "STORE_READ",
+    ];
+
+    const token = createJWTAccessToken({
+      user_id: user.user_id,
+      email: user.email,
+      roles: ["CLIENT_USER"],
+      permissions: cashierPermissions,
+    });
+
+    const cashierUser = {
+      user_id: user.user_id,
+      email: user.email,
+      name: user.name,
+      company_id: company.company_id,
+      store_id: store.store_id,
+      roles: ["CLIENT_USER"],
+      permissions: cashierPermissions,
+      token,
+    };
+
+    await use(cashierUser);
+
+    // Cleanup
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+      await bypassClient.store.delete({ where: { store_id: store.store_id } });
+      await bypassClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+    });
+  },
+
+  cashierPage: async ({ page, cashierUser }, use) => {
+    // Setup: Set localStorage auth session (Header component reads from localStorage)
+    await page.addInitScript(
+      (userData: any) => {
+        localStorage.setItem(
+          "auth_session",
+          JSON.stringify({
+            id: userData.user_id,
+            email: userData.email,
+            name: userData.name,
+            user_metadata: {
+              email: userData.email,
+              full_name: userData.name,
+            },
+          }),
+        );
+      },
+      {
+        user_id: cashierUser.user_id,
+        email: cashierUser.email,
+        name: cashierUser.name,
+      },
+    );
+
+    // Intercept auth check endpoint
+    await page.route("**/api/auth/me*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          user: {
+            id: cashierUser.user_id,
+            email: cashierUser.email,
+            name: cashierUser.name,
+            roles: cashierUser.roles,
+            permissions: cashierUser.permissions,
+          },
+        }),
+      });
+    });
+
+    // Add authentication cookie
+    await page.context().addCookies([
+      {
+        name: "access_token",
+        value: cashierUser.token,
+        domain: "localhost",
+        path: "/",
+      },
+    ]);
+
+    // Navigate to dashboard
+    await page.goto(
+      `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
+    );
+
+    await use(page);
+
+    // Cleanup: Clear session state
+    await page.context().clearCookies();
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
   },
 
   storeManagerPage: async ({ page, storeManagerUser }, use) => {

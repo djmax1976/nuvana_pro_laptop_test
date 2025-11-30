@@ -1992,4 +1992,164 @@ export async function storeRoutes(fastify: FastifyInstance) {
       }
     },
   );
+
+  /**
+   * GET /api/stores/:storeId/terminals
+   * Get terminals for a store with active shift status
+   * Story 4.8: Cashier Shift Start Flow
+   * Protected route - requires STORE_READ permission
+   */
+  fastify.get(
+    "/api/stores/:storeId/terminals",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.STORE_READ),
+      ],
+      schema: {
+        description: "Get terminals for a store with active shift status",
+        tags: ["stores"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                pos_terminal_id: { type: "string", format: "uuid" },
+                store_id: { type: "string", format: "uuid" },
+                name: { type: "string" },
+                device_id: { type: "string", nullable: true },
+                status: { type: "string" },
+                has_active_shift: { type: "boolean" },
+                created_at: { type: "string", format: "date-time" },
+                updated_at: { type: "string", format: "date-time" },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          500: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const params = request.params as { storeId: string };
+        const user = (request as any).user as UserIdentity;
+
+        // Get user's company_id for isolation check
+        // System Admins can access terminals for ANY store
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        let userCompanyId: string | null = null;
+        if (!hasSystemScope) {
+          userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message:
+                  "You must have a COMPANY scope role to access terminals",
+              },
+            };
+          }
+        } else {
+          // System admin: get company_id from store
+          const store = await prisma.store.findUnique({
+            where: { store_id: params.storeId },
+            select: { company_id: true },
+          });
+          if (store) {
+            userCompanyId = store.company_id;
+          }
+        }
+
+        // Get terminals with active shift status (service handles RLS)
+        const terminals = await storeService.getStoreTerminals(
+          params.storeId,
+          userCompanyId!,
+        );
+
+        reply.code(200);
+        return terminals;
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error retrieving store terminals");
+        if (error.message.includes("not found")) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: error.message,
+            },
+          };
+        }
+        if (error.message.includes("Forbidden")) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: error.message,
+            },
+          };
+        }
+        reply.code(500);
+        return {
+          error: "Internal server error",
+          message: "Failed to retrieve store terminals",
+        };
+      }
+    },
+  );
 }

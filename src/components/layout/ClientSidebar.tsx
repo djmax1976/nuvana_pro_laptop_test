@@ -73,7 +73,7 @@ export function ClientSidebar({ className, onNavigate }: ClientSidebarProps) {
       exact: true,
     },
     {
-      title: "Shifts",
+      title: "Shift and Day",
       href: "/client-dashboard/shifts",
       icon: Clock,
     },

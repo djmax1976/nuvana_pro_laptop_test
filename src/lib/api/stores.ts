@@ -569,3 +569,55 @@ export function useDeleteStore() {
     },
   });
 }
+
+/**
+ * Terminal with active shift status
+ */
+export interface TerminalWithStatus {
+  pos_terminal_id: string;
+  store_id: string;
+  name: string;
+  device_id: string | null;
+  status: string;
+  has_active_shift: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Get terminals for a store with active shift status
+ * Story 4.8: Cashier Shift Start Flow
+ * @param storeId - Store UUID
+ * @returns Array of terminals with has_active_shift boolean flag
+ */
+export async function getStoreTerminals(
+  storeId: string,
+): Promise<TerminalWithStatus[]> {
+  if (!storeId) {
+    throw new Error("Store ID is required");
+  }
+
+  return apiRequest<TerminalWithStatus[]>(`/api/stores/${storeId}/terminals`, {
+    method: "GET",
+  });
+}
+
+/**
+ * Hook to fetch terminals for a store
+ * Story 4.8: Cashier Shift Start Flow
+ * @param storeId - Store UUID
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with terminals data
+ */
+export function useStoreTerminals(
+  storeId: string | undefined,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: [...storeKeys.details(), storeId || "", "terminals"],
+    queryFn: () => getStoreTerminals(storeId!),
+    enabled: options?.enabled !== false && !!storeId,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+  });
+}
