@@ -1,0 +1,496 @@
+import { test, expect } from "../support/fixtures/rbac.fixture";
+import {
+  createUser,
+  createCompany,
+  createStore,
+  createShift,
+} from "../support/factories";
+import { Prisma } from "@prisma/client";
+
+/**
+ * @test-level API
+ * @justification Endpoint integration tests verifying HTTP layer, authentication, authorization, request/response format, and error handling for PUT /api/shifts/:shiftId/reconcile (variance approval)
+ * @story 4-5-variance-approval-workflow
+ *
+ * Variance Approval API Tests - Story 4.5
+ *
+ * STORY: As a Shift Manager, I want to approve variances with a reason,
+ * so that shifts with discrepancies can be properly documented and closed.
+ *
+ * TEST LEVEL: API (endpoint integration tests)
+ * PRIMARY GOAL: Verify PUT /api/shifts/:shiftId/reconcile endpoint approves variances and closes shifts
+ *
+ * BUSINESS RULES TESTED:
+ * - Status transition: VARIANCE_REVIEW → CLOSED
+ * - variance_reason is recorded
+ * - approved_by and approved_at are recorded
+ * - Shift is locked from further modifications after approval
+ * - Audit log creation with SHIFT_VARIANCE_APPROVED action
+ * - Authentication required (JWT token)
+ * - Authorization required (SHIFT_RECONCILE permission)
+ * - Multi-tenant isolation (store_id must be accessible to user)
+ * - Validation errors (invalid shift_id, invalid status, missing variance_reason)
+ */
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+/**
+ * Creates a POS terminal for testing
+ */
+async function createPOSTerminal(
+  prismaClient: any,
+  storeId: string,
+  name?: string,
+): Promise<{ pos_terminal_id: string; store_id: string; name: string }> {
+  const terminal = await prismaClient.pOSTerminal.create({
+    data: {
+      store_id: storeId,
+      name: name || `Terminal ${Date.now()}`,
+      device_id: `device-${Date.now()}`,
+      status: "ACTIVE",
+    },
+  });
+
+  return {
+    pos_terminal_id: terminal.pos_terminal_id,
+    store_id: terminal.store_id,
+    name: terminal.name,
+  };
+}
+
+/**
+ * Creates a shift with VARIANCE_REVIEW status for testing
+ */
+async function createVarianceReviewShift(
+  prismaClient: any,
+  storeId: string,
+  openedBy: string,
+  cashierId: string,
+  posTerminalId: string,
+  openingCash: number = 100.0,
+  expectedCash: number = 150.0,
+  closingCash: number = 156.0,
+  varianceAmount: number = 6.0,
+  varianceReason?: string,
+): Promise<{ shift_id: string; status: string; variance_amount: number }> {
+  const shiftData = createShift({
+    store_id: storeId,
+    opened_by: openedBy,
+    cashier_id: cashierId,
+    pos_terminal_id: posTerminalId,
+    opening_cash: new Prisma.Decimal(openingCash),
+    expected_cash: new Prisma.Decimal(expectedCash),
+    closing_cash: new Prisma.Decimal(closingCash),
+    variance: new Prisma.Decimal(varianceAmount),
+    variance_reason: varianceReason || "Initial variance reason",
+    status: "VARIANCE_REVIEW",
+  });
+
+  const shift = await prismaClient.shift.create({
+    data: shiftData,
+  });
+
+  return {
+    shift_id: shift.shift_id,
+    status: shift.status,
+    variance_amount: Number(shift.variance),
+  };
+}
+
+// =============================================================================
+// TEST SUITE
+// =============================================================================
+
+test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
+  test.describe("Authentication and Authorization", () => {
+    test("4.5-API-001: [P0] should require authentication", async ({
+      request,
+    }) => {
+      // GIVEN: No authentication token
+      // WHEN: Attempting to approve variance (using valid UUID format to pass schema validation)
+      const response = await request.put(
+        "/api/shifts/00000000-0000-0000-0000-000000000000/reconcile",
+        {
+          data: {
+            variance_reason: "Approved variance reason",
+          },
+        },
+      );
+
+      // THEN: Request is rejected with 401 Unauthorized
+      expect(response.status()).toBe(401);
+    });
+
+    test("4.5-API-002: [P0] should require SHIFT_RECONCILE permission", async ({
+      request,
+      authenticatedUser,
+    }) => {
+      // GIVEN: User without SHIFT_RECONCILE permission
+      const user = authenticatedUser.user;
+      const store = authenticatedUser.store;
+
+      // Create shift in VARIANCE_REVIEW status
+      const terminal = await createPOSTerminal(
+        authenticatedUser.prisma,
+        store.store_id,
+      );
+      const shift = await createVarianceReviewShift(
+        authenticatedUser.prisma,
+        store.store_id,
+        user.user_id,
+        user.user_id,
+        terminal.pos_terminal_id,
+      );
+
+      // WHEN: Attempting to approve variance without permission
+      const response = await request.put(
+        `/api/shifts/${shift.shift_id}/reconcile`,
+        {
+          data: {
+            variance_reason: "Approved variance reason",
+          },
+          headers: {
+            Cookie: `access_token=${authenticatedUser.token}`,
+          },
+        },
+      );
+
+      // THEN: Request is rejected with 403 Forbidden
+      expect(response.status()).toBe(403);
+      const error = await response.json();
+      expect(error.success).toBe(false);
+      expect(error.error.code).toBe("PERMISSION_DENIED");
+    });
+  });
+
+  test.describe("Successful Variance Approval", () => {
+    test("4.5-API-003: [P0] should approve variance and close shift (status → CLOSED)", async ({
+      request,
+      authenticatedShiftManager,
+    }) => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const user = authenticatedShiftManager.user;
+      const store = authenticatedShiftManager.store;
+
+      const terminal = await createPOSTerminal(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+      );
+      const shift = await createVarianceReviewShift(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+        user.user_id,
+        terminal.pos_terminal_id,
+        100.0,
+        150.0,
+        156.0,
+        6.0,
+        "Initial variance reason",
+      );
+
+      // WHEN: Approving variance with reason
+      const response = await request.put(
+        `/api/shifts/${shift.shift_id}/reconcile`,
+        {
+          data: {
+            variance_reason: "Approved: Extra cash from tips",
+          },
+          headers: {
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
+          },
+        },
+      );
+
+      // THEN: Approval succeeds with CLOSED status
+      expect(response.status()).toBe(200);
+      const result = await response.json();
+      expect(result.success).toBe(true);
+      expect(result.data.shift_id).toBe(shift.shift_id);
+      expect(result.data.status).toBe("CLOSED");
+      expect(result.data.closing_cash).toBe(156.0);
+      expect(result.data.expected_cash).toBe(150.0);
+      expect(result.data.variance_amount).toBe(6.0);
+      expect(result.data.variance_reason).toBe("Approved: Extra cash from tips");
+      expect(result.data.approved_by).toBe(user.user_id);
+      expect(result.data.approved_at).toBeTruthy();
+      expect(result.data.closed_at).toBeTruthy();
+    });
+  });
+
+  test.describe("Validation and Error Handling", () => {
+    test("4.5-API-004: [P0] should reject approval when shift is not in VARIANCE_REVIEW status", async ({
+      request,
+      authenticatedShiftManager,
+    }) => {
+      // GIVEN: Shift in CLOSING status (not VARIANCE_REVIEW)
+      const user = authenticatedShiftManager.user;
+      const store = authenticatedShiftManager.store;
+
+      const terminal = await createPOSTerminal(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+      );
+      const shiftData = createShift({
+        store_id: store.store_id,
+        opened_by: user.user_id,
+        cashier_id: user.user_id,
+        pos_terminal_id: terminal.pos_terminal_id,
+        status: "CLOSING",
+      });
+      const shift = await authenticatedShiftManager.prisma.shift.create({
+        data: shiftData,
+      });
+
+      // WHEN: Attempting to approve variance
+      const response = await request.put(
+        `/api/shifts/${shift.shift_id}/reconcile`,
+        {
+          data: {
+            variance_reason: "Approved variance reason",
+          },
+          headers: {
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
+          },
+        },
+      );
+
+      // THEN: Request is rejected with error
+      expect(response.status()).toBe(400);
+      const error = await response.json();
+      expect(error.success).toBe(false);
+      expect(error.error.code).toBe("SHIFT_INVALID_STATUS");
+    });
+
+    test("4.5-API-005: [P0] should require variance_reason when approving variance", async ({
+      request,
+      authenticatedShiftManager,
+    }) => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const user = authenticatedShiftManager.user;
+      const store = authenticatedShiftManager.store;
+
+      const terminal = await createPOSTerminal(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+      );
+      const shift = await createVarianceReviewShift(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+        user.user_id,
+        terminal.pos_terminal_id,
+      );
+
+      // WHEN: Attempting to approve variance without reason
+      const response = await request.put(
+        `/api/shifts/${shift.shift_id}/reconcile`,
+        {
+          data: {},
+          headers: {
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
+          },
+        },
+      );
+
+      // THEN: Request is rejected with error
+      expect(response.status()).toBe(400);
+      const error = await response.json();
+      expect(error.success).toBe(false);
+      expect(error.error.code).toBe("VARIANCE_REASON_REQUIRED");
+    });
+
+    test("4.5-API-006: [P0] should reject approval when shift_id does not exist", async ({
+      request,
+      authenticatedShiftManager,
+    }) => {
+      // GIVEN: Non-existent shift_id
+      // WHEN: Attempting to approve variance
+      const response = await request.put(
+        "/api/shifts/00000000-0000-0000-0000-000000000000/reconcile",
+        {
+          data: {
+            variance_reason: "Approved variance reason",
+          },
+          headers: {
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
+          },
+        },
+      );
+
+      // THEN: Request is rejected with error
+      expect(response.status()).toBe(404);
+      const error = await response.json();
+      expect(error.success).toBe(false);
+      expect(error.error.code).toBe("SHIFT_NOT_FOUND");
+    });
+
+    test("4.5-API-007: [P1] should prevent reconciling shifts for inaccessible stores", async ({
+      request,
+      authenticatedShiftManager,
+    }) => {
+      // GIVEN: Shift in VARIANCE_REVIEW status for a different store (inaccessible)
+      const user = authenticatedShiftManager.user;
+      const store = authenticatedShiftManager.store;
+
+      // Create another company and store
+      const otherOwner = await authenticatedShiftManager.prisma.user.create({
+        data: createUser({ name: "Other Owner" }),
+      });
+      const otherCompany = await authenticatedShiftManager.prisma.company.create({
+        data: createCompany({ owner_user_id: otherOwner.user_id }),
+      });
+      const otherStore = await authenticatedShiftManager.prisma.store.create({
+        data: createStore({ company_id: otherCompany.company_id }),
+      });
+
+      const terminal = await createPOSTerminal(
+        authenticatedShiftManager.prisma,
+        otherStore.store_id,
+      );
+      const shift = await createVarianceReviewShift(
+        authenticatedShiftManager.prisma,
+        otherStore.store_id,
+        otherOwner.user_id,
+        otherOwner.user_id,
+        terminal.pos_terminal_id,
+      );
+
+      // WHEN: Attempting to approve variance for inaccessible shift
+      const response = await request.put(
+        `/api/shifts/${shift.shift_id}/reconcile`,
+        {
+          data: {
+            variance_reason: "Approved variance reason",
+          },
+          headers: {
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
+          },
+        },
+      );
+
+      // THEN: Request is rejected with error
+      expect(response.status()).toBe(404);
+      const error = await response.json();
+      expect(error.success).toBe(false);
+      expect(error.error.code).toBe("SHIFT_NOT_FOUND");
+    });
+  });
+
+  test.describe("Shift Locking", () => {
+    test("4.5-API-008: [P0] should lock shift after approval (prevent further modifications)", async ({
+      request,
+      authenticatedShiftManager,
+    }) => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const user = authenticatedShiftManager.user;
+      const store = authenticatedShiftManager.store;
+
+      const terminal = await createPOSTerminal(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+      );
+      const shift = await createVarianceReviewShift(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+        user.user_id,
+        terminal.pos_terminal_id,
+      );
+
+      // WHEN: Approving variance (status → CLOSED)
+      const approveResponse = await request.put(
+        `/api/shifts/${shift.shift_id}/reconcile`,
+        {
+          data: {
+            variance_reason: "Approved: Variance approved",
+          },
+          headers: {
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
+          },
+        },
+      );
+
+      expect(approveResponse.status()).toBe(200);
+      const approveResult = await approveResponse.json();
+      expect(approveResult.data.status).toBe("CLOSED");
+
+      // THEN: Attempting to modify the shift should fail
+      const modifyResponse = await request.put(
+        `/api/shifts/${shift.shift_id}/reconcile`,
+        {
+          data: {
+            variance_reason: "Attempt to modify closed shift",
+          },
+          headers: {
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
+          },
+        },
+      );
+
+      expect(modifyResponse.status()).toBe(400);
+      const error = await modifyResponse.json();
+      expect(error.success).toBe(false);
+      expect(error.error.code).toBe("SHIFT_LOCKED");
+    });
+  });
+
+  test.describe("Response Format", () => {
+    test("4.5-API-009: [P1] should return response matching API contract", async ({
+      request,
+      authenticatedShiftManager,
+    }) => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const user = authenticatedShiftManager.user;
+      const store = authenticatedShiftManager.store;
+
+      const terminal = await createPOSTerminal(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+      );
+      const shift = await createVarianceReviewShift(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+        user.user_id,
+        terminal.pos_terminal_id,
+        100.0,
+        150.0,
+        156.0,
+        6.0,
+      );
+
+      // WHEN: Approving variance
+      const response = await request.put(
+        `/api/shifts/${shift.shift_id}/reconcile`,
+        {
+          data: {
+            variance_reason: "Approved: Variance approved",
+          },
+          headers: {
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
+          },
+        },
+      );
+
+      // THEN: Response matches API contract
+      expect(response.status()).toBe(200);
+      const result = await response.json();
+      expect(result).toHaveProperty("success", true);
+      expect(result).toHaveProperty("data");
+      expect(result.data).toHaveProperty("shift_id");
+      expect(result.data).toHaveProperty("status", "CLOSED");
+      expect(result.data).toHaveProperty("closing_cash");
+      expect(result.data).toHaveProperty("expected_cash");
+      expect(result.data).toHaveProperty("variance_amount");
+      expect(result.data).toHaveProperty("variance_percentage");
+      expect(result.data).toHaveProperty("variance_reason");
+      expect(result.data).toHaveProperty("approved_by");
+      expect(result.data).toHaveProperty("approved_at");
+      expect(result.data).toHaveProperty("closed_at");
+    });
+  });
+});
+

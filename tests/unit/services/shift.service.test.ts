@@ -2164,3 +2164,748 @@ describe("Shift Service - Cash Reconciliation (Story 4.4)", () => {
     expect(auditLog.new_values).toHaveProperty("status");
   });
 });
+
+/**
+ * Unit Tests: Shift Service - Variance Approval
+ *
+ * Story 4.5: Variance Approval Workflow
+ *
+ * CRITICAL TEST COVERAGE:
+ * - Variance approval with valid VARIANCE_REVIEW shift and reason
+ * - Status transition: VARIANCE_REVIEW → CLOSED
+ * - approved_by and approved_at are recorded
+ * - Shift locking prevents modifications when CLOSED
+ * - Validation: shift must be in VARIANCE_REVIEW status
+ * - variance_reason required when approving variance
+ * - Audit log creation with SHIFT_VARIANCE_APPROVED action
+ * - Error handling and error codes
+ */
+describe("Shift Service - Variance Approval (Story 4.5)", () => {
+  let testVarianceReviewShift: any;
+
+  beforeEach(async () => {
+    // Create a shift in VARIANCE_REVIEW status for approval tests
+    testVarianceReviewShift = await prisma.shift.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: new Prisma.Decimal(100.0),
+        expected_cash: new Prisma.Decimal(150.0),
+        closing_cash: new Prisma.Decimal(156.0),
+        variance: new Prisma.Decimal(6.0),
+        variance_reason: "Initial variance reason",
+        status: ShiftStatus.VARIANCE_REVIEW,
+        opened_at: new Date(),
+      },
+    });
+    createdShiftIds.push(testVarianceReviewShift.shift_id);
+  });
+
+  it("4.5-UNIT-001: should approve variance with valid VARIANCE_REVIEW shift and reason (status → CLOSED)", async () => {
+    // GIVEN: Shift in VARIANCE_REVIEW status
+    const varianceReason = "Approved: Extra cash from tips";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Approving variance
+    const result = await shiftService.approveVariance(
+      testVarianceReviewShift.shift_id,
+      varianceReason,
+      auditContext,
+    );
+
+    // THEN: Approval succeeds with CLOSED status
+    expect(result.status).toBe(ShiftStatus.CLOSED);
+    expect(result.variance_reason).toBe(varianceReason);
+    expect(result.approved_by).toBe(testShiftManagerUser.user_id);
+    expect(result.approved_at).toBeTruthy();
+
+    // Verify shift is updated in database
+    const updatedShift = await prisma.shift.findUnique({
+      where: { shift_id: testVarianceReviewShift.shift_id },
+    });
+    expect(updatedShift?.status).toBe(ShiftStatus.CLOSED);
+    expect(updatedShift?.variance_reason).toBe(varianceReason);
+    expect(updatedShift?.approved_by).toBe(testShiftManagerUser.user_id);
+    expect(updatedShift?.approved_at).not.toBeNull();
+    expect(updatedShift?.closed_at).not.toBeNull();
+  });
+
+  it("4.5-UNIT-002: should record approved_by and approved_at when approving variance", async () => {
+    // GIVEN: Shift in VARIANCE_REVIEW status
+    const varianceReason = "Approved: Variance approved";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Approving variance
+    const result = await shiftService.approveVariance(
+      testVarianceReviewShift.shift_id,
+      varianceReason,
+      auditContext,
+    );
+
+    // THEN: approved_by and approved_at are recorded
+    expect(result.approved_by).toBe(testShiftManagerUser.user_id);
+    expect(result.approved_at).toBeTruthy();
+
+    const updatedShift = await prisma.shift.findUnique({
+      where: { shift_id: testVarianceReviewShift.shift_id },
+    });
+    expect(updatedShift?.approved_by).toBe(testShiftManagerUser.user_id);
+    expect(updatedShift?.approved_at).not.toBeNull();
+    expect(updatedShift?.approved_at).toBeInstanceOf(Date);
+  });
+
+  it("4.5-UNIT-003: should reject approval when shift is not VARIANCE_REVIEW", async () => {
+    // GIVEN: Shift in CLOSING status (not VARIANCE_REVIEW)
+    const closingShift = await prisma.shift.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: new Prisma.Decimal(100.0),
+        expected_cash: new Prisma.Decimal(150.0),
+        status: ShiftStatus.CLOSING,
+        opened_at: new Date(),
+      },
+    });
+    createdShiftIds.push(closingShift.shift_id);
+
+    const varianceReason = "Approved variance reason";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Attempting to approve variance
+    // THEN: Should throw ShiftServiceError with SHIFT_NOT_VARIANCE_REVIEW code
+    await expect(
+      shiftService.approveVariance(
+        closingShift.shift_id,
+        varianceReason,
+        auditContext,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.approveVariance(
+        closingShift.shift_id,
+        varianceReason,
+        auditContext,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_NOT_VARIANCE_REVIEW,
+      );
+    }
+  });
+
+  it("4.5-UNIT-004: should require variance_reason when approving variance", async () => {
+    // GIVEN: Shift in VARIANCE_REVIEW status
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Attempting to approve variance without reason
+    // THEN: Should throw ShiftServiceError with VARIANCE_REASON_REQUIRED code
+    await expect(
+      shiftService.approveVariance(
+        testVarianceReviewShift.shift_id,
+        "",
+        auditContext,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.approveVariance(
+        testVarianceReviewShift.shift_id,
+        "",
+        auditContext,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.VARIANCE_REASON_REQUIRED,
+      );
+    }
+  });
+
+  it("4.5-UNIT-005: should lock shift after approval (prevent modifications when CLOSED)", async () => {
+    // GIVEN: Shift in VARIANCE_REVIEW status
+    const varianceReason = "Approved: Variance approved";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Approving variance (status → CLOSED)
+    await shiftService.approveVariance(
+      testVarianceReviewShift.shift_id,
+      varianceReason,
+      auditContext,
+    );
+
+    // THEN: Attempting to modify the shift should fail
+    await expect(
+      shiftService.reconcileCash(
+        testVarianceReviewShift.shift_id,
+        160.0,
+        undefined,
+        auditContext,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.reconcileCash(
+        testVarianceReviewShift.shift_id,
+        160.0,
+        undefined,
+        auditContext,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_LOCKED,
+      );
+    }
+  });
+
+  it("4.5-UNIT-006: should create audit log entry when approving variance", async () => {
+    // GIVEN: Shift in VARIANCE_REVIEW status
+    const varianceReason = "Approved: Variance approved";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Approving variance
+    await shiftService.approveVariance(
+      testVarianceReviewShift.shift_id,
+      varianceReason,
+      auditContext,
+    );
+
+    // THEN: Audit log entry is created
+    const auditLogs = await prisma.auditLog.findMany({
+      where: {
+        table_name: "shifts",
+        record_id: testVarianceReviewShift.shift_id,
+        action: "SHIFT_VARIANCE_APPROVED",
+      },
+      orderBy: { timestamp: "desc" },
+    });
+
+    expect(auditLogs.length, "Audit log should be created").toBeGreaterThan(0);
+    const auditLog = auditLogs[0];
+    expect(auditLog.user_id, "Audit log user_id should match").toBe(
+      testShiftManagerUser.user_id,
+    );
+    expect(
+      auditLog.action,
+      "Audit log action should be SHIFT_VARIANCE_APPROVED",
+    ).toBe("SHIFT_VARIANCE_APPROVED");
+    expect(auditLog.new_values, "Audit log should have status").toHaveProperty(
+      "status",
+      "CLOSED",
+    );
+    expect(
+      auditLog.new_values,
+      "Audit log should have variance_reason",
+    ).toHaveProperty("variance_reason");
+    expect(
+      auditLog.new_values,
+      "Audit log should have approved_by",
+    ).toHaveProperty("approved_by");
+    expect(
+      auditLog.new_values,
+      "Audit log should have approved_at",
+    ).toHaveProperty("approved_at");
+  });
+});
+
+// =============================================================================
+// SECTION: SECURITY & INPUT VALIDATION TESTS (MANDATORY - Applied Automatically by Workflow 9)
+// =============================================================================
+
+describe("ShiftService - Security & Input Validation", () => {
+  describe("SQL Injection Prevention", () => {
+    it("4.5-UNIT-SEC-001: should reject SQL injection attempts in store_id", async () => {
+      // GIVEN: Malicious SQL injection attempt in store_id
+      const maliciousStoreIds = [
+        "'; DROP TABLE stores; --",
+        "1' OR '1'='1",
+        "1'; DELETE FROM stores WHERE '1'='1",
+        "' UNION SELECT * FROM stores --",
+      ];
+
+      for (const maliciousStoreId of maliciousStoreIds) {
+        const openShiftData = {
+          store_id: maliciousStoreId,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+        };
+
+        // WHEN: Attempting to open shift with SQL injection in store_id
+        // THEN: Should throw error (validation or not found)
+        await expect(
+          shiftService.openShift(openShiftData, mockAuditContext),
+          `Should reject SQL injection in store_id: ${maliciousStoreId}`,
+        ).rejects.toThrow();
+
+        try {
+          await shiftService.openShift(openShiftData, mockAuditContext);
+        } catch (error) {
+          expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+            ShiftServiceError,
+          );
+          // Should be validation error, not SQL error
+          expect(
+            (error as ShiftServiceError).code,
+            "Error should be STORE_NOT_FOUND, not SQL error",
+          ).toBe(ShiftErrorCode.STORE_NOT_FOUND);
+        }
+      }
+    });
+
+    it("4.5-UNIT-SEC-002: should reject SQL injection attempts in cashier_id", async () => {
+      // GIVEN: Malicious SQL injection attempt in cashier_id
+      const maliciousCashierIds = [
+        "'; DROP TABLE users; --",
+        "1' OR '1'='1",
+        "' UNION SELECT password FROM users --",
+      ];
+
+      for (const maliciousCashierId of maliciousCashierIds) {
+        const openShiftData = {
+          store_id: testStore.store_id,
+          cashier_id: maliciousCashierId,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+        };
+
+        // WHEN: Attempting to open shift with SQL injection in cashier_id
+        // THEN: Should throw error
+        await expect(
+          shiftService.openShift(openShiftData, mockAuditContext),
+          `Should reject SQL injection in cashier_id: ${maliciousCashierId}`,
+        ).rejects.toThrow();
+
+        try {
+          await shiftService.openShift(openShiftData, mockAuditContext);
+        } catch (error) {
+          expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+            ShiftServiceError,
+          );
+          expect(
+            (error as ShiftServiceError).code,
+            "Error should be CASHIER_NOT_FOUND",
+          ).toBe(ShiftErrorCode.CASHIER_NOT_FOUND);
+        }
+      }
+    });
+
+    it("4.5-UNIT-SEC-003: should reject SQL injection attempts in pos_terminal_id", async () => {
+      // GIVEN: Malicious SQL injection attempt in pos_terminal_id
+      const maliciousTerminalIds = [
+        "'; DROP TABLE p_o_s_terminals; --",
+        "1' OR '1'='1",
+        "' UNION SELECT * FROM p_o_s_terminals --",
+      ];
+
+      for (const maliciousTerminalId of maliciousTerminalIds) {
+        const openShiftData = {
+          store_id: testStore.store_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: maliciousTerminalId,
+          opening_cash: 100.0,
+        };
+
+        // WHEN: Attempting to open shift with SQL injection in pos_terminal_id
+        // THEN: Should throw error
+        await expect(
+          shiftService.openShift(openShiftData, mockAuditContext),
+          `Should reject SQL injection in pos_terminal_id: ${maliciousTerminalId}`,
+        ).rejects.toThrow();
+
+        try {
+          await shiftService.openShift(openShiftData, mockAuditContext);
+        } catch (error) {
+          expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+            ShiftServiceError,
+          );
+          expect(
+            (error as ShiftServiceError).code,
+            "Error should be TERMINAL_NOT_FOUND",
+          ).toBe(ShiftErrorCode.TERMINAL_NOT_FOUND);
+        }
+      }
+    });
+
+    it("4.5-UNIT-SEC-004: should reject SQL injection attempts in shift_id", async () => {
+      // GIVEN: Malicious SQL injection attempt in shift_id
+      const maliciousShiftIds = [
+        "'; DROP TABLE shifts; --",
+        "1' OR '1'='1",
+        "1'; DELETE FROM shifts WHERE '1'='1",
+      ];
+
+      for (const maliciousShiftId of maliciousShiftIds) {
+        // WHEN: Attempting to initiate closing with SQL injection in shift_id
+        // THEN: Should throw error
+        await expect(
+          shiftService.initiateClosing(maliciousShiftId, mockAuditContext),
+          `Should reject SQL injection in shift_id: ${maliciousShiftId}`,
+        ).rejects.toThrow();
+
+        try {
+          await shiftService.initiateClosing(
+            maliciousShiftId,
+            mockAuditContext,
+          );
+        } catch (error) {
+          expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+            ShiftServiceError,
+          );
+          expect(
+            (error as ShiftServiceError).code,
+            "Error should be SHIFT_NOT_FOUND",
+          ).toBe(ShiftErrorCode.SHIFT_NOT_FOUND);
+        }
+      }
+    });
+  });
+
+  describe("Input Validation Edge Cases", () => {
+    it("4.5-UNIT-SEC-005: should reject empty string for variance_reason", async () => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          expected_cash: 150.0,
+          closing_cash: 156.0,
+          variance: 6.0,
+          variance_reason: "Initial variance reason",
+          status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Attempting to approve variance with empty string reason
+      // THEN: Should throw ShiftServiceError with VARIANCE_REASON_REQUIRED code
+      await expect(
+        shiftService.approveVariance(shift.shift_id, "", mockAuditContext),
+        "Should reject empty variance_reason",
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.approveVariance(
+          shift.shift_id,
+          "",
+          mockAuditContext,
+        );
+      } catch (error) {
+        expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+          ShiftServiceError,
+        );
+        expect(
+          (error as ShiftServiceError).code,
+          "Error code should be VARIANCE_REASON_REQUIRED",
+        ).toBe(ShiftErrorCode.VARIANCE_REASON_REQUIRED);
+      }
+    });
+
+    it("4.5-UNIT-SEC-006: should reject whitespace-only variance_reason", async () => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          expected_cash: 150.0,
+          closing_cash: 156.0,
+          variance: 6.0,
+          variance_reason: "Initial variance reason",
+          status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Attempting to approve variance with whitespace-only reason
+      // THEN: Should throw ShiftServiceError with VARIANCE_REASON_REQUIRED code
+      await expect(
+        shiftService.approveVariance(shift.shift_id, "   ", mockAuditContext),
+        "Should reject whitespace-only variance_reason",
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.approveVariance(
+          shift.shift_id,
+          "   ",
+          mockAuditContext,
+        );
+      } catch (error) {
+        expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+          ShiftServiceError,
+        );
+        expect(
+          (error as ShiftServiceError).code,
+          "Error code should be VARIANCE_REASON_REQUIRED",
+        ).toBe(ShiftErrorCode.VARIANCE_REASON_REQUIRED);
+      }
+    });
+
+    it("4.5-UNIT-SEC-007: should accept very long variance_reason (up to 500 characters)", async () => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          expected_cash: 150.0,
+          closing_cash: 156.0,
+          variance: 6.0,
+          variance_reason: "Initial variance reason",
+          status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // AND: Very long variance_reason (500 characters - max allowed)
+      const longReason = "A".repeat(500);
+
+      // WHEN: Approving variance with very long reason
+      const result = await shiftService.approveVariance(
+        shift.shift_id,
+        longReason,
+        mockAuditContext,
+      );
+
+      // THEN: Should succeed and store the long reason
+      expect(result, "Approval should succeed").toBeDefined();
+      expect(result.status, "Status should be CLOSED").toBe(ShiftStatus.CLOSED);
+      expect(result.variance_reason, "Variance reason should be stored").toBe(
+        longReason,
+      );
+    });
+
+    it("4.5-UNIT-SEC-007B: should reject variance_reason exceeding 500 characters", async () => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          expected_cash: 150.0,
+          closing_cash: 156.0,
+          variance: 6.0,
+          variance_reason: "Initial variance reason",
+          status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // AND: Variance reason exceeding max length (501 characters)
+      const tooLongReason = "A".repeat(501);
+
+      // WHEN: Attempting to approve variance with too long reason
+      // THEN: Should throw ShiftServiceError
+      await expect(
+        shiftService.approveVariance(
+          shift.shift_id,
+          tooLongReason,
+          mockAuditContext,
+        ),
+        "Should reject variance_reason exceeding 500 characters",
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.approveVariance(
+          shift.shift_id,
+          tooLongReason,
+          mockAuditContext,
+        );
+      } catch (error) {
+        expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+          ShiftServiceError,
+        );
+        expect(
+          (error as ShiftServiceError).code,
+          "Error code should be VARIANCE_REASON_REQUIRED",
+        ).toBe(ShiftErrorCode.VARIANCE_REASON_REQUIRED);
+      }
+    });
+
+    it("4.5-UNIT-SEC-008: should handle special characters in variance_reason", async () => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          expected_cash: 150.0,
+          closing_cash: 156.0,
+          variance: 6.0,
+          variance_reason: "Initial variance reason",
+          status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // AND: Variance reason with special characters
+      const specialCharReason =
+        "Approved: Extra cash from tips! @#$%^&*()_+-=[]{}|;':\",./<>?";
+
+      // WHEN: Approving variance with special characters
+      const result = await shiftService.approveVariance(
+        shift.shift_id,
+        specialCharReason,
+        mockAuditContext,
+      );
+
+      // THEN: Should succeed and store the special characters
+      expect(result, "Approval should succeed").toBeDefined();
+      expect(result.status, "Status should be CLOSED").toBe(ShiftStatus.CLOSED);
+      expect(
+        result.variance_reason,
+        "Variance reason with special chars should be stored",
+      ).toBe(specialCharReason);
+    });
+  });
+
+  describe("Enhanced Assertions", () => {
+    it("4.5-UNIT-SEC-009: should validate all response fields have correct types when approving variance", async () => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          expected_cash: 150.0,
+          closing_cash: 156.0,
+          variance: 6.0,
+          variance_reason: "Initial variance reason",
+          status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      const varianceReason = "Approved: Variance approved";
+      const auditContext: AuditContext = {
+        userId: testShiftManagerUser.user_id,
+        userEmail: testShiftManagerUser.email,
+        userRoles: ["SHIFT_MANAGER"],
+        ipAddress: "127.0.0.1",
+        userAgent: "test-agent",
+      };
+
+      // WHEN: Approving variance
+      const result = await shiftService.approveVariance(
+        shift.shift_id,
+        varianceReason,
+        auditContext,
+      );
+
+      // THEN: All response fields should have correct types
+      expect(result, "Result should be defined").toBeDefined();
+      expect(typeof result.shift_id, "shift_id should be string").toBe(
+        "string",
+      );
+      expect(
+        result.shift_id.length,
+        "shift_id should be UUID format (36 chars)",
+      ).toBe(36);
+      expect(result.status, "status should be CLOSED").toBe(ShiftStatus.CLOSED);
+      expect(typeof result.closing_cash, "closing_cash should be number").toBe(
+        "number",
+      );
+      expect(
+        result.closing_cash,
+        "closing_cash should be positive",
+      ).toBeGreaterThan(0);
+      expect(
+        typeof result.expected_cash,
+        "expected_cash should be number",
+      ).toBe("number");
+      expect(
+        result.expected_cash,
+        "expected_cash should be positive",
+      ).toBeGreaterThan(0);
+      expect(
+        typeof result.variance_amount,
+        "variance_amount should be number",
+      ).toBe("number");
+      expect(
+        typeof result.variance_percentage,
+        "variance_percentage should be number",
+      ).toBe("number");
+      expect(
+        typeof result.variance_reason,
+        "variance_reason should be string",
+      ).toBe("string");
+      expect(
+        result.variance_reason.length,
+        "variance_reason should not be empty",
+      ).toBeGreaterThan(0);
+      expect(
+        typeof result.approved_by,
+        "approved_by should be string (UUID)",
+      ).toBe("string");
+      expect(
+        result.approved_by.length,
+        "approved_by should be UUID format",
+      ).toBe(36);
+      expect(
+        result.approved_at,
+        "approved_at should be Date instance",
+      ).toBeInstanceOf(Date);
+      expect(
+        result.closed_at,
+        "closed_at should be Date instance",
+      ).toBeInstanceOf(Date);
+    });
+  });
+});

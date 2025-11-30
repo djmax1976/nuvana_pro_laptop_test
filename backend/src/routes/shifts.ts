@@ -18,8 +18,11 @@ import {
 import {
   validateOpenShiftInput,
   validateReconcileCashInput,
+  validateApproveVarianceInput,
 } from "../schemas/shift.schema";
 import { ZodError } from "zod";
+import { ShiftStatus } from "@prisma/client";
+import { prisma } from "../utils/db";
 
 /**
  * Get audit context from request
@@ -421,7 +424,8 @@ export async function shiftRoutes(fastify: FastifyInstance) {
         permissionMiddleware(PERMISSIONS.SHIFT_RECONCILE),
       ],
       schema: {
-        description: "Reconcile cash for a shift in CLOSING status",
+        description:
+          "Reconcile cash for a shift in CLOSING status or approve variance for a shift in VARIANCE_REVIEW status",
         tags: ["shifts"],
         params: {
           type: "object",
@@ -436,17 +440,17 @@ export async function shiftRoutes(fastify: FastifyInstance) {
         },
         body: {
           type: "object",
-          required: ["closing_cash"],
           properties: {
             closing_cash: {
               type: "number",
               minimum: 0.01,
-              description: "Actual cash count (positive number)",
+              description:
+                "Actual cash count (required for CLOSING status, not needed for VARIANCE_REVIEW)",
             },
             variance_reason: {
               type: "string",
               description:
-                "Reason for variance (required if variance exceeds threshold)",
+                "Reason for variance (required for VARIANCE_REVIEW status, optional for CLOSING)",
             },
           },
         },
@@ -461,7 +465,7 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                   shift_id: { type: "string", format: "uuid" },
                   status: {
                     type: "string",
-                    enum: ["RECONCILING", "VARIANCE_REVIEW"],
+                    enum: ["RECONCILING", "VARIANCE_REVIEW", "CLOSED"],
                   },
                   closing_cash: { type: "number" },
                   expected_cash: { type: "number" },
@@ -471,8 +475,31 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                     type: "string",
                     nullable: true,
                   },
-                  reconciled_at: { type: "string", format: "date-time" },
-                  reconciled_by: { type: "string", format: "uuid" },
+                  reconciled_at: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
+                  reconciled_by: {
+                    type: "string",
+                    format: "uuid",
+                    nullable: true,
+                  },
+                  approved_by: {
+                    type: "string",
+                    format: "uuid",
+                    nullable: true,
+                  },
+                  approved_at: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
+                  closed_at: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
                 },
               },
             },
@@ -528,35 +555,187 @@ export async function shiftRoutes(fastify: FastifyInstance) {
         // shiftId is already validated by Fastify schema (UUID format)
         const shiftId = params.shiftId;
 
-        // Validate request body using Zod schema
-        const validatedData = validateReconcileCashInput(request.body);
+        // Get shift to check current status
+        const shift = await prisma.shift.findUnique({
+          where: { shift_id: shiftId },
+          select: { status: true },
+        });
+
+        if (!shift) {
+          return reply.code(404).send({
+            success: false,
+            error: {
+              code: ShiftErrorCode.SHIFT_NOT_FOUND,
+              message: `Shift with ID ${shiftId} not found`,
+            },
+          });
+        }
+
+        // Check if shift is locked (CLOSED) - must check before any operations
+        if (shift.status === ShiftStatus.CLOSED) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: ShiftErrorCode.SHIFT_LOCKED,
+              message: "Shift is CLOSED and cannot be modified",
+              details: {
+                current_status: shift.status,
+              },
+            },
+          });
+        }
 
         // Get audit context
         const auditContext = getAuditContext(request, user);
 
-        // Reconcile cash using service layer
-        const result = await shiftService.reconcileCash(
-          shiftId,
-          validatedData.closing_cash,
-          validatedData.variance_reason,
-          auditContext,
-        );
+        // Route based on shift status
+        if (shift.status === ShiftStatus.VARIANCE_REVIEW) {
+          // Variance approval flow - validate request body
+          let validatedData;
+          try {
+            validatedData = validateApproveVarianceInput(request.body);
+          } catch (error) {
+            if (error instanceof ZodError) {
+              // Check if variance_reason is missing
+              const body = request.body as any;
+              if (
+                !body.variance_reason ||
+                body.variance_reason.trim().length === 0
+              ) {
+                return reply.code(400).send({
+                  success: false,
+                  error: {
+                    code: ShiftErrorCode.VARIANCE_REASON_REQUIRED,
+                    message:
+                      "variance_reason is required when approving variance",
+                  },
+                });
+              }
+              // Other validation errors
+              return reply.code(400).send({
+                success: false,
+                error: {
+                  code: "VALIDATION_ERROR",
+                  message: "Invalid request data",
+                  details: error.issues.map((issue) => ({
+                    field: issue.path.join("."),
+                    message: issue.message,
+                  })),
+                },
+              });
+            }
+            throw error;
+          }
 
-        // Return success response
-        return reply.code(200).send({
-          success: true,
-          data: {
-            shift_id: result.shift_id,
-            status: result.status,
-            closing_cash: result.closing_cash,
-            expected_cash: result.expected_cash,
-            variance_amount: result.variance_amount,
-            variance_percentage: result.variance_percentage,
-            variance_reason: result.variance_reason || null,
-            reconciled_at: result.reconciled_at.toISOString(),
-            reconciled_by: result.reconciled_by,
-          },
-        });
+          const result = await shiftService.approveVariance(
+            shiftId,
+            validatedData.variance_reason,
+            auditContext,
+          );
+
+          // Return success response for variance approval
+          return reply.code(200).send({
+            success: true,
+            data: {
+              shift_id: result.shift_id,
+              status: result.status,
+              closing_cash: result.closing_cash,
+              expected_cash: result.expected_cash,
+              variance_amount: result.variance_amount,
+              variance_percentage: result.variance_percentage,
+              variance_reason: result.variance_reason,
+              approved_by: result.approved_by,
+              approved_at: result.approved_at.toISOString(),
+              closed_at: result.closed_at.toISOString(),
+            },
+          });
+        } else if (shift.status === ShiftStatus.CLOSING) {
+          // Cash reconciliation flow
+          const body = request.body as any;
+
+          // If trying to approve (has variance_reason but no closing_cash), return error
+          if (body.variance_reason && !body.closing_cash) {
+            return reply.code(400).send({
+              success: false,
+              error: {
+                code: ShiftErrorCode.SHIFT_INVALID_STATUS,
+                message: `Shift is not in VARIANCE_REVIEW status. Current status: ${shift.status}. Only shifts in VARIANCE_REVIEW status can be approved.`,
+                details: {
+                  current_status: shift.status,
+                  expected_status: ShiftStatus.VARIANCE_REVIEW,
+                },
+              },
+            });
+          }
+
+          const validatedData = validateReconcileCashInput(request.body);
+
+          // Validate closing_cash is provided for reconciliation
+          if (!validatedData.closing_cash) {
+            return reply.code(400).send({
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "closing_cash is required for reconciliation",
+              },
+            });
+          }
+
+          const result = await shiftService.reconcileCash(
+            shiftId,
+            validatedData.closing_cash,
+            validatedData.variance_reason,
+            auditContext,
+          );
+
+          // Return success response for reconciliation
+          return reply.code(200).send({
+            success: true,
+            data: {
+              shift_id: result.shift_id,
+              status: result.status,
+              closing_cash: result.closing_cash,
+              expected_cash: result.expected_cash,
+              variance_amount: result.variance_amount,
+              variance_percentage: result.variance_percentage,
+              variance_reason: result.variance_reason || null,
+              reconciled_at: result.reconciled_at.toISOString(),
+              reconciled_by: result.reconciled_by,
+            },
+          });
+        } else {
+          // Invalid status for this endpoint
+          // If trying to approve (has variance_reason but no closing_cash), return SHIFT_NOT_VARIANCE_REVIEW
+          const body = request.body as any;
+          if (body.variance_reason && !body.closing_cash) {
+            return reply.code(400).send({
+              success: false,
+              error: {
+                code: ShiftErrorCode.SHIFT_NOT_VARIANCE_REVIEW,
+                message: `Shift is not in VARIANCE_REVIEW status. Current status: ${shift.status}. Only shifts in VARIANCE_REVIEW status can be approved.`,
+                details: {
+                  current_status: shift.status,
+                  expected_status: ShiftStatus.VARIANCE_REVIEW,
+                },
+              },
+            });
+          }
+          // Otherwise return generic invalid status
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: ShiftErrorCode.SHIFT_INVALID_STATUS,
+              message: `Shift is not in CLOSING or VARIANCE_REVIEW status. Current status: ${shift.status}`,
+              details: {
+                current_status: shift.status,
+                expected_statuses: [
+                  ShiftStatus.CLOSING,
+                  ShiftStatus.VARIANCE_REVIEW,
+                ],
+              },
+            },
+          });
+        }
       } catch (error) {
         // Handle Zod validation errors
         if (error instanceof ZodError) {
@@ -580,7 +759,9 @@ export async function shiftRoutes(fastify: FastifyInstance) {
             statusCode = 404;
           } else if (
             error.code === ShiftErrorCode.SHIFT_NOT_CLOSING ||
-            error.code === ShiftErrorCode.SHIFT_INVALID_STATUS
+            error.code === ShiftErrorCode.SHIFT_INVALID_STATUS ||
+            error.code === ShiftErrorCode.SHIFT_NOT_VARIANCE_REVIEW ||
+            error.code === ShiftErrorCode.SHIFT_LOCKED
           ) {
             statusCode = 400;
           } else if (error.code === ShiftErrorCode.VARIANCE_REASON_REQUIRED) {

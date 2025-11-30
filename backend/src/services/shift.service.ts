@@ -51,6 +51,22 @@ export interface ReconciliationResult {
 }
 
 /**
+ * Result of variance approval
+ */
+export interface ApprovalResult {
+  shift_id: string;
+  status: ShiftStatus;
+  closing_cash: number;
+  expected_cash: number;
+  variance_amount: number;
+  variance_percentage: number;
+  variance_reason: string;
+  approved_by: string;
+  approved_at: Date;
+  closed_at: Date;
+}
+
+/**
  * Error codes for shift operations
  */
 export enum ShiftErrorCode {
@@ -66,6 +82,8 @@ export enum ShiftErrorCode {
   SHIFT_NOT_CLOSING = "SHIFT_NOT_CLOSING",
   INVALID_CASH_AMOUNT = "INVALID_CASH_AMOUNT",
   VARIANCE_REASON_REQUIRED = "VARIANCE_REASON_REQUIRED",
+  SHIFT_NOT_VARIANCE_REVIEW = "SHIFT_NOT_VARIANCE_REVIEW",
+  SHIFT_LOCKED = "SHIFT_LOCKED",
 }
 
 /**
@@ -124,15 +142,27 @@ export class ShiftService {
    * @throws ShiftServiceError if store not found or user lacks access
    */
   async validateStoreAccess(storeId: string, _userId: string): Promise<void> {
-    const store = await prisma.store.findUnique({
-      where: { store_id: storeId },
-    });
+    try {
+      const store = await prisma.store.findUnique({
+        where: { store_id: storeId },
+      });
 
-    if (!store) {
-      throw new ShiftServiceError(
-        ShiftErrorCode.STORE_NOT_FOUND,
-        `Store with ID ${storeId} not found or you do not have access`,
-      );
+      if (!store) {
+        throw new ShiftServiceError(
+          ShiftErrorCode.STORE_NOT_FOUND,
+          `Store with ID ${storeId} not found or you do not have access`,
+        );
+      }
+    } catch (error) {
+      // Convert Prisma errors (e.g., invalid UUID format) to ShiftServiceError
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        throw new ShiftServiceError(
+          ShiftErrorCode.STORE_NOT_FOUND,
+          `Store with ID ${storeId} not found or you do not have access`,
+        );
+      }
+      // Re-throw ShiftServiceError as-is
+      throw error;
     }
   }
 
@@ -142,23 +172,35 @@ export class ShiftService {
    * @throws ShiftServiceError if cashier not found or inactive
    */
   async validateCashier(cashierId: string): Promise<void> {
-    const cashier = await prisma.user.findUnique({
-      where: { user_id: cashierId },
-      select: { user_id: true, status: true },
-    });
+    try {
+      const cashier = await prisma.user.findUnique({
+        where: { user_id: cashierId },
+        select: { user_id: true, status: true },
+      });
 
-    if (!cashier) {
-      throw new ShiftServiceError(
-        ShiftErrorCode.CASHIER_NOT_FOUND,
-        `Cashier with ID ${cashierId} not found`,
-      );
-    }
+      if (!cashier) {
+        throw new ShiftServiceError(
+          ShiftErrorCode.CASHIER_NOT_FOUND,
+          `Cashier with ID ${cashierId} not found`,
+        );
+      }
 
-    if (cashier.status !== "ACTIVE") {
-      throw new ShiftServiceError(
-        ShiftErrorCode.CASHIER_NOT_FOUND,
-        `Cashier with ID ${cashierId} is not active`,
-      );
+      if (cashier.status !== "ACTIVE") {
+        throw new ShiftServiceError(
+          ShiftErrorCode.CASHIER_NOT_FOUND,
+          `Cashier with ID ${cashierId} is not active`,
+        );
+      }
+    } catch (error) {
+      // Convert Prisma errors (e.g., invalid UUID format) to ShiftServiceError
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        throw new ShiftServiceError(
+          ShiftErrorCode.CASHIER_NOT_FOUND,
+          `Cashier with ID ${cashierId} not found`,
+        );
+      }
+      // Re-throw ShiftServiceError as-is
+      throw error;
     }
   }
 
@@ -172,30 +214,42 @@ export class ShiftService {
     posTerminalId: string,
     storeId: string,
   ): Promise<void> {
-    const terminal = await prisma.pOSTerminal.findUnique({
-      where: { pos_terminal_id: posTerminalId },
-      select: { pos_terminal_id: true, store_id: true, status: true },
-    });
+    try {
+      const terminal = await prisma.pOSTerminal.findUnique({
+        where: { pos_terminal_id: posTerminalId },
+        select: { pos_terminal_id: true, store_id: true, status: true },
+      });
 
-    if (!terminal) {
-      throw new ShiftServiceError(
-        ShiftErrorCode.TERMINAL_NOT_FOUND,
-        `POS terminal with ID ${posTerminalId} not found`,
-      );
-    }
+      if (!terminal) {
+        throw new ShiftServiceError(
+          ShiftErrorCode.TERMINAL_NOT_FOUND,
+          `POS terminal with ID ${posTerminalId} not found`,
+        );
+      }
 
-    if (terminal.store_id !== storeId) {
-      throw new ShiftServiceError(
-        ShiftErrorCode.TERMINAL_NOT_FOUND,
-        `POS terminal with ID ${posTerminalId} does not belong to store ${storeId}`,
-      );
-    }
+      if (terminal.store_id !== storeId) {
+        throw new ShiftServiceError(
+          ShiftErrorCode.TERMINAL_NOT_FOUND,
+          `POS terminal with ID ${posTerminalId} does not belong to store ${storeId}`,
+        );
+      }
 
-    if (terminal.status !== "ACTIVE") {
-      throw new ShiftServiceError(
-        ShiftErrorCode.TERMINAL_NOT_FOUND,
-        `POS terminal with ID ${posTerminalId} is not active`,
-      );
+      if (terminal.status !== "ACTIVE") {
+        throw new ShiftServiceError(
+          ShiftErrorCode.TERMINAL_NOT_FOUND,
+          `POS terminal with ID ${posTerminalId} is not active`,
+        );
+      }
+    } catch (error) {
+      // Convert Prisma errors (e.g., invalid UUID format) to ShiftServiceError
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        throw new ShiftServiceError(
+          ShiftErrorCode.TERMINAL_NOT_FOUND,
+          `POS terminal with ID ${posTerminalId} not found`,
+        );
+      }
+      // Re-throw ShiftServiceError as-is
+      throw error;
     }
   }
 
@@ -348,70 +402,82 @@ export class ShiftService {
     shiftId: string,
     userId: string,
   ): Promise<{ shift_id: string; store_id: string; status: ShiftStatus }> {
-    // First, get the shift with its store info
-    const shift = await prisma.shift.findUnique({
-      where: { shift_id: shiftId },
-      select: {
-        shift_id: true,
-        store_id: true,
-        status: true,
-        store: {
-          select: {
-            company_id: true,
+    try {
+      // First, get the shift with its store info
+      const shift = await prisma.shift.findUnique({
+        where: { shift_id: shiftId },
+        select: {
+          shift_id: true,
+          store_id: true,
+          status: true,
+          store: {
+            select: {
+              company_id: true,
+            },
           },
         },
-      },
-    });
+      });
 
-    if (!shift) {
-      throw new ShiftServiceError(
-        ShiftErrorCode.SHIFT_NOT_FOUND,
-        `Shift with ID ${shiftId} not found or you do not have access`,
-      );
-    }
-
-    // Get user's roles to check access
-    const userRoles = await rbacService.getUserRoles(userId);
-
-    // Check if user has access to this shift's store/company
-    let hasAccess = false;
-
-    for (const role of userRoles) {
-      // SYSTEM scope users can access all shifts
-      if (role.scope === "SYSTEM") {
-        hasAccess = true;
-        break;
+      if (!shift) {
+        throw new ShiftServiceError(
+          ShiftErrorCode.SHIFT_NOT_FOUND,
+          `Shift with ID ${shiftId} not found or you do not have access`,
+        );
       }
 
-      // COMPANY scope users can access shifts in their company's stores
-      if (
-        role.scope === "COMPANY" &&
-        role.company_id === shift.store.company_id
-      ) {
-        hasAccess = true;
-        break;
+      // Get user's roles to check access
+      const userRoles = await rbacService.getUserRoles(userId);
+
+      // Check if user has access to this shift's store/company
+      let hasAccess = false;
+
+      for (const role of userRoles) {
+        // SYSTEM scope users can access all shifts
+        if (role.scope === "SYSTEM") {
+          hasAccess = true;
+          break;
+        }
+
+        // COMPANY scope users can access shifts in their company's stores
+        if (
+          role.scope === "COMPANY" &&
+          role.company_id === shift.store.company_id
+        ) {
+          hasAccess = true;
+          break;
+        }
+
+        // STORE scope users can only access shifts in their store
+        if (role.scope === "STORE" && role.store_id === shift.store_id) {
+          hasAccess = true;
+          break;
+        }
       }
 
-      // STORE scope users can only access shifts in their store
-      if (role.scope === "STORE" && role.store_id === shift.store_id) {
-        hasAccess = true;
-        break;
+      if (!hasAccess) {
+        // Return "not found" to avoid leaking information about shift existence
+        throw new ShiftServiceError(
+          ShiftErrorCode.SHIFT_NOT_FOUND,
+          `Shift with ID ${shiftId} not found or you do not have access`,
+        );
       }
-    }
 
-    if (!hasAccess) {
-      // Return "not found" to avoid leaking information about shift existence
-      throw new ShiftServiceError(
-        ShiftErrorCode.SHIFT_NOT_FOUND,
-        `Shift with ID ${shiftId} not found or you do not have access`,
-      );
+      return {
+        shift_id: shift.shift_id,
+        store_id: shift.store_id,
+        status: shift.status,
+      };
+    } catch (error) {
+      // Convert Prisma errors (e.g., invalid UUID format) to ShiftServiceError
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        throw new ShiftServiceError(
+          ShiftErrorCode.SHIFT_NOT_FOUND,
+          `Shift with ID ${shiftId} not found or you do not have access`,
+        );
+      }
+      // Re-throw ShiftServiceError as-is
+      throw error;
     }
-
-    return {
-      shift_id: shift.shift_id,
-      store_id: shift.store_id,
-      status: shift.status,
-    };
   }
 
   /**
@@ -636,6 +702,9 @@ export class ShiftService {
     // First validate access to the shift
     const shift = await this.validateShiftAccess(shiftId, userId);
 
+    // Check if shift is locked (CLOSED status)
+    this.validateShiftNotLocked(shift);
+
     // Check if shift is in CLOSING status
     if (shift.status !== ShiftStatus.CLOSING) {
       throw new ShiftServiceError(
@@ -783,6 +852,184 @@ export class ShiftService {
         variance_reason: varianceReason,
         reconciled_at: reconciledAt,
         reconciled_by: auditContext.userId,
+      };
+    });
+
+    return result;
+  }
+
+  /**
+   * Validate that a shift can be approved (is in VARIANCE_REVIEW status)
+   * @param shiftId - Shift UUID
+   * @param userId - User ID for access validation
+   * @throws ShiftServiceError if shift cannot be approved
+   */
+  async validateShiftCanApprove(
+    shiftId: string,
+    userId: string,
+  ): Promise<void> {
+    // First validate access to the shift
+    const shift = await this.validateShiftAccess(shiftId, userId);
+
+    // Check if shift is in VARIANCE_REVIEW status
+    if (shift.status !== ShiftStatus.VARIANCE_REVIEW) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_VARIANCE_REVIEW,
+        `Shift with ID ${shiftId} is not in VARIANCE_REVIEW status. Current status: ${shift.status}. Only shifts in VARIANCE_REVIEW status can be approved.`,
+        {
+          current_status: shift.status,
+          expected_status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      );
+    }
+  }
+
+  /**
+   * Validate that a shift is not locked (not in CLOSED status)
+   * @param shift - Shift object to validate
+   * @throws ShiftServiceError if shift is locked (CLOSED)
+   */
+  validateShiftNotLocked(shift: { status: ShiftStatus }): void {
+    if (shift.status === ShiftStatus.CLOSED) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_LOCKED,
+        "Shift is CLOSED and cannot be modified",
+        {
+          current_status: shift.status,
+        },
+      );
+    }
+  }
+
+  /**
+   * Approve variance for a shift in VARIANCE_REVIEW status
+   * Updates shift status to CLOSED, records approval details, and creates audit log
+   * @param shiftId - Shift UUID
+   * @param varianceReason - Reason for variance approval (required)
+   * @param auditContext - Audit context for logging
+   * @returns Approval result with shift details and approval metadata
+   * @throws ShiftServiceError if validation fails
+   */
+  async approveVariance(
+    shiftId: string,
+    varianceReason: string,
+    auditContext: AuditContext,
+  ): Promise<ApprovalResult> {
+    // Validate shift can be approved (access check + status check)
+    await this.validateShiftCanApprove(shiftId, auditContext.userId);
+
+    // Validate variance_reason is provided and not empty
+    if (!varianceReason || varianceReason.trim().length === 0) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.VARIANCE_REASON_REQUIRED,
+        "variance_reason is required when approving variance",
+      );
+    }
+
+    // Validate variance_reason length (max 500 characters per schema)
+    if (varianceReason.length > 500) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.VARIANCE_REASON_REQUIRED,
+        "variance_reason cannot exceed 500 characters",
+      );
+    }
+
+    // Get shift to access current data
+    const shift = await prisma.shift.findUnique({
+      where: { shift_id: shiftId },
+      select: {
+        shift_id: true,
+        store_id: true,
+        closing_cash: true,
+        expected_cash: true,
+        variance: true,
+        status: true,
+      },
+    });
+
+    if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found`,
+      );
+    }
+
+    // Validate shift has required data
+    if (!shift.closing_cash || !shift.expected_cash || !shift.variance) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_INVALID_STATUS,
+        "Shift missing required reconciliation data (closing_cash, expected_cash, or variance)",
+      );
+    }
+
+    const closingCash = shift.closing_cash.toNumber();
+    const expectedCash = shift.expected_cash.toNumber();
+    const varianceAmount = shift.variance.toNumber();
+    const variancePercentage = (varianceAmount / expectedCash) * 100;
+
+    // Update shift and create audit log in a transaction for atomicity
+    const result = await prisma.$transaction(async (tx) => {
+      const approvedAt = new Date();
+      const closedAt = new Date();
+
+      // Update shift with approval data
+      const updatedShift = await tx.shift.update({
+        where: { shift_id: shiftId },
+        data: {
+          status: ShiftStatus.CLOSED,
+          variance_reason: varianceReason,
+          approved_by: auditContext.userId,
+          approved_at: approvedAt,
+          closed_at: closedAt,
+        },
+      });
+
+      // Create audit log entry (non-blocking - don't fail if audit fails)
+      try {
+        await tx.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "SHIFT_VARIANCE_APPROVED",
+            table_name: "shifts",
+            record_id: shiftId,
+            new_values: {
+              shift_id: shiftId,
+              store_id: shift.store_id,
+              status: ShiftStatus.CLOSED,
+              closing_cash: closingCash.toString(),
+              expected_cash: expectedCash.toString(),
+              variance_amount: varianceAmount.toString(),
+              variance_percentage: variancePercentage.toString(),
+              variance_reason: varianceReason,
+              approved_by: auditContext.userId,
+              approved_at: approvedAt.toISOString(),
+              closed_at: closedAt.toISOString(),
+            } as Record<string, any>,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Variance approved by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the approval
+        console.error(
+          "Failed to create audit log for variance approval:",
+          auditError,
+        );
+      }
+
+      // Return approval result
+      return {
+        shift_id: updatedShift.shift_id,
+        status: updatedShift.status,
+        closing_cash: closingCash,
+        expected_cash: expectedCash,
+        variance_amount: varianceAmount,
+        variance_percentage: variancePercentage,
+        variance_reason: varianceReason,
+        approved_by: auditContext.userId,
+        approved_at: approvedAt,
+        closed_at: closedAt,
       };
     });
 
