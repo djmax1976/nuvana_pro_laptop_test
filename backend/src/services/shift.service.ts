@@ -1055,7 +1055,7 @@ export class ShiftService {
    */
   async generateShiftReport(
     shiftId: string,
-    userId: string,
+    _userId: string,
   ): Promise<ShiftReportData> {
     // Validate shiftId format (basic validation)
     if (!shiftId || typeof shiftId !== "string") {
