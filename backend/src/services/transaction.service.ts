@@ -6,7 +6,7 @@
  * Story 3.4: Transaction Query API
  */
 
-import { PrismaClient, Prisma } from "@prisma/client";
+import { PrismaClient, Prisma, ShiftStatus } from "@prisma/client";
 import { v4 as uuidv4 } from "uuid";
 import { publishToTransactionsQueue } from "../utils/rabbitmq";
 import {
@@ -162,13 +162,32 @@ export const transactionService = {
       };
     }
 
-    // Check if shift is OPEN (ACTIVE is not in our schema, but OPEN is the active state)
-    if (shift.status !== "OPEN") {
+    // Check if shift is in a status that blocks transactions (CLOSING, RECONCILING, CLOSED)
+    if (
+      shift.status === ShiftStatus.CLOSING ||
+      shift.status === ShiftStatus.RECONCILING ||
+      shift.status === ShiftStatus.CLOSED
+    ) {
+      return {
+        valid: false,
+        error: {
+          code: "SHIFT_CLOSING_TRANSACTION_BLOCKED",
+          message: `Shift is ${shift.status} and cannot accept new transactions. Only OPEN or ACTIVE shifts can accept transactions.`,
+          status: 409,
+        },
+      };
+    }
+
+    // Check if shift is in a valid status for transactions (OPEN or ACTIVE)
+    if (
+      shift.status !== ShiftStatus.OPEN &&
+      shift.status !== ShiftStatus.ACTIVE
+    ) {
       return {
         valid: false,
         error: {
           code: "SHIFT_NOT_ACTIVE",
-          message: `Shift is ${shift.status}, must be OPEN to accept transactions`,
+          message: `Shift is ${shift.status}, must be OPEN or ACTIVE to accept transactions`,
           status: 409,
         },
       };

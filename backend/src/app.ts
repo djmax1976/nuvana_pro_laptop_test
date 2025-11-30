@@ -76,6 +76,23 @@ app.setErrorHandler((error: any, _request, reply) => {
     return;
   }
 
+  // Handle JSON body parsing errors (e.g., empty body with Content-Type: application/json)
+  // These errors occur BEFORE preHandler hooks, so we need to handle them here
+  if (
+    error.code === "FST_ERR_CTP_EMPTY_JSON_BODY" ||
+    (error.message && error.message.includes("Unexpected end of JSON input"))
+  ) {
+    app.log.warn({ error }, "JSON body parsing error");
+    reply.status(400).send({
+      success: false,
+      error: {
+        code: "INVALID_JSON_BODY",
+        message: "Request body must be valid JSON",
+      },
+    });
+    return;
+  }
+
   // Handle Fastify validation errors (schema validation failures)
   // Return consistent format with success field for production-grade API
   if (error.validation) {
@@ -117,10 +134,14 @@ app.setErrorHandler((error: any, _request, reply) => {
   }
 
   // Handle other errors with appropriate status codes
+  // Extract error properties properly since Error objects don't serialize with JSON.stringify
   const statusCode = error.statusCode || 500;
   reply.status(statusCode).send({
-    error: error.name || "Error",
-    message: error.message || "An unexpected error occurred",
+    success: false,
+    error: {
+      code: error.code || error.name || "ERROR",
+      message: error.message || "An unexpected error occurred",
+    },
   });
 });
 

@@ -43,3 +43,19 @@ export function validateOpenShiftInput(data: unknown): OpenShiftInput {
 export function safeValidateOpenShiftInput(data: unknown) {
   return OpenShiftSchema.safeParse(data);
 }
+
+/**
+ * Shift ID validation schema
+ * Validates shiftId from path parameters
+ */
+export const ShiftIdSchema = z.string().uuid("shiftId must be a valid UUID");
+
+/**
+ * Validate shift ID from path parameter
+ * @param shiftId - Shift ID from path parameter
+ * @returns Validated shift ID
+ * @throws ZodError if validation fails
+ */
+export function validateShiftId(shiftId: string): string {
+  return ShiftIdSchema.parse(shiftId);
+}

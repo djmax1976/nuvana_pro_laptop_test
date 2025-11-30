@@ -8,6 +8,7 @@
 import { ShiftStatus, Prisma } from "@prisma/client";
 import { prisma } from "../utils/db";
 import { OpenShiftInput } from "../schemas/shift.schema";
+import { rbacService } from "./rbac.service";
 
 /**
  * Audit context for logging operations
@@ -21,6 +22,20 @@ export interface AuditContext {
 }
 
 /**
+ * Result of shift closing initiation
+ */
+export interface ShiftClosingResult {
+  shift_id: string;
+  status: ShiftStatus;
+  closing_initiated_at: Date;
+  closing_initiated_by: string;
+  expected_cash: number;
+  opening_cash: number;
+  cash_transactions_total: number;
+  calculated_at: Date;
+}
+
+/**
  * Error codes for shift operations
  */
 export enum ShiftErrorCode {
@@ -29,6 +44,10 @@ export enum ShiftErrorCode {
   CASHIER_NOT_FOUND = "CASHIER_NOT_FOUND",
   TERMINAL_NOT_FOUND = "TERMINAL_NOT_FOUND",
   INVALID_OPENING_CASH = "INVALID_OPENING_CASH",
+  SHIFT_NOT_FOUND = "SHIFT_NOT_FOUND",
+  SHIFT_ALREADY_CLOSING = "SHIFT_ALREADY_CLOSING",
+  SHIFT_ALREADY_CLOSED = "SHIFT_ALREADY_CLOSED",
+  SHIFT_INVALID_STATUS = "SHIFT_INVALID_STATUS",
 }
 
 /**
@@ -254,6 +273,295 @@ export class ShiftService {
     });
 
     return shift;
+  }
+
+  /**
+   * Calculate expected cash for a shift
+   * Expected cash = opening_cash + sum of all cash payment amounts
+   * Cash payments are stored in TransactionPayment table with method = 'cash'
+   * @param shiftId - Shift UUID
+   * @returns Expected cash amount
+   */
+  async calculateExpectedCash(shiftId: string): Promise<number> {
+    // Get shift to access opening_cash
+    const shift = await prisma.shift.findUnique({
+      where: { shift_id: shiftId },
+      select: { opening_cash: true },
+    });
+
+    if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found`,
+      );
+    }
+
+    // Sum all cash payments for transactions in this shift
+    // Cash payments are in TransactionPayment table where method = 'cash'
+    const cashPayments = await prisma.transactionPayment.aggregate({
+      where: {
+        transaction: {
+          shift_id: shiftId,
+        },
+        method: {
+          in: ["cash", "CASH"],
+        },
+      },
+      _sum: {
+        amount: true,
+      },
+    });
+
+    const cashTransactionsTotal = cashPayments._sum.amount?.toNumber() || 0;
+    const expectedCash = shift.opening_cash.toNumber() + cashTransactionsTotal;
+
+    return expectedCash;
+  }
+
+  /**
+   * Validate that user has access to a shift's store
+   * Uses RBAC to check if user can access the store where the shift belongs
+   * @param shiftId - Shift UUID
+   * @param userId - User ID requesting access
+   * @returns The shift if access is allowed
+   * @throws ShiftServiceError if shift not found or access denied
+   */
+  async validateShiftAccess(
+    shiftId: string,
+    userId: string,
+  ): Promise<{ shift_id: string; store_id: string; status: ShiftStatus }> {
+    // First, get the shift with its store info
+    const shift = await prisma.shift.findUnique({
+      where: { shift_id: shiftId },
+      select: {
+        shift_id: true,
+        store_id: true,
+        status: true,
+        store: {
+          select: {
+            company_id: true,
+          },
+        },
+      },
+    });
+
+    if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found or you do not have access`,
+      );
+    }
+
+    // Get user's roles to check access
+    const userRoles = await rbacService.getUserRoles(userId);
+
+    // Check if user has access to this shift's store/company
+    let hasAccess = false;
+
+    for (const role of userRoles) {
+      // SYSTEM scope users can access all shifts
+      if (role.scope === "SYSTEM") {
+        hasAccess = true;
+        break;
+      }
+
+      // COMPANY scope users can access shifts in their company's stores
+      if (
+        role.scope === "COMPANY" &&
+        role.company_id === shift.store.company_id
+      ) {
+        hasAccess = true;
+        break;
+      }
+
+      // STORE scope users can only access shifts in their store
+      if (role.scope === "STORE" && role.store_id === shift.store_id) {
+        hasAccess = true;
+        break;
+      }
+    }
+
+    if (!hasAccess) {
+      // Return "not found" to avoid leaking information about shift existence
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found or you do not have access`,
+      );
+    }
+
+    return {
+      shift_id: shift.shift_id,
+      store_id: shift.store_id,
+      status: shift.status,
+    };
+  }
+
+  /**
+   * Validate that shift can be closed
+   * Shift must be in OPEN or ACTIVE status
+   * @param shiftId - Shift UUID
+   * @param userId - User ID requesting the close (for access check)
+   * @throws ShiftServiceError if shift cannot be closed
+   */
+  async validateShiftCanClose(shiftId: string, userId: string): Promise<void> {
+    // First validate access to the shift
+    const shift = await this.validateShiftAccess(shiftId, userId);
+
+    if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found or you do not have access`,
+      );
+    }
+
+    // Check if shift is already CLOSING
+    if (shift.status === ShiftStatus.CLOSING) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_ALREADY_CLOSING,
+        `Shift with ID ${shiftId} is already in CLOSING status`,
+        {
+          current_status: shift.status,
+        },
+      );
+    }
+
+    // Check if shift is already CLOSED
+    if (shift.status === ShiftStatus.CLOSED) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_ALREADY_CLOSED,
+        `Shift with ID ${shiftId} is already CLOSED`,
+        {
+          current_status: shift.status,
+        },
+      );
+    }
+
+    // Check if shift is in a valid status for closing (OPEN or ACTIVE)
+    if (
+      shift.status !== ShiftStatus.OPEN &&
+      shift.status !== ShiftStatus.ACTIVE
+    ) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_INVALID_STATUS,
+        `Shift with ID ${shiftId} cannot be closed. Current status: ${shift.status}. Only OPEN or ACTIVE shifts can be closed.`,
+        {
+          current_status: shift.status,
+          allowed_statuses: [ShiftStatus.OPEN, ShiftStatus.ACTIVE],
+        },
+      );
+    }
+  }
+
+  /**
+   * Initiate shift closing
+   * Changes shift status to CLOSING, calculates expected cash, and creates audit log
+   * @param shiftId - Shift UUID
+   * @param auditContext - Audit context for logging
+   * @returns Shift closing result with expected cash and shift details
+   * @throws ShiftServiceError if validation fails
+   */
+  async initiateClosing(
+    shiftId: string,
+    auditContext: AuditContext,
+  ): Promise<ShiftClosingResult> {
+    // Validate shift can be closed (access check + status check)
+    await this.validateShiftCanClose(shiftId, auditContext.userId);
+
+    // Calculate expected cash
+    const expectedCash = await this.calculateExpectedCash(shiftId);
+
+    // Get cash payments total for response
+    // Cash payments are in TransactionPayment table where method = 'cash'
+    const cashPayments = await prisma.transactionPayment.aggregate({
+      where: {
+        transaction: {
+          shift_id: shiftId,
+        },
+        method: {
+          in: ["cash", "CASH"],
+        },
+      },
+      _sum: {
+        amount: true,
+      },
+    });
+    const cashTransactionsTotal = cashPayments._sum.amount?.toNumber() || 0;
+
+    // Update shift and create audit log in a transaction for atomicity
+    const result = await prisma.$transaction(async (tx) => {
+      // Get shift to access opening_cash
+      const shift = await tx.shift.findUnique({
+        where: { shift_id: shiftId },
+        select: {
+          shift_id: true,
+          store_id: true,
+          opening_cash: true,
+          status: true,
+        },
+      });
+
+      if (!shift) {
+        throw new ShiftServiceError(
+          ShiftErrorCode.SHIFT_NOT_FOUND,
+          `Shift with ID ${shiftId} not found`,
+        );
+      }
+
+      // Update shift status to CLOSING
+      // NOTE: closing_initiated_at and closing_initiated_by fields don't exist in schema yet
+      // Using status change and audit log to track initiation
+      // TODO: Add closing_initiated_at and closing_initiated_by fields via migration if needed
+      const updatedShift = await tx.shift.update({
+        where: { shift_id: shiftId },
+        data: {
+          status: ShiftStatus.CLOSING,
+          // closing_initiated_at and closing_initiated_by will be tracked via audit log
+        },
+      });
+
+      // Create audit log entry (non-blocking - don't fail if audit fails)
+      try {
+        await tx.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "SHIFT_CLOSING_INITIATED",
+            table_name: "shifts",
+            record_id: shiftId,
+            new_values: {
+              shift_id: shiftId,
+              store_id: shift.store_id,
+              status: ShiftStatus.CLOSING,
+              closing_initiated_at: new Date().toISOString(), // Tracked in audit log since field doesn't exist in schema
+              closing_initiated_by: auditContext.userId,
+              expected_cash: expectedCash.toString(),
+              calculated_at: new Date().toISOString(),
+            } as Record<string, any>,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Shift closing initiated by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the shift closing
+        console.error(
+          "Failed to create audit log for shift closing:",
+          auditError,
+        );
+      }
+
+      return {
+        shift_id: updatedShift.shift_id,
+        status: updatedShift.status,
+        closing_initiated_at: new Date(), // Current timestamp since field doesn't exist in schema
+        closing_initiated_by: auditContext.userId, // From audit context since field doesn't exist in schema
+        expected_cash: expectedCash,
+        opening_cash: shift.opening_cash.toNumber(),
+        cash_transactions_total: cashTransactionsTotal,
+        calculated_at: new Date(),
+      };
+    });
+
+    return result;
   }
 }
 
