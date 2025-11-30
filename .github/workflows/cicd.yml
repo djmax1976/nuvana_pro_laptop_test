@@ -531,6 +531,8 @@ jobs:
       - run: npm ci
       - name: Run component tests
         run: npm run test:component -- --reporter=dot -- --coverage
+        env:
+          DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
       - name: Upload component coverage
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
