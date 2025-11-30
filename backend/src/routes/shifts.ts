@@ -219,4 +219,189 @@ export async function shiftRoutes(fastify: FastifyInstance) {
       }
     },
   );
+
+  /**
+   * POST /api/shifts/:shiftId/close
+   * Initiate shift closing
+   * Protected route - requires SHIFT_CLOSE permission
+   */
+  fastify.post(
+    "/api/shifts/:shiftId/close",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.SHIFT_CLOSE),
+      ],
+      schema: {
+        description: "Initiate shift closing",
+        tags: ["shifts"],
+        params: {
+          type: "object",
+          required: ["shiftId"],
+          properties: {
+            shiftId: {
+              type: "string",
+              format: "uuid",
+              description: "Shift UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  shift_id: { type: "string", format: "uuid" },
+                  status: { type: "string", enum: ["CLOSING"] },
+                  closing_initiated_at: { type: "string", format: "date-time" },
+                  closing_initiated_by: { type: "string", format: "uuid" },
+                  expected_cash: { type: "number" },
+                  opening_cash: { type: "number" },
+                  cash_transactions_total: { type: "number" },
+                  calculated_at: { type: "string", format: "date-time" },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                  details: { type: "object" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          409: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                  details: { type: "object" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as any).user as UserIdentity;
+        const params = request.params as { shiftId: string };
+
+        // shiftId is already validated by Fastify schema (UUID format)
+        const shiftId = params.shiftId;
+
+        // Get audit context
+        const auditContext = getAuditContext(request, user);
+
+        // Initiate shift closing using service layer
+        const result = await shiftService.initiateClosing(
+          shiftId,
+          auditContext,
+        );
+
+        // Return success response
+        return reply.code(200).send({
+          success: true,
+          data: {
+            shift_id: result.shift_id,
+            status: result.status,
+            closing_initiated_at: result.closing_initiated_at.toISOString(),
+            closing_initiated_by: result.closing_initiated_by,
+            expected_cash: result.expected_cash,
+            opening_cash: result.opening_cash,
+            cash_transactions_total: result.cash_transactions_total,
+            calculated_at: result.calculated_at.toISOString(),
+          },
+        });
+      } catch (error) {
+        // Handle Zod validation errors
+        if (error instanceof ZodError) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid request data",
+              details: error.issues.map((issue) => ({
+                field: issue.path.join("."),
+                message: issue.message,
+              })),
+            },
+          });
+        }
+
+        // Handle ShiftServiceError
+        if (error instanceof ShiftServiceError) {
+          let statusCode = 400;
+          if (error.code === ShiftErrorCode.SHIFT_NOT_FOUND) {
+            statusCode = 404;
+          } else if (
+            error.code === ShiftErrorCode.SHIFT_ALREADY_CLOSING ||
+            error.code === ShiftErrorCode.SHIFT_ALREADY_CLOSED
+          ) {
+            statusCode = 409;
+          }
+
+          return reply.code(statusCode).send({
+            success: false,
+            error: {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+            },
+          });
+        }
+
+        // Handle unexpected errors
+        fastify.log.error({ error }, "Unexpected error in shift closing");
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "An unexpected error occurred",
+          },
+        });
+      }
+    },
+  );
 }

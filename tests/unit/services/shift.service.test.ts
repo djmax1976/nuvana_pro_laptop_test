@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
-import { PrismaClient, ShiftStatus } from "@prisma/client";
+import { PrismaClient, Prisma, ShiftStatus } from "@prisma/client";
 import {
   ShiftService,
   ShiftServiceError,
@@ -1099,5 +1099,702 @@ describe("ShiftService - Security & Edge Cases", () => {
 
       createdShiftIds.push(shift.shift_id);
     });
+  });
+});
+
+/**
+ * @test-level UNIT
+ * @justification Unit tests for ShiftService shift closing initiation business logic, validation, error handling, and edge cases. Tests service layer in isolation without HTTP layer.
+ * @story 4-3-shift-closing-initiation
+ *
+ * Unit Tests: Shift Service - Shift Closing Initiation
+ *
+ * Story 4.3: Shift Closing Initiation
+ *
+ * CRITICAL TEST COVERAGE:
+ * - Shift closing initiation with valid OPEN shift
+ * - Shift closing initiation with valid ACTIVE shift
+ * - Shift closing fails when shift is already CLOSING
+ * - Shift closing fails when shift is already CLOSED
+ * - Expected cash calculation (opening_cash + cash transactions)
+ * - Validation errors (invalid shift_id, invalid status)
+ * - Audit log creation
+ */
+
+describe("ShiftService - initiateClosing", () => {
+  describe("Valid shift closing initiation (AC-1)", () => {
+    it("4.3-UNIT-001: should change shift status to CLOSING when valid OPEN shift provided", async () => {
+      // GIVEN: A shift with OPEN status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 150.75,
+          status: ShiftStatus.OPEN,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Initiating shift closing
+      const result = await shiftService.initiateClosing(
+        shift.shift_id,
+        mockAuditContext,
+      );
+
+      // THEN: Should return shift closing result with CLOSING status
+      expect(result).toBeDefined();
+      expect(result.shift_id).toBe(shift.shift_id);
+      expect(result.status).toBe(ShiftStatus.CLOSING);
+      expect(result.expected_cash).toBeDefined();
+      expect(result.opening_cash).toBe(150.75);
+      expect(result.cash_transactions_total).toBeDefined();
+      expect(result.closing_initiated_at).toBeDefined();
+      expect(result.closing_initiated_by).toBe(testShiftManagerUser.user_id);
+      expect(result.calculated_at).toBeDefined();
+
+      // AND: Shift status should be updated to CLOSING in database
+      const updatedShift = await prisma.shift.findUnique({
+        where: { shift_id: shift.shift_id },
+      });
+      expect(updatedShift?.status).toBe(ShiftStatus.CLOSING);
+    });
+
+    it("4.3-UNIT-002: should change shift status to CLOSING when valid ACTIVE shift provided", async () => {
+      // GIVEN: A shift with ACTIVE status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 200.0,
+          status: ShiftStatus.ACTIVE,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Initiating shift closing
+      const result = await shiftService.initiateClosing(
+        shift.shift_id,
+        mockAuditContext,
+      );
+
+      // THEN: Should return shift closing result with CLOSING status
+      expect(result).toBeDefined();
+      expect(result.status).toBe(ShiftStatus.CLOSING);
+
+      // AND: Shift status should be updated to CLOSING in database
+      const updatedShift = await prisma.shift.findUnique({
+        where: { shift_id: shift.shift_id },
+      });
+      expect(updatedShift?.status).toBe(ShiftStatus.CLOSING);
+    });
+
+    it("4.3-UNIT-003: should calculate expected cash correctly (opening_cash + cash transactions)", async () => {
+      // GIVEN: A shift with OPEN status and opening_cash = 100.0
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.OPEN,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // AND: Cash transactions totaling 50.0
+      const transaction1 = await prisma.transaction.create({
+        data: {
+          store_id: testStore.store_id,
+          shift_id: shift.shift_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          subtotal: new Prisma.Decimal(25.0),
+          tax: new Prisma.Decimal(0),
+          discount: new Prisma.Decimal(0),
+          total: new Prisma.Decimal(25.0),
+          public_id: `TXN-${Date.now()}-1`,
+        },
+      });
+
+      const transaction2 = await prisma.transaction.create({
+        data: {
+          store_id: testStore.store_id,
+          shift_id: shift.shift_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          subtotal: new Prisma.Decimal(25.0),
+          tax: new Prisma.Decimal(0),
+          discount: new Prisma.Decimal(0),
+          total: new Prisma.Decimal(25.0),
+          public_id: `TXN-${Date.now()}-2`,
+        },
+      });
+
+      // Create cash payments for transactions
+      await prisma.transactionPayment.create({
+        data: {
+          transaction_id: transaction1.transaction_id,
+          method: "cash",
+          amount: new Prisma.Decimal(25.0),
+        },
+      });
+
+      await prisma.transactionPayment.create({
+        data: {
+          transaction_id: transaction2.transaction_id,
+          method: "cash",
+          amount: new Prisma.Decimal(25.0),
+        },
+      });
+
+      // WHEN: Initiating shift closing
+      const result = await shiftService.initiateClosing(
+        shift.shift_id,
+        mockAuditContext,
+      );
+
+      // THEN: Expected cash should be opening_cash + cash transactions = 100.0 + 50.0 = 150.0
+      expect(result.expected_cash).toBe(150.0);
+      expect(result.opening_cash).toBe(100.0);
+      expect(result.cash_transactions_total).toBe(50.0);
+    });
+
+    it("4.3-UNIT-004: should calculate expected cash as opening_cash when no cash transactions exist", async () => {
+      // GIVEN: A shift with OPEN status and opening_cash = 100.0
+      // AND: No cash transactions
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.OPEN,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Initiating shift closing
+      const result = await shiftService.initiateClosing(
+        shift.shift_id,
+        mockAuditContext,
+      );
+
+      // THEN: Expected cash should equal opening_cash (100.0) when no transactions
+      expect(result.expected_cash).toBe(100.0);
+      expect(result.opening_cash).toBe(100.0);
+      expect(result.cash_transactions_total).toBe(0);
+    });
+
+    it("4.3-UNIT-005: should create audit log entry when shift closing is initiated", async () => {
+      // GIVEN: A shift with OPEN status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.OPEN,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Initiating shift closing
+      await shiftService.initiateClosing(shift.shift_id, mockAuditContext);
+
+      // THEN: Audit log entry should be created with action "SHIFT_CLOSING_INITIATED"
+      const auditLog = await prisma.auditLog.findFirst({
+        where: {
+          action: "SHIFT_CLOSING_INITIATED",
+          user_id: testShiftManagerUser.user_id,
+          record_id: shift.shift_id,
+        },
+        orderBy: { timestamp: "desc" },
+      });
+
+      expect(auditLog).not.toBeNull();
+      expect(auditLog?.action).toBe("SHIFT_CLOSING_INITIATED");
+      expect(auditLog?.user_id).toBe(testShiftManagerUser.user_id);
+      expect(auditLog?.table_name).toBe("shifts");
+      expect(auditLog?.record_id).toBe(shift.shift_id);
+      expect(auditLog?.new_values).toBeDefined();
+      expect((auditLog?.new_values as any).status).toBe(ShiftStatus.CLOSING);
+      expect((auditLog?.new_values as any).closing_initiated_by).toBe(
+        testShiftManagerUser.user_id,
+      );
+    });
+  });
+
+  describe("Validation errors (AC-1)", () => {
+    it("4.3-UNIT-006: should throw error when shift does not exist", async () => {
+      // GIVEN: A non-existent shift_id
+      const nonExistentShiftId = "00000000-0000-0000-0000-000000000000";
+
+      // WHEN: Attempting to close non-existent shift
+      // THEN: Should throw ShiftServiceError with SHIFT_NOT_FOUND code
+      await expect(
+        shiftService.initiateClosing(nonExistentShiftId, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.initiateClosing(
+          nonExistentShiftId,
+          mockAuditContext,
+        );
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.SHIFT_NOT_FOUND,
+        );
+      }
+    });
+
+    it("4.3-UNIT-007: should throw error when shift is already CLOSING", async () => {
+      // GIVEN: A shift that is already in CLOSING status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.CLOSING,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Attempting to close shift that is already CLOSING
+      // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_CLOSING code
+      await expect(
+        shiftService.initiateClosing(shift.shift_id, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.initiateClosing(shift.shift_id, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.SHIFT_ALREADY_CLOSING,
+        );
+        expect((error as ShiftServiceError).details?.current_status).toBe(
+          ShiftStatus.CLOSING,
+        );
+      }
+    });
+
+    it("4.3-UNIT-008: should throw error when shift is already CLOSED", async () => {
+      // GIVEN: A shift that is already in CLOSED status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.CLOSED,
+          closed_at: new Date(),
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Attempting to close shift that is already CLOSED
+      // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_CLOSED code
+      await expect(
+        shiftService.initiateClosing(shift.shift_id, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.initiateClosing(shift.shift_id, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.SHIFT_ALREADY_CLOSED,
+        );
+        expect((error as ShiftServiceError).details?.current_status).toBe(
+          ShiftStatus.CLOSED,
+        );
+      }
+    });
+
+    it("4.3-UNIT-009: should throw error when shift is not in OPEN or ACTIVE status", async () => {
+      // GIVEN: A shift with NOT_STARTED status (invalid for closing)
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashierUser.user_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.NOT_STARTED,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Attempting to close shift with invalid status
+      // THEN: Should throw ShiftServiceError with SHIFT_INVALID_STATUS code
+      await expect(
+        shiftService.initiateClosing(shift.shift_id, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.initiateClosing(shift.shift_id, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.SHIFT_INVALID_STATUS,
+        );
+        expect((error as ShiftServiceError).details?.current_status).toBe(
+          ShiftStatus.NOT_STARTED,
+        );
+        expect((error as ShiftServiceError).details?.allowed_statuses).toEqual([
+          ShiftStatus.OPEN,
+          ShiftStatus.ACTIVE,
+        ]);
+      }
+    });
+  });
+});
+
+describe("ShiftService - calculateExpectedCash", () => {
+  it("4.3-UNIT-010: should calculate expected cash correctly with multiple cash transactions", async () => {
+    // GIVEN: A shift with opening_cash = 100.0
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.OPEN,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // AND: Multiple cash transactions
+    const transaction1 = await prisma.transaction.create({
+      data: {
+        store_id: testStore.store_id,
+        shift_id: shift.shift_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        subtotal: new Prisma.Decimal(30.0),
+        tax: new Prisma.Decimal(0),
+        discount: new Prisma.Decimal(0),
+        total: new Prisma.Decimal(30.0),
+        public_id: `TXN-CALC-${Date.now()}-1`,
+      },
+    });
+
+    const transaction2 = await prisma.transaction.create({
+      data: {
+        store_id: testStore.store_id,
+        shift_id: shift.shift_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        subtotal: new Prisma.Decimal(20.0),
+        tax: new Prisma.Decimal(0),
+        discount: new Prisma.Decimal(0),
+        total: new Prisma.Decimal(20.0),
+        public_id: `TXN-CALC-${Date.now()}-2`,
+      },
+    });
+
+    // Create cash payments
+    await prisma.transactionPayment.create({
+      data: {
+        transaction_id: transaction1.transaction_id,
+        method: "cash",
+        amount: new Prisma.Decimal(30.0),
+      },
+    });
+
+    await prisma.transactionPayment.create({
+      data: {
+        transaction_id: transaction2.transaction_id,
+        method: "CASH", // Test case-insensitive matching
+        amount: new Prisma.Decimal(20.0),
+      },
+    });
+
+    // WHEN: Calculating expected cash
+    const expectedCash = await shiftService.calculateExpectedCash(
+      shift.shift_id,
+    );
+
+    // THEN: Expected cash should be opening_cash + cash transactions = 100.0 + 50.0 = 150.0
+    expect(expectedCash).toBe(150.0);
+  });
+
+  it("4.3-UNIT-011: should return opening_cash when no cash transactions exist", async () => {
+    // GIVEN: A shift with opening_cash = 100.0 and no cash transactions
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.OPEN,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // WHEN: Calculating expected cash
+    const expectedCash = await shiftService.calculateExpectedCash(
+      shift.shift_id,
+    );
+
+    // THEN: Expected cash should equal opening_cash
+    expect(expectedCash).toBe(100.0);
+  });
+
+  it("4.3-UNIT-012: should throw error when shift does not exist", async () => {
+    // GIVEN: A non-existent shift_id
+    const nonExistentShiftId = "00000000-0000-0000-0000-000000000000";
+
+    // WHEN: Attempting to calculate expected cash for non-existent shift
+    // THEN: Should throw ShiftServiceError with SHIFT_NOT_FOUND code
+    await expect(
+      shiftService.calculateExpectedCash(nonExistentShiftId),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.calculateExpectedCash(nonExistentShiftId);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+      );
+    }
+  });
+
+  it("4.3-UNIT-013: should ignore non-cash payment methods when calculating expected cash", async () => {
+    // GIVEN: A shift with opening_cash = 100.0
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.OPEN,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // AND: Transactions with cash and non-cash payments
+    const transaction1 = await prisma.transaction.create({
+      data: {
+        store_id: testStore.store_id,
+        shift_id: shift.shift_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        subtotal: new Prisma.Decimal(50.0),
+        tax: new Prisma.Decimal(0),
+        discount: new Prisma.Decimal(0),
+        total: new Prisma.Decimal(50.0),
+        public_id: `TXN-NONCASH-${Date.now()}-1`,
+      },
+    });
+
+    const transaction2 = await prisma.transaction.create({
+      data: {
+        store_id: testStore.store_id,
+        shift_id: shift.shift_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        subtotal: new Prisma.Decimal(30.0),
+        tax: new Prisma.Decimal(0),
+        discount: new Prisma.Decimal(0),
+        total: new Prisma.Decimal(30.0),
+        public_id: `TXN-NONCASH-${Date.now()}-2`,
+      },
+    });
+
+    // Create mixed payment methods
+    await prisma.transactionPayment.create({
+      data: {
+        transaction_id: transaction1.transaction_id,
+        method: "credit", // Non-cash payment
+        amount: new Prisma.Decimal(50.0),
+      },
+    });
+
+    await prisma.transactionPayment.create({
+      data: {
+        transaction_id: transaction2.transaction_id,
+        method: "cash", // Cash payment
+        amount: new Prisma.Decimal(30.0),
+      },
+    });
+
+    // WHEN: Calculating expected cash
+    const expectedCash = await shiftService.calculateExpectedCash(
+      shift.shift_id,
+    );
+
+    // THEN: Expected cash should only include cash payments = 100.0 + 30.0 = 130.0
+    expect(expectedCash).toBe(130.0);
+  });
+});
+
+describe("ShiftService - validateShiftCanClose", () => {
+  it("4.3-UNIT-014: should validate OPEN shift can be closed", async () => {
+    // GIVEN: A shift with OPEN status
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.OPEN,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // WHEN: Validating shift can be closed
+    // THEN: Should not throw error
+    await expect(
+      shiftService.validateShiftCanClose(shift.shift_id),
+    ).resolves.not.toThrow();
+  });
+
+  it("4.3-UNIT-015: should validate ACTIVE shift can be closed", async () => {
+    // GIVEN: A shift with ACTIVE status
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.ACTIVE,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // WHEN: Validating shift can be closed
+    // THEN: Should not throw error
+    await expect(
+      shiftService.validateShiftCanClose(shift.shift_id),
+    ).resolves.not.toThrow();
+  });
+
+  it("4.3-UNIT-016: should throw error when shift is CLOSING", async () => {
+    // GIVEN: A shift with CLOSING status
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.CLOSING,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // WHEN: Validating shift can be closed
+    // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_CLOSING code
+    await expect(
+      shiftService.validateShiftCanClose(shift.shift_id),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.validateShiftCanClose(shift.shift_id);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_ALREADY_CLOSING,
+      );
+    }
+  });
+
+  it("4.3-UNIT-017: should throw error when shift is CLOSED", async () => {
+    // GIVEN: A shift with CLOSED status
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.CLOSED,
+        closed_at: new Date(),
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // WHEN: Validating shift can be closed
+    // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_CLOSED code
+    await expect(
+      shiftService.validateShiftCanClose(shift.shift_id),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.validateShiftCanClose(shift.shift_id);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_ALREADY_CLOSED,
+      );
+    }
+  });
+
+  it("4.3-UNIT-018: should throw error when shift has invalid status", async () => {
+    // GIVEN: A shift with NOT_STARTED status
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.NOT_STARTED,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // WHEN: Validating shift can be closed
+    // THEN: Should throw ShiftServiceError with SHIFT_INVALID_STATUS code
+    await expect(
+      shiftService.validateShiftCanClose(shift.shift_id),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.validateShiftCanClose(shift.shift_id);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_INVALID_STATUS,
+      );
+    }
+  });
+
+  it("4.3-UNIT-019: should throw error when shift does not exist", async () => {
+    // GIVEN: A non-existent shift_id
+    const nonExistentShiftId = "00000000-0000-0000-0000-000000000000";
+
+    // WHEN: Validating shift can be closed
+    // THEN: Should throw ShiftServiceError with SHIFT_NOT_FOUND code
+    await expect(
+      shiftService.validateShiftCanClose(nonExistentShiftId),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.validateShiftCanClose(nonExistentShiftId);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+      );
+    }
   });
 });
