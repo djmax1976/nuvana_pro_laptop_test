@@ -178,6 +178,44 @@ async function createClosedShiftWithTransactions(
   };
 }
 
+/**
+ * Cleans up a shift and all related data in the correct order
+ * respecting foreign key constraints
+ */
+async function cleanupShiftWithTransactions(
+  prismaClient: any,
+  shiftId: string,
+): Promise<void> {
+  // 1. Find all transactions for this shift
+  const transactions = await prismaClient.transaction.findMany({
+    where: { shift_id: shiftId },
+    select: { transaction_id: true },
+  });
+  const transactionIds = transactions.map(
+    (t: { transaction_id: string }) => t.transaction_id,
+  );
+
+  if (transactionIds.length > 0) {
+    // 2. Delete transaction payments (child of transaction)
+    await prismaClient.transactionPayment.deleteMany({
+      where: { transaction_id: { in: transactionIds } },
+    });
+
+    // 3. Delete transaction line items (child of transaction)
+    await prismaClient.transactionLineItem.deleteMany({
+      where: { transaction_id: { in: transactionIds } },
+    });
+
+    // 4. Delete transactions (child of shift)
+    await prismaClient.transaction.deleteMany({
+      where: { shift_id: shiftId },
+    });
+  }
+
+  // 5. Delete the shift
+  await prismaClient.shift.delete({ where: { shift_id: shiftId } });
+}
+
 // =============================================================================
 // SECTION 1: P0 CRITICAL - AUTHENTICATION & AUTHORIZATION TESTS
 // =============================================================================
@@ -313,7 +351,7 @@ test.describe("4.6-API: Shift Report - Authorization", () => {
     );
 
     // Cleanup
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
     try {
       await prismaClient.pOSTerminal.delete({
         where: { pos_terminal_id: terminal.pos_terminal_id },
@@ -498,7 +536,7 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     }
 
     // Cleanup
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
     try {
       await prismaClient.pOSTerminal.delete({
         where: { pos_terminal_id: terminal.pos_terminal_id },
@@ -552,7 +590,7 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     ).toBe(2);
 
     // Cleanup
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
     try {
       await prismaClient.pOSTerminal.delete({
         where: { pos_terminal_id: terminal.pos_terminal_id },
@@ -618,7 +656,7 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     });
 
     // Cleanup
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
     try {
       await prismaClient.pOSTerminal.delete({
         where: { pos_terminal_id: terminal.pos_terminal_id },
@@ -761,7 +799,7 @@ test.describe("4.6-API: Shift Report - Validation", () => {
     );
 
     // Cleanup
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
     try {
       await prismaClient.pOSTerminal.delete({
         where: { pos_terminal_id: terminal.pos_terminal_id },
@@ -816,7 +854,7 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     expect(buffer.length, "PDF should have content").toBeGreaterThan(0);
 
     // Cleanup
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
     try {
       await prismaClient.pOSTerminal.delete({
         where: { pos_terminal_id: terminal.pos_terminal_id },
@@ -862,7 +900,7 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     expect(body.success, "Response should indicate failure").toBe(false);
 
     // Cleanup
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
     try {
       await prismaClient.pOSTerminal.delete({
         where: { pos_terminal_id: terminal.pos_terminal_id },
@@ -907,7 +945,7 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     ).toContain("application/pdf");
 
     // Cleanup
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
     try {
       await prismaClient.pOSTerminal.delete({
         where: { pos_terminal_id: terminal.pos_terminal_id },
@@ -1034,7 +1072,7 @@ test.describe("4.6-API: Shift Report - Security", () => {
     ).not.toContain("password_hash");
 
     // Cleanup
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
     try {
       await prismaClient.pOSTerminal.delete({
         where: { pos_terminal_id: terminal.pos_terminal_id },
@@ -1094,7 +1132,7 @@ test.describe("4.6-API: Shift Report - RLS Policies", () => {
     );
 
     // Cleanup
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
     try {
       await prismaClient.pOSTerminal.delete({
         where: { pos_terminal_id: terminal.pos_terminal_id },
