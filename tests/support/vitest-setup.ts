@@ -1,13 +1,15 @@
 import "@testing-library/jest-dom";
 
-// Set default DATABASE_URL for tests if not already set
-// This allows unit tests that use Prisma to work without requiring
-// DATABASE_URL to be set in the environment
+// Require explicit DATABASE_URL for tests to prevent accidental mutations
+// Tests must connect to a test-specific database (e.g., nuvana_test or nuvana_test_db)
+// This ensures isolation from development data and prevents test failures from affecting dev
 if (!process.env.DATABASE_URL) {
-  // Default to dev database matching docker-compose setup
-  // Can be overridden by setting DATABASE_URL in environment
-  process.env.DATABASE_URL =
-    "postgresql://postgres:postgres@localhost:5432/nuvana_dev";
+  throw new Error(
+    "DATABASE_URL environment variable is required for tests. " +
+      "Please set DATABASE_URL to a test-specific database (e.g., " +
+      "postgresql://postgres:postgres@localhost:5432/nuvana_test). " +
+      "This prevents tests from mutating development data.",
+  );
 }
 
 // JSDOM polyfills for Radix UI components

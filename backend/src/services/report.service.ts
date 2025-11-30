@@ -27,6 +27,7 @@ export class ReportService {
 
   /**
    * Format a percentage value safely, handling null/undefined
+   * Detects and converts decimal fractions (e.g., 0.05) to percentages (e.g., 5%)
    * @param value - Percentage value (number, null, or undefined)
    * @returns Formatted percentage string (e.g., "0.00%" for null/undefined)
    */
@@ -34,7 +35,9 @@ export class ReportService {
     if (value == null || isNaN(value)) {
       return "0.00%";
     }
-    return `${value.toFixed(2)}%`;
+    // Convert decimal fraction to percentage if absolute value <= 1
+    const percentageValue = Math.abs(value) <= 1 ? value * 100 : value;
+    return `${percentageValue.toFixed(2)}%`;
   }
   /**
    * Generate PDF from shift report data

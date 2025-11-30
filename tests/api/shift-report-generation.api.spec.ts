@@ -314,9 +314,13 @@ test.describe("4.6-API: Shift Report - Authorization", () => {
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
-    await prismaClient.pOSTerminal.delete({
-      where: { pos_terminal_id: terminal.pos_terminal_id },
-    });
+    try {
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+    } catch (error) {
+      // Terminal may already be deleted, ignore not-found errors
+    }
     await prismaClient.store.delete({ where: { store_id: store.store_id } });
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
@@ -495,6 +499,13 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    try {
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+    } catch (error) {
+      // Terminal may already be deleted, ignore not-found errors
+    }
     await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
   });
 
@@ -542,6 +553,13 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    try {
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+    } catch (error) {
+      // Terminal may already be deleted, ignore not-found errors
+    }
     await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
   });
 
@@ -601,6 +619,13 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    try {
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+    } catch (error) {
+      // Terminal may already be deleted, ignore not-found errors
+    }
     await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
   });
 });
@@ -737,6 +762,13 @@ test.describe("4.6-API: Shift Report - Validation", () => {
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    try {
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+    } catch (error) {
+      // Terminal may already be deleted, ignore not-found errors
+    }
     await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
   });
 });
@@ -785,6 +817,13 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    try {
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+    } catch (error) {
+      // Terminal may already be deleted, ignore not-found errors
+    }
     await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
   });
 
@@ -824,6 +863,13 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    try {
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+    } catch (error) {
+      // Terminal may already be deleted, ignore not-found errors
+    }
     await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
   });
 
@@ -862,6 +908,13 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    try {
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+    } catch (error) {
+      // Terminal may already be deleted, ignore not-found errors
+    }
     await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
   });
 });
@@ -982,6 +1035,13 @@ test.describe("4.6-API: Shift Report - Security", () => {
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    try {
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+    } catch (error) {
+      // Terminal may already be deleted, ignore not-found errors
+    }
     await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
   });
 });
@@ -1035,6 +1095,13 @@ test.describe("4.6-API: Shift Report - RLS Policies", () => {
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    try {
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+    } catch (error) {
+      // Terminal may already be deleted, ignore not-found errors
+    }
     await prismaClient.store.delete({
       where: { store_id: otherStore.store_id },
     });
