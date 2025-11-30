@@ -1,0 +1,19 @@
+# Gitleaks configuration for Nuvana Pro
+# See https://github.com/gitleaks/gitleaks#configuration
+
+title = "Nuvana Pro Gitleaks Config"
+
+# Allowlist for false positives in test files
+[allowlist]
+description = "Allowlist for test files with intentionally invalid/mock tokens"
+
+# Paths to ignore (test spec files may contain mock tokens)
+paths = [
+    '''tests/api/.*\.spec\.ts''',
+]
+
+# Specific regex patterns to ignore
+regexes = [
+    # Intentionally invalid JWT tokens used in security tests
+    '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.invalid''',
+]

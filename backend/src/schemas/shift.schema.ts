@@ -59,3 +59,42 @@ export const ShiftIdSchema = z.string().uuid("shiftId must be a valid UUID");
 export function validateShiftId(shiftId: string): string {
   return ShiftIdSchema.parse(shiftId);
 }
+
+/**
+ * Reconcile Cash Request Schema
+ * Validates the request body for PUT /api/shifts/:shiftId/reconcile
+ */
+export const ReconcileCashSchema = z.object({
+  closing_cash: z.number().positive("closing_cash must be a positive number"),
+  variance_reason: z
+    .string()
+    .optional()
+    .refine(
+      (val) => val === undefined || val.trim().length > 0,
+      "variance_reason cannot be empty if provided",
+    ),
+});
+
+/**
+ * Type inference from schemas
+ */
+export type ReconcileCashInput = z.infer<typeof ReconcileCashSchema>;
+
+/**
+ * Validate reconcile cash request and return typed result
+ * @param data - Raw payload data
+ * @returns Validated and typed reconcile cash input
+ * @throws ZodError if validation fails
+ */
+export function validateReconcileCashInput(data: unknown): ReconcileCashInput {
+  return ReconcileCashSchema.parse(data);
+}
+
+/**
+ * Safe validation that returns result object instead of throwing
+ * @param data - Raw payload data
+ * @returns SafeParseResult with success flag and data/error
+ */
+export function safeValidateReconcileCashInput(data: unknown) {
+  return ReconcileCashSchema.safeParse(data);
+}

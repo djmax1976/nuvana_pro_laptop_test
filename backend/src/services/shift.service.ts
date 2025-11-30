@@ -36,6 +36,21 @@ export interface ShiftClosingResult {
 }
 
 /**
+ * Result of cash reconciliation
+ */
+export interface ReconciliationResult {
+  shift_id: string;
+  status: ShiftStatus;
+  closing_cash: number;
+  expected_cash: number;
+  variance_amount: number;
+  variance_percentage: number;
+  variance_reason?: string;
+  reconciled_at: Date;
+  reconciled_by: string;
+}
+
+/**
  * Error codes for shift operations
  */
 export enum ShiftErrorCode {
@@ -48,6 +63,9 @@ export enum ShiftErrorCode {
   SHIFT_ALREADY_CLOSING = "SHIFT_ALREADY_CLOSING",
   SHIFT_ALREADY_CLOSED = "SHIFT_ALREADY_CLOSED",
   SHIFT_INVALID_STATUS = "SHIFT_INVALID_STATUS",
+  SHIFT_NOT_CLOSING = "SHIFT_NOT_CLOSING",
+  INVALID_CASH_AMOUNT = "INVALID_CASH_AMOUNT",
+  VARIANCE_REASON_REQUIRED = "VARIANCE_REASON_REQUIRED",
 }
 
 /**
@@ -558,6 +576,213 @@ export class ShiftService {
         opening_cash: shift.opening_cash.toNumber(),
         cash_transactions_total: cashTransactionsTotal,
         calculated_at: new Date(),
+      };
+    });
+
+    return result;
+  }
+
+  /**
+   * Calculate variance between actual and expected cash
+   * @param actualCash - Actual cash count
+   * @param expectedCash - Expected cash amount
+   * @returns Variance amount (can be positive or negative)
+   */
+  calculateVariance(actualCash: number, expectedCash: number): number {
+    return actualCash - expectedCash;
+  }
+
+  /**
+   * Evaluate if variance exceeds threshold
+   * Thresholds: $5 absolute AND 1% relative (both must be exceeded)
+   * @param varianceAmount - Variance amount (can be positive or negative)
+   * @param expectedCash - Expected cash amount
+   * @returns Object with exceedsThreshold flag and new status
+   */
+  evaluateVarianceThreshold(
+    varianceAmount: number,
+    expectedCash: number,
+  ): { exceedsThreshold: boolean; newStatus: ShiftStatus } {
+    const absoluteVariance = Math.abs(varianceAmount);
+    const absoluteThreshold = 5.0; // $5 absolute threshold
+    const relativeThreshold = 0.01; // 1% relative threshold
+    const relativeVariance = absoluteVariance / expectedCash;
+
+    const exceedsAbsolute = absoluteVariance > absoluteThreshold;
+    const exceedsRelative = relativeVariance > relativeThreshold;
+
+    // Both thresholds must be exceeded (AND logic)
+    const exceedsThreshold = exceedsAbsolute && exceedsRelative;
+
+    return {
+      exceedsThreshold,
+      newStatus: exceedsThreshold
+        ? ShiftStatus.VARIANCE_REVIEW
+        : ShiftStatus.RECONCILING,
+    };
+  }
+
+  /**
+   * Validate that shift can be reconciled
+   * Shift must be in CLOSING status
+   * @param shiftId - Shift UUID
+   * @param userId - User ID requesting the reconcile (for access check)
+   * @throws ShiftServiceError if shift cannot be reconciled
+   */
+  async validateShiftCanReconcile(
+    shiftId: string,
+    userId: string,
+  ): Promise<void> {
+    // First validate access to the shift
+    const shift = await this.validateShiftAccess(shiftId, userId);
+
+    // Check if shift is in CLOSING status
+    if (shift.status !== ShiftStatus.CLOSING) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_INVALID_STATUS,
+        `Shift with ID ${shiftId} is not in CLOSING status. Current status: ${shift.status}. Only shifts in CLOSING status can be reconciled.`,
+        {
+          current_status: shift.status,
+          expected_status: ShiftStatus.CLOSING,
+        },
+      );
+    }
+  }
+
+  /**
+   * Reconcile cash for a shift
+   * Calculates variance, evaluates threshold, updates shift status, and creates audit log
+   * @param shiftId - Shift UUID
+   * @param closingCash - Actual cash count
+   * @param varianceReason - Optional reason for variance (required if threshold exceeded)
+   * @param auditContext - Audit context for logging
+   * @returns Reconciliation result with variance details and new status
+   * @throws ShiftServiceError if validation fails
+   */
+  async reconcileCash(
+    shiftId: string,
+    closingCash: number,
+    varianceReason: string | undefined,
+    auditContext: AuditContext,
+  ): Promise<ReconciliationResult> {
+    // Validate shift can be reconciled (access check + status check)
+    await this.validateShiftCanReconcile(shiftId, auditContext.userId);
+
+    // Validate closing_cash is positive
+    if (closingCash <= 0) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.INVALID_CASH_AMOUNT,
+        "closing_cash must be a positive number",
+      );
+    }
+
+    // Get shift to access expected_cash
+    const shift = await prisma.shift.findUnique({
+      where: { shift_id: shiftId },
+      select: {
+        shift_id: true,
+        store_id: true,
+        expected_cash: true,
+        status: true,
+      },
+    });
+
+    if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found`,
+      );
+    }
+
+    // Calculate variance
+    if (!shift.expected_cash) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_INVALID_STATUS,
+        "Shift expected_cash is required for reconciliation",
+      );
+    }
+    const expectedCash = shift.expected_cash.toNumber();
+    const varianceAmount = this.calculateVariance(closingCash, expectedCash);
+    const variancePercentage = (varianceAmount / expectedCash) * 100;
+
+    // Evaluate variance threshold
+    const { exceedsThreshold, newStatus } = this.evaluateVarianceThreshold(
+      varianceAmount,
+      expectedCash,
+    );
+
+    // Validate variance_reason is provided when threshold is exceeded
+    if (exceedsThreshold && !varianceReason) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.VARIANCE_REASON_REQUIRED,
+        "variance_reason is required when variance exceeds threshold ($5 absolute or 1% relative)",
+        {
+          variance_amount: varianceAmount,
+          variance_percentage: variancePercentage,
+          expected_cash: expectedCash,
+        },
+      );
+    }
+
+    // Update shift and create audit log in a transaction for atomicity
+    const result = await prisma.$transaction(async (tx) => {
+      // Update shift with reconciliation data
+      // Note: reconciled_at and reconciled_by are tracked via audit log, not database fields
+      const updatedShift = await tx.shift.update({
+        where: { shift_id: shiftId },
+        data: {
+          status: newStatus,
+          closing_cash: closingCash,
+          variance: varianceAmount,
+          variance_reason: varianceReason || null,
+        },
+      });
+
+      // Create audit log entry (non-blocking - don't fail if audit fails)
+      try {
+        await tx.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "SHIFT_CASH_RECONCILED",
+            table_name: "shifts",
+            record_id: shiftId,
+            new_values: {
+              shift_id: shiftId,
+              store_id: shift.store_id,
+              status: newStatus,
+              closing_cash: closingCash.toString(),
+              expected_cash: expectedCash.toString(),
+              variance_amount: varianceAmount.toString(),
+              variance_percentage: variancePercentage.toString(),
+              variance_reason: varianceReason || null,
+              reconciled_at: new Date().toISOString(),
+              reconciled_by: auditContext.userId,
+            } as Record<string, any>,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Cash reconciled by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the reconciliation
+        console.error(
+          "Failed to create audit log for cash reconciliation:",
+          auditError,
+        );
+      }
+
+      // Return reconciliation result with metadata from audit context
+      const reconciledAt = new Date();
+      return {
+        shift_id: updatedShift.shift_id,
+        status: updatedShift.status,
+        closing_cash: closingCash,
+        expected_cash: expectedCash,
+        variance_amount: varianceAmount,
+        variance_percentage: variancePercentage,
+        variance_reason: varianceReason,
+        reconciled_at: reconciledAt,
+        reconciled_by: auditContext.userId,
       };
     });
 
