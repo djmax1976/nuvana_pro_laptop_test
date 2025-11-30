@@ -725,24 +725,52 @@ export const test = base.extend<RBACFixture>({
     await use(storeManagerUser);
 
     // Cleanup - delete in correct order respecting foreign key constraints
-    // 1. Delete shifts for the user (shifts reference user via cashier_id and opened_by)
-    await prismaClient.shift.deleteMany({
-      where: {
-        OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
-      },
-    });
-    // 2. Delete user roles for the user
-    await prismaClient.userRole.deleteMany({
-      where: { user_id: user.user_id },
-    });
-    // 2.5. Delete bulk import jobs for the user (FK to users)
+    // Use bypass client to delete all related data properly
     await withBypassClient(async (bypassClient) => {
+      // 1. Find shifts for the user
+      const userShifts = await bypassClient.shift.findMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        // Delete transaction payments (child of transaction)
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transaction line items (child of transaction)
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transactions (child of shift)
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      // 2. Delete shifts for the user
+      await bypassClient.shift.deleteMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+      });
+
+      // 3. Delete user roles for the user
+      await bypassClient.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+
+      // 4. Delete bulk import jobs for the user
       await bypassClient.bulkImportJob.deleteMany({
         where: { user_id: user.user_id },
       });
+
+      // 5. Delete the store manager user
+      await bypassClient.user.delete({ where: { user_id: user.user_id } });
     });
-    // 3. Delete the store manager user
-    await prismaClient.user.delete({ where: { user_id: user.user_id } });
     // 4. Delete store
     await prismaClient.store.delete({ where: { store_id: store.store_id } });
     // 5. Delete company
