@@ -22,6 +22,10 @@ import {
   createUser,
   createCompany,
   createStore,
+  createShift,
+  createTransaction,
+  createTransactionLineItem,
+  createTransactionPayment,
 } from "../../support/factories";
 import bcrypt from "bcrypt";
 
@@ -2906,6 +2910,280 @@ describe("ShiftService - Security & Input Validation", () => {
         result.closed_at,
         "closed_at should be Date instance",
       ).toBeInstanceOf(Date);
+    });
+  });
+});
+
+/**
+ * @test-level UNIT
+ * @justification Unit tests for ShiftService generateShiftReport business logic, validation, error handling, and edge cases. Tests service layer in isolation without HTTP layer.
+ * @story 4-6-shift-report-generation
+ *
+ * Unit Tests: Shift Service - Shift Report Generation
+ *
+ * Story 4.6: Shift Report Generation
+ *
+ * CRITICAL TEST COVERAGE:
+ * - Report generation with valid CLOSED shift
+ * - Report includes all required sections (summary, transactions, payment breakdown, variance)
+ * - Report fails when shift is not CLOSED
+ * - Report fails when shift not found
+ * - Transaction aggregation logic
+ * - Payment method breakdown calculation
+ * - Variance details inclusion
+ */
+
+describe("ShiftService - generateShiftReport", () => {
+  describe("Valid report generation (AC-1)", () => {
+    it("4.6-UNIT-001: should generate complete report for CLOSED shift with transactions", async () => {
+      // GIVEN: A CLOSED shift with transactions
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Report Test ${Date.now()}`,
+          device_id: `device-report-${Date.now()}`,
+          status: "ACTIVE",
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const shift = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: testStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: testCashierUser.user_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            closing_cash: new Prisma.Decimal(250.0),
+            expected_cash: new Prisma.Decimal(200.0),
+            variance: new Prisma.Decimal(50.0),
+            status: "CLOSED",
+            opened_at: new Date(Date.now() - 8 * 60 * 60 * 1000),
+            closed_at: new Date(),
+          }),
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // Create transactions for the shift
+      const transaction1 = await prisma.transaction.create({
+        data: {
+          ...createTransaction({
+            store_id: testStore.store_id,
+            shift_id: shift.shift_id,
+            cashier_id: testCashierUser.user_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            total: 50.0,
+          }),
+        },
+      });
+
+      await prisma.transactionLineItem.create({
+        data: createTransactionLineItem({
+          transaction_id: transaction1.transaction_id,
+          name: "Test Product 1",
+          quantity: 2,
+          unit_price: 25.0,
+          line_total: 50.0,
+        }),
+      });
+
+      await prisma.transactionPayment.create({
+        data: createTransactionPayment({
+          transaction_id: transaction1.transaction_id,
+          method: "CASH",
+          amount: 50.0,
+        }),
+      });
+
+      const transaction2 = await prisma.transaction.create({
+        data: {
+          ...createTransaction({
+            store_id: testStore.store_id,
+            shift_id: shift.shift_id,
+            cashier_id: testCashierUser.user_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            total: 100.0,
+          }),
+        },
+      });
+
+      await prisma.transactionLineItem.create({
+        data: createTransactionLineItem({
+          transaction_id: transaction2.transaction_id,
+          name: "Test Product 2",
+          quantity: 1,
+          unit_price: 100.0,
+          line_total: 100.0,
+        }),
+      });
+
+      await prisma.transactionPayment.create({
+        data: createTransactionPayment({
+          transaction_id: transaction2.transaction_id,
+          method: "CREDIT",
+          amount: 100.0,
+        }),
+      });
+
+      // WHEN: Generating shift report
+      const report = await shiftService.generateShiftReport(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      );
+
+      // THEN: Report should include all required sections
+      expect(report).toBeDefined();
+      expect(report.shift).toBeDefined();
+      expect(report.shift.shift_id).toBe(shift.shift_id);
+      expect(report.shift.status).toBe("CLOSED");
+
+      expect(report.summary).toBeDefined();
+      expect(report.summary.total_sales).toBe(150.0);
+      expect(report.summary.transaction_count).toBe(2);
+      expect(report.summary.opening_cash).toBe(100.0);
+      expect(report.summary.closing_cash).toBe(250.0);
+      expect(report.summary.expected_cash).toBe(200.0);
+      expect(report.summary.variance_amount).toBe(50.0);
+      expect(report.summary.variance_percentage).toBe(25.0);
+
+      expect(report.payment_methods).toBeDefined();
+      expect(report.payment_methods.length).toBe(2);
+      const cashPayment = report.payment_methods.find(
+        (pm) => pm.method === "CASH",
+      );
+      expect(cashPayment).toBeDefined();
+      expect(cashPayment?.total).toBe(50.0);
+      expect(cashPayment?.count).toBe(1);
+      const creditPayment = report.payment_methods.find(
+        (pm) => pm.method === "CREDIT",
+      );
+      expect(creditPayment).toBeDefined();
+      expect(creditPayment?.total).toBe(100.0);
+      expect(creditPayment?.count).toBe(1);
+
+      expect(report.transactions).toBeDefined();
+      expect(report.transactions.length).toBe(2);
+      expect(report.transactions[0].line_items.length).toBeGreaterThan(0);
+      expect(report.transactions[0].payments.length).toBeGreaterThan(0);
+    });
+
+    it("4.6-UNIT-002: should include variance details when variance exists", async () => {
+      // GIVEN: A CLOSED shift with variance
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Variance Test ${Date.now()}`,
+          device_id: `device-variance-${Date.now()}`,
+          status: "ACTIVE",
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const shift = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: testStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: testCashierUser.user_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            closing_cash: new Prisma.Decimal(250.0),
+            expected_cash: new Prisma.Decimal(200.0),
+            variance: new Prisma.Decimal(50.0),
+            variance_reason: "Test variance reason",
+            approved_by: testShiftManagerUser.user_id,
+            approved_at: new Date(),
+            status: "CLOSED",
+            opened_at: new Date(Date.now() - 8 * 60 * 60 * 1000),
+            closed_at: new Date(),
+          }),
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Generating shift report
+      const report = await shiftService.generateShiftReport(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      );
+
+      // THEN: Variance details should be included
+      expect(report.variance).toBeDefined();
+      expect(report.variance?.variance_amount).toBe(50.0);
+      expect(report.variance?.variance_percentage).toBe(25.0);
+      expect(report.variance?.variance_reason).toBe("Test variance reason");
+      expect(report.variance?.approved_by).toBeDefined();
+      expect(report.variance?.approved_at).toBeDefined();
+    });
+  });
+
+  describe("Error handling (AC-1)", () => {
+    it("4.6-UNIT-003: should fail when shift is not CLOSED", async () => {
+      // GIVEN: An OPEN shift
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Open Test ${Date.now()}`,
+          device_id: `device-open-${Date.now()}`,
+          status: "ACTIVE",
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const shift = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: testStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: testCashierUser.user_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            status: "OPEN",
+          }),
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN/THEN: Generating report should fail with SHIFT_NOT_CLOSED error
+      await expect(
+        shiftService.generateShiftReport(
+          shift.shift_id,
+          testShiftManagerUser.user_id,
+        ),
+      ).rejects.toThrow(ShiftServiceError);
+
+      await expect(
+        shiftService.generateShiftReport(
+          shift.shift_id,
+          testShiftManagerUser.user_id,
+        ),
+      ).rejects.toMatchObject({
+        code: ShiftErrorCode.SHIFT_NOT_CLOSED,
+      });
+    });
+
+    it("4.6-UNIT-004: should fail when shift not found", async () => {
+      // GIVEN: Non-existent shift ID
+      const fakeShiftId = "00000000-0000-0000-0000-000000000000";
+
+      // WHEN/THEN: Generating report should fail with SHIFT_NOT_FOUND error
+      await expect(
+        shiftService.generateShiftReport(
+          fakeShiftId,
+          testShiftManagerUser.user_id,
+        ),
+      ).rejects.toThrow(ShiftServiceError);
+
+      await expect(
+        shiftService.generateShiftReport(
+          fakeShiftId,
+          testShiftManagerUser.user_id,
+        ),
+      ).rejects.toMatchObject({
+        code: ShiftErrorCode.SHIFT_NOT_FOUND,
+      });
     });
   });
 });
