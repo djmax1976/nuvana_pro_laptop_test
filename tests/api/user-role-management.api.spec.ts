@@ -747,30 +747,44 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       data: createAdminUser(),
     });
 
-    // Get any two SYSTEM-scoped roles (simpler and avoids company/store setup)
-    const roles = await prismaClient.role.findMany({
-      where: { scope: "SYSTEM" },
-      take: 2,
+    // Get SUPERADMIN role (SYSTEM scope) and any COMPANY scope role
+    const superadminRole = await prismaClient.role.findUnique({
+      where: { code: "SUPERADMIN" },
     });
-    if (roles.length < 2) {
-      throw new Error("Need at least 2 SYSTEM scope roles in database");
+    const companyRole = await prismaClient.role.findFirst({
+      where: { scope: "COMPANY" },
+    });
+    if (!superadminRole || !companyRole) {
+      throw new Error(
+        "Need SUPERADMIN and at least one COMPANY scope role in database",
+      );
     }
 
-    // Create first role (the one to keep) - SYSTEM scope doesn't require company_id or store_id
+    // Create a test company for the COMPANY-scoped role
+    const testCompany = await prismaClient.company.create({
+      data: {
+        name: `TEST_REVOKE_COMPANY_${Date.now()}`,
+        public_id: `TREV${Date.now()}`.slice(0, 20),
+        status: "ACTIVE",
+        owner_user_id: user.user_id,
+      },
+    });
+
+    // Create first role (SUPERADMIN - SYSTEM scope, the one to keep)
     await prismaClient.userRole.create({
       data: {
         user_id: user.user_id,
-        role_id: roles[0].role_id,
+        role_id: superadminRole.role_id,
         company_id: null,
       },
     });
 
-    // Create second role (the one to revoke) - SYSTEM scope doesn't require company_id or store_id
+    // Create second role (COMPANY scope, the one to revoke)
     const userRoleToRevoke = await prismaClient.userRole.create({
       data: {
         user_id: user.user_id,
-        role_id: roles[1].role_id,
-        company_id: null,
+        role_id: companyRole.role_id,
+        company_id: testCompany.company_id,
       },
     });
 

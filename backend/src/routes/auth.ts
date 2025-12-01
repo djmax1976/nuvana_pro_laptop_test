@@ -465,10 +465,25 @@ export async function authRoutes(fastify: FastifyInstance) {
         (reply as any).clearCookie("access_token", { path: "/" });
         (reply as any).clearCookie("refresh_token", { path: "/" });
 
+        // Determine specific error message based on error type
+        let errorMessage = "Refresh token failed";
+        if (error instanceof Error) {
+          if (error.message.includes("expired")) {
+            errorMessage = "Refresh token has expired";
+          } else if (
+            error.message.includes("Invalid") ||
+            error.message.includes("invalid")
+          ) {
+            errorMessage = "Invalid refresh token";
+          } else if (error.message.includes("revoked")) {
+            errorMessage = "Refresh token has been revoked";
+          }
+        }
+
         reply.code(401);
         return {
           error: "Unauthorized",
-          message: "Refresh failed",
+          message: errorMessage,
         };
       }
     },
