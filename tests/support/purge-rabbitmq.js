@@ -32,8 +32,9 @@ async function purgeQueues() {
 
     console.log('✓ RabbitMQ queues purged successfully');
   } catch (error) {
-    console.error('Failed to connect to RabbitMQ:', error.message);
-    console.log('○ Skipping queue purge (RabbitMQ may not be running)');
+    // Rethrow connection errors so the outer catch can handle them
+    // This allows the script to exit with a non-zero code on critical failures
+    throw error;
   } finally {
     if (connection) {
       try {

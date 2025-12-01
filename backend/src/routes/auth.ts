@@ -451,7 +451,15 @@ export async function authRoutes(fastify: FastifyInstance) {
           },
         };
       } catch (error) {
-        fastify.log.error({ error }, "Refresh token error");
+        // Log full error details server-side for debugging
+        if (error instanceof Error) {
+          fastify.log.error(
+            { error: error.message, stack: error.stack },
+            "Refresh token error",
+          );
+        } else {
+          fastify.log.error({ error }, "Refresh token error");
+        }
 
         // Clear invalid cookies
         (reply as any).clearCookie("access_token", { path: "/" });
@@ -460,7 +468,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         reply.code(401);
         return {
           error: "Unauthorized",
-          message: error instanceof Error ? error.message : "Refresh failed",
+          message: "Refresh failed",
         };
       }
     },

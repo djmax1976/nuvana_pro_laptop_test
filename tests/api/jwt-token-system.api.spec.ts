@@ -17,6 +17,9 @@ import { faker } from "@faker-js/faker";
  * otherwise stringifies body.error (JSON.stringify) or uses String(body.error).
  */
 function normalizeErrorText(body: any): string {
+  if (body === null || body === undefined) {
+    return "";
+  }
   if (typeof body.message === "string") {
     return body.message;
   }
