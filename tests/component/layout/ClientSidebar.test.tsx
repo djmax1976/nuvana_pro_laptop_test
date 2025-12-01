@@ -1,6 +1,6 @@
 /**
  * @test-level Component
- * @justification Component tests for ClientSidebar - validates "Shifts" and "Shift and Day" navigation links and routing
+ * @justification Component tests for ClientSidebar - validates "Shift Management" and "Daily Summary" navigation links and routing
  * @story 4-8-cashier-shift-start-flow
  */
 
@@ -55,75 +55,79 @@ describe("4.8-COMPONENT: ClientSidebar Component", () => {
     });
   });
 
-  it("[P0] 4.8-COMPONENT-024: should display 'Shifts' navigation link", () => {
+  it("[P0] 4.8-COMPONENT-024: should display 'Shift Management' navigation link", () => {
     // GIVEN: ClientSidebar is rendered
     renderWithProviders(<ClientSidebar />);
 
-    // THEN: "Shifts" link should be visible
-    expect(screen.getByText(/^shifts$/i)).toBeInTheDocument();
+    // THEN: "Shift Management" link should be visible
+    expect(screen.getByText(/shift management/i)).toBeInTheDocument();
   });
 
-  it("[P0] 4.8-COMPONENT-025: should display 'Shift and Day' navigation link", () => {
+  it("[P0] 4.8-COMPONENT-025: should display 'Daily Summary' navigation link", () => {
     // GIVEN: ClientSidebar is rendered
     renderWithProviders(<ClientSidebar />);
 
-    // THEN: "Shift and Day" link should be visible
-    expect(screen.getByText(/shift and day/i)).toBeInTheDocument();
+    // THEN: "Daily Summary" link should be visible
+    expect(screen.getByText(/daily summary/i)).toBeInTheDocument();
   });
 
-  it("[P0] 4.8-COMPONENT-026: should navigate to /client-dashboard/shifts when 'Shifts' link is clicked", async () => {
+  it("[P0] 4.8-COMPONENT-026: should navigate to /client-dashboard/shifts when 'Shift Management' link is clicked", async () => {
     // GIVEN: ClientSidebar is rendered
     const user = userEvent.setup();
     renderWithProviders(<ClientSidebar />);
 
-    // WHEN: "Shifts" link is clicked
-    const shiftsLink = screen.getByText(/^shifts$/i).closest("a");
+    // WHEN: "Shift Management" link is clicked
+    const shiftsLink = screen.getByText(/shift management/i).closest("a");
     if (shiftsLink) {
       await user.click(shiftsLink);
     }
 
     // THEN: Should navigate to /client-dashboard/shifts
-    const link = screen.getByText(/^shifts$/i).closest("a");
+    const link = screen.getByText(/shift management/i).closest("a");
     expect(link).toHaveAttribute("href", "/client-dashboard/shifts");
   });
 
-  it("[P0] 4.8-COMPONENT-027: should navigate to /client-dashboard/shift-and-day when 'Shift and Day' link is clicked", async () => {
+  it("[P0] 4.8-COMPONENT-027: should navigate to /client-dashboard/shift-and-day when 'Daily Summary' link is clicked", async () => {
     // GIVEN: ClientSidebar is rendered
     const user = userEvent.setup();
     renderWithProviders(<ClientSidebar />);
 
-    // WHEN: "Shift and Day" link is clicked
-    const shiftAndDayLink = screen.getByText(/shift and day/i).closest("a");
-    if (shiftAndDayLink) {
-      await user.click(shiftAndDayLink);
+    // WHEN: "Daily Summary" link is clicked
+    const dailySummaryLink = screen.getByText(/daily summary/i).closest("a");
+    if (dailySummaryLink) {
+      await user.click(dailySummaryLink);
     }
 
     // THEN: Should navigate to /client-dashboard/shift-and-day
-    const link = screen.getByText(/shift and day/i).closest("a");
+    const link = screen.getByText(/daily summary/i).closest("a");
     expect(link).toHaveAttribute("href", "/client-dashboard/shift-and-day");
   });
 
-  it("[P1] 4.8-COMPONENT-028: should highlight 'Shifts' link when on shifts page", () => {
+  it("[P1] 4.8-COMPONENT-028: should highlight 'Shift Management' link when on shifts page", () => {
     // GIVEN: User is on the shifts page
     mockPathname.mockReturnValue("/client-dashboard/shifts");
 
     renderWithProviders(<ClientSidebar />);
 
-    // THEN: "Shifts" link should be highlighted/active
-    const link = screen.getByText(/^shifts$/i).closest("a");
+    // THEN: "Shift Management" link should be highlighted/active
+    const link = screen.getByText(/shift management/i).closest("a");
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute("href", "/client-dashboard/shifts");
+    expect(link).toHaveClass("bg-primary");
+    expect(link).toHaveClass("text-primary-foreground");
   });
 
-  it("[P1] 4.8-COMPONENT-029: should highlight 'Shift and Day' link when on shift-and-day page", () => {
+  it("[P1] 4.8-COMPONENT-029: should highlight 'Daily Summary' link when on shift-and-day page", () => {
     // GIVEN: User is on the shift-and-day page
     mockPathname.mockReturnValue("/client-dashboard/shift-and-day");
 
     renderWithProviders(<ClientSidebar />);
 
-    // THEN: "Shift and Day" link should be highlighted/active
-    const link = screen.getByText(/shift and day/i).closest("a");
+    // THEN: "Daily Summary" link should be highlighted/active
+    const link = screen.getByText(/daily summary/i).closest("a");
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute("href", "/client-dashboard/shift-and-day");
+    expect(link).toHaveClass("bg-primary");
+    expect(link).toHaveClass("text-primary-foreground");
   });
 });

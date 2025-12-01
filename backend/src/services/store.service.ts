@@ -649,21 +649,6 @@ export class StoreService {
             );
           }
 
-          // Check per-store uniqueness (device_id must be unique within the store)
-          const existingInStore = await prisma.pOSTerminal.findFirst({
-            where: {
-              store_id: storeId,
-              device_id: trimmedDeviceId,
-              deleted_at: null, // Only check non-deleted terminals
-            },
-          });
-
-          if (existingInStore) {
-            throw new Error(
-              `Device ID "${trimmedDeviceId}" is already in use for this store.`,
-            );
-          }
-
           data.device_id = trimmedDeviceId;
         }
       }
@@ -783,25 +768,6 @@ export class StoreService {
             );
           }
 
-          // Check per-store uniqueness (device_id must be unique within the store)
-          // Exclude current terminal from check
-          const existingInStore = await prisma.pOSTerminal.findFirst({
-            where: {
-              store_id: terminal.store_id,
-              device_id: trimmedDeviceId,
-              deleted_at: null, // Only check non-deleted terminals
-              pos_terminal_id: {
-                not: terminalId, // Exclude current terminal
-              },
-            },
-          });
-
-          if (existingInStore) {
-            throw new Error(
-              `Device ID "${trimmedDeviceId}" is already in use for this store.`,
-            );
-          }
-
           data.device_id = trimmedDeviceId;
         }
       }
@@ -852,11 +818,13 @@ export class StoreService {
    * Soft delete a POS terminal
    * Sets deleted_at timestamp instead of hard deleting
    * @param terminalId - Terminal UUID
+   * @param storeId - Store UUID (must match terminal's store)
    * @param userCompanyId - User's assigned company ID (for isolation check)
-   * @throws Error if terminal not found, terminal has active shift, or user tries to delete terminal from different company
+   * @throws Error if terminal not found, terminal doesn't belong to store, terminal has active shift, or user tries to delete terminal from different company
    */
   async deleteTerminal(
     terminalId: string,
+    storeId: string,
     userCompanyId: string,
   ): Promise<void> {
     try {
@@ -877,6 +845,13 @@ export class StoreService {
 
       if (!terminal) {
         throw new Error(`Terminal with ID ${terminalId} not found`);
+      }
+
+      // Validate terminal belongs to the provided store
+      if (terminal.store_id !== storeId) {
+        throw new Error(
+          `Terminal with ID ${terminalId} does not belong to store ${storeId}`,
+        );
       }
 
       // Company isolation check: user can only delete terminals for their company

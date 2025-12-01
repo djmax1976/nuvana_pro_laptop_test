@@ -29,9 +29,11 @@ import {
   createShift,
   createTerminal,
   createClientUser,
+  createJWTAccessToken,
 } from "../support/factories";
 import { PrismaClient } from "@prisma/client";
 import { createShift as createShiftHelper } from "../support/helpers/database-helpers";
+import { withBypassClient } from "../support/prisma-bypass";
 
 /**
  * Helper function to create a company with store and terminals
@@ -59,6 +61,38 @@ async function createCompanyWithStoreAndTerminals(
   }
 
   return { owner, company, store, terminals };
+}
+
+/**
+ * Helper function to link a store to a cashier user via user_roles table
+ * This is required for the cashier to see the store in their dashboard
+ */
+async function linkStoreToCashier(
+  cashierUserId: string,
+  storeId: string,
+  companyId: string,
+) {
+  await withBypassClient(async (bypassClient) => {
+    // Get CLIENT_USER role
+    const role = await bypassClient.role.findUnique({
+      where: { code: "CLIENT_USER" },
+    });
+    if (!role) {
+      throw new Error(
+        "CLIENT_USER role not found in database. Run database seed first.",
+      );
+    }
+
+    // Link cashier to the store via user_roles
+    await bypassClient.userRole.create({
+      data: {
+        user_id: cashierUserId,
+        role_id: role.role_id,
+        company_id: companyId,
+        store_id: storeId,
+      },
+    });
+  });
 }
 
 test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
@@ -98,23 +132,28 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
 
   test("4.8-E2E-003: [P1] Should display only available terminals (no active shifts) in dropdown", async ({
     cashierPage,
+    cashierUser,
     prismaClient,
   }) => {
     // GIVEN: A store with terminals (one has active shift)
-    const { store, terminals } = await createCompanyWithStoreAndTerminals(
-      prismaClient,
-      2,
+    // Link the store to the authenticated cashier so they can see it
+    const { store, terminals, company } =
+      await createCompanyWithStoreAndTerminals(prismaClient, 2);
+    await linkStoreToCashier(
+      cashierUser.user_id,
+      store.store_id,
+      company.company_id,
     );
 
-    // Create active shift for terminal 0
-    const cashier = await prismaClient.user.create({
+    // Create active shift for terminal 0 (using a different cashier to test filtering)
+    const otherCashier = await prismaClient.user.create({
       data: createClientUser(),
     });
     await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
-        opened_by: cashier.user_id,
+        cashier_id: otherCashier.user_id,
+        opened_by: otherCashier.user_id,
         pos_terminal_id: terminals[0].pos_terminal_id,
         status: "OPEN",
         opening_cash: 100.0,
@@ -136,15 +175,21 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
 
   test("4.8-E2E-004: [P1] Should display 'No available terminals' message when all terminals have active shifts", async ({
     cashierPage,
+    cashierUser,
     prismaClient,
   }) => {
     // GIVEN: A store with terminals (all have active shifts)
-    const { store, terminals } = await createCompanyWithStoreAndTerminals(
-      prismaClient,
-      2,
+    // Link the store to the authenticated cashier so they can see it
+    const { store, terminals, company } =
+      await createCompanyWithStoreAndTerminals(prismaClient, 2);
+    await linkStoreToCashier(
+      cashierUser.user_id,
+      store.store_id,
+      company.company_id,
     );
 
-    const cashier = await prismaClient.user.create({
+    // Create active shifts for all terminals (using a different cashier)
+    const otherCashier = await prismaClient.user.create({
       data: createClientUser(),
     });
 
@@ -153,8 +198,8 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
       await createShiftHelper(
         {
           store_id: store.store_id,
-          cashier_id: cashier.user_id,
-          opened_by: cashier.user_id,
+          cashier_id: otherCashier.user_id,
+          opened_by: otherCashier.user_id,
           pos_terminal_id: terminal.pos_terminal_id,
           status: "OPEN",
           opening_cash: 100.0,
@@ -175,12 +220,17 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
 
   test("4.8-E2E-005: [P1] Should create shift with auto-assigned cashier_id when form is submitted", async ({
     cashierPage,
+    cashierUser,
     prismaClient,
   }) => {
     // GIVEN: A store with available terminal
-    const { store, terminals } = await createCompanyWithStoreAndTerminals(
-      prismaClient,
-      1,
+    // Link the store to the authenticated cashier so they can see it
+    const { store, terminals, company } =
+      await createCompanyWithStoreAndTerminals(prismaClient, 1);
+    await linkStoreToCashier(
+      cashierUser.user_id,
+      store.store_id,
+      company.company_id,
     );
 
     // WHEN: Filling and submitting Cashier Shift Start form
@@ -212,15 +262,23 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
 
   test("4.8-E2E-006: [P0] Should filter shifts to show only cashier's own shifts", async ({
     cashierPage,
+    cashierUser,
     prismaClient,
   }) => {
     // GIVEN: Multiple cashiers with shifts
-    const { store } = await createCompanyWithStoreAndTerminals(prismaClient, 1);
+    // Link the store to the authenticated cashier so they can see it
+    const { store, company } = await createCompanyWithStoreAndTerminals(
+      prismaClient,
+      1,
+    );
+    await linkStoreToCashier(
+      cashierUser.user_id,
+      store.store_id,
+      company.company_id,
+    );
 
-    const cashier1 = await prismaClient.user.create({
-      data: createClientUser(),
-    });
-    const cashier2 = await prismaClient.user.create({
+    // Create another cashier for comparison
+    const otherCashier = await prismaClient.user.create({
       data: createClientUser(),
     });
 
@@ -228,8 +286,8 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
     await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier1.user_id,
-        opened_by: cashier1.user_id,
+        cashier_id: cashierUser.user_id,
+        opened_by: cashierUser.user_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
@@ -238,28 +296,27 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
     await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier2.user_id,
-        opened_by: cashier2.user_id,
+        cashier_id: otherCashier.user_id,
+        opened_by: otherCashier.user_id,
         status: "OPEN",
         opening_cash: 200.0,
       },
       prismaClient,
     );
 
-    // WHEN: Cashier1 views shift list
-    // (Note: cashierPage fixture should use cashier1's authentication)
+    // WHEN: Authenticated cashier views shift list
     await cashierPage.goto("/client-dashboard/shifts");
 
-    // THEN: Should only see cashier1's shifts
+    // THEN: Should only see authenticated cashier's shifts (RLS filtering)
     await expect(
       cashierPage.locator('[data-testid="shift-list-table"]'),
     ).toBeVisible({ timeout: 10000 });
 
-    // Verify only cashier1's shifts are displayed
+    // Verify only authenticated cashier's shifts are displayed
     // (This requires checking shift data in the table)
     const shiftRows = cashierPage.locator('[data-testid="shift-row"]');
     const count = await shiftRows.count();
-    // All visible shifts should belong to cashier1
+    // All visible shifts should belong to the authenticated cashier
     // (Implementation detail: verify cashier_id in shift data)
   });
 
@@ -339,10 +396,21 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
 
   test("4.8-E2E-012: [P1] Should display 'Start Shift' button on Shift and Day page", async ({
     cashierPage,
+    cashierUser,
     prismaClient,
   }) => {
     // GIVEN: Cashier is authenticated and has a store
-    const { store } = await createCompanyWithStoreAndTerminals(prismaClient, 1);
+    // Note: The cashierUser fixture already has a store, but we'll add another one
+    // to test that the button appears when the cashier has store access
+    const { store, company } = await createCompanyWithStoreAndTerminals(
+      prismaClient,
+      1,
+    );
+    await linkStoreToCashier(
+      cashierUser.user_id,
+      store.store_id,
+      company.company_id,
+    );
 
     // WHEN: Navigating to shift-and-day page
     await cashierPage.goto("/client-dashboard/shift-and-day");
@@ -394,7 +462,18 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
     page,
     prismaClient,
   }) => {
-    // GIVEN: A user without SHIFT_OPEN permission is authenticated
+    // GIVEN: A user without SHIFT_OPEN permission is authenticated and associated with a store
+    // Create company and store
+    const owner = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: owner.user_id }),
+    });
+    const store = await prismaClient.store.create({
+      data: createStore({ company_id: company.company_id }),
+    });
+
     const userWithoutPermission = await prismaClient.user.create({
       data: createUser(),
     });
@@ -406,12 +485,76 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
         description: "Test role without SHIFT_OPEN",
       },
     });
-    await prismaClient.userRole.create({
-      data: {
-        user_id: userWithoutPermission.user_id,
-        role_id: role.role_id,
-      },
+    // Associate user with store via UserRole
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: userWithoutPermission.user_id,
+          role_id: role.role_id,
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      });
     });
+
+    // Create JWT token for authentication
+    const token = createJWTAccessToken({
+      user_id: userWithoutPermission.user_id,
+      email: userWithoutPermission.email,
+      roles: [role.code],
+      permissions: [], // No SHIFT_OPEN permission
+    });
+
+    // Set up authentication similar to cashierPage fixture
+    // Set localStorage auth session
+    await page.addInitScript(
+      (userData: any) => {
+        localStorage.setItem(
+          "auth_session",
+          JSON.stringify({
+            id: userData.user_id,
+            email: userData.email,
+            name: userData.name,
+            user_metadata: {
+              email: userData.email,
+              full_name: userData.name,
+            },
+          }),
+        );
+      },
+      {
+        user_id: userWithoutPermission.user_id,
+        email: userWithoutPermission.email,
+        name: userWithoutPermission.name,
+      },
+    );
+
+    // Intercept auth check endpoint
+    await page.route("**/api/auth/me*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          user: {
+            id: userWithoutPermission.user_id,
+            email: userWithoutPermission.email,
+            name: userWithoutPermission.name,
+            roles: [role.code],
+            permissions: [],
+          },
+        }),
+      });
+    });
+
+    // Add authentication cookie
+    await page.context().addCookies([
+      {
+        name: "access_token",
+        value: token,
+        domain: "localhost",
+        path: "/",
+      },
+    ]);
 
     // WHEN: User without SHIFT_OPEN permission navigates to Shift and Day page
     await page.goto("/client-dashboard/shift-and-day");
@@ -422,21 +565,25 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
     });
   });
 
-  test("4.8-E2E-011: [P0] Should ensure RLS filtering prevents cashiers from seeing other cashiers' shifts", async ({
+  test("4.8-E2E-014: [P0] Should ensure RLS filtering prevents cashiers from seeing other cashiers' shifts", async ({
     cashierPage,
+    cashierUser,
     prismaClient,
   }) => {
     // GIVEN: Multiple cashiers with shifts in the same store
-    const { store } = await createCompanyWithStoreAndTerminals(prismaClient, 1);
+    // Link the store to the authenticated cashier so they can see it
+    const { store, company } = await createCompanyWithStoreAndTerminals(
+      prismaClient,
+      1,
+    );
+    await linkStoreToCashier(
+      cashierUser.user_id,
+      store.store_id,
+      company.company_id,
+    );
 
-    // Get the authenticated cashier from the fixture
-    // (Note: This requires the fixture to provide the cashier user_id)
-    // For this test, we'll create shifts for different cashiers and verify filtering
-
-    const cashier1 = await prismaClient.user.create({
-      data: createClientUser(),
-    });
-    const cashier2 = await prismaClient.user.create({
+    // Create another cashier for comparison
+    const otherCashier = await prismaClient.user.create({
       data: createClientUser(),
     });
 
@@ -444,8 +591,8 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
     await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier1.user_id,
-        opened_by: cashier1.user_id,
+        cashier_id: cashierUser.user_id,
+        opened_by: cashierUser.user_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
@@ -454,28 +601,28 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
     await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier2.user_id,
-        opened_by: cashier2.user_id,
+        cashier_id: otherCashier.user_id,
+        opened_by: otherCashier.user_id,
         status: "OPEN",
         opening_cash: 200.0,
       },
       prismaClient,
     );
 
-    // WHEN: Cashier1 (authenticated via cashierPage fixture) views shift list
+    // WHEN: Authenticated cashier views shift list
     await cashierPage.goto("/client-dashboard/shifts");
 
-    // THEN: Should only see cashier1's shifts (RLS filtering)
+    // THEN: Should only see authenticated cashier's shifts (RLS filtering)
     await expect(
       cashierPage.locator('[data-testid="shift-list-table"]'),
     ).toBeVisible({ timeout: 10000 });
 
-    // Verify that only shifts with cashier_id = cashier1.user_id are displayed
+    // Verify that only shifts with cashier_id = authenticated cashier are displayed
     // (This requires checking the shift data in the table)
-    // The RLS filtering is enforced at the API level, so the UI should only receive cashier1's shifts
+    // The RLS filtering is enforced at the API level, so the UI should only receive authenticated cashier's shifts
     const shiftRows = cashierPage.locator('[data-testid="shift-row"]');
     const count = await shiftRows.count();
-    // All visible shifts should belong to the authenticated cashier (cashier1)
+    // All visible shifts should belong to the authenticated cashier
     // This is verified by the API test, but we confirm the UI respects the filtered data
     expect(count).toBeGreaterThanOrEqual(0); // At least 0 shifts (may be 0 if no matching shifts)
   });

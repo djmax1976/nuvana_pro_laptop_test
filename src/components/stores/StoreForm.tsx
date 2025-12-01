@@ -324,7 +324,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
   const [terminalName, setTerminalName] = useState("");
   const [terminalDeviceId, setTerminalDeviceId] = useState("");
   const [terminalStatus, setTerminalStatus] = useState<
-    "ACTIVE" | "INACTIVE" | "MAINTENANCE"
+    "ACTIVE" | "INACTIVE" | "CLOSED"
   >("ACTIVE");
 
   const { data: terminals, isLoading } = useStoreTerminals(storeId);
@@ -348,7 +348,8 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
         data: {
           name: terminalName.trim(),
           device_id: terminalDeviceId.trim() || undefined,
-        },
+          status: terminalStatus,
+        } as any,
       });
       toast({
         title: "Success",
@@ -357,6 +358,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
       setIsCreateDialogOpen(false);
       setTerminalName("");
       setTerminalDeviceId("");
+      setTerminalStatus("ACTIVE");
     } catch (error) {
       toast({
         title: "Error",
@@ -387,7 +389,8 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
         data: {
           name: terminalName.trim(),
           device_id: terminalDeviceId.trim() || undefined,
-        },
+          status: terminalStatus,
+        } as any,
       });
       toast({
         title: "Success",
@@ -396,6 +399,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
       setEditingTerminal(null);
       setTerminalName("");
       setTerminalDeviceId("");
+      setTerminalStatus("ACTIVE");
     } catch (error) {
       toast({
         title: "Error",
@@ -442,12 +446,15 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
     setEditingTerminal(terminal);
     setTerminalName(terminal.name);
     setTerminalDeviceId(terminal.device_id || "");
+    // Default to ACTIVE if terminal doesn't have status field
+    setTerminalStatus("ACTIVE");
   };
 
   const closeEditDialog = () => {
     setEditingTerminal(null);
     setTerminalName("");
     setTerminalDeviceId("");
+    setTerminalStatus("ACTIVE");
   };
 
   return (
@@ -570,19 +577,17 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
               <label className="text-sm font-medium">Status</label>
               <Select
                 value={terminalStatus}
-                onValueChange={(value) =>
-                  setTerminalStatus(
-                    value as "ACTIVE" | "INACTIVE" | "MAINTENANCE",
-                  )
+                onValueChange={(value: "ACTIVE" | "INACTIVE" | "CLOSED") =>
+                  setTerminalStatus(value)
                 }
               >
                 <SelectTrigger className="mt-1">
-                  <SelectValue />
+                  <SelectValue placeholder="Select a status" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ACTIVE">Active</SelectItem>
                   <SelectItem value="INACTIVE">Inactive</SelectItem>
-                  <SelectItem value="MAINTENANCE">Maintenance</SelectItem>
+                  <SelectItem value="CLOSED">Closed</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -639,6 +644,24 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
                 placeholder="e.g., DEV-001"
                 className="mt-1"
               />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Status</label>
+              <Select
+                value={terminalStatus}
+                onValueChange={(value: "ACTIVE" | "INACTIVE" | "CLOSED") =>
+                  setTerminalStatus(value)
+                }
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Select a status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ACTIVE">Active</SelectItem>
+                  <SelectItem value="INACTIVE">Inactive</SelectItem>
+                  <SelectItem value="CLOSED">Closed</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={closeEditDialog}>

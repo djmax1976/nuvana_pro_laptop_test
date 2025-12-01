@@ -55,7 +55,7 @@ async function createPOSTerminal(
       store_id: storeId,
       name: name || `Terminal ${Date.now()}`,
       device_id: `device-${Date.now()}`,
-      status: "ACTIVE",
+      deleted_at: null, // Active terminal (not soft-deleted)
     },
   });
 

@@ -337,10 +337,14 @@ export class ShiftService {
   }
 
   /**
-   * Validate that POS terminal exists and belongs to store
+   * Validate that POS terminal exists, belongs to store, and is available for shift opening
+   *
+   * Note: POSTerminal model uses soft-delete only (deleted_at field). There is no status field.
+   * A terminal is available for shift opening if and only if deleted_at is null.
+   *
    * @param posTerminalId - POS terminal UUID
    * @param storeId - Store UUID
-   * @throws ShiftServiceError if terminal not found or doesn't belong to store
+   * @throws ShiftServiceError if terminal not found, doesn't belong to store, or is soft-deleted
    */
   async validateTerminal(
     posTerminalId: string,
@@ -366,6 +370,8 @@ export class ShiftService {
         );
       }
 
+      // Block shift opening if terminal is soft-deleted (deleted_at is not null)
+      // This is the only blocking state - POSTerminal has no status field
       if (terminal.deleted_at !== null) {
         throw new ShiftServiceError(
           ShiftErrorCode.TERMINAL_NOT_FOUND,

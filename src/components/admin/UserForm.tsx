@@ -126,9 +126,7 @@ export function UserForm() {
 
   // Reset store_id when company changes
   useEffect(() => {
-    if (selectedCompanyId) {
-      form.setValue("store_id", "");
-    }
+    form.setValue("store_id", "");
   }, [selectedCompanyId, form]);
 
   async function onSubmit(data: UserFormValues) {

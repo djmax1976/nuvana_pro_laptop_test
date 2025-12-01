@@ -643,7 +643,16 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
       </Card>
 
       {/* Create Terminal Dialog */}
-      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+      <Dialog
+        open={isCreateDialogOpen}
+        onOpenChange={(open) => {
+          setIsCreateDialogOpen(open);
+          if (!open) {
+            setTerminalName("");
+            setTerminalDeviceId("");
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Terminal</DialogTitle>
@@ -653,8 +662,11 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Terminal Name</label>
+              <label htmlFor="terminal-name" className="text-sm font-medium">
+                Terminal Name
+              </label>
               <Input
+                id="terminal-name"
                 value={terminalName}
                 onChange={(e) => setTerminalName(e.target.value)}
                 placeholder="e.g., Terminal 1"
@@ -662,10 +674,14 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">
+              <label
+                htmlFor="terminal-device-id"
+                className="text-sm font-medium"
+              >
                 Device ID (Optional)
               </label>
               <Input
+                id="terminal-device-id"
                 value={terminalDeviceId}
                 onChange={(e) => setTerminalDeviceId(e.target.value)}
                 placeholder="e.g., DEV-001"
@@ -675,11 +691,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
-                onClick={() => {
-                  setIsCreateDialogOpen(false);
-                  setTerminalName("");
-                  setTerminalDeviceId("");
-                }}
+                onClick={() => setIsCreateDialogOpen(false)}
               >
                 Cancel
               </Button>
@@ -706,8 +718,14 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Terminal Name</label>
+              <label
+                htmlFor="edit-terminal-name"
+                className="text-sm font-medium"
+              >
+                Terminal Name
+              </label>
               <Input
+                id="edit-terminal-name"
                 value={terminalName}
                 onChange={(e) => setTerminalName(e.target.value)}
                 placeholder="e.g., Terminal 1"
@@ -715,10 +733,14 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">
+              <label
+                htmlFor="edit-terminal-device-id"
+                className="text-sm font-medium"
+              >
                 Device ID (Optional)
               </label>
               <Input
+                id="edit-terminal-device-id"
                 value={terminalDeviceId}
                 onChange={(e) => setTerminalDeviceId(e.target.value)}
                 placeholder="e.g., DEV-001"

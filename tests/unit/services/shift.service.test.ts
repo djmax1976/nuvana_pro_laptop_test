@@ -761,26 +761,27 @@ describe("ShiftService - openShift", () => {
       }
     });
 
-    it("4.2-UNIT-016: should reject request when terminal is inactive", async () => {
-      // GIVEN: An inactive terminal
-      const inactiveTerminal = await prisma.pOSTerminal.create({
+    it("4.2-UNIT-016: should reject request when terminal is soft-deleted", async () => {
+      // GIVEN: A soft-deleted terminal (deleted_at is not null)
+      // Note: POSTerminal uses soft-delete only - no status field exists
+      const deletedTerminal = await prisma.pOSTerminal.create({
         data: {
           store_id: testStore.store_id,
-          name: `Inactive Terminal ${Date.now()}`,
-          device_id: `device-inactive-${Date.now()}`,
+          name: `Deleted Terminal ${Date.now()}`,
+          device_id: `device-deleted-${Date.now()}`,
           deleted_at: new Date(), // Soft deleted terminal
         },
       });
-      createdTerminalIds.push(inactiveTerminal.pos_terminal_id);
+      createdTerminalIds.push(deletedTerminal.pos_terminal_id);
 
       const openShiftData = {
         store_id: testStore.store_id,
         cashier_id: testCashierUser.user_id,
-        pos_terminal_id: inactiveTerminal.pos_terminal_id,
+        pos_terminal_id: deletedTerminal.pos_terminal_id,
         opening_cash: 100.0,
       };
 
-      // WHEN: Attempting to open shift with inactive terminal
+      // WHEN: Attempting to open shift with soft-deleted terminal
       // THEN: Should throw ShiftServiceError with TERMINAL_NOT_FOUND code
       await expect(
         shiftService.openShift(openShiftData, mockAuditContext),
@@ -793,6 +794,74 @@ describe("ShiftService - openShift", () => {
         expect((error as ShiftServiceError).code).toBe(
           ShiftErrorCode.TERMINAL_NOT_FOUND,
         );
+      }
+    });
+
+    it("4.2-UNIT-016b: should allow shift opening when terminal is not deleted (deleted_at is null)", async () => {
+      // GIVEN: An active terminal (deleted_at is null)
+      const activeTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Active Terminal ${Date.now()}`,
+          device_id: `device-active-${Date.now()}`,
+          deleted_at: null, // Explicitly not deleted
+        },
+      });
+      createdTerminalIds.push(activeTerminal.pos_terminal_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: activeTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Opening shift with active terminal
+      const shift = await shiftService.openShift(
+        openShiftData,
+        mockAuditContext,
+      );
+
+      // THEN: Shift should be created successfully
+      expect(shift).toBeDefined();
+      expect(shift.pos_terminal_id).toBe(activeTerminal.pos_terminal_id);
+      expect(shift.status).toBe(ShiftStatus.OPEN);
+      createdShiftIds.push(shift.shift_id);
+    });
+
+    it("4.2-UNIT-016c: should reject request when terminal deleted_at is set to past date", async () => {
+      // GIVEN: A terminal soft-deleted in the past
+      const pastDeletedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Past Deleted Terminal ${Date.now()}`,
+          device_id: `device-past-deleted-${Date.now()}`,
+          deleted_at: new Date("2020-01-01"), // Deleted in the past
+        },
+      });
+      createdTerminalIds.push(pastDeletedTerminal.pos_terminal_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashierUser.user_id,
+        pos_terminal_id: pastDeletedTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Attempting to open shift with past-deleted terminal
+      // THEN: Should throw ShiftServiceError with TERMINAL_NOT_FOUND code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.TERMINAL_NOT_FOUND,
+        );
+        expect((error as ShiftServiceError).message).toContain("deleted");
       }
     });
   });

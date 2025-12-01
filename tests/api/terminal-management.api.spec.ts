@@ -28,7 +28,7 @@ import {
  * - BR-TERM-006: (REMOVED) Terminal status field removed - terminals have no status
  * - BR-TERM-007: Cannot soft-delete terminal with active shift (OPEN, ACTIVE, CLOSING, RECONCILING)
  * - BR-TERM-015: Device ID must be globally unique
- * - BR-TERM-016: Device ID must be unique per store
+ * - BR-TERM-016: Device ID must be globally unique (across stores)
  * - BR-TERM-008: Can delete terminal with closed shifts
  * - BR-TERM-009: Company isolation - users can only access terminals for their company
  * - BR-TERM-010: Terminals cascade delete when store is deleted
@@ -163,7 +163,6 @@ test.describe("Terminal Management API", () => {
     // WHEN: Corporate admin attempts to create terminal for other company's store
     const terminalData = {
       name: "Unauthorized Terminal",
-      status: "ACTIVE",
     };
 
     const response = await corporateAdminApiRequest.post(
@@ -382,13 +381,13 @@ test.describe("Terminal Management API", () => {
   });
 
   /**
-   * BR-TERM-016: Device ID must be unique per store
+   * BR-TERM-016: Device ID must be globally unique (across stores)
    *
-   * WHY: Device ID uniqueness requirement per store
-   * RISK: Duplicate device IDs within same store
-   * VALIDATES: Per-store uniqueness constraint
+   * WHY: Device ID must be unique across all stores, not just within a store
+   * RISK: Duplicate device IDs across different stores causing conflicts
+   * VALIDATES: Global uniqueness constraint across stores
    */
-  test("[P0-BR-TERM-016] Device ID must be unique per store", async ({
+  test("[P0-BR-TERM-016] Device ID must be globally unique (across stores)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -398,15 +397,15 @@ test.describe("Terminal Management API", () => {
       name: "Test Company",
       owner_user_id: owner.user_id,
     });
-    const store = await createStore(prismaClient, {
+    const store1 = await createStore(prismaClient, {
       company_id: company.company_id,
-      name: "Test Store",
+      name: "Test Store 1",
     });
 
     const existingTerminalData = createTerminal({
-      store_id: store.store_id,
+      store_id: store1.store_id,
       name: "Existing Terminal",
-      device_id: "DEV-STORE-001",
+      device_id: "DEV-GLOBAL-002",
     });
     const existingTerminal = await prismaClient.pOSTerminal.create({
       data: {
@@ -415,24 +414,31 @@ test.describe("Terminal Management API", () => {
       },
     });
 
-    // WHEN: Attempting to create another terminal in the same store with the same device_id
+    // AND: A different store in the same company
+    const store2 = await createStore(prismaClient, {
+      company_id: company.company_id,
+      name: "Test Store 2",
+    });
+
+    // WHEN: Attempting to create a terminal in a different store with the same device_id
     const terminalData = {
       name: "Duplicate Device Terminal",
-      device_id: "DEV-STORE-001",
+      device_id: "DEV-GLOBAL-002",
     };
 
     const response = await superadminApiRequest.post(
-      `/api/stores/${store.store_id}/terminals`,
+      `/api/stores/${store2.store_id}/terminals`,
       terminalData,
     );
 
-    // THEN: Request fails with 400
+    // THEN: Request fails with 400 (global uniqueness prevents reuse across stores)
     expect(response.status()).toBe(400);
 
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body.error.code).toBe("VALIDATION_ERROR");
     expect(body.error.message).toContain("already in use");
+    expect(body.error.message).toContain("globally unique");
   });
 
   /**

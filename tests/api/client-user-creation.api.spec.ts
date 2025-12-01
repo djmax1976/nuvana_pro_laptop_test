@@ -4,7 +4,7 @@
  * @test-level API Integration
  * @justification Comprehensive API-level tests for CLIENT_USER creation with company and store assignment
  * @feature User Management - CLIENT_USER Role Assignment
- * @created 2025-01-XX
+ * @created 2025-11-30
  *
  * BUSINESS RULES TESTED:
  * - BR-CU-001: CLIENT_USER must be assigned to an existing company

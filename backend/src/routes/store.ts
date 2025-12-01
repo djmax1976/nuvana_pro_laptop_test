@@ -2304,16 +2304,24 @@ export async function storeRoutes(fastify: FastifyInstance) {
             where: { store_id: params.storeId },
             select: { company_id: true },
           });
-          if (store) {
-            userCompanyId = store.company_id;
+          if (!store) {
+            reply.code(404);
+            return {
+              success: false,
+              error: {
+                code: "NOT_FOUND",
+                message: "Store not found",
+              },
+            };
           }
+          userCompanyId = store.company_id;
         }
 
         // Create terminal
         const terminal = await storeService.createTerminal(
           params.storeId,
           body,
-          userCompanyId!,
+          userCompanyId,
         );
 
         reply.code(201);
@@ -2521,9 +2529,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
             where: { store_id: params.storeId },
             select: { company_id: true },
           });
-          if (store) {
-            userCompanyId = store.company_id;
+          if (!store) {
+            reply.code(404);
+            return {
+              success: false,
+              error: {
+                code: "NOT_FOUND",
+                message: "Store not found",
+              },
+            };
           }
+          userCompanyId = store.company_id;
         }
 
         // Update terminal
@@ -2706,13 +2722,37 @@ export async function storeRoutes(fastify: FastifyInstance) {
             where: { store_id: params.storeId },
             select: { company_id: true },
           });
-          if (store) {
-            userCompanyId = store.company_id;
+          if (!store) {
+            reply.code(404);
+            return {
+              success: false,
+              error: {
+                code: "STORE_NOT_FOUND",
+                message: `Store with ID ${params.storeId} not found`,
+              },
+            };
           }
+          userCompanyId = store.company_id;
+        }
+
+        // Ensure userCompanyId is set before proceeding
+        if (!userCompanyId) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: "You must have a COMPANY scope role to delete terminals",
+            },
+          };
         }
 
         // Delete terminal
-        await storeService.deleteTerminal(params.terminalId, userCompanyId!);
+        await storeService.deleteTerminal(
+          params.terminalId,
+          params.storeId,
+          userCompanyId,
+        );
 
         reply.code(204);
         return null;
