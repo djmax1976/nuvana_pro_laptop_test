@@ -1,5 +1,13 @@
-import { Prisma, PrismaClient } from "@prisma/client";
+import {
+  Prisma,
+  PrismaClient,
+  POSConnectionType,
+  POSVendorType,
+  POSTerminalStatus,
+  SyncStatus,
+} from "@prisma/client";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
+import { rbacService } from "./rbac.service";
 
 const prisma = new PrismaClient();
 
@@ -505,16 +513,95 @@ export class StoreService {
   }
 
   /**
+   * Check if user has access to a store
+   * Handles SYSTEM scope (system admin) bypass and company isolation for other users
+   * @param userId - User UUID
+   * @param storeId - Store UUID
+   * @returns true if user has access, false otherwise
+   * @throws Error if there's a database or service error
+   */
+  async checkUserStoreAccess(
+    userId: string,
+    storeId: string,
+  ): Promise<boolean> {
+    try {
+      // Get user's roles
+      const userRoles = await rbacService.getUserRoles(userId);
+
+      // Check for superadmin (system scope - can access all stores)
+      const hasSuperadminRole = userRoles.some(
+        (role) => role.scope === "SYSTEM" || role.role_code === "SUPERADMIN",
+      );
+
+      if (hasSuperadminRole) {
+        // Superadmins can access any store, just verify store exists
+        const store = await prisma.store.findUnique({
+          where: { store_id: storeId },
+          select: { store_id: true },
+        });
+        return !!store;
+      }
+
+      // Find user's company ID from company-scoped role
+      const companyRole = userRoles.find(
+        (role) => role.scope === "COMPANY" && role.company_id,
+      );
+
+      if (!companyRole?.company_id) {
+        // Check for store-scoped roles
+        const storeRoles = userRoles.filter(
+          (role) => role.scope === "STORE" && role.store_id,
+        );
+        // User can access if they have a role scoped to this specific store
+        return storeRoles.some((role) => role.store_id === storeId);
+      }
+
+      // Check if store belongs to user's company
+      const store = await prisma.store.findUnique({
+        where: { store_id: storeId },
+        select: { company_id: true },
+      });
+
+      if (!store) {
+        return false;
+      }
+
+      return store.company_id === companyRole.company_id;
+    } catch (error: any) {
+      // Log the error for debugging
+      console.error("Error in checkUserStoreAccess:", error);
+      // Re-throw to let the calling method handle it
+      throw error;
+    }
+  }
+
+  /**
    * Get terminals for a store with active shift status
    * Story 4.8: Cashier Shift Start Flow
    * @param storeId - Store UUID
-   * @param userCompanyId - User's assigned company ID (for isolation check)
+   * @param userId - User UUID (for authorization check)
    * @returns Array of terminals with has_active_shift boolean flag
-   * @throws Error if store not found or user tries to access store from different company
+   * @throws Error if store not found or user doesn't have access to store
    */
-  async getStoreTerminals(storeId: string, userCompanyId: string) {
+  async getStoreTerminals(storeId: string, userId: string) {
     try {
-      // Verify store exists and user has access (company isolation)
+      // Check if user has access to the store (handles SYSTEM scope bypass)
+      let hasAccess: boolean;
+      try {
+        hasAccess = await this.checkUserStoreAccess(userId, storeId);
+      } catch (accessError: any) {
+        // If checkUserStoreAccess throws an error, log it and re-throw
+        console.error("Error checking user store access:", accessError);
+        throw new Error(
+          `Failed to verify store access: ${accessError.message || "Unknown error"}`,
+        );
+      }
+
+      if (!hasAccess) {
+        throw new Error("Forbidden: You do not have access to this store");
+      }
+
+      // Verify store exists (checkUserStoreAccess already verified, but double-check for safety)
       const store = await prisma.store.findUnique({
         where: {
           store_id: storeId,
@@ -523,13 +610,6 @@ export class StoreService {
 
       if (!store) {
         throw new Error(`Store with ID ${storeId} not found`);
-      }
-
-      // Company isolation check: user can only access terminals for their company
-      if (store.company_id !== userCompanyId) {
-        throw new Error(
-          "Forbidden: You can only access terminals for your assigned company",
-        );
       }
 
       // Get all non-deleted terminals for the store
@@ -562,6 +642,12 @@ export class StoreService {
             store_id: terminal.store_id,
             name: terminal.name,
             device_id: terminal.device_id,
+            connection_type: terminal.connection_type,
+            connection_config: terminal.connection_config,
+            vendor_type: terminal.vendor_type,
+            terminal_status: terminal.terminal_status,
+            last_sync_at: terminal.last_sync_at,
+            sync_status: terminal.sync_status,
             has_active_shift: !!activeShift,
             created_at: terminal.created_at,
             updated_at: terminal.updated_at,
@@ -586,17 +672,41 @@ export class StoreService {
    * Create a new POS terminal for a store
    * @param storeId - Store UUID
    * @param data - Terminal creation data
-   * @param userCompanyId - User's assigned company ID (for isolation check)
+   * @param userId - User UUID (for authorization check)
    * @returns Created terminal
-   * @throws Error if store not found, device_id is duplicate, or user tries to create terminal for store from different company
+   * @throws Error if store not found, device_id is duplicate, or user doesn't have access to store
    */
   async createTerminal(
     storeId: string,
-    data: { name: string; device_id?: string },
-    userCompanyId: string,
+    data: {
+      name: string;
+      device_id?: string;
+      connection_type?: POSConnectionType;
+      connection_config?: any;
+      vendor_type?: POSVendorType;
+      terminal_status?: POSTerminalStatus;
+      sync_status?: SyncStatus;
+    },
+    userId: string,
   ) {
     try {
-      // Verify store exists and user has access (company isolation)
+      // Check if user has access to the store (handles SYSTEM scope bypass)
+      let hasAccess: boolean;
+      try {
+        hasAccess = await this.checkUserStoreAccess(userId, storeId);
+      } catch (accessError: any) {
+        // If checkUserStoreAccess throws an error, log it and re-throw
+        console.error("Error checking user store access:", accessError);
+        throw new Error(
+          `Failed to verify store access: ${accessError.message || "Unknown error"}`,
+        );
+      }
+
+      if (!hasAccess) {
+        throw new Error("Forbidden: You do not have access to this store");
+      }
+
+      // Verify store exists (checkUserStoreAccess already verified, but double-check for safety)
       const store = await prisma.store.findUnique({
         where: {
           store_id: storeId,
@@ -605,13 +715,6 @@ export class StoreService {
 
       if (!store) {
         throw new Error(`Store with ID ${storeId} not found`);
-      }
-
-      // Company isolation check: user can only create terminals for their company
-      if (store.company_id !== userCompanyId) {
-        throw new Error(
-          "Forbidden: You can only create terminals for your assigned company",
-        );
       }
 
       // Validate terminal name
@@ -659,6 +762,11 @@ export class StoreService {
           store_id: storeId,
           name: data.name.trim(),
           device_id: data.device_id || null,
+          connection_type: data.connection_type,
+          connection_config: data.connection_config ?? null,
+          vendor_type: data.vendor_type,
+          terminal_status: data.terminal_status,
+          sync_status: data.sync_status,
         },
       });
 
@@ -691,14 +799,22 @@ export class StoreService {
    * Update a POS terminal
    * @param terminalId - Terminal UUID
    * @param data - Terminal update data
-   * @param userCompanyId - User's assigned company ID (for isolation check)
+   * @param userId - User UUID (for authorization check)
    * @returns Updated terminal
-   * @throws Error if terminal not found, device_id is duplicate, or user tries to update terminal from different company
+   * @throws Error if terminal not found, device_id is duplicate, or user doesn't have access to store
    */
   async updateTerminal(
     terminalId: string,
-    data: { name?: string; device_id?: string },
-    userCompanyId: string,
+    data: {
+      name?: string;
+      device_id?: string;
+      connection_type?: POSConnectionType;
+      connection_config?: any;
+      vendor_type?: POSVendorType;
+      terminal_status?: POSTerminalStatus;
+      sync_status?: SyncStatus;
+    },
+    userId: string,
   ) {
     try {
       // Verify terminal exists and get store info (exclude soft-deleted)
@@ -710,7 +826,7 @@ export class StoreService {
         include: {
           store: {
             select: {
-              company_id: true,
+              store_id: true,
             },
           },
         },
@@ -720,11 +836,13 @@ export class StoreService {
         throw new Error(`Terminal with ID ${terminalId} not found`);
       }
 
-      // Company isolation check: user can only update terminals for their company
-      if (terminal.store.company_id !== userCompanyId) {
-        throw new Error(
-          "Forbidden: You can only update terminals for your assigned company",
-        );
+      // Check if user has access to the store (handles SYSTEM scope bypass)
+      const hasAccess = await this.checkUserStoreAccess(
+        userId,
+        terminal.store_id,
+      );
+      if (!hasAccess) {
+        throw new Error("Forbidden: You do not have access to this store");
       }
 
       // Validate terminal name if provided
@@ -780,6 +898,21 @@ export class StoreService {
       if (data.device_id !== undefined) {
         updateData.device_id = data.device_id || null;
       }
+      if (data.connection_type !== undefined) {
+        updateData.connection_type = data.connection_type;
+      }
+      if (data.connection_config !== undefined) {
+        updateData.connection_config = data.connection_config || null;
+      }
+      if (data.vendor_type !== undefined) {
+        updateData.vendor_type = data.vendor_type;
+      }
+      if (data.terminal_status !== undefined) {
+        updateData.terminal_status = data.terminal_status;
+      }
+      if (data.sync_status !== undefined) {
+        updateData.sync_status = data.sync_status;
+      }
 
       // Update terminal
       const updatedTerminal = await prisma.pOSTerminal.update({
@@ -819,13 +952,13 @@ export class StoreService {
    * Sets deleted_at timestamp instead of hard deleting
    * @param terminalId - Terminal UUID
    * @param storeId - Store UUID (must match terminal's store)
-   * @param userCompanyId - User's assigned company ID (for isolation check)
-   * @throws Error if terminal not found, terminal doesn't belong to store, terminal has active shift, or user tries to delete terminal from different company
+   * @param userId - User UUID (for authorization check)
+   * @throws Error if terminal not found, terminal doesn't belong to store, terminal has active shift, or user doesn't have access to store
    */
   async deleteTerminal(
     terminalId: string,
     storeId: string,
-    userCompanyId: string,
+    userId: string,
   ): Promise<void> {
     try {
       // Verify terminal exists and get store info (exclude soft-deleted)
@@ -837,7 +970,7 @@ export class StoreService {
         include: {
           store: {
             select: {
-              company_id: true,
+              store_id: true,
             },
           },
         },
@@ -847,11 +980,13 @@ export class StoreService {
         throw new Error(`Terminal with ID ${terminalId} not found`);
       }
 
-      // Company isolation check: user can only delete terminals for their company
-      if (terminal.store.company_id !== userCompanyId) {
-        throw new Error(
-          "Forbidden: You can only delete terminals for your assigned company",
-        );
+      // Check if user has access to the store (handles SYSTEM scope bypass)
+      const hasAccess = await this.checkUserStoreAccess(
+        userId,
+        terminal.store_id,
+      );
+      if (!hasAccess) {
+        throw new Error("Forbidden: You do not have access to this store");
       }
 
       // Validate terminal belongs to the provided store

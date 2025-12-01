@@ -234,6 +234,37 @@ enum ShiftStatus {
   VARIANCE_REVIEW
 }
 
+enum POSConnectionType {
+  NETWORK
+  API
+  WEBHOOK
+  FILE
+  MANUAL
+}
+
+enum POSVendorType {
+  GENERIC
+  SQUARE
+  CLOVER
+  TOAST
+  LIGHTSPEED
+  CUSTOM
+}
+
+enum POSTerminalStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+  ERROR
+}
+
+enum SyncStatus {
+  NEVER
+  SUCCESS
+  FAILED
+  IN_PROGRESS
+}
+
 model Shift {
   shift_id        String        @id @default(uuid()) @db.Uuid
   store_id        String        @db.Uuid
@@ -253,6 +284,9 @@ model Shift {
   created_at      DateTime      @default(now()) @db.Timestamptz(6)
   updated_at      DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
   public_id       String?       @unique @db.VarChar(30)
+  external_shift_id String?     @db.VarChar(255)
+  external_data     Json?
+  synced_at         DateTime?   @db.Timestamptz(6)
   opener          User          @relation("ShiftOpener", fields: [opened_by], references: [user_id])
   cashier         User          @relation("ShiftCashier", fields: [cashier_id], references: [user_id])
   approver        User?         @relation("ShiftApprover", fields: [approved_by], references: [user_id])
@@ -273,14 +307,20 @@ model Shift {
 }
 
 model POSTerminal {
-  pos_terminal_id String        @id @default(uuid()) @db.Uuid
-  store_id        String        @db.Uuid
-  name            String        @db.VarChar(100)
-  device_id       String?       @db.VarChar(255)
-  deleted_at      DateTime?     @db.Timestamptz(6) // Soft delete timestamp (NULL = active)
-  created_at      DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
-  store           Store         @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  pos_terminal_id String            @id @default(uuid()) @db.Uuid
+  store_id        String            @db.Uuid
+  name            String            @db.VarChar(100)
+  device_id       String?           @db.VarChar(255)
+  connection_type POSConnectionType @default(MANUAL)
+  connection_config Json?
+  vendor_type     POSVendorType     @default(GENERIC)
+  terminal_status POSTerminalStatus @default(ACTIVE)
+  last_sync_at    DateTime?         @db.Timestamptz(6)
+  sync_status     SyncStatus        @default(NEVER)
+  deleted_at      DateTime?         @db.Timestamptz(6) // Soft delete timestamp (NULL = active)
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @default(now()) @updatedAt @db.Timestamptz(6)
+  store           Store             @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
   shifts          Shift[]
   transactions    Transaction[]
 

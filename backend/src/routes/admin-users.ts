@@ -10,7 +10,7 @@ import {
 } from "../services/user-admin.service";
 import {
   createUserSchema,
-  roleAssignmentSchema,
+  strictRoleAssignmentSchema,
   updateUserStatusSchema,
   listUsersQuerySchema,
 } from "../schemas/user.schema";
@@ -382,8 +382,8 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Validate request body
-        const parseResult = roleAssignmentSchema.safeParse(request.body);
+        // Validate request body - use strict schema for adding roles to existing users
+        const parseResult = strictRoleAssignmentSchema.safeParse(request.body);
         if (!parseResult.success) {
           reply.code(400);
           return {

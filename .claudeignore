@@ -3,7 +3,7 @@
 # This file overrides .gitignore to allow access to specific folders
 
 # Allow access to nuvana_docs and nuvana_control
-
+!nuvana_docs/
 !nuvana_control/
 
 # Keep ignoring these from .gitignore

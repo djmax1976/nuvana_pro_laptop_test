@@ -6,9 +6,58 @@
  * Uses faker for dynamic values to prevent collisions in parallel tests.
  *
  * Story: 4-8-cashier-shift-start-flow
+ * Enhanced: 4-81-external-pos-connection-schema (added connection fields)
  */
 
 import { faker } from "@faker-js/faker";
+import { Prisma } from "@prisma/client";
+
+export type POSConnectionType =
+  | "NETWORK"
+  | "API"
+  | "WEBHOOK"
+  | "FILE"
+  | "MANUAL";
+
+export type POSVendorType =
+  | "GENERIC"
+  | "SQUARE"
+  | "CLOVER"
+  | "TOAST"
+  | "LIGHTSPEED"
+  | "CUSTOM";
+
+export type POSTerminalStatus = "ACTIVE" | "INACTIVE" | "PENDING" | "ERROR";
+
+export type SyncStatus = "NEVER" | "SUCCESS" | "FAILED" | "IN_PROGRESS";
+
+export type NetworkConnectionConfig = {
+  host: string;
+  port: number;
+  protocol: "TCP" | "HTTP";
+};
+
+export type ApiConnectionConfig = {
+  baseUrl: string;
+  apiKey: string;
+};
+
+export type WebhookConnectionConfig = {
+  webhookUrl?: string;
+  secret: string;
+};
+
+export type FileConnectionConfig = {
+  importPath: string;
+};
+
+export type ConnectionConfig =
+  | NetworkConnectionConfig
+  | ApiConnectionConfig
+  | WebhookConnectionConfig
+  | FileConnectionConfig
+  | Prisma.NullableJsonNullValueInput
+  | undefined;
 
 export type TerminalData = {
   pos_terminal_id?: string;
@@ -16,11 +65,19 @@ export type TerminalData = {
   name: string;
   device_id?: string | null;
   deleted_at?: Date | null;
+  // Connection fields (Story 4.81)
+  connection_type?: POSConnectionType;
+  connection_config?: ConnectionConfig;
+  vendor_type?: POSVendorType;
+  terminal_status?: POSTerminalStatus;
+  last_sync_at?: Date | null;
+  sync_status?: SyncStatus;
 };
 
 /**
  * Creates a POSTerminal test data object
  * Requires store_id to be provided
+ * Defaults to MANUAL connection type for backward compatibility
  */
 export const createTerminal = (
   overrides: Partial<TerminalData> & {
@@ -30,8 +87,87 @@ export const createTerminal = (
   name: `Terminal ${faker.number.int({ min: 1, max: 999 })}`,
   device_id: `device-${faker.string.alphanumeric(8)}`,
   deleted_at: null,
+  // Default connection fields (matching migration defaults)
+  connection_type: "MANUAL",
+  connection_config: Prisma.JsonNull,
+  vendor_type: "GENERIC",
+  terminal_status: "ACTIVE",
+  sync_status: "NEVER",
+  last_sync_at: null,
   ...overrides,
 });
+
+/**
+ * Creates a terminal with NETWORK connection type
+ */
+export const createNetworkTerminal = (
+  overrides: Partial<TerminalData> & {
+    store_id: string;
+  },
+): TerminalData => {
+  return createTerminal({
+    ...overrides,
+    connection_type: "NETWORK",
+    connection_config: {
+      host: faker.internet.ip(),
+      port: faker.internet.port(),
+      protocol: faker.helpers.arrayElement(["TCP", "HTTP"]),
+    },
+  });
+};
+
+/**
+ * Creates a terminal with API connection type
+ */
+export const createApiTerminal = (
+  overrides: Partial<TerminalData> & {
+    store_id: string;
+  },
+): TerminalData => {
+  return createTerminal({
+    ...overrides,
+    connection_type: "API",
+    connection_config: {
+      baseUrl: faker.internet.url(),
+      apiKey: faker.string.alphanumeric(32),
+    },
+  });
+};
+
+/**
+ * Creates a terminal with WEBHOOK connection type
+ */
+export const createWebhookTerminal = (
+  overrides: Partial<TerminalData> & {
+    store_id: string;
+  },
+): TerminalData => {
+  return createTerminal({
+    ...overrides,
+    connection_type: "WEBHOOK",
+    connection_config: {
+      webhookUrl: faker.internet.url(),
+      secret: faker.string.alphanumeric(32),
+    },
+  });
+};
+
+/**
+ * Creates a terminal with FILE connection type
+ */
+export const createFileTerminal = (
+  overrides: Partial<TerminalData> & {
+    store_id: string;
+  },
+): TerminalData => {
+  return createTerminal({
+    ...overrides,
+    connection_type: "FILE",
+    connection_config: {
+      importPath: faker.system.filePath(),
+    },
+  });
+};
 
 /**
  * Creates multiple POSTerminal test data objects
