@@ -47,11 +47,11 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
     expect(terminal.sync_status).toBe("NEVER");
   });
 
-  test("4.81-API-036: Existing terminals get default values", async ({
+  test("4.81-API-036: New terminals use default values when fields not specified", async ({
     prismaClient,
   }) => {
-    // GIVEN: A terminal exists before migration
-    // WHEN: Querying the terminal after migration
+    // GIVEN: Migration has been applied
+    // WHEN: Creating a new terminal without specifying the new fields
     // THEN: Default values should be applied (connection_type=MANUAL, vendor_type=GENERIC, terminal_status=ACTIVE, sync_status=NEVER)
     const owner = await createUser(prismaClient);
     const company = await createCompany(prismaClient, {
@@ -61,11 +61,11 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
       company_id: company.company_id,
     });
 
-    // Create terminal (simulating pre-migration terminal)
+    // Create terminal after migration without specifying new fields
     const terminal = await prismaClient.pOSTerminal.create({
       data: {
         store_id: store.store_id,
-        name: "Pre-migration Terminal",
+        name: "New Terminal",
         // Not specifying new fields - should use defaults
       },
     });

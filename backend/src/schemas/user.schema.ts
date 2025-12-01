@@ -116,17 +116,21 @@ export const strictRoleAssignmentSchema = roleAssignmentSchema
 /**
  * Password validation requirements
  * Industry standard: min 8 chars, uppercase, lowercase, number, special char
+ * Special characters are punctuation/symbols (not whitespace)
  */
 const passwordSchema = z
   .string()
   .min(8, "Password must be at least 8 characters")
   .max(255, "Password cannot exceed 255 characters")
+  .refine((val) => !/\s/.test(val), {
+    message: "Password cannot contain whitespace",
+  })
   .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
   .regex(/[a-z]/, "Password must contain at least one lowercase letter")
   .regex(/[0-9]/, "Password must contain at least one number")
   .regex(
-    /[^A-Za-z0-9]/,
-    "Password must contain at least one special character",
+    /(?=.*[^\w\s])/,
+    "Password must contain at least one special character (punctuation or symbol)",
   );
 
 /**

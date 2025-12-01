@@ -2417,7 +2417,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           error: "Internal server error",
-          message: error.message || "Failed to create terminal",
+          message: "Failed to create terminal",
         };
       }
     },
