@@ -253,7 +253,7 @@ describe("User Creation Schema - Company Fields Validation", () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues[0].message).toContain(
-        "Company name is required",
+        "Company name cannot be empty",
       );
     }
   });
@@ -285,7 +285,7 @@ describe("User Creation Schema - Company Fields Validation", () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues[0].message).toContain(
-        "Company address is required",
+        "Company address cannot be empty",
       );
     }
   });

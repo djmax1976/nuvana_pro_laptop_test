@@ -30,12 +30,19 @@ export default defineConfig({
   // Output directory for test artifacts
   outputDir: "test-results/artifacts",
 
-  // Reporter configuration
+  // Reporter configuration - includes slow test detection
   reporter: [
     ["html", { outputFolder: "playwright-report", open: "never" }],
     ["junit", { outputFile: "test-results/junit.xml" }],
-    ["list"],
+    ["json", { outputFile: "test-results/playwright-results.json" }],
+    ["list", { printSteps: true }],
   ],
+
+  // Slow test threshold - tests exceeding this are flagged in reports
+  reportSlowTests: {
+    max: 10, // Report up to 10 slowest tests
+    threshold: 30000, // Flag tests taking longer than 30 seconds
+  },
 
   // Global test configuration
   use: {

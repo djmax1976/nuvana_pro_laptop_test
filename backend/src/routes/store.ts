@@ -6,6 +6,10 @@ import { storeService } from "../services/store.service";
 import { rbacService } from "../services/rbac.service";
 import { PrismaClient } from "@prisma/client";
 import crypto from "crypto";
+import {
+  safeValidateCreateTerminalInput,
+  safeValidateUpdateTerminalInput,
+} from "../schemas/terminal.schema";
 
 const prisma = new PrismaClient();
 
@@ -803,10 +807,9 @@ export async function storeRoutes(fastify: FastifyInstance) {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = request.params as { storeId: string };
+      const user = (request as any).user as UserIdentity;
       try {
-        const params = request.params as { storeId: string };
-        const user = (request as any).user as UserIdentity;
-
         // Check if store exists FIRST (before permission check)
         // This ensures we return 404 for non-existent stores, not 403
         const store = await prisma.store.findUnique({
@@ -1862,10 +1865,9 @@ export async function storeRoutes(fastify: FastifyInstance) {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = request.params as { storeId: string };
+      const user = (request as any).user as UserIdentity;
       try {
-        const params = request.params as { storeId: string };
-        const user = (request as any).user as UserIdentity;
-
         // Check if store exists FIRST (before permission check)
         // This ensures we return 404 for non-existent stores, not 403
         const oldStore = await prisma.store.findUnique({
@@ -2030,8 +2032,46 @@ export async function storeRoutes(fastify: FastifyInstance) {
                 store_id: { type: "string", format: "uuid" },
                 name: { type: "string" },
                 device_id: { type: "string", nullable: true },
+                connection_type: {
+                  type: "string",
+                  enum: ["NETWORK", "API", "WEBHOOK", "FILE", "MANUAL"],
+                },
+                connection_config: {
+                  type: "object",
+                  nullable: true,
+                  additionalProperties: true,
+                },
+                vendor_type: {
+                  type: "string",
+                  enum: [
+                    "GENERIC",
+                    "SQUARE",
+                    "CLOVER",
+                    "TOAST",
+                    "LIGHTSPEED",
+                    "CUSTOM",
+                  ],
+                },
+                terminal_status: {
+                  type: "string",
+                  enum: ["ACTIVE", "INACTIVE", "PENDING", "ERROR"],
+                },
+                last_sync_at: {
+                  type: "string",
+                  nullable: true,
+                  format: "date-time",
+                },
+                sync_status: {
+                  type: "string",
+                  enum: ["NEVER", "SUCCESS", "FAILED", "IN_PROGRESS"],
+                },
                 status: { type: "string" },
                 has_active_shift: { type: "boolean" },
+                deleted_at: {
+                  type: "string",
+                  nullable: true,
+                  format: "date-time",
+                },
                 created_at: { type: "string", format: "date-time" },
                 updated_at: { type: "string", format: "date-time" },
               },
@@ -2078,46 +2118,13 @@ export async function storeRoutes(fastify: FastifyInstance) {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = request.params as { storeId: string };
+      const user = (request as any).user as UserIdentity;
       try {
-        const params = request.params as { storeId: string };
-        const user = (request as any).user as UserIdentity;
-
-        // Get user's company_id for isolation check
-        // System Admins can access terminals for ANY store
-        const userRoles = await rbacService.getUserRoles(user.id);
-        const hasSystemScope = userRoles.some(
-          (role) => role.scope === "SYSTEM",
-        );
-
-        let userCompanyId: string | null = null;
-        if (!hasSystemScope) {
-          userCompanyId = await getUserCompanyId(user.id);
-          if (!userCompanyId) {
-            reply.code(403);
-            return {
-              success: false,
-              error: {
-                code: "PERMISSION_DENIED",
-                message:
-                  "You must have a COMPANY scope role to access terminals",
-              },
-            };
-          }
-        } else {
-          // System admin: get company_id from store
-          const store = await prisma.store.findUnique({
-            where: { store_id: params.storeId },
-            select: { company_id: true },
-          });
-          if (store) {
-            userCompanyId = store.company_id;
-          }
-        }
-
-        // Get terminals with active shift status (service handles RLS)
+        // Get terminals with active shift status (service handles authorization including SYSTEM scope bypass)
         const terminals = await storeService.getStoreTerminals(
           params.storeId,
-          userCompanyId!,
+          user.id,
         );
 
         reply.code(200);
@@ -2194,6 +2201,40 @@ export async function storeRoutes(fastify: FastifyInstance) {
               maxLength: 255,
               description: "Device ID (optional, must be globally unique)",
             },
+            connection_type: {
+              type: "string",
+              enum: ["NETWORK", "API", "WEBHOOK", "FILE", "MANUAL"],
+              description: "POS connection type",
+            },
+            connection_config: {
+              type: "object",
+              nullable: true,
+              additionalProperties: true,
+              description:
+                "Connection configuration (structure depends on connection_type)",
+            },
+            vendor_type: {
+              type: "string",
+              enum: [
+                "GENERIC",
+                "SQUARE",
+                "CLOVER",
+                "TOAST",
+                "LIGHTSPEED",
+                "CUSTOM",
+              ],
+              description: "POS vendor type",
+            },
+            terminal_status: {
+              type: "string",
+              enum: ["ACTIVE", "INACTIVE", "PENDING", "ERROR"],
+              description: "Terminal status",
+            },
+            sync_status: {
+              type: "string",
+              enum: ["NEVER", "SUCCESS", "FAILED", "IN_PROGRESS"],
+              description: "Sync status",
+            },
           },
         },
         response: {
@@ -2204,6 +2245,39 @@ export async function storeRoutes(fastify: FastifyInstance) {
               store_id: { type: "string", format: "uuid" },
               name: { type: "string" },
               device_id: { type: "string", nullable: true },
+              connection_type: {
+                type: "string",
+                enum: ["NETWORK", "API", "WEBHOOK", "FILE", "MANUAL"],
+              },
+              connection_config: {
+                type: "object",
+                nullable: true,
+                additionalProperties: true,
+              },
+              vendor_type: {
+                type: "string",
+                enum: [
+                  "GENERIC",
+                  "SQUARE",
+                  "CLOVER",
+                  "TOAST",
+                  "LIGHTSPEED",
+                  "CUSTOM",
+                ],
+              },
+              terminal_status: {
+                type: "string",
+                enum: ["ACTIVE", "INACTIVE", "PENDING", "ERROR"],
+              },
+              last_sync_at: {
+                type: "string",
+                nullable: true,
+                format: "date-time",
+              },
+              sync_status: {
+                type: "string",
+                enum: ["NEVER", "SUCCESS", "FAILED", "IN_PROGRESS"],
+              },
               deleted_at: {
                 type: "string",
                 nullable: true,
@@ -2269,65 +2343,43 @@ export async function storeRoutes(fastify: FastifyInstance) {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = request.params as { storeId: string };
+      const user = (request as any).user as UserIdentity;
       try {
-        const params = request.params as { storeId: string };
-        const body = request.body as {
-          name: string;
-          device_id?: string;
-        };
-        const user = (request as any).user as UserIdentity;
-
-        // Get user's company_id for isolation check
-        // System Admins can create terminals for ANY store
-        const userRoles = await rbacService.getUserRoles(user.id);
-        const hasSystemScope = userRoles.some(
-          (role) => role.scope === "SYSTEM",
-        );
-
-        let userCompanyId: string | null = null;
-        if (!hasSystemScope) {
-          userCompanyId = await getUserCompanyId(user.id);
-          if (!userCompanyId) {
-            reply.code(403);
-            return {
-              success: false,
-              error: {
-                code: "PERMISSION_DENIED",
-                message:
-                  "You must have a COMPANY scope role to create terminals",
-              },
-            };
-          }
-        } else {
-          // System admin: get company_id from store
-          const store = await prisma.store.findUnique({
-            where: { store_id: params.storeId },
-            select: { company_id: true },
-          });
-          if (!store) {
-            reply.code(404);
-            return {
-              success: false,
-              error: {
-                code: "NOT_FOUND",
-                message: "Store not found",
-              },
-            };
-          }
-          userCompanyId = store.company_id;
+        // Validate request body using Zod schema
+        const validationResult = safeValidateCreateTerminalInput(request.body);
+        if (!validationResult.success) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid request data",
+              details: validationResult.error.issues,
+            },
+          };
         }
 
-        // Create terminal
+        // Create terminal (service handles authorization including SYSTEM scope bypass)
         const terminal = await storeService.createTerminal(
           params.storeId,
-          body,
-          userCompanyId,
+          validationResult.data,
+          user.id,
         );
 
         reply.code(201);
         return terminal;
       } catch (error: any) {
-        fastify.log.error({ error }, "Error creating terminal");
+        fastify.log.error(
+          {
+            error,
+            errorMessage: error.message,
+            errorStack: error.stack,
+            userId: user.id,
+            storeId: params.storeId,
+          },
+          "Error creating terminal",
+        );
         if (error.message.includes("not found")) {
           reply.code(404);
           return {
@@ -2416,6 +2468,40 @@ export async function storeRoutes(fastify: FastifyInstance) {
               maxLength: 255,
               description: "Device ID (optional, must be globally unique)",
             },
+            connection_type: {
+              type: "string",
+              enum: ["NETWORK", "API", "WEBHOOK", "FILE", "MANUAL"],
+              description: "POS connection type",
+            },
+            connection_config: {
+              type: "object",
+              nullable: true,
+              additionalProperties: true,
+              description:
+                "Connection configuration (structure depends on connection_type)",
+            },
+            vendor_type: {
+              type: "string",
+              enum: [
+                "GENERIC",
+                "SQUARE",
+                "CLOVER",
+                "TOAST",
+                "LIGHTSPEED",
+                "CUSTOM",
+              ],
+              description: "POS vendor type",
+            },
+            terminal_status: {
+              type: "string",
+              enum: ["ACTIVE", "INACTIVE", "PENDING", "ERROR"],
+              description: "Terminal status",
+            },
+            sync_status: {
+              type: "string",
+              enum: ["NEVER", "SUCCESS", "FAILED", "IN_PROGRESS"],
+              description: "Sync status",
+            },
           },
         },
         response: {
@@ -2426,6 +2512,39 @@ export async function storeRoutes(fastify: FastifyInstance) {
               store_id: { type: "string", format: "uuid" },
               name: { type: "string" },
               device_id: { type: "string", nullable: true },
+              connection_type: {
+                type: "string",
+                enum: ["NETWORK", "API", "WEBHOOK", "FILE", "MANUAL"],
+              },
+              connection_config: {
+                type: "object",
+                nullable: true,
+                additionalProperties: true,
+              },
+              vendor_type: {
+                type: "string",
+                enum: [
+                  "GENERIC",
+                  "SQUARE",
+                  "CLOVER",
+                  "TOAST",
+                  "LIGHTSPEED",
+                  "CUSTOM",
+                ],
+              },
+              terminal_status: {
+                type: "string",
+                enum: ["ACTIVE", "INACTIVE", "PENDING", "ERROR"],
+              },
+              last_sync_at: {
+                type: "string",
+                nullable: true,
+                format: "date-time",
+              },
+              sync_status: {
+                type: "string",
+                enum: ["NEVER", "SUCCESS", "FAILED", "IN_PROGRESS"],
+              },
               deleted_at: {
                 type: "string",
                 nullable: true,
@@ -2491,62 +2610,31 @@ export async function storeRoutes(fastify: FastifyInstance) {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = request.params as {
+        storeId: string;
+        terminalId: string;
+      };
+      const user = (request as any).user as UserIdentity;
       try {
-        const params = request.params as {
-          storeId: string;
-          terminalId: string;
-        };
-        const body = request.body as {
-          name?: string;
-          device_id?: string;
-        };
-        const user = (request as any).user as UserIdentity;
-
-        // Get user's company_id for isolation check
-        // System Admins can update terminals for ANY store
-        const userRoles = await rbacService.getUserRoles(user.id);
-        const hasSystemScope = userRoles.some(
-          (role) => role.scope === "SYSTEM",
-        );
-
-        let userCompanyId: string | null = null;
-        if (!hasSystemScope) {
-          userCompanyId = await getUserCompanyId(user.id);
-          if (!userCompanyId) {
-            reply.code(403);
-            return {
-              success: false,
-              error: {
-                code: "PERMISSION_DENIED",
-                message:
-                  "You must have a COMPANY scope role to update terminals",
-              },
-            };
-          }
-        } else {
-          // System admin: get company_id from store
-          const store = await prisma.store.findUnique({
-            where: { store_id: params.storeId },
-            select: { company_id: true },
-          });
-          if (!store) {
-            reply.code(404);
-            return {
-              success: false,
-              error: {
-                code: "NOT_FOUND",
-                message: "Store not found",
-              },
-            };
-          }
-          userCompanyId = store.company_id;
+        // Validate request body using Zod schema
+        const validationResult = safeValidateUpdateTerminalInput(request.body);
+        if (!validationResult.success) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid request data",
+              details: validationResult.error.issues,
+            },
+          };
         }
 
-        // Update terminal
+        // Update terminal (service handles authorization including SYSTEM scope bypass)
         const terminal = await storeService.updateTerminal(
           params.terminalId,
-          body,
-          userCompanyId!,
+          validationResult.data,
+          user.id,
         );
 
         reply.code(200);
@@ -2695,63 +2783,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         };
         const user = (request as any).user as UserIdentity;
 
-        // Get user's company_id for isolation check
-        // System Admins can delete terminals for ANY store
-        const userRoles = await rbacService.getUserRoles(user.id);
-        const hasSystemScope = userRoles.some(
-          (role) => role.scope === "SYSTEM",
-        );
-
-        let userCompanyId: string | null = null;
-        if (!hasSystemScope) {
-          userCompanyId = await getUserCompanyId(user.id);
-          if (!userCompanyId) {
-            reply.code(403);
-            return {
-              success: false,
-              error: {
-                code: "PERMISSION_DENIED",
-                message:
-                  "You must have a COMPANY scope role to delete terminals",
-              },
-            };
-          }
-        } else {
-          // System admin: get company_id from store
-          const store = await prisma.store.findUnique({
-            where: { store_id: params.storeId },
-            select: { company_id: true },
-          });
-          if (!store) {
-            reply.code(404);
-            return {
-              success: false,
-              error: {
-                code: "STORE_NOT_FOUND",
-                message: `Store with ID ${params.storeId} not found`,
-              },
-            };
-          }
-          userCompanyId = store.company_id;
-        }
-
-        // Ensure userCompanyId is set before proceeding
-        if (!userCompanyId) {
-          reply.code(403);
-          return {
-            success: false,
-            error: {
-              code: "PERMISSION_DENIED",
-              message: "You must have a COMPANY scope role to delete terminals",
-            },
-          };
-        }
-
-        // Delete terminal
+        // Delete terminal (service handles authorization including SYSTEM scope bypass)
         await storeService.deleteTerminal(
           params.terminalId,
           params.storeId,
-          userCompanyId,
+          user.id,
         );
 
         reply.code(204);

@@ -46,12 +46,28 @@ async function killPort(port) {
 function startProcess(name, command, args, cwd = process.cwd()) {
   console.log(`\n🚀 Starting ${name}...`);
 
-  const proc = spawn(command, args, {
-    cwd,
-    stdio: 'pipe',
-    shell: true,
-    env: { ...process.env }
-  });
+  const isWindows = process.platform === 'win32';
+  let proc;
+
+  if (isWindows && command === 'npm') {
+    // On Windows, construct command as single string to avoid deprecation warning
+    // This is safe because we're only running trusted npm scripts from package.json
+    const fullCommand = `npm ${args.join(' ')}`;
+    proc = spawn(fullCommand, [], {
+      cwd,
+      stdio: 'pipe',
+      shell: true,
+      env: { ...process.env }
+    });
+  } else {
+    // On Unix systems, spawn directly without shell to avoid deprecation warning
+    proc = spawn(command, args, {
+      cwd,
+      stdio: 'pipe',
+      shell: false,
+      env: { ...process.env }
+    });
+  }
 
   proc.stdout.on('data', (data) => {
     const output = data.toString();
@@ -138,7 +154,7 @@ async function start() {
   // Wait for backend to be ready with health check
   console.log('Waiting for backend to start...');
   let backendReady = false;
-  const maxAttempts = 15;
+  const maxAttempts = 30; // Increased from 15 to 30 (30 seconds total)
 
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -146,15 +162,17 @@ async function start() {
       const http = require('http');
       await new Promise((resolve, reject) => {
         const req = http.get(`http://localhost:${BACKEND_PORT}/api/health`, (res) => {
-          if (res.statusCode === 200) {
+          // Accept both 200 (healthy) and 503 (degraded but running)
+          // 503 means backend is up but dependencies (Redis/RabbitMQ) may not be connected
+          if (res.statusCode === 200 || res.statusCode === 503) {
             backendReady = true;
             resolve();
           } else {
-            reject();
+            reject(new Error(`Unexpected status code: ${res.statusCode}`));
           }
         });
         req.on('error', reject);
-        req.setTimeout(2000, () => reject());
+        req.setTimeout(3000, () => reject(new Error('Request timeout'))); // Increased timeout to 3s
       });
 
       if (backendReady) {
@@ -165,6 +183,7 @@ async function start() {
       // Backend not ready yet, continue waiting
       if (i === maxAttempts - 1) {
         console.warn('⚠️  Backend health check timeout, continuing anyway...');
+        console.warn(`   Last error: ${error.message || error}`);
       }
     }
   }

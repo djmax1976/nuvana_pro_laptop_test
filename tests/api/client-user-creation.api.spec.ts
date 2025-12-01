@@ -3,8 +3,15 @@
  *
  * @test-level API Integration
  * @justification Comprehensive API-level tests for CLIENT_USER creation with company and store assignment
- * @feature User Management - CLIENT_USER Role Assignment
+ * @feature User Management - CLIENT_USER Role Assignment (Story 4.9: MyStore Terminal Dashboard)
  * @created 2025-11-30
+ *
+ * STORY 4.9 CONTEXT:
+ * CLIENT_USER is the role for Cashiers/Terminal Operators who:
+ * - Access the dedicated /mystore terminal dashboard
+ * - Have store-level access only (scope_type: "STORE")
+ * - Can only see terminals for their assigned store
+ * - Have minimal sidebar navigation (terminals + clock in/out only)
  *
  * BUSINESS RULES TESTED:
  * - BR-CU-001: CLIENT_USER must be assigned to an existing company
@@ -14,6 +21,7 @@
  * - BR-CU-005: Store must be ACTIVE
  * - BR-CU-006: is_client_user flag must be set to true
  * - BR-CU-007: user_role must have both company_id and store_id
+ * - BR-CU-008: CLIENT_USER requires scope_type: "STORE" (store-level access)
  *
  * SECURITY FOCUS:
  * - Company isolation enforcement
@@ -70,6 +78,7 @@ test.describe("CLIENT_USER Creation API", () => {
     }
 
     // WHEN: System Admin creates CLIENT_USER with company and store
+    // Per Story 4.9: CLIENT_USER has store-level access (scope_type: "STORE")
     const userData = {
       name: "Test Client User",
       email: `clientuser-${Date.now()}@test.com`,
@@ -77,7 +86,7 @@ test.describe("CLIENT_USER Creation API", () => {
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "COMPANY",
+          scope_type: "STORE", // CLIENT_USER requires STORE scope per Story 4.9
           company_id: company.company_id,
           store_id: store.store_id,
         },
@@ -145,7 +154,7 @@ test.describe("CLIENT_USER Creation API", () => {
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "COMPANY",
+          scope_type: "STORE", // CLIENT_USER requires STORE scope per Story 4.9
           // Missing company_id
           store_id: "00000000-0000-0000-0000-000000000000",
         },
@@ -193,7 +202,7 @@ test.describe("CLIENT_USER Creation API", () => {
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "COMPANY",
+          scope_type: "STORE", // CLIENT_USER requires STORE scope per Story 4.9
           company_id: company.company_id,
           // Missing store_id
         },
@@ -269,7 +278,7 @@ test.describe("CLIENT_USER Creation API", () => {
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "COMPANY",
+          scope_type: "STORE", // CLIENT_USER requires STORE scope per Story 4.9
           company_id: company1.company_id, // Company 1
           store_id: store2.store_id, // Store from Company 2
         },
@@ -339,7 +348,7 @@ test.describe("CLIENT_USER Creation API", () => {
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "COMPANY",
+          scope_type: "STORE", // CLIENT_USER requires STORE scope per Story 4.9
           company_id: company.company_id,
           store_id: store.store_id,
         },
@@ -405,7 +414,7 @@ test.describe("CLIENT_USER Creation API", () => {
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "COMPANY",
+          scope_type: "STORE", // CLIENT_USER requires STORE scope per Story 4.9
           company_id: company.company_id,
           store_id: store.store_id,
         },
@@ -457,7 +466,7 @@ test.describe("CLIENT_USER Creation API", () => {
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "COMPANY",
+          scope_type: "STORE", // CLIENT_USER requires STORE scope per Story 4.9
           company_id: fakeCompanyId,
           store_id: fakeStoreId,
         },
@@ -508,7 +517,7 @@ test.describe("CLIENT_USER Creation API", () => {
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "COMPANY",
+          scope_type: "STORE", // CLIENT_USER requires STORE scope per Story 4.9
           company_id: company.company_id,
           store_id: fakeStoreId,
         },
@@ -571,7 +580,7 @@ test.describe("CLIENT_USER Creation API", () => {
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "COMPANY",
+          scope_type: "STORE", // CLIENT_USER requires STORE scope per Story 4.9
           company_id: company.company_id,
           store_id: store.store_id,
         },
@@ -617,7 +626,7 @@ test.describe("CLIENT_USER Creation API", () => {
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "COMPANY",
+          scope_type: "STORE", // CLIENT_USER requires STORE scope per Story 4.9
           company_id: "invalid-uuid",
           store_id: "invalid-uuid",
         },
