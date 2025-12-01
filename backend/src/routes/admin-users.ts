@@ -120,12 +120,25 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error creating user");
 
+        // 409 Conflict for duplicate email
+        if (message.includes("already exists")) {
+          reply.code(409);
+          return {
+            success: false,
+            error: "Conflict",
+            message,
+          };
+        }
+
         if (
           message.includes("Invalid email") ||
           message.includes("required") ||
           message.includes("whitespace") ||
-          message.includes("already exists") ||
-          message.includes("scope requires")
+          message.includes("scope requires") ||
+          message.includes("does not belong") ||
+          message.includes("not found") ||
+          message.includes("inactive store") ||
+          message.includes("inactive company")
         ) {
           reply.code(400);
           return {

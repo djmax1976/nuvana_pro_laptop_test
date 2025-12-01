@@ -611,11 +611,52 @@ export const test = base.extend<RBACFixture>({
       }
 
       // 2. NOW delete shifts (after transactions are gone)
-      await bypassClient.shift.deleteMany({
-        where: {
-          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
-        },
-      });
+      // Use retry loop to handle race conditions with async worker processing
+      // The worker may create transactions after we query but before we delete
+      const MAX_RETRIES = 3;
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          // Re-query shifts to get current state
+          const currentShifts = await bypassClient.shift.findMany({
+            where: {
+              OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+            },
+            select: { shift_id: true },
+          });
+          const currentShiftIds = currentShifts.map((s) => s.shift_id);
+
+          if (currentShiftIds.length > 0) {
+            // Delete any transactions (and children) for these shifts
+            await bypassClient.transactionPayment.deleteMany({
+              where: { transaction: { shift_id: { in: currentShiftIds } } },
+            });
+            await bypassClient.transactionLineItem.deleteMany({
+              where: { transaction: { shift_id: { in: currentShiftIds } } },
+            });
+            await bypassClient.transaction.deleteMany({
+              where: { shift_id: { in: currentShiftIds } },
+            });
+          }
+
+          // Now delete the shifts
+          await bypassClient.shift.deleteMany({
+            where: {
+              OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+            },
+          });
+          break; // Success, exit retry loop
+        } catch (error) {
+          if (
+            attempt === MAX_RETRIES ||
+            !(error instanceof Error) ||
+            !error.message.includes("Foreign key constraint")
+          ) {
+            throw error; // Max retries reached or different error
+          }
+          // Brief delay before retry to let worker finish
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
 
       // 2. Get all stores for this company to delete their user roles
       const stores = await bypassClient.store.findMany({
@@ -639,6 +680,11 @@ export const test = base.extend<RBACFixture>({
       // 3.5. Delete bulk import jobs for this user (FK to users)
       await bypassClient.bulkImportJob.deleteMany({
         where: { user_id: user.user_id },
+      });
+
+      // 3.6. Delete transactions for this user (FK cashier_id to users)
+      await bypassClient.transaction.deleteMany({
+        where: { cashier_id: user.user_id },
       });
 
       // 4. Delete user

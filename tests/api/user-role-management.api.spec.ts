@@ -105,10 +105,24 @@ test.describe("2.8-API: User Management API - User CRUD Operations", () => {
     const existingUser = createAdminUser();
     await prismaClient.user.create({ data: existingUser });
 
+    // Get a SYSTEM scope role for the new user request
+    const systemRole = await prismaClient.role.findFirst({
+      where: { scope: "SYSTEM" },
+    });
+    if (!systemRole) {
+      throw new Error("No SYSTEM scope role found in database");
+    }
+
     // WHEN: Creating another user with the same email
     const response = await superadminApiRequest.post("/api/admin/users", {
       email: existingUser.email,
       name: "New User",
+      roles: [
+        {
+          role_id: systemRole.role_id,
+          scope_type: "SYSTEM",
+        },
+      ],
     });
 
     // THEN: Duplicate email error is returned
@@ -728,28 +742,41 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A user with an assigned role
+    // GIVEN: A user with TWO assigned roles (users must have at least one role)
     const user = await prismaClient.user.create({
       data: createAdminUser(),
     });
 
-    const role = await prismaClient.role.findFirst({
-      where: { scope: "SYSTEM" },
+    // Get any two roles - can be different scopes (SYSTEM and COMPANY)
+    const roles = await prismaClient.role.findMany({
+      take: 2,
     });
-    if (!role) {
-      throw new Error("No SYSTEM scope role found in database");
+    if (roles.length < 2) {
+      throw new Error("Need at least 2 roles in database");
     }
 
-    const userRole = await prismaClient.userRole.create({
+    // Create first role (the one to keep) - with company_id if needed
+    const company = await prismaClient.company.findFirst();
+    await prismaClient.userRole.create({
       data: {
         user_id: user.user_id,
-        role_id: role.role_id,
+        role_id: roles[0].role_id,
+        company_id: roles[0].scope !== "SYSTEM" ? company?.company_id : null,
       },
     });
 
-    // WHEN: Revoking the role
+    // Create second role (the one to revoke)
+    const userRoleToRevoke = await prismaClient.userRole.create({
+      data: {
+        user_id: user.user_id,
+        role_id: roles[1].role_id,
+        company_id: roles[1].scope !== "SYSTEM" ? company?.company_id : null,
+      },
+    });
+
+    // WHEN: Revoking the second role
     const response = await superadminApiRequest.delete(
-      `/api/admin/users/${user.user_id}/roles/${userRole.user_role_id}`,
+      `/api/admin/users/${user.user_id}/roles/${userRoleToRevoke.user_role_id}`,
     );
 
     // THEN: Role is revoked successfully
@@ -759,7 +786,7 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
 
     // AND: Role assignment no longer exists
     const deletedUserRole = await prismaClient.userRole.findUnique({
-      where: { user_role_id: userRole.user_role_id },
+      where: { user_role_id: userRoleToRevoke.user_role_id },
     });
     expect(deletedUserRole).toBeNull();
 

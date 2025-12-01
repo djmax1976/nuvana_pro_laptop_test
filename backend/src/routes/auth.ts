@@ -64,11 +64,12 @@ export async function authRoutes(fastify: FastifyInstance) {
         }
 
         // Check if user has a password set
+        // Return generic message to not leak account existence
         if (!user.password_hash) {
           reply.code(401);
           return {
             error: "Unauthorized",
-            message: "Password not set for this account",
+            message: "Invalid email or password",
           };
         }
 
@@ -397,7 +398,8 @@ export async function authRoutes(fastify: FastifyInstance) {
         if (!refreshToken) {
           reply.code(401);
           return {
-            error: "Missing refresh token cookie",
+            error: "Unauthorized",
+            message: "Missing refresh token cookie",
           };
         }
 

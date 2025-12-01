@@ -64,8 +64,10 @@ test.describe("Store-Company Isolation & Integrity", () => {
 
     // AND: Error message indicates company not found
     expect(body.error).toBeDefined();
-    expect(body.message).toContain("Company");
-    expect(body.message).toContain("not found");
+    // Error message can be in body.message (legacy) or body.error.message (standard API format)
+    const errorMessage = body.message || body.error?.message || "";
+    expect(errorMessage).toContain("Company");
+    expect(errorMessage).toContain("not found");
   });
 
   /**

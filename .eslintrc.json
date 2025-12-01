@@ -16,6 +16,14 @@
     "security/detect-pseudoRandomBytes": "error",
     "security/detect-new-buffer": "error",
     "security/detect-bidi-characters": "error"
-  }
+  },
+  "overrides": [
+    {
+      "files": ["tests/**/*.ts", "tests/**/*.tsx"],
+      "rules": {
+        "react-hooks/rules-of-hooks": "off"
+      }
+    }
+  ]
 }
 

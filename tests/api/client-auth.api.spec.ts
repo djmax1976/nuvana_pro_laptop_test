@@ -670,7 +670,7 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
       return;
     }
 
-    // GIVEN: A company exists for the CLIENT_USER role assignment
+    // GIVEN: A company and store exist for the CLIENT_USER role assignment
     // Use factory functions directly to avoid helper function issues
     const companyOwnerData = createUserFactory();
     const companyOwner = await prismaClient.user.create({
@@ -684,6 +684,12 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
       data: companyData,
     });
 
+    // CLIENT_USER role requires both company_id and store_id
+    const storeData = createStoreFactory({ company_id: company.company_id });
+    const store = await prismaClient.store.create({
+      data: storeData,
+    });
+
     const userData = {
       name: "New Client User",
       email: `newclientuser-${Date.now()}@test-api.example.com`,
@@ -691,8 +697,9 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "COMPANY",
+          scope_type: "STORE",
           company_id: company.company_id,
+          store_id: store.store_id,
         },
       ],
     };
@@ -717,11 +724,14 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
       expect(createdUser).not.toBeNull();
       expect(createdUser?.is_client_user).toBe(true);
     } finally {
-      // Cleanup
+      // Cleanup - delete in order: user_roles, user, store, company, owner
       await prismaClient.userRole.deleteMany({
         where: { user_id: body.data.user_id },
       });
       await prismaClient.user.delete({ where: { user_id: body.data.user_id } });
+      await prismaClient.store.delete({
+        where: { store_id: store.store_id },
+      });
       await prismaClient.company.delete({
         where: { company_id: company.company_id },
       });

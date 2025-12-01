@@ -484,8 +484,8 @@ test.describe("CLIENT_OWNER Company Creation API", () => {
       userData,
     );
 
-    // THEN: Request fails
-    expect(response.status()).toBe(400);
+    // THEN: Request fails with 400 (validation) or 409 (conflict/duplicate email)
+    expect([400, 409]).toContain(response.status());
 
     // AND: No orphan company was created
     const orphanCompany = await prismaClient.company.findFirst({

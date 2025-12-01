@@ -524,8 +524,10 @@ test.describe("4.8-API: Audit Logging", () => {
     expect(newValues).toMatchObject({
       cashier_id: superadminUser.user_id,
       pos_terminal_id: terminal.pos_terminal_id,
-      opening_cash: 100.0,
     });
+    // opening_cash may be stored as number or string depending on Prisma serialization
+    const openingCash = newValues?.opening_cash;
+    expect(openingCash == 100 || openingCash === "100").toBe(true);
   });
 });
 

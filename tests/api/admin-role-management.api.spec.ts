@@ -334,6 +334,7 @@ test.describe("2.93-API: Super Admin Role Management", () => {
     // WHEN: Restoring the role
     const response = await superadminApiRequest.post(
       `/api/admin/roles/${testRole.role_id}/restore`,
+      { data: {} },
     );
 
     // THEN: Response is successful

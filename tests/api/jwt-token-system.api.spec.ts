@@ -417,7 +417,9 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     // AND: Error message indicates missing token
     const body = await response.json();
     expect(body).toHaveProperty("error");
-    expect(body.error).toContain("token");
+    // Error can be in either the error field (legacy) or message field (standard API format)
+    const errorText = body.message || body.error;
+    expect(errorText.toLowerCase()).toContain("token");
   });
 
   test("[P0] 1.6-API-003-005: Refresh token should be rotated (old token invalidated, new token issued)", async ({

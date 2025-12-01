@@ -1292,7 +1292,7 @@ test.describe("Transaction Import API - Security", () => {
     if (response.status() === 202) {
       const tables = await prismaClient.$queryRaw`
         SELECT table_name FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'Transaction'
+        WHERE table_schema = 'public' AND table_name = 'transactions'
       `;
       expect(
         Array.isArray(tables) && tables.length > 0,

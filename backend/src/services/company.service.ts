@@ -223,9 +223,21 @@ export class CompanyService {
     }
 
     // Search by company name, owner name, or owner email (case-insensitive partial match)
-    // Minimum 2 characters required for search
-    if (search && search.trim().length >= 2) {
+    // Minimum 2 characters required for search - if search is provided but too short, return empty
+    if (search !== undefined && search !== null) {
       const searchTerm = search.trim();
+      if (searchTerm.length < 2) {
+        // Return empty results for searches less than 2 characters
+        return {
+          data: [],
+          meta: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 0,
+          },
+        };
+      }
       where.OR = [
         {
           name: {

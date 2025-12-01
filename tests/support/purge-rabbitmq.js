@@ -1,0 +1,48 @@
+/**
+ * Purge RabbitMQ queues before running tests
+ * This eliminates flaky tests caused by stale messages from previous test runs
+ */
+const amqp = require('amqplib');
+
+const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672';
+const QUEUES = [
+  'transactions.processing',
+  'transactions.dead-letter',
+];
+
+async function purgeQueues() {
+  let connection;
+  try {
+    console.log('Connecting to RabbitMQ...');
+    connection = await amqp.connect(RABBITMQ_URL);
+
+    for (const queue of QUEUES) {
+      // Create a fresh channel for each queue to handle 404 errors gracefully
+      let channel;
+      try {
+        channel = await connection.createChannel();
+        const result = await channel.purgeQueue(queue);
+        console.log(`✓ Purged ${result.messageCount} messages from ${queue}`);
+        await channel.close();
+      } catch (err) {
+        // Queue might not exist yet, that's OK
+        console.log(`○ Queue ${queue} does not exist or is empty (OK)`);
+      }
+    }
+
+    console.log('✓ RabbitMQ queues purged successfully');
+  } catch (error) {
+    console.error('Failed to connect to RabbitMQ:', error.message);
+    console.log('○ Skipping queue purge (RabbitMQ may not be running)');
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (e) {
+        // Ignore close errors
+      }
+    }
+  }
+}
+
+purgeQueues();
