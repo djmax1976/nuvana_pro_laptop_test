@@ -30,8 +30,6 @@ import {
   createTerminal,
   createJWTAccessToken,
 } from "../support/factories";
-import { PrismaClient } from "@prisma/client";
-import { withBypassClient } from "../support/prisma-bypass";
 
 // =============================================================================
 // SECTION 1: P0 CRITICAL - GET /api/stores/:storeId/terminals TESTS
@@ -155,7 +153,7 @@ test.describe("4.8-API: Store Terminals Endpoint", () => {
 
 test.describe("4.8-API: Shift Opening Auto-Assignment", () => {
   test("4.8-API-004: [P0] should auto-assign cashier_id when not provided", async ({
-    authenticatedApiRequest,
+    apiRequest,
     prismaClient,
   }) => {
     // GIVEN: A store with terminal and authenticated cashier
@@ -172,21 +170,30 @@ test.describe("4.8-API: Shift Opening Auto-Assignment", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create authenticated request with cashier token
-    const token = await withBypassClient(async (prisma) => {
-      // Create JWT token for cashier (simplified - use actual token generation)
-      return "cashier-token"; // This should be actual JWT token
+    // Create JWT token for the cashier user with SHIFT_OPEN permission
+    const cashierToken = createJWTAccessToken({
+      user_id: cashier.user_id,
+      email: cashier.email,
+      permissions: ["SHIFT_OPEN"],
     });
 
-    // WHEN: Opening shift without cashier_id
-    const response = await authenticatedApiRequest.post("/api/shifts/open", {
-      store_id: store.store_id,
-      pos_terminal_id: terminal.pos_terminal_id,
-      opening_cash: 100.0,
-      // cashier_id is NOT provided
-    });
+    // WHEN: Opening shift without cashier_id (using cashier's token)
+    const response = await apiRequest.post(
+      "/api/shifts/open",
+      {
+        store_id: store.store_id,
+        pos_terminal_id: terminal.pos_terminal_id,
+        opening_cash: 100.0,
+        // cashier_id is NOT provided - should be auto-assigned to authenticated user
+      },
+      {
+        headers: {
+          Cookie: `access_token=${cashierToken}`,
+        },
+      },
+    );
 
-    // THEN: Shift should be created with cashier_id = authenticated user
+    // THEN: Shift should be created with cashier_id = authenticated user (the cashier)
     expect(response.status()).toBe(201);
     const body = await response.json();
     expect(body.success).toBe(true);
@@ -236,7 +243,7 @@ test.describe("4.8-API: Shift Opening Auto-Assignment", () => {
 
 test.describe("4.8-API: Shift List RLS Filtering", () => {
   test("4.8-API-006: [P0] should filter shifts by cashier_id for CASHIER role users", async ({
-    authenticatedApiRequest,
+    apiRequest,
     prismaClient,
   }) => {
     // GIVEN: Multiple cashiers with shifts
@@ -271,11 +278,22 @@ test.describe("4.8-API: Shift List RLS Filtering", () => {
       }),
     });
 
-    // WHEN: Cashier1 requests shift list
-    // (Note: This requires authenticatedApiRequest to use cashier1's token)
-    const response = await authenticatedApiRequest.get("/api/shifts");
+    // Create JWT token for cashier1 with CASHIER role (triggers RLS filtering by cashier_id)
+    const cashier1Token = createJWTAccessToken({
+      user_id: cashier1.user_id,
+      email: cashier1.email,
+      roles: ["CASHIER"],
+      permissions: ["SHIFT_READ"],
+    });
 
-    // THEN: Should only return cashier1's shifts
+    // WHEN: Cashier1 requests shift list (using cashier1's token)
+    const response = await apiRequest.get("/api/shifts", {
+      headers: {
+        Cookie: `access_token=${cashier1Token}`,
+      },
+    });
+
+    // THEN: Should only return cashier1's shifts (RLS filters by cashier_id for CASHIER role)
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
