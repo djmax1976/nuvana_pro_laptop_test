@@ -683,8 +683,29 @@ export const test = base.extend<RBACFixture>({
       });
 
       // 3.6. Delete transactions for this user (FK cashier_id to users)
-      await bypassClient.transaction.deleteMany({
-        where: { cashier_id: user.user_id },
+      // Must delete child rows (transactionPayment, transactionLineItem) first to avoid FK constraint violations
+      await bypassClient.$transaction(async (tx) => {
+        // Find all transaction IDs for this cashier
+        const transactions = await tx.transaction.findMany({
+          where: { cashier_id: user.user_id },
+          select: { transaction_id: true },
+        });
+        const transactionIds = transactions.map((t) => t.transaction_id);
+
+        if (transactionIds.length > 0) {
+          // Delete child rows first
+          await tx.transactionPayment.deleteMany({
+            where: { transaction_id: { in: transactionIds } },
+          });
+          await tx.transactionLineItem.deleteMany({
+            where: { transaction_id: { in: transactionIds } },
+          });
+        }
+
+        // Now delete the transactions
+        await tx.transaction.deleteMany({
+          where: { cashier_id: user.user_id },
+        });
       });
 
       // 4. Delete user

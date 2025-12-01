@@ -653,12 +653,13 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
       role_id: storeRole.role_id,
     });
 
-    // THEN: Request is rejected with 400 (validation) or 403 (auth check before validation)
-    // Note: Either response is valid - some APIs validate input first, others check auth first
+    // THEN: Request is rejected with 400 Bad Request (input validation runs before auth)
+    // Input validation is performed before authentication/authorization checks to ensure
+    // invalid input format errors (400) are returned before authorization errors (403)
     expect(
-      [400, 403].includes(response.status()),
-      `Should reject invalid UUID with 400 or 403, got ${response.status()}`,
-    ).toBe(true);
+      response.status(),
+      "Should reject invalid UUID with 400 (validation before auth)",
+    ).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body).toHaveProperty("error");

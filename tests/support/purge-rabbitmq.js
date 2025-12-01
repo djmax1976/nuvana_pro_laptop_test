@@ -45,4 +45,12 @@ async function purgeQueues() {
   }
 }
 
-purgeQueues();
+(async () => {
+  try {
+    await purgeQueues();
+    process.exit(0);
+  } catch (err) {
+    console.error('Error purging queues:', err);
+    process.exit(1);
+  }
+})();

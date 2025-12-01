@@ -50,10 +50,22 @@ async function setRLSContext(
 
 /**
  * Helper: Clear RLS context after test
- * Resets the session variable to prevent leakage between tests
+ * Sets a known-but-unauthorized UUID to ensure deterministic behavior.
+ *
+ * Instead of using RESET (which can cause non-deterministic errors when RLS policies
+ * try to cast NULL to UUID), we set a valid UUID that doesn't exist in the database.
+ * This ensures queries reliably return empty arrays rather than potentially throwing
+ * errors, making tests deterministic across all PostgreSQL environments.
+ *
+ * The UUID '00000000-0000-0000-0000-000000000000' is used as a sentinel value that
+ * will never match any real user, so RLS policies will filter all rows (empty results).
  */
 async function clearRLSContext(prisma: PrismaClient): Promise<void> {
-  await prisma.$executeRawUnsafe(`RESET app.current_user_id`);
+  // Use a known-but-unauthorized UUID instead of RESET for deterministic behavior
+  // This ensures queries return empty arrays rather than potentially throwing errors
+  await prisma.$executeRawUnsafe(
+    `SET app.current_user_id = '00000000-0000-0000-0000-000000000000'`,
+  );
 }
 
 /**
@@ -1462,25 +1474,19 @@ test.describe("RLS Policies - Context Isolation", () => {
       "User should see their company before context clear",
     ).toHaveLength(1);
 
-    // WHEN: Clearing RLS context
+    // WHEN: Clearing RLS context (sets unauthorized UUID)
     await clearRLSContext(rlsPrismaClient);
 
-    // THEN: Query should fail or return empty (no context = no access)
-    // RLS policies may throw an error when current_user_id is not set/invalid UUID
-    try {
-      const afterClear = await rlsPrismaClient.company.findMany({
-        where: { company_id: { in: companies.map((c) => c.company_id) } },
-      });
-      // If no error, should see nothing
-      expect(
-        afterClear,
-        "User should see nothing after RLS context is cleared",
-      ).toHaveLength(0);
-    } catch (error) {
-      // RLS policies fail when user_id context is invalid - this is expected secure behavior
-      expect(error).toBeDefined();
-      expect(String(error)).toContain("invalid input syntax for type uuid");
-    }
+    // THEN: Query should return empty array (no access with unauthorized UUID)
+    // clearRLSContext sets a known-but-unauthorized UUID, so RLS policies
+    // will filter all rows deterministically, returning empty arrays
+    const afterClear = await rlsPrismaClient.company.findMany({
+      where: { company_id: { in: companies.map((c) => c.company_id) } },
+    });
+    expect(
+      afterClear,
+      "User should see nothing after RLS context is cleared (unauthorized UUID)",
+    ).toHaveLength(0);
 
     // Cleanup
     await prismaClient.company.deleteMany({

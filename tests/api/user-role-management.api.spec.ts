@@ -747,30 +747,30 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
       data: createAdminUser(),
     });
 
-    // Get any two roles - can be different scopes (SYSTEM and COMPANY)
+    // Get any two SYSTEM-scoped roles (simpler and avoids company/store setup)
     const roles = await prismaClient.role.findMany({
+      where: { scope: "SYSTEM" },
       take: 2,
     });
     if (roles.length < 2) {
-      throw new Error("Need at least 2 roles in database");
+      throw new Error("Need at least 2 SYSTEM scope roles in database");
     }
 
-    // Create first role (the one to keep) - with company_id if needed
-    const company = await prismaClient.company.findFirst();
+    // Create first role (the one to keep) - SYSTEM scope doesn't require company_id or store_id
     await prismaClient.userRole.create({
       data: {
         user_id: user.user_id,
         role_id: roles[0].role_id,
-        company_id: roles[0].scope !== "SYSTEM" ? company?.company_id : null,
+        company_id: null,
       },
     });
 
-    // Create second role (the one to revoke)
+    // Create second role (the one to revoke) - SYSTEM scope doesn't require company_id or store_id
     const userRoleToRevoke = await prismaClient.userRole.create({
       data: {
         user_id: user.user_id,
         role_id: roles[1].role_id,
-        company_id: roles[1].scope !== "SYSTEM" ? company?.company_id : null,
+        company_id: null,
       },
     });
 

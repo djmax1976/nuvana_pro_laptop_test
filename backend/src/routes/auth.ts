@@ -459,10 +459,8 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         reply.code(401);
         return {
-          error:
-            error instanceof Error
-              ? error.message
-              : "Refresh token validation failed",
+          error: "Unauthorized",
+          message: error instanceof Error ? error.message : "Refresh failed",
         };
       }
     },
