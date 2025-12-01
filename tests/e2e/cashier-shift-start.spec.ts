@@ -314,10 +314,18 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
 
     // Verify only authenticated cashier's shifts are displayed
     // (This requires checking shift data in the table)
-    const shiftRows = cashierPage.locator('[data-testid="shift-row"]');
+    const shiftRows = cashierPage.locator('[data-testid^="shift-list-row-"]');
     const count = await shiftRows.count();
-    // All visible shifts should belong to the authenticated cashier
-    // (Implementation detail: verify cashier_id in shift data)
+
+    // Assert that exactly 1 shift is visible (the authenticated cashier's shift)
+    await expect(count).toBe(1);
+
+    // Verify each visible shift belongs to the authenticated cashier
+    for (let i = 0; i < count; i++) {
+      const row = shiftRows.nth(i);
+      const cashierId = await row.getAttribute("data-cashier-id");
+      await expect(cashierId).toBe(cashierUser.user_id);
+    }
   });
 
   test("4.8-E2E-007: [P2] Should display both 'Start Shift' and 'Open Shift' buttons for Store Managers", async ({
@@ -620,10 +628,17 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
     // Verify that only shifts with cashier_id = authenticated cashier are displayed
     // (This requires checking the shift data in the table)
     // The RLS filtering is enforced at the API level, so the UI should only receive authenticated cashier's shifts
-    const shiftRows = cashierPage.locator('[data-testid="shift-row"]');
+    const shiftRows = cashierPage.locator('[data-testid^="shift-list-row-"]');
     const count = await shiftRows.count();
-    // All visible shifts should belong to the authenticated cashier
-    // This is verified by the API test, but we confirm the UI respects the filtered data
-    expect(count).toBeGreaterThanOrEqual(0); // At least 0 shifts (may be 0 if no matching shifts)
+
+    // Assert that exactly 1 shift is visible (the authenticated cashier's shift)
+    await expect(count).toBe(1);
+
+    // Verify each visible shift belongs to the authenticated cashier
+    for (let i = 0; i < count; i++) {
+      const row = shiftRows.nth(i);
+      const cashierId = await row.getAttribute("data-cashier-id");
+      await expect(cashierId).toBe(cashierUser.user_id);
+    }
   });
 });

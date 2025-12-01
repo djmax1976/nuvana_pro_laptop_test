@@ -847,17 +847,17 @@ export class StoreService {
         throw new Error(`Terminal with ID ${terminalId} not found`);
       }
 
-      // Validate terminal belongs to the provided store
-      if (terminal.store_id !== storeId) {
-        throw new Error(
-          `Terminal with ID ${terminalId} does not belong to store ${storeId}`,
-        );
-      }
-
       // Company isolation check: user can only delete terminals for their company
       if (terminal.store.company_id !== userCompanyId) {
         throw new Error(
           "Forbidden: You can only delete terminals for your assigned company",
+        );
+      }
+
+      // Validate terminal belongs to the provided store
+      if (terminal.store_id !== storeId) {
+        throw new Error(
+          `Terminal with ID ${terminalId} does not belong to store ${storeId}`,
         );
       }
 

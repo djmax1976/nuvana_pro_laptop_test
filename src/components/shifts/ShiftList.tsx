@@ -424,6 +424,7 @@ export function ShiftList({
               <TableRow
                 key={shift.shift_id}
                 data-testid={`shift-list-row-${shift.shift_id}`}
+                data-cashier-id={shift.cashier_id}
                 className={
                   onShiftClick ? "cursor-pointer hover:bg-muted/50" : ""
                 }
