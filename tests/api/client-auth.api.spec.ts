@@ -686,7 +686,7 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
 
     const userData = {
       name: "New Client User",
-      email: "newclientuser@example.com",
+      email: `newclientuser-${Date.now()}@test-api.example.com`,
       password: "SecurePassword123!",
       roles: [
         {

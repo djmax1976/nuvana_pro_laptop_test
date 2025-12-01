@@ -471,14 +471,12 @@ test.describe("4.8-API: Permission Checks", () => {
 test.describe("4.8-API: Audit Logging", () => {
   test("4.8-API-009: [P1] should create audit log entry for cashier self-service shift opening", async ({
     authenticatedApiRequest,
+    superadminUser,
     prismaClient,
   }) => {
-    // GIVEN: A store with terminal and authenticated cashier
-    const cashier = await prismaClient.user.create({
-      data: createUser(),
-    });
+    // GIVEN: A store with terminal (authenticatedApiRequest uses superadminUser)
     const company = await prismaClient.company.create({
-      data: createCompany({ owner_user_id: cashier.user_id }),
+      data: createCompany({ owner_user_id: superadminUser.user_id }),
     });
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
@@ -487,7 +485,7 @@ test.describe("4.8-API: Audit Logging", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // WHEN: Cashier opens shift without providing cashier_id (self-service)
+    // WHEN: User opens shift without providing cashier_id (self-service)
     const response = await authenticatedApiRequest.post("/api/shifts/open", {
       store_id: store.store_id,
       pos_terminal_id: terminal.pos_terminal_id,
@@ -515,7 +513,8 @@ test.describe("4.8-API: Audit Logging", () => {
       (log) => log.record_id === shiftId && log.action === "SHIFT_OPENED",
     );
     expect(shiftAuditLog).toBeDefined();
-    expect(shiftAuditLog?.user_id).toBe(cashier.user_id);
+    // authenticatedApiRequest uses superadminUser's token
+    expect(shiftAuditLog?.user_id).toBe(superadminUser.user_id);
     // Check new_values JSON field for shift data
     const newValues = shiftAuditLog?.new_values as Record<
       string,
@@ -523,7 +522,7 @@ test.describe("4.8-API: Audit Logging", () => {
     > | null;
     expect(newValues).toBeDefined();
     expect(newValues).toMatchObject({
-      cashier_id: cashier.user_id,
+      cashier_id: superadminUser.user_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 100.0,
     });
@@ -1007,14 +1006,12 @@ test.describe("4.8-API: Edge Cases", () => {
 
   test("4.8-API-023: [P1] should return proper response structure for shift opening", async ({
     authenticatedApiRequest,
+    superadminUser,
     prismaClient,
   }) => {
-    // GIVEN: A store with terminal
-    const user = await prismaClient.user.create({
-      data: createUser(),
-    });
+    // GIVEN: A store with terminal (authenticatedApiRequest uses superadminUser)
     const company = await prismaClient.company.create({
-      data: createCompany({ owner_user_id: user.user_id }),
+      data: createCompany({ owner_user_id: superadminUser.user_id }),
     });
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
@@ -1040,7 +1037,8 @@ test.describe("4.8-API: Edge Cases", () => {
     expect(typeof body.data.cashier_id).toBe("string");
     expect(typeof body.data.opening_cash).toBe("number");
     expect(body.data.opening_cash).toBeGreaterThanOrEqual(0);
-    expect(body.data.cashier_id).toBe(user.user_id);
+    // authenticatedApiRequest uses superadminUser's token, cashier_id is auto-assigned
+    expect(body.data.cashier_id).toBe(superadminUser.user_id);
     expect(body.data.shift_id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
