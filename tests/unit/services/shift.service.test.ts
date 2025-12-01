@@ -139,7 +139,6 @@ beforeAll(async () => {
       store_id: testStore.store_id,
       name: `Test Terminal ${Date.now()}`,
       device_id: `device-${Date.now()}`,
-      status: "ACTIVE",
     },
   });
   createdTerminalIds.push(testTerminal.pos_terminal_id);
@@ -244,7 +243,6 @@ describe("ShiftService - openShift", () => {
           store_id: testStore.store_id,
           name: `Terminal Test 1 ${Date.now()}`,
           device_id: `device-test1-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -283,7 +281,6 @@ describe("ShiftService - openShift", () => {
           store_id: testStore.store_id,
           name: `Terminal Test 2 ${Date.now()}`,
           device_id: `device-test2-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -315,7 +312,6 @@ describe("ShiftService - openShift", () => {
           store_id: testStore.store_id,
           name: `Terminal Test 3 ${Date.now()}`,
           device_id: `device-test3-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -349,7 +345,6 @@ describe("ShiftService - openShift", () => {
           store_id: testStore.store_id,
           name: `Terminal Test 4 ${Date.now()}`,
           device_id: `device-test4-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -547,7 +542,6 @@ describe("ShiftService - openShift", () => {
           store_id: testStore.store_id,
           name: `Terminal Test Closed ${Date.now()}`,
           device_id: `device-test-closed-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -740,7 +734,6 @@ describe("ShiftService - openShift", () => {
           store_id: otherStore.store_id,
           name: `Other Terminal ${Date.now()}`,
           device_id: `device-other-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(otherTerminal.pos_terminal_id);
@@ -775,7 +768,7 @@ describe("ShiftService - openShift", () => {
           store_id: testStore.store_id,
           name: `Inactive Terminal ${Date.now()}`,
           device_id: `device-inactive-${Date.now()}`,
-          status: "INACTIVE",
+          deleted_at: new Date(), // Soft deleted terminal
         },
       });
       createdTerminalIds.push(inactiveTerminal.pos_terminal_id);
@@ -814,7 +807,6 @@ describe("ShiftService - checkActiveShift", () => {
         store_id: testStore.store_id,
         name: `Isolated Terminal ${Date.now()}`,
         device_id: `device-isolated-${Date.now()}`,
-        status: "ACTIVE",
       },
     });
     createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -861,7 +853,6 @@ describe("ShiftService - checkActiveShift", () => {
         store_id: testStore.store_id,
         name: `Isolated Terminal Closed ${Date.now()}`,
         device_id: `device-isolated-closed-${Date.now()}`,
-        status: "ACTIVE",
       },
     });
     createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -898,7 +889,6 @@ describe("ShiftService - Security & Edge Cases", () => {
           store_id: testStore.store_id,
           name: `Terminal Zero Cash ${Date.now()}`,
           device_id: `device-zero-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -930,7 +920,6 @@ describe("ShiftService - Security & Edge Cases", () => {
           store_id: testStore.store_id,
           name: `Terminal Large Cash ${Date.now()}`,
           device_id: `device-large-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -964,7 +953,6 @@ describe("ShiftService - Security & Edge Cases", () => {
           store_id: testStore.store_id,
           name: `Terminal Decimal ${Date.now()}`,
           device_id: `device-decimal-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -1093,7 +1081,6 @@ describe("ShiftService - Security & Edge Cases", () => {
           store_id: testStore.store_id,
           name: `Terminal Enhanced ${Date.now()}`,
           device_id: `device-enhanced-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -2942,7 +2929,6 @@ describe("ShiftService - generateShiftReport", () => {
           store_id: testStore.store_id,
           name: `Terminal Report Test ${Date.now()}`,
           device_id: `device-report-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -3076,7 +3062,6 @@ describe("ShiftService - generateShiftReport", () => {
           store_id: testStore.store_id,
           name: `Terminal Variance Test ${Date.now()}`,
           device_id: `device-variance-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
@@ -3127,7 +3112,6 @@ describe("ShiftService - generateShiftReport", () => {
           store_id: testStore.store_id,
           name: `Terminal Open Test ${Date.now()}`,
           device_id: `device-open-${Date.now()}`,
-          status: "ACTIVE",
         },
       });
       createdTerminalIds.push(isolatedTerminal.pos_terminal_id);

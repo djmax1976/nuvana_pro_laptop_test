@@ -46,9 +46,12 @@ export interface CreateUserInput {
   name: string;
   password?: string;
   roles?: AssignRoleRequest[];
-  // Company fields for CLIENT_OWNER role
+  // Company fields for CLIENT_OWNER role (creates new company)
   companyName?: string;
   companyAddress?: string;
+  // Company and store IDs for CLIENT_USER role (assigns to existing company/store)
+  company_id?: string;
+  store_id?: string;
 }
 
 /**
@@ -194,6 +197,66 @@ export class UserAdminService {
       }
     }
 
+    // Validate company and store assignment if CLIENT_USER role is being assigned
+    if (hasClientUserRole) {
+      // Validate that company_id and store_id are provided for CLIENT_USER
+      for (const roleAssignment of data.roles) {
+        const role = await prisma.role.findUnique({
+          where: { role_id: roleAssignment.role_id },
+        });
+        if (role?.code === "CLIENT_USER") {
+          if (!roleAssignment.company_id) {
+            throw new Error(
+              "Company ID is required for CLIENT_USER role assignment",
+            );
+          }
+          if (!roleAssignment.store_id) {
+            throw new Error(
+              "Store ID is required for CLIENT_USER role assignment",
+            );
+          }
+
+          // Validate that the store belongs to the company (security check)
+          const store = await prisma.store.findUnique({
+            where: { store_id: roleAssignment.store_id },
+            select: { company_id: true, status: true },
+          });
+
+          if (!store) {
+            throw new Error(
+              `Store with ID ${roleAssignment.store_id} not found`,
+            );
+          }
+
+          if (store.company_id !== roleAssignment.company_id) {
+            throw new Error(
+              "Store does not belong to the specified company. This is a security violation.",
+            );
+          }
+
+          if (store.status !== "ACTIVE") {
+            throw new Error("Cannot assign CLIENT_USER to an inactive store");
+          }
+
+          // Validate that the company exists and is active
+          const company = await prisma.company.findUnique({
+            where: { company_id: roleAssignment.company_id },
+            select: { company_id: true, status: true },
+          });
+
+          if (!company) {
+            throw new Error(
+              `Company with ID ${roleAssignment.company_id} not found`,
+            );
+          }
+
+          if (company.status !== "ACTIVE") {
+            throw new Error("Cannot assign CLIENT_USER to an inactive company");
+          }
+        }
+      }
+    }
+
     try {
       // Hash password if provided
       const passwordHash = data.password
@@ -242,16 +305,27 @@ export class UserAdminService {
               );
             }
 
-            // Determine company_id for the user role
+            // Determine company_id and store_id for the user role
             // For CLIENT_OWNER with a newly created company, link to that company
-            // This ensures the company shows in the users list
+            // For CLIENT_USER, use the provided company_id and store_id
             let companyIdForRole: string | null = null;
+            let storeIdForRole: string | null = null;
+
             if (roleAssignment.scope_type !== "SYSTEM") {
               if (role.code === "CLIENT_OWNER" && createdCompany) {
                 // Link CLIENT_OWNER to their newly created company
                 companyIdForRole = createdCompany.company_id;
-              } else {
+              } else if (role.code === "CLIENT_USER") {
+                // CLIENT_USER must have company_id and store_id from role assignment
                 companyIdForRole = roleAssignment.company_id || null;
+                storeIdForRole = roleAssignment.store_id || null;
+              } else {
+                // For other roles, use provided company_id
+                companyIdForRole = roleAssignment.company_id || null;
+                // Store ID only for STORE scope roles
+                if (roleAssignment.scope_type === "STORE") {
+                  storeIdForRole = roleAssignment.store_id || null;
+                }
               }
             }
 
@@ -260,10 +334,7 @@ export class UserAdminService {
                 user_id: user.user_id,
                 role_id: roleAssignment.role_id,
                 company_id: companyIdForRole,
-                store_id:
-                  roleAssignment.scope_type === "STORE"
-                    ? roleAssignment.store_id
-                    : null,
+                store_id: storeIdForRole,
                 assigned_by: auditContext.userId,
               },
             });

@@ -2152,4 +2152,608 @@ export async function storeRoutes(fastify: FastifyInstance) {
       }
     },
   );
+
+  /**
+   * POST /api/stores/:storeId/terminals
+   * Create a new POS terminal for a store
+   * Protected route - requires STORE_CREATE permission
+   */
+  fastify.post(
+    "/api/stores/:storeId/terminals",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.STORE_CREATE),
+      ],
+      schema: {
+        description: "Create a new POS terminal for a store",
+        tags: ["stores"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: {
+              type: "string",
+              minLength: 1,
+              maxLength: 100,
+              description: "Terminal name",
+            },
+            device_id: {
+              type: "string",
+              maxLength: 255,
+              description: "Device ID (optional, must be globally unique)",
+            },
+          },
+        },
+        response: {
+          201: {
+            type: "object",
+            properties: {
+              pos_terminal_id: { type: "string", format: "uuid" },
+              store_id: { type: "string", format: "uuid" },
+              name: { type: "string" },
+              device_id: { type: "string", nullable: true },
+              deleted_at: {
+                type: "string",
+                nullable: true,
+                format: "date-time",
+              },
+              created_at: { type: "string", format: "date-time" },
+              updated_at: { type: "string", format: "date-time" },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          500: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const params = request.params as { storeId: string };
+        const body = request.body as {
+          name: string;
+          device_id?: string;
+        };
+        const user = (request as any).user as UserIdentity;
+
+        // Get user's company_id for isolation check
+        // System Admins can create terminals for ANY store
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        let userCompanyId: string | null = null;
+        if (!hasSystemScope) {
+          userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message:
+                  "You must have a COMPANY scope role to create terminals",
+              },
+            };
+          }
+        } else {
+          // System admin: get company_id from store
+          const store = await prisma.store.findUnique({
+            where: { store_id: params.storeId },
+            select: { company_id: true },
+          });
+          if (store) {
+            userCompanyId = store.company_id;
+          }
+        }
+
+        // Create terminal
+        const terminal = await storeService.createTerminal(
+          params.storeId,
+          body,
+          userCompanyId!,
+        );
+
+        reply.code(201);
+        return terminal;
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error creating terminal");
+        if (error.message.includes("not found")) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: error.message,
+            },
+          };
+        }
+        if (error.message.includes("Forbidden")) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: error.message,
+            },
+          };
+        }
+        if (
+          error.message.includes("required") ||
+          error.message.includes("must be") ||
+          error.message.includes("already in use")
+        ) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: error.message,
+            },
+          };
+        }
+        reply.code(500);
+        return {
+          error: "Internal server error",
+          message: "Failed to create terminal",
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /api/stores/:storeId/terminals/:terminalId
+   * Update a POS terminal
+   * Protected route - requires STORE_UPDATE permission
+   */
+  fastify.put(
+    "/api/stores/:storeId/terminals/:terminalId",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.STORE_UPDATE),
+      ],
+      schema: {
+        description: "Update a POS terminal",
+        tags: ["stores"],
+        params: {
+          type: "object",
+          required: ["storeId", "terminalId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+            terminalId: {
+              type: "string",
+              format: "uuid",
+              description: "Terminal UUID",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              minLength: 1,
+              maxLength: 100,
+              description: "Terminal name",
+            },
+            device_id: {
+              type: "string",
+              maxLength: 255,
+              description: "Device ID (optional, must be globally unique)",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              pos_terminal_id: { type: "string", format: "uuid" },
+              store_id: { type: "string", format: "uuid" },
+              name: { type: "string" },
+              device_id: { type: "string", nullable: true },
+              deleted_at: {
+                type: "string",
+                nullable: true,
+                format: "date-time",
+              },
+              created_at: { type: "string", format: "date-time" },
+              updated_at: { type: "string", format: "date-time" },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          500: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const params = request.params as {
+          storeId: string;
+          terminalId: string;
+        };
+        const body = request.body as {
+          name?: string;
+          device_id?: string;
+        };
+        const user = (request as any).user as UserIdentity;
+
+        // Get user's company_id for isolation check
+        // System Admins can update terminals for ANY store
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        let userCompanyId: string | null = null;
+        if (!hasSystemScope) {
+          userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message:
+                  "You must have a COMPANY scope role to update terminals",
+              },
+            };
+          }
+        } else {
+          // System admin: get company_id from store
+          const store = await prisma.store.findUnique({
+            where: { store_id: params.storeId },
+            select: { company_id: true },
+          });
+          if (store) {
+            userCompanyId = store.company_id;
+          }
+        }
+
+        // Update terminal
+        const terminal = await storeService.updateTerminal(
+          params.terminalId,
+          body,
+          userCompanyId!,
+        );
+
+        reply.code(200);
+        return terminal;
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error updating terminal");
+        if (error.message.includes("not found")) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: error.message,
+            },
+          };
+        }
+        if (error.message.includes("Forbidden")) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: error.message,
+            },
+          };
+        }
+        if (
+          error.message.includes("required") ||
+          error.message.includes("must be") ||
+          error.message.includes("already in use")
+        ) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: error.message,
+            },
+          };
+        }
+        reply.code(500);
+        return {
+          error: "Internal server error",
+          message: "Failed to update terminal",
+        };
+      }
+    },
+  );
+
+  /**
+   * DELETE /api/stores/:storeId/terminals/:terminalId
+   * Delete a POS terminal
+   * Protected route - requires STORE_DELETE permission
+   */
+  fastify.delete(
+    "/api/stores/:storeId/terminals/:terminalId",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.STORE_DELETE),
+      ],
+      schema: {
+        description: "Delete a POS terminal",
+        tags: ["stores"],
+        params: {
+          type: "object",
+          required: ["storeId", "terminalId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+            terminalId: {
+              type: "string",
+              format: "uuid",
+              description: "Terminal UUID",
+            },
+          },
+        },
+        response: {
+          204: {
+            type: "null",
+            description: "Terminal deleted successfully",
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          500: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const params = request.params as {
+          storeId: string;
+          terminalId: string;
+        };
+        const user = (request as any).user as UserIdentity;
+
+        // Get user's company_id for isolation check
+        // System Admins can delete terminals for ANY store
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        let userCompanyId: string | null = null;
+        if (!hasSystemScope) {
+          userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message:
+                  "You must have a COMPANY scope role to delete terminals",
+              },
+            };
+          }
+        } else {
+          // System admin: get company_id from store
+          const store = await prisma.store.findUnique({
+            where: { store_id: params.storeId },
+            select: { company_id: true },
+          });
+          if (store) {
+            userCompanyId = store.company_id;
+          }
+        }
+
+        // Delete terminal
+        await storeService.deleteTerminal(params.terminalId, userCompanyId!);
+
+        reply.code(204);
+        return null;
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error deleting terminal");
+        if (error.message.includes("not found")) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: error.message,
+            },
+          };
+        }
+        if (error.message.includes("Forbidden")) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: error.message,
+            },
+          };
+        }
+        if (error.message.includes("active shift")) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "BAD_REQUEST",
+              message: error.message,
+            },
+          };
+        }
+        reply.code(500);
+        return {
+          error: "Internal server error",
+          message: "Failed to delete terminal",
+        };
+      }
+    },
+  );
 }

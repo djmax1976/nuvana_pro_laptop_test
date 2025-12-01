@@ -1060,3 +1060,407 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
     expect(body.message || body.error).toMatch(/own|self|yourself/i);
   });
 });
+
+test.describe("2.8-API: User Management API - User Deletion Operations", () => {
+  test("2.8-API-032: [P0] DELETE /api/admin/users/:userId - should delete inactive user successfully", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An INACTIVE user exists
+    const user = await prismaClient.user.create({
+      data: createAdminUser({ status: "INACTIVE" }),
+    });
+
+    // WHEN: Deleting the user
+    const response = await superadminApiRequest.delete(
+      `/api/admin/users/${user.user_id}`,
+    );
+
+    // THEN: User is deleted successfully
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty("user_id", user.user_id);
+    expect(body.data).toHaveProperty("email", user.email);
+    expect(body.message).toBe("User deleted successfully");
+
+    // AND: User no longer exists in database
+    const deletedUser = await prismaClient.user.findUnique({
+      where: { user_id: user.user_id },
+    });
+    expect(deletedUser).toBeNull();
+
+    // AND: Deletion is logged in AuditLog
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        table_name: "users",
+        record_id: user.user_id,
+        action: "DELETE",
+      },
+      orderBy: { timestamp: "desc" },
+    });
+    expect(auditLog).not.toBeNull();
+    expect(auditLog?.action).toBe("DELETE");
+  });
+
+  test("2.8-API-033: [P0] DELETE /api/admin/users/:userId - should reject deletion of ACTIVE user", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An ACTIVE user exists
+    const user = await prismaClient.user.create({
+      data: createAdminUser({ status: "ACTIVE" }),
+    });
+
+    // WHEN: Attempting to delete the ACTIVE user
+    const response = await superadminApiRequest.delete(
+      `/api/admin/users/${user.user_id}`,
+    );
+
+    // THEN: Operation is rejected - user must be INACTIVE first
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.message || body.error).toMatch(/ACTIVE|inactive first/i);
+
+    // AND: User still exists in database
+    const stillExists = await prismaClient.user.findUnique({
+      where: { user_id: user.user_id },
+    });
+    expect(stillExists).not.toBeNull();
+    expect(stillExists?.status).toBe("ACTIVE");
+  });
+
+  test("2.8-API-034: [P0] DELETE /api/admin/users/:userId - should prevent self-deletion", async ({
+    superadminApiRequest,
+    superadminUser,
+  }) => {
+    // GIVEN: I am authenticated as a System Admin
+    // WHEN: Attempting to delete my own account
+    const response = await superadminApiRequest.delete(
+      `/api/admin/users/${superadminUser.user_id}`,
+    );
+
+    // THEN: Operation is rejected - cannot delete own account
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.message || body.error).toMatch(/own|self|yourself/i);
+  });
+
+  test("2.8-API-035: [P0] DELETE /api/admin/users/:userId - should reject deletion of user with active companies", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An INACTIVE CLIENT_OWNER user with an ACTIVE company
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner", status: "INACTIVE" }),
+    });
+
+    const clientOwnerRole = await prismaClient.role.findFirst({
+      where: { code: "CLIENT_OWNER" },
+    });
+    if (!clientOwnerRole) {
+      throw new Error("CLIENT_OWNER role not found");
+    }
+
+    await prismaClient.userRole.create({
+      data: {
+        user_id: ownerUser.user_id,
+        role_id: clientOwnerRole.role_id,
+      },
+    });
+
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Active Company",
+        status: "ACTIVE",
+        owner_user_id: ownerUser.user_id,
+      }),
+    });
+
+    // WHEN: Attempting to delete the user
+    const response = await superadminApiRequest.delete(
+      `/api/admin/users/${ownerUser.user_id}`,
+    );
+
+    // THEN: Operation is rejected - cannot delete user with active companies
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.message || body.error).toMatch(
+      /active company|deactivate.*company/i,
+    );
+
+    // AND: User and company still exist
+    const userStillExists = await prismaClient.user.findUnique({
+      where: { user_id: ownerUser.user_id },
+    });
+    expect(userStillExists).not.toBeNull();
+
+    const companyStillExists = await prismaClient.company.findUnique({
+      where: { company_id: company.company_id },
+    });
+    expect(companyStillExists).not.toBeNull();
+  });
+
+  test("2.8-API-036: [P0] DELETE /api/admin/users/:userId - should reject deletion of user with active stores", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An INACTIVE CLIENT_OWNER user with an INACTIVE company but ACTIVE store
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner", status: "INACTIVE" }),
+    });
+
+    const clientOwnerRole = await prismaClient.role.findFirst({
+      where: { code: "CLIENT_OWNER" },
+    });
+    if (!clientOwnerRole) {
+      throw new Error("CLIENT_OWNER role not found");
+    }
+
+    await prismaClient.userRole.create({
+      data: {
+        user_id: ownerUser.user_id,
+        role_id: clientOwnerRole.role_id,
+      },
+    });
+
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Inactive Company",
+        status: "INACTIVE",
+        owner_user_id: ownerUser.user_id,
+      }),
+    });
+
+    const store = await prismaClient.store.create({
+      data: {
+        ...createStore({
+          name: "Active Store",
+          status: "ACTIVE",
+          timezone: "America/New_York",
+        }),
+        company_id: company.company_id,
+      },
+    });
+
+    // WHEN: Attempting to delete the user
+    const response = await superadminApiRequest.delete(
+      `/api/admin/users/${ownerUser.user_id}`,
+    );
+
+    // THEN: Operation is rejected - cannot delete user with active stores
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.message || body.error).toMatch(
+      /active store|deactivate.*store/i,
+    );
+
+    // AND: User, company, and store still exist
+    const userStillExists = await prismaClient.user.findUnique({
+      where: { user_id: ownerUser.user_id },
+    });
+    expect(userStillExists).not.toBeNull();
+  });
+
+  test("2.8-API-037: [P0] DELETE /api/admin/users/:userId - should cascade deletion to owned companies and stores", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An INACTIVE CLIENT_OWNER user with INACTIVE company and INACTIVE stores
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner", status: "INACTIVE" }),
+    });
+
+    const clientOwnerRole = await prismaClient.role.findFirst({
+      where: { code: "CLIENT_OWNER" },
+    });
+    if (!clientOwnerRole) {
+      throw new Error("CLIENT_OWNER role not found");
+    }
+
+    await prismaClient.userRole.create({
+      data: {
+        user_id: ownerUser.user_id,
+        role_id: clientOwnerRole.role_id,
+      },
+    });
+
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Inactive Company",
+        status: "INACTIVE",
+        owner_user_id: ownerUser.user_id,
+      }),
+    });
+
+    const store1 = await prismaClient.store.create({
+      data: {
+        ...createStore({
+          name: "Store 1",
+          status: "INACTIVE",
+          timezone: "America/New_York",
+        }),
+        company_id: company.company_id,
+      },
+    });
+
+    const store2 = await prismaClient.store.create({
+      data: {
+        ...createStore({
+          name: "Store 2",
+          status: "INACTIVE",
+          timezone: "America/Los_Angeles",
+        }),
+        company_id: company.company_id,
+      },
+    });
+
+    // WHEN: Deleting the user
+    const response = await superadminApiRequest.delete(
+      `/api/admin/users/${ownerUser.user_id}`,
+    );
+
+    // THEN: User is deleted successfully
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    // AND: User no longer exists
+    const deletedUser = await prismaClient.user.findUnique({
+      where: { user_id: ownerUser.user_id },
+    });
+    expect(deletedUser).toBeNull();
+
+    // AND: Owned company is also deleted (cascade)
+    const deletedCompany = await prismaClient.company.findUnique({
+      where: { company_id: company.company_id },
+    });
+    expect(deletedCompany).toBeNull();
+
+    // AND: Stores are also deleted (cascade)
+    const deletedStore1 = await prismaClient.store.findUnique({
+      where: { store_id: store1.store_id },
+    });
+    expect(deletedStore1).toBeNull();
+
+    const deletedStore2 = await prismaClient.store.findUnique({
+      where: { store_id: store2.store_id },
+    });
+    expect(deletedStore2).toBeNull();
+  });
+
+  test("2.8-API-038: [P1] DELETE /api/admin/users/:userId - should return 404 for non-existent user", async ({
+    superadminApiRequest,
+  }) => {
+    // GIVEN: I am authenticated as a System Admin
+    const nonExistentId = "00000000-0000-0000-0000-000000000000";
+
+    // WHEN: Attempting to delete non-existent user
+    const response = await superadminApiRequest.delete(
+      `/api/admin/users/${nonExistentId}`,
+    );
+
+    // THEN: 404 Not Found is returned
+    expect(response.status()).toBe(404);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBe("Not found");
+    expect(body.message).toBe("User not found");
+  });
+
+  test("2.8-API-039: [P1] DELETE /api/admin/users/:userId - should validate UUID format", async ({
+    superadminApiRequest,
+  }) => {
+    // GIVEN: I am authenticated as a System Admin
+    // WHEN: Attempting to delete with invalid UUID format
+    const response = await superadminApiRequest.delete(
+      "/api/admin/users/invalid-uuid",
+    );
+
+    // THEN: Validation error is returned
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBe("Invalid user ID");
+    expect(body.message).toBe("User ID must be a valid UUID");
+  });
+
+  test("2.8-API-040: [P0-SEC] DELETE /api/admin/users/:userId - should require ADMIN_SYSTEM_CONFIG permission", async ({
+    storeManagerApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager (not System Admin)
+    const user = await prismaClient.user.create({
+      data: createAdminUser({ status: "INACTIVE" }),
+    });
+
+    // WHEN: Attempting to delete a user
+    const response = await storeManagerApiRequest.delete(
+      `/api/admin/users/${user.user_id}`,
+    );
+
+    // THEN: Permission denied error is returned
+    expect(response.status()).toBe(403);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("PERMISSION_DENIED");
+  });
+
+  test("2.8-API-041: [P1] DELETE /api/admin/users/:userId - should create audit log with cascade information", async ({
+    superadminApiRequest,
+    superadminUser,
+    prismaClient,
+  }) => {
+    // GIVEN: An INACTIVE CLIENT_OWNER user with INACTIVE company
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner", status: "INACTIVE" }),
+    });
+
+    const clientOwnerRole = await prismaClient.role.findFirst({
+      where: { code: "CLIENT_OWNER" },
+    });
+    if (!clientOwnerRole) {
+      throw new Error("CLIENT_OWNER role not found");
+    }
+
+    await prismaClient.userRole.create({
+      data: {
+        user_id: ownerUser.user_id,
+        role_id: clientOwnerRole.role_id,
+      },
+    });
+
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Inactive Company",
+        status: "INACTIVE",
+        owner_user_id: ownerUser.user_id,
+      }),
+    });
+
+    // WHEN: Deleting the user
+    const response = await superadminApiRequest.delete(
+      `/api/admin/users/${ownerUser.user_id}`,
+    );
+
+    // THEN: User is deleted successfully
+    expect(response.status()).toBe(200);
+
+    // AND: Audit log includes cascade information
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        table_name: "users",
+        record_id: ownerUser.user_id,
+        action: "DELETE",
+      },
+      orderBy: { timestamp: "desc" },
+    });
+    expect(auditLog).not.toBeNull();
+    expect(auditLog?.user_id).toBe(superadminUser.user_id);
+    expect(auditLog?.reason).toContain("owned company");
+  });
+});

@@ -276,16 +276,17 @@ model POSTerminal {
   pos_terminal_id String        @id @default(uuid()) @db.Uuid
   store_id        String        @db.Uuid
   name            String        @db.VarChar(100)
-  device_id       String?       @db.VarChar(255)
-  status          String        @default("ACTIVE") @db.VarChar(50)
+  device_id       String?       @unique @db.VarChar(255) // Globally unique device ID
+  deleted_at      DateTime?     @db.Timestamptz(6) // Soft delete timestamp (NULL = active)
   created_at      DateTime      @default(now()) @db.Timestamptz(6)
   updated_at      DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
   store           Store         @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
   shifts          Shift[]
   transactions    Transaction[]
 
+  @@unique([store_id, device_id]) // Per-store uniqueness (device_id can be null, but if set, must be unique per store)
   @@index([store_id])
-  @@index([status])
+  @@index([deleted_at])
   @@map("pos_terminals")
 }
 

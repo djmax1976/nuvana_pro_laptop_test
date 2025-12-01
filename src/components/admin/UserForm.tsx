@@ -4,6 +4,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCreateUser, useRoles, adminUserKeys } from "@/lib/api/admin-users";
+import { useCompanies } from "@/lib/api/companies";
+import { useStoresByCompany } from "@/lib/api/stores";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +29,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { AssignRoleRequest, ScopeType } from "@/types/admin-user";
+import { useEffect } from "react";
 
 // Zod validation schema for user creation
 const userFormSchema = z
@@ -57,6 +60,8 @@ const userFormSchema = z
     role_id: z.string().min(1, "Role is required"),
     companyName: z.string().optional(),
     companyAddress: z.string().optional(),
+    company_id: z.string().optional(),
+    store_id: z.string().optional(),
   })
   .refine(
     (data) => {
@@ -92,6 +97,8 @@ export function UserForm() {
       role_id: "",
       companyName: "",
       companyAddress: "",
+      company_id: "",
+      store_id: "",
     },
   });
 
@@ -101,6 +108,28 @@ export function UserForm() {
     (role) => role.role_id === selectedRoleId,
   );
   const isClientOwner = selectedRole?.code === "CLIENT_OWNER";
+  const isClientUser = selectedRole?.code === "CLIENT_USER";
+
+  // Fetch companies for CLIENT_USER dropdown
+  const { data: companiesData } = useCompanies({
+    status: "ACTIVE",
+    limit: 100,
+  });
+
+  // Watch company_id to fetch stores
+  const selectedCompanyId = form.watch("company_id");
+  const { data: storesData } = useStoresByCompany(
+    selectedCompanyId || undefined,
+    { limit: 100 },
+    { enabled: !!selectedCompanyId && isClientUser },
+  );
+
+  // Reset store_id when company changes
+  useEffect(() => {
+    if (selectedCompanyId) {
+      form.setValue("store_id", "");
+    }
+  }, [selectedCompanyId, form]);
 
   async function onSubmit(data: UserFormValues) {
     try {
@@ -137,10 +166,36 @@ export function UserForm() {
         }
       }
 
+      // Validate company and store for CLIENT_USER role
+      const isClientUserRole = roleForSubmit.code === "CLIENT_USER";
+      if (isClientUserRole) {
+        if (!data.company_id || data.company_id.trim().length === 0) {
+          form.setError("company_id", {
+            type: "manual",
+            message: "Company selection is required for Client User role",
+          });
+          return;
+        }
+        if (!data.store_id || data.store_id.trim().length === 0) {
+          form.setError("store_id", {
+            type: "manual",
+            message: "Store selection is required for Client User role",
+          });
+          return;
+        }
+      }
+
       // Create role assignment based on selected role
       const roleAssignment: AssignRoleRequest = {
         role_id: data.role_id,
         scope_type: roleForSubmit.scope as ScopeType,
+        // Include company_id and store_id for CLIENT_USER
+        ...(isClientUserRole && data.company_id && data.store_id
+          ? {
+              company_id: data.company_id,
+              store_id: data.store_id,
+            }
+          : {}),
       };
 
       // Build request payload
@@ -335,6 +390,99 @@ export function UserForm() {
                       </FormControl>
                       <FormDescription>
                         The physical address of the company
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Company and Store selection - shown only when CLIENT_USER role is selected */}
+        {isClientUser && (
+          <>
+            <div className="rounded-lg border border-border bg-muted/50 p-4">
+              <h3 className="mb-4 text-sm font-medium text-foreground">
+                Company and Store Assignment
+              </h3>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Select an existing company and store for this Client User.
+              </p>
+
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="company_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Company *</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                        disabled={!companiesData?.data}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="client-user-company-select">
+                            <SelectValue placeholder="Select a company" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {companiesData?.data?.map((company) => (
+                            <SelectItem
+                              key={company.company_id}
+                              value={company.company_id}
+                            >
+                              {company.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Select the company for this Client User
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="store_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Store *</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                        disabled={!selectedCompanyId || !storesData?.data}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="client-user-store-select">
+                            <SelectValue
+                              placeholder={
+                                !selectedCompanyId
+                                  ? "Select a company first"
+                                  : "Select a store"
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {storesData?.data?.map((store) => (
+                            <SelectItem
+                              key={store.store_id}
+                              value={store.store_id}
+                            >
+                              {store.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Select the store for this Client User (must belong to
+                        the selected company)
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

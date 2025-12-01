@@ -578,7 +578,7 @@ export interface TerminalWithStatus {
   store_id: string;
   name: string;
   device_id: string | null;
-  status: string;
+  deleted_at: string | null;
   has_active_shift: boolean;
   created_at: string;
   updated_at: string;
@@ -619,5 +619,203 @@ export function useStoreTerminals(
     enabled: options?.enabled !== false && !!storeId,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+  });
+}
+
+/**
+ * Terminal entity type
+ */
+export interface Terminal {
+  pos_terminal_id: string;
+  store_id: string;
+  name: string;
+  device_id: string | null;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Create terminal input
+ */
+export interface CreateTerminalInput {
+  name: string;
+  device_id?: string;
+}
+
+/**
+ * Update terminal input
+ */
+export interface UpdateTerminalInput {
+  name?: string;
+  device_id?: string;
+}
+
+/**
+ * Create a new terminal for a store
+ * @param storeId - Store UUID
+ * @param data - Terminal creation data
+ * @returns Created terminal
+ */
+export async function createTerminal(
+  storeId: string,
+  data: CreateTerminalInput,
+): Promise<Terminal> {
+  if (!storeId) {
+    throw new Error("Store ID is required");
+  }
+
+  if (!data.name || data.name.trim().length === 0) {
+    throw new Error("Terminal name is required");
+  }
+
+  if (data.name.length > 100) {
+    throw new Error("Terminal name must be 100 characters or less");
+  }
+
+  return apiRequest<Terminal>(`/api/stores/${storeId}/terminals`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Update a terminal
+ * @param storeId - Store UUID
+ * @param terminalId - Terminal UUID
+ * @param data - Terminal update data
+ * @returns Updated terminal
+ */
+export async function updateTerminal(
+  storeId: string,
+  terminalId: string,
+  data: UpdateTerminalInput,
+): Promise<Terminal> {
+  if (!storeId) {
+    throw new Error("Store ID is required");
+  }
+
+  if (!terminalId) {
+    throw new Error("Terminal ID is required");
+  }
+
+  if (data.name !== undefined && data.name.trim().length === 0) {
+    throw new Error("Terminal name cannot be empty");
+  }
+
+  if (data.name !== undefined && data.name.length > 100) {
+    throw new Error("Terminal name must be 100 characters or less");
+  }
+
+  return apiRequest<Terminal>(
+    `/api/stores/${storeId}/terminals/${terminalId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+/**
+ * Delete a terminal
+ * @param storeId - Store UUID
+ * @param terminalId - Terminal UUID
+ */
+export async function deleteTerminal(
+  storeId: string,
+  terminalId: string,
+): Promise<void> {
+  if (!storeId) {
+    throw new Error("Store ID is required");
+  }
+
+  if (!terminalId) {
+    throw new Error("Terminal ID is required");
+  }
+
+  return apiRequest<void>(`/api/stores/${storeId}/terminals/${terminalId}`, {
+    method: "DELETE",
+  });
+}
+
+/**
+ * Hook to create a terminal
+ * @returns Mutation for creating a terminal
+ */
+export function useCreateTerminal() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      storeId,
+      data,
+    }: {
+      storeId: string;
+      data: CreateTerminalInput;
+    }) => createTerminal(storeId, data),
+    onSuccess: (_, variables) => {
+      // Invalidate terminals query for the store
+      queryClient.invalidateQueries({
+        queryKey: [...storeKeys.details(), variables.storeId, "terminals"],
+      });
+      // Also invalidate store details to refresh terminal count if needed
+      queryClient.invalidateQueries({
+        queryKey: storeKeys.detail(variables.storeId),
+      });
+    },
+  });
+}
+
+/**
+ * Hook to update a terminal
+ * @returns Mutation for updating a terminal
+ */
+export function useUpdateTerminal() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      storeId,
+      terminalId,
+      data,
+    }: {
+      storeId: string;
+      terminalId: string;
+      data: UpdateTerminalInput;
+    }) => updateTerminal(storeId, terminalId, data),
+    onSuccess: (_, variables) => {
+      // Invalidate terminals query for the store
+      queryClient.invalidateQueries({
+        queryKey: [...storeKeys.details(), variables.storeId, "terminals"],
+      });
+    },
+  });
+}
+
+/**
+ * Hook to delete a terminal
+ * @returns Mutation for deleting a terminal
+ */
+export function useDeleteTerminal() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      storeId,
+      terminalId,
+    }: {
+      storeId: string;
+      terminalId: string;
+    }) => deleteTerminal(storeId, terminalId),
+    onSuccess: (_, variables) => {
+      // Invalidate terminals query for the store
+      queryClient.invalidateQueries({
+        queryKey: [...storeKeys.details(), variables.storeId, "terminals"],
+      });
+      // Also invalidate store details to refresh terminal count if needed
+      queryClient.invalidateQueries({
+        queryKey: storeKeys.detail(variables.storeId),
+      });
+    },
   });
 }

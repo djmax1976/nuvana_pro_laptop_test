@@ -282,7 +282,7 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
     ).toBeVisible();
   });
 
-  test("4.8-E2E-008: [P2] Should update sidebar navigation to 'Shift and Day'", async ({
+  test("4.8-E2E-008: [P2] Should display both 'Shifts' and 'Shift and Day' navigation links", async ({
     cashierPage,
   }) => {
     // GIVEN: Cashier is authenticated
@@ -290,18 +290,40 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
     // WHEN: Viewing sidebar navigation
     await cashierPage.goto("/client-dashboard");
 
-    // THEN: Sidebar should show "Shift and Day" link (not "Shifts")
+    // THEN: Sidebar should show both "Shifts" and "Shift and Day" links
+    await expect(cashierPage.getByText(/^shifts$/i)).toBeVisible({
+      timeout: 10000,
+    });
     await expect(cashierPage.getByText(/shift and day/i)).toBeVisible({
       timeout: 10000,
     });
   });
 
-  test("4.8-E2E-009: [P2] Should display 'Shift and Day' as page title when navigating to shifts page", async ({
+  test("4.8-E2E-009: [P2] Should display 'Shifts' as page title when navigating to shifts page", async ({
     cashierPage,
   }) => {
     // GIVEN: Cashier is authenticated
 
     // WHEN: Navigating to shifts page via sidebar
+    await cashierPage.goto("/client-dashboard");
+    await cashierPage.getByText(/^shifts$/i).click();
+
+    // THEN: Page title should display "Shifts"
+    await expect(cashierPage.getByText(/^shifts$/i)).toBeVisible({
+      timeout: 10000,
+    });
+    // Verify page heading/title
+    await expect(
+      cashierPage.locator("h1").filter({ hasText: /^shifts$/i }),
+    ).toBeVisible();
+  });
+
+  test("4.8-E2E-011: [P2] Should display 'Shift and Day' as page title when navigating to shift-and-day page", async ({
+    cashierPage,
+  }) => {
+    // GIVEN: Cashier is authenticated
+
+    // WHEN: Navigating to shift-and-day page via sidebar
     await cashierPage.goto("/client-dashboard");
     await cashierPage.getByText(/shift and day/i).click();
 
@@ -311,11 +333,27 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
     });
     // Verify page heading/title
     await expect(
-      cashierPage.locator("h1, h2").filter({ hasText: /shift and day/i }),
+      cashierPage.locator("h1").filter({ hasText: /shift and day/i }),
     ).toBeVisible();
   });
 
-  test("4.8-E2E-010: [P0] Should NOT display 'Start Shift' button for users without SHIFT_OPEN permission", async ({
+  test("4.8-E2E-012: [P1] Should display 'Start Shift' button on Shift and Day page", async ({
+    cashierPage,
+    prismaClient,
+  }) => {
+    // GIVEN: Cashier is authenticated and has a store
+    const { store } = await createCompanyWithStoreAndTerminals(prismaClient, 1);
+
+    // WHEN: Navigating to shift-and-day page
+    await cashierPage.goto("/client-dashboard/shift-and-day");
+
+    // THEN: "Start Shift" button should be visible (no permission check required)
+    await expect(cashierPage.getByTestId("start-shift-button")).toBeVisible({
+      timeout: 10000,
+    });
+  });
+
+  test("4.8-E2E-010: [P0] Should NOT display 'Start Shift' button on client dashboard for users without SHIFT_OPEN permission", async ({
     page,
     prismaClient,
   }) => {
@@ -346,8 +384,40 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
     // WHEN: User without SHIFT_OPEN permission navigates to client dashboard
     await page.goto("/client-dashboard");
 
-    // THEN: "Start Shift" button should NOT be visible
+    // THEN: "Start Shift" button should NOT be visible on client dashboard
     await expect(page.getByTestId("start-shift-button")).not.toBeVisible({
+      timeout: 5000,
+    });
+  });
+
+  test("4.8-E2E-013: [P0] Should display 'Start Shift' button on Shift and Day page even without SHIFT_OPEN permission", async ({
+    page,
+    prismaClient,
+  }) => {
+    // GIVEN: A user without SHIFT_OPEN permission is authenticated
+    const userWithoutPermission = await prismaClient.user.create({
+      data: createUser(),
+    });
+    // Create a role without SHIFT_OPEN permission
+    const role = await prismaClient.role.create({
+      data: {
+        scope: "STORE",
+        code: `TEST_ROLE_${Date.now()}`,
+        description: "Test role without SHIFT_OPEN",
+      },
+    });
+    await prismaClient.userRole.create({
+      data: {
+        user_id: userWithoutPermission.user_id,
+        role_id: role.role_id,
+      },
+    });
+
+    // WHEN: User without SHIFT_OPEN permission navigates to Shift and Day page
+    await page.goto("/client-dashboard/shift-and-day");
+
+    // THEN: "Start Shift" button SHOULD be visible (no permission check on this page)
+    await expect(page.getByTestId("start-shift-button")).toBeVisible({
       timeout: 5000,
     });
   });

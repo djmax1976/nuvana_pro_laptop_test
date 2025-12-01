@@ -1,6 +1,6 @@
 /**
  * @test-level Component
- * @justification Component tests for ClientShiftsPage - validates page title displays "Shift and Day"
+ * @justification Component tests for ClientShiftsPage - validates page title displays "Shifts"
  * @story 4-8-cashier-shift-start-flow
  */
 
@@ -47,13 +47,13 @@ describe("4.8-COMPONENT: ClientShiftsPage Component", () => {
     vi.clearAllMocks();
   });
 
-  it("[P0] 4.8-COMPONENT-027: should display 'Shift and Day' as page title", () => {
+  it("[P0] 4.8-COMPONENT-027: should display 'Shifts' as page title", () => {
     // GIVEN: ClientShiftsPage is rendered
     renderWithProviders(<ClientShiftsPage />);
 
-    // THEN: Page title should be "Shift and Day"
-    expect(screen.getByText("Shift and Day")).toBeInTheDocument();
-    const heading = screen.getByRole("heading", { name: /shift and day/i });
+    // THEN: Page title should be "Shifts"
+    expect(screen.getByText("Shifts")).toBeInTheDocument();
+    const heading = screen.getByRole("heading", { name: /^shifts$/i });
     expect(heading).toBeInTheDocument();
     expect(heading.tagName).toBe("H1");
   });

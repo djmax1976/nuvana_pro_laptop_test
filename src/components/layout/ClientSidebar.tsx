@@ -7,12 +7,14 @@ import { useClientAuth } from "@/contexts/ClientAuthContext";
 import {
   LayoutDashboard,
   Clock,
+  CalendarDays,
   Package,
   Ticket,
   Users,
   Shield,
   BarChart3,
   Bot,
+  Settings,
 } from "lucide-react";
 
 interface NavItem {
@@ -73,9 +75,14 @@ export function ClientSidebar({ className, onNavigate }: ClientSidebarProps) {
       exact: true,
     },
     {
-      title: "Shift and Day",
+      title: "Shifts",
       href: "/client-dashboard/shifts",
       icon: Clock,
+    },
+    {
+      title: "Shift and Day",
+      href: "/client-dashboard/shift-and-day",
+      icon: CalendarDays,
     },
     {
       title: "Inventory",
@@ -120,6 +127,11 @@ export function ClientSidebar({ className, onNavigate }: ClientSidebarProps) {
       title: "AI Assistant",
       href: "/client-dashboard/ai",
       icon: Bot,
+    },
+    {
+      title: "Settings",
+      href: "/client-dashboard/settings",
+      icon: Settings,
     },
   ];
 

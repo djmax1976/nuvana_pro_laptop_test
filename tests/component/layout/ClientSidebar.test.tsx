@@ -1,6 +1,6 @@
 /**
  * @test-level Component
- * @justification Component tests for ClientSidebar - validates "Shift and Day" navigation link and routing
+ * @justification Component tests for ClientSidebar - validates "Shifts" and "Shift and Day" navigation links and routing
  * @story 4-8-cashier-shift-start-flow
  */
 
@@ -55,7 +55,15 @@ describe("4.8-COMPONENT: ClientSidebar Component", () => {
     });
   });
 
-  it("[P0] 4.8-COMPONENT-024: should display 'Shift and Day' navigation link", () => {
+  it("[P0] 4.8-COMPONENT-024: should display 'Shifts' navigation link", () => {
+    // GIVEN: ClientSidebar is rendered
+    renderWithProviders(<ClientSidebar />);
+
+    // THEN: "Shifts" link should be visible
+    expect(screen.getByText(/^shifts$/i)).toBeInTheDocument();
+  });
+
+  it("[P0] 4.8-COMPONENT-025: should display 'Shift and Day' navigation link", () => {
     // GIVEN: ClientSidebar is rendered
     renderWithProviders(<ClientSidebar />);
 
@@ -63,7 +71,23 @@ describe("4.8-COMPONENT: ClientSidebar Component", () => {
     expect(screen.getByText(/shift and day/i)).toBeInTheDocument();
   });
 
-  it("[P0] 4.8-COMPONENT-025: should navigate to /client-dashboard/shifts when 'Shift and Day' link is clicked", async () => {
+  it("[P0] 4.8-COMPONENT-026: should navigate to /client-dashboard/shifts when 'Shifts' link is clicked", async () => {
+    // GIVEN: ClientSidebar is rendered
+    const user = userEvent.setup();
+    renderWithProviders(<ClientSidebar />);
+
+    // WHEN: "Shifts" link is clicked
+    const shiftsLink = screen.getByText(/^shifts$/i).closest("a");
+    if (shiftsLink) {
+      await user.click(shiftsLink);
+    }
+
+    // THEN: Should navigate to /client-dashboard/shifts
+    const link = screen.getByText(/^shifts$/i).closest("a");
+    expect(link).toHaveAttribute("href", "/client-dashboard/shifts");
+  });
+
+  it("[P0] 4.8-COMPONENT-027: should navigate to /client-dashboard/shift-and-day when 'Shift and Day' link is clicked", async () => {
     // GIVEN: ClientSidebar is rendered
     const user = userEvent.setup();
     renderWithProviders(<ClientSidebar />);
@@ -74,24 +98,32 @@ describe("4.8-COMPONENT: ClientSidebar Component", () => {
       await user.click(shiftAndDayLink);
     }
 
-    // THEN: Should navigate to /client-dashboard/shifts
-    // Note: In Next.js Link components, the href is set but navigation is handled by Next.js router
-    // We verify the href attribute is correct
+    // THEN: Should navigate to /client-dashboard/shift-and-day
     const link = screen.getByText(/shift and day/i).closest("a");
-    expect(link).toHaveAttribute("href", "/client-dashboard/shifts");
+    expect(link).toHaveAttribute("href", "/client-dashboard/shift-and-day");
   });
 
-  it("[P1] 4.8-COMPONENT-026: should highlight 'Shift and Day' link when on shifts page", () => {
+  it("[P1] 4.8-COMPONENT-028: should highlight 'Shifts' link when on shifts page", () => {
     // GIVEN: User is on the shifts page
     mockPathname.mockReturnValue("/client-dashboard/shifts");
 
     renderWithProviders(<ClientSidebar />);
 
-    // THEN: "Shift and Day" link should be highlighted/active
-    // Note: Active state styling depends on component implementation
-    // This test verifies the link exists and can be found
-    const link = screen.getByText(/shift and day/i).closest("a");
+    // THEN: "Shifts" link should be highlighted/active
+    const link = screen.getByText(/^shifts$/i).closest("a");
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute("href", "/client-dashboard/shifts");
+  });
+
+  it("[P1] 4.8-COMPONENT-029: should highlight 'Shift and Day' link when on shift-and-day page", () => {
+    // GIVEN: User is on the shift-and-day page
+    mockPathname.mockReturnValue("/client-dashboard/shift-and-day");
+
+    renderWithProviders(<ClientSidebar />);
+
+    // THEN: "Shift and Day" link should be highlighted/active
+    const link = screen.getByText(/shift and day/i).closest("a");
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/client-dashboard/shift-and-day");
   });
 });

@@ -164,5 +164,4 @@ export {
   createTerminal,
   createTerminals,
   type TerminalData,
-  type TerminalStatus,
 } from "./terminal.factory";

@@ -10,14 +10,12 @@
 
 import { faker } from "@faker-js/faker";
 
-export type TerminalStatus = "ACTIVE" | "INACTIVE" | "MAINTENANCE";
-
 export type TerminalData = {
   pos_terminal_id?: string;
   store_id: string;
   name: string;
   device_id?: string | null;
-  status?: TerminalStatus;
+  deleted_at?: Date | null;
 };
 
 /**
@@ -31,7 +29,7 @@ export const createTerminal = (
 ): TerminalData => ({
   name: `Terminal ${faker.number.int({ min: 1, max: 999 })}`,
   device_id: `device-${faker.string.alphanumeric(8)}`,
-  status: "ACTIVE",
+  deleted_at: null,
   ...overrides,
 });
 

@@ -349,7 +349,7 @@ export class ShiftService {
     try {
       const terminal = await prisma.pOSTerminal.findUnique({
         where: { pos_terminal_id: posTerminalId },
-        select: { pos_terminal_id: true, store_id: true, status: true },
+        select: { pos_terminal_id: true, store_id: true, deleted_at: true },
       });
 
       if (!terminal) {
@@ -366,10 +366,10 @@ export class ShiftService {
         );
       }
 
-      if (terminal.status !== "ACTIVE") {
+      if (terminal.deleted_at !== null) {
         throw new ShiftServiceError(
           ShiftErrorCode.TERMINAL_NOT_FOUND,
-          `POS terminal with ID ${posTerminalId} is not active`,
+          `POS terminal with ID ${posTerminalId} is deleted`,
         );
       }
     } catch (error) {

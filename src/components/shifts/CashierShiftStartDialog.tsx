@@ -88,7 +88,13 @@ export function CashierShiftStartDialog({
     error: terminalsError,
   } = useStoreTerminals(storeId, { enabled: open && !!storeId });
 
-  // Filter terminals to show only available ones (no active shift)
+  // Show all terminals - filter available ones for selection, but show all for visibility
+  const allTerminals = useMemo(() => {
+    if (!terminalsData) return [];
+    return terminalsData;
+  }, [terminalsData]);
+
+  // Filter terminals to show only available ones (no active shift) for selection
   const availableTerminals = useMemo(() => {
     if (!terminalsData) return [];
     return terminalsData.filter((terminal) => !terminal.has_active_shift);
@@ -222,60 +228,121 @@ export function CashierShiftStartDialog({
             <FormField
               control={form.control}
               name="pos_terminal_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>POS Terminal</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                    disabled={isSubmitting || isLoadingTerminals}
-                  >
-                    <FormControl>
-                      <SelectTrigger data-testid="terminal-select">
-                        <SelectValue placeholder="Select a terminal" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {isLoadingTerminals ? (
-                        <SelectItem value="loading" disabled>
-                          Loading terminals...
-                        </SelectItem>
-                      ) : terminalsError ? (
-                        <SelectItem value="error" disabled>
-                          Failed to load terminals
-                        </SelectItem>
-                      ) : availableTerminals.length === 0 ? (
-                        <SelectItem value="no-terminals" disabled>
-                          No available terminals
-                        </SelectItem>
-                      ) : (
-                        availableTerminals.map((terminal) => (
-                          <SelectItem
-                            key={terminal.pos_terminal_id}
-                            value={terminal.pos_terminal_id}
-                            data-testid={`terminal-option-${terminal.pos_terminal_id}`}
-                          >
-                            {terminal.name}
+              render={({ field }) => {
+                // Validate that selected terminal is available (no active shift)
+                const selectedTerminal = allTerminals.find(
+                  (t) => t.pos_terminal_id === field.value,
+                );
+                const isSelectedTerminalUnavailable =
+                  selectedTerminal?.has_active_shift;
+
+                return (
+                  <FormItem>
+                    <FormLabel>POS Terminal</FormLabel>
+                    <Select
+                      onValueChange={(value) => {
+                        const terminal = allTerminals.find(
+                          (t) => t.pos_terminal_id === value,
+                        );
+                        // Only allow selection of available terminals
+                        if (terminal && !terminal.has_active_shift) {
+                          field.onChange(value);
+                        }
+                      }}
+                      value={field.value}
+                      disabled={isSubmitting || isLoadingTerminals}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="terminal-select">
+                          <SelectValue placeholder="Select a terminal" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {isLoadingTerminals ? (
+                          <SelectItem value="loading" disabled>
+                            Loading terminals...
                           </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    Select an available POS terminal for this shift
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
+                        ) : terminalsError ? (
+                          <SelectItem value="error" disabled>
+                            Failed to load terminals
+                          </SelectItem>
+                        ) : allTerminals.length === 0 ? (
+                          <SelectItem value="no-terminals" disabled>
+                            No terminals found for this store
+                          </SelectItem>
+                        ) : (
+                          allTerminals.map((terminal) => (
+                            <SelectItem
+                              key={terminal.pos_terminal_id}
+                              value={terminal.pos_terminal_id}
+                              disabled={terminal.has_active_shift}
+                              data-testid={`terminal-option-${terminal.pos_terminal_id}`}
+                            >
+                              {terminal.name}
+                              {terminal.has_active_shift && " (Active Shift)"}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      {allTerminals.length > 0
+                        ? `Select an available POS terminal for this shift (${availableTerminals.length} of ${allTerminals.length} available)`
+                        : "Select an available POS terminal for this shift"}
+                    </FormDescription>
+                    {isSelectedTerminalUnavailable && (
+                      <p className="text-sm font-medium text-destructive">
+                        This terminal has an active shift. Please select an
+                        available terminal.
+                      </p>
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                );
+              }}
             />
 
-            {/* Show message if no terminals available */}
+            {/* Show message if no terminals found */}
             {!isLoadingTerminals &&
               !terminalsError &&
-              terminalsData &&
+              allTerminals.length === 0 && (
+                <div className="rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200">
+                  No terminals found for this store. Please create terminals
+                  first.
+                </div>
+              )}
+
+            {/* Show message if terminals exist but all have active shifts */}
+            {!isLoadingTerminals &&
+              !terminalsError &&
+              allTerminals.length > 0 &&
               availableTerminals.length === 0 && (
                 <div className="rounded-md bg-yellow-50 p-3 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
-                  No available terminals. All terminals have active shifts.
+                  No available terminals. All {allTerminals.length} terminal(s)
+                  have active shifts. Please close existing shifts first.
+                </div>
+              )}
+
+            {/* Show debug info about terminals */}
+            {!isLoadingTerminals &&
+              !terminalsError &&
+              allTerminals.length > 0 && (
+                <div className="rounded-md bg-blue-50 p-3 text-xs text-blue-800 dark:bg-blue-900/20 dark:text-blue-200">
+                  Found {allTerminals.length} terminal(s) total,{" "}
+                  {availableTerminals.length} available for new shift.
+                  {allTerminals
+                    .filter((t) => t.has_active_shift)
+                    .map((t) => t.name)
+                    .join(", ") && (
+                    <span>
+                      {" "}
+                      Active shifts on:{" "}
+                      {allTerminals
+                        .filter((t) => t.has_active_shift)
+                        .map((t) => t.name)
+                        .join(", ")}
+                    </span>
+                  )}
                 </div>
               )}
 

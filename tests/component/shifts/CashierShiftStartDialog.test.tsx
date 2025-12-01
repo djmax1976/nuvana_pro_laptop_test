@@ -112,8 +112,9 @@ describe("4.8-COMPONENT: CashierShiftStartDialog Component", () => {
     expect(screen.queryByText(/start shift/i)).not.toBeInTheDocument();
   });
 
-  it("[P1] 4.8-COMPONENT-003: should display only available terminals (has_active_shift = false)", async () => {
+  it("[P1] 4.8-COMPONENT-003: should display all terminals with active shift indicators", async () => {
     // GIVEN: Component is rendered with terminals (some have active shifts)
+    const user = userEvent.setup();
     renderWithProviders(
       <CashierShiftStartDialog
         storeId={mockStoreId}
@@ -124,19 +125,24 @@ describe("4.8-COMPONENT: CashierShiftStartDialog Component", () => {
 
     // WHEN: Opening terminal dropdown
     const terminalSelect = screen.getByTestId("terminal-select");
-    await userEvent.click(terminalSelect);
+    await user.click(terminalSelect);
 
-    // THEN: Only terminals without active shifts should be displayed
+    // THEN: All terminals should be displayed, with active shift ones disabled and marked
     expect(
       screen.getByRole("option", { name: "Terminal 1" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("option", { name: "Terminal 2" }),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Terminal 3")).not.toBeInTheDocument();
+    // Terminal 3 should be visible but disabled and marked
+    const terminal3Option = screen.getByRole("option", {
+      name: /Terminal 3.*Active Shift/i,
+    });
+    expect(terminal3Option).toBeInTheDocument();
+    expect(terminal3Option).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("[P1] 4.8-COMPONENT-004: should display 'No available terminals' message when all terminals have active shifts", async () => {
+  it("[P1] 4.8-COMPONENT-004: should display message when all terminals have active shifts", async () => {
     // GIVEN: All terminals have active shifts
     vi.mocked(storesApi.useStoreTerminals).mockReturnValue({
       ...mockQuery,
@@ -151,17 +157,34 @@ describe("4.8-COMPONENT: CashierShiftStartDialog Component", () => {
       />,
     );
 
-    // THEN: "No available terminals" message should be displayed
+    // THEN: Message about all terminals having active shifts should be displayed
     await waitFor(() => {
-      const messages = screen.getAllByText(/no available terminals/i);
-      expect(messages.length).toBeGreaterThan(0);
-      // Check that at least one message is visible (not in hidden select)
-      const visibleMessage = messages.find(
-        (msg) =>
-          msg.closest('[role="combobox"]') ||
-          msg.textContent?.includes("All terminals"),
-      );
-      expect(visibleMessage || messages[0]).toBeInTheDocument();
+      expect(
+        screen.getByText(/all.*terminal.*have active shifts/i),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("[P1] 4.8-COMPONENT-004a: should display 'No terminals found' message when no terminals exist", async () => {
+    // GIVEN: No terminals exist for the store
+    vi.mocked(storesApi.useStoreTerminals).mockReturnValue({
+      ...mockQuery,
+      data: [],
+    } as any);
+
+    renderWithProviders(
+      <CashierShiftStartDialog
+        storeId={mockStoreId}
+        open={true}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    // THEN: "No terminals found" message should be displayed
+    await waitFor(() => {
+      expect(
+        screen.getByText(/no terminals found for this store/i),
+      ).toBeInTheDocument();
     });
   });
 
@@ -487,11 +510,31 @@ describe("4.8-COMPONENT: CashierShiftStartDialog Component", () => {
     });
   });
 
-  it("[P1] 4.8-COMPONENT-014: should disable submit button when no terminals available", () => {
-    // GIVEN: Component is rendered with no available terminals
+  it("[P1] 4.8-COMPONENT-014: should disable submit button when no available terminals", () => {
+    // GIVEN: Component is rendered with no available terminals (all have active shifts)
     vi.mocked(storesApi.useStoreTerminals).mockReturnValue({
       ...mockQuery,
       data: mockTerminals.map((t) => ({ ...t, has_active_shift: true })),
+    } as any);
+
+    renderWithProviders(
+      <CashierShiftStartDialog
+        storeId={mockStoreId}
+        open={true}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    // THEN: Submit button should be disabled
+    const submitButton = screen.getByTestId("submit-button");
+    expect(submitButton).toBeDisabled();
+  });
+
+  it("[P1] 4.8-COMPONENT-014a: should disable submit button when no terminals exist", () => {
+    // GIVEN: Component is rendered with no terminals at all
+    vi.mocked(storesApi.useStoreTerminals).mockReturnValue({
+      ...mockQuery,
+      data: [],
     } as any);
 
     renderWithProviders(

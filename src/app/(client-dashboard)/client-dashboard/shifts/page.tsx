@@ -67,7 +67,7 @@ export default function ClientShiftsPage() {
     <div className="space-y-6" data-testid="client-shifts-page">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl font-bold">Shift and Day</h1>
+        <h1 className="text-2xl font-bold">Shifts</h1>
         <p className="text-sm text-muted-foreground mt-2">
           View and manage shifts, open new shifts, and reconcile cash
         </p>
