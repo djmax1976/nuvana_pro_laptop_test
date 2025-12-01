@@ -67,57 +67,13 @@ jobs:
             typecheck-backend.log
           retention-days: 7
 
-  test_selector:
-    name: Select Tests
+  # Full test suite - runs on every PR and push to main
+  # Simplified: No selective testing, always run everything
+  full_test_suite:
+    name: Full Test Suite
     needs: lint_typecheck
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      component: ${{ steps.select_tests.outputs.component }}
-      api: ${{ steps.select_tests.outputs.api }}
-      e2e: ${{ steps.select_tests.outputs.e2e }}
-      any: ${{ steps.calculate_any.outputs.any }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-        with:
-          fetch-depth: 0
-      - name: Make scripts executable
-        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-      - run: npm ci
-      - name: Select tests to run
-        id: select_tests
-        run: |
-          # On main branch push, scheduled run, or manual trigger - run all tests
-          if [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]] || \
-             [[ "${{ github.event_name }}" == "schedule" ]] || \
-             [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Running full test suite (main branch, scheduled, or manual trigger)"
-            echo "component=true" >> $GITHUB_OUTPUT
-            echo "api=true" >> $GITHUB_OUTPUT
-            echo "e2e=true" >> $GITHUB_OUTPUT
-          else
-            # Determine which tests to run based on changed files (PRs only)
-            bash nuvana_control/workflows/11-ci_pipeline/scripts/test-changed.sh --select-only
-          fi
-      - name: Calculate if any tests should run
-        id: calculate_any
-        run: |
-          if [[ "${{ steps.select_tests.outputs.component }}" == "true" ]] || [[ "${{ steps.select_tests.outputs.api }}" == "true" ]] || [[ "${{ steps.select_tests.outputs.e2e }}" == "true" ]]; then
-            echo "any=true" >> $GITHUB_OUTPUT
-          else
-            echo "any=false" >> $GITHUB_OUTPUT
-          fi
-
-  selective_tests:
-    name: Selective Tests
-    needs: [lint_typecheck, test_selector]
-    runs-on: ubuntu-latest
-    if: ${{ needs.test_selector.outputs.any == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     permissions:
       contents: read
     services:
@@ -155,10 +111,6 @@ jobs:
           --health-retries=5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-        with:
-          fetch-depth: 0
-      - name: Make scripts executable
-        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -168,60 +120,50 @@ jobs:
             backend/package-lock.json
       - run: npm ci
       - name: Install backend dependencies
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: cd backend && npm ci
       - name: Generate Prisma Client (root)
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: npm run prisma:generate
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Generate Prisma Client (backend)
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: cd backend && npx prisma generate
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Run Prisma migrations
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: cd backend && npx prisma migrate deploy
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Seed test database
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: npx tsx backend/src/db/seeds/rbac.seed.ts
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Bootstrap admin user
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: npx tsx backend/scripts/bootstrap-admin.ts
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Clean test database
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: npx tsx scripts/cleanup-test-data.ts
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Cache Playwright browsers
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - name: Install Playwright browsers
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: npx playwright install --with-deps chromium
       - name: Build backend
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: cd backend && npm run build
+      - name: Make scripts executable
+        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
       - name: Clean up port 3001 (if occupied)
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
-      - name: Start backend (production mode)
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
+      - name: Start backend (built app, test mode)
         run: |
-          cd backend && npm run start > ../backend.log 2>&1 &
+          cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
-          NODE_ENV: production
+          NODE_ENV: test
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
@@ -230,18 +172,16 @@ jobs:
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
           DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
           UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
-      - name: Start transaction worker (production mode)
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
+      - name: Start transaction worker (built app, test mode)
         run: |
           cd backend && node dist/workers/transaction.worker.js > ../worker.log 2>&1 &
           echo $! > ../worker.pid
         env:
-          NODE_ENV: production
+          NODE_ENV: test
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
-      - name: Wait for backend health (if started)
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
+      - name: Wait for backend health
         run: |
           echo "Waiting for backend to be healthy..."
           for i in {1..30}; do
@@ -252,10 +192,9 @@ jobs:
             echo "Waiting for backend... ($i/30)"
             sleep $((i > 10 ? 5 : 2))
           done
-          echo "Backend health check timeout - may not be needed for this test run"
-        continue-on-error: false
-      - name: Wait for transaction worker readiness (if started)
-        if: (needs.test_selector.outputs.api == 'true' || needs.test_selector.outputs.e2e == 'true')
+          echo "Backend health check timeout"
+          exit 1
+      - name: Wait for transaction worker readiness
         run: |
           echo "Waiting for transaction worker to be ready..."
           for i in {1..30}; do
@@ -279,7 +218,7 @@ jobs:
           echo "Worker logs:"
           cat worker.log || echo "No worker.log found"
           exit 1
-      - name: Run tests (full suite on main/schedule, selective on PRs)
+      - name: Run full test suite (API + E2E)
         env:
           NODE_ENV: test
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
@@ -290,22 +229,14 @@ jobs:
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
           CI: "true"
         run: |
-          # On main branch push, scheduled run, or manual trigger - run FULL test suite
-          if [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]] || \
-             [[ "${{ github.event_name }}" == "schedule" ]] || \
-             [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Running FULL test suite (main branch, scheduled, or manual trigger)"
-            npm run test:api
-            npm run test:e2e
-          else
-            # PRs: Run only tests for changed files
-            bash nuvana_control/workflows/11-ci_pipeline/scripts/test-changed.sh
-          fi
-      - name: Upload selective test results (includes slow tests)
+          echo "Running FULL test suite"
+          npm run test:api
+          npm run test:e2e
+      - name: Upload test results (includes slow tests)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: selective-test-results
+          name: full-test-results
           path: |
             playwright-report/
             test-results/
@@ -345,12 +276,12 @@ jobs:
           # Extra cleanup: kill any remaining process on port 3001
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
-  changed_tests_burn_in:
+  burn_in_tests:
     name: Burn-In Tests
-    needs: [selective_tests, test_selector, e2e_smoke]
+    needs: [full_test_suite, e2e_smoke]
     runs-on: ubuntu-latest
-    timeout-minutes: 60  # Increased for full suite burn-in on main/schedule
-    if: ${{ needs.test_selector.outputs.any == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+    timeout-minutes: 60
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     permissions:
       contents: read
     services:
@@ -388,8 +319,6 @@ jobs:
           --health-retries=5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -425,16 +354,16 @@ jobs:
         run: |
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
-      - name: Start full stack (production mode with worker)
+      - name: Start full stack (built app, test mode with worker)
         run: |
           npm run start > frontend.log 2>&1 &
           echo $! > frontend.pid
-          cd backend && npm run start > ../backend.log 2>&1 &
+          cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
           cd backend && node dist/workers/transaction.worker.js > ../worker.log 2>&1 &
           echo $! > ../worker.pid
         env:
-          NODE_ENV: production
+          NODE_ENV: test
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
@@ -510,7 +439,7 @@ jobs:
           echo "Worker logs:"
           cat worker.log || echo "No worker.log found"
           exit 1
-      - name: Run burn-in loop (full suite on main/schedule, changed tests on PRs)
+      - name: Run burn-in loop (full suite)
         env:
           BURN_IN_ITERATIONS: ${{ env.BURN_IN_ITERATIONS }}
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
@@ -521,20 +450,12 @@ jobs:
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
           CI: "true"
         run: |
-          # On main branch push, scheduled run, or manual trigger - burn-in FULL test suite
-          if [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]] || \
-             [[ "${{ github.event_name }}" == "schedule" ]] || \
-             [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Running FULL test suite burn-in ($BURN_IN_ITERATIONS iterations)"
-            for i in $(seq 1 $BURN_IN_ITERATIONS); do
-              echo "=== Burn-in iteration $i/$BURN_IN_ITERATIONS ==="
-              npm run test:api
-              npm run test:e2e
-            done
-          else
-            # PRs: Run burn-in only for changed tests
-            bash nuvana_control/workflows/11-ci_pipeline/scripts/burn-in.sh
-          fi
+          echo "Running FULL test suite burn-in ($BURN_IN_ITERATIONS iterations)"
+          for i in $(seq 1 $BURN_IN_ITERATIONS); do
+            echo "=== Burn-in iteration $i/$BURN_IN_ITERATIONS ==="
+            npm run test:api
+            npm run test:e2e
+          done
       - name: Upload burn-in test results (includes slow tests)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
@@ -774,12 +695,12 @@ jobs:
         run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
       - name: Clean up port 3001 (if occupied)
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
-      - name: Start backend (production mode)
+      - name: Start backend (built app, test mode)
         run: |
-          cd backend && npm run start > ../backend.log 2>&1 &
+          cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
-          NODE_ENV: production
+          NODE_ENV: test
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
@@ -945,14 +866,16 @@ jobs:
         run: |
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
-      - name: Start full stack (production mode)
+      - name: Start full stack (built app, test mode)
         run: |
           npm run start > frontend.log 2>&1 &
           echo $! > frontend.pid
-          cd backend && npm run start > ../backend.log 2>&1 &
+          cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
+          cd backend && node dist/workers/transaction.worker.js > ../worker.log 2>&1 &
+          echo $! > ../worker.pid
         env:
-          NODE_ENV: production
+          NODE_ENV: test
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
@@ -1004,7 +927,7 @@ jobs:
           fi
 
           echo "✅ Both services are ready"
-      - name: Run E2E tests (full suite on main/schedule, health check on PRs)
+      - name: Run E2E tests (full suite)
         env:
           BACKEND_URL: ${{ env.BACKEND_URL }}
           FRONTEND_URL: ${{ env.FRONTEND_URL }}
@@ -1013,16 +936,8 @@ jobs:
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
           CI: "true"
         run: |
-          # On main branch push, scheduled run, or manual trigger - run FULL E2E suite
-          if [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]] || \
-             [[ "${{ github.event_name }}" == "schedule" ]] || \
-             [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Running FULL E2E test suite"
-            npm run test:e2e
-          else
-            # PRs: Run quick health check only
-            npm run test:e2e:health
-          fi
+          echo "Running FULL E2E test suite"
+          npm run test:e2e
       - name: Scrub secrets from logs
         if: failure()
         run: |
@@ -1191,12 +1106,12 @@ jobs:
         run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
       - name: Clean up port 3001 (if occupied)
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
-      - name: Start backend (production mode)
+      - name: Start backend (built app, test mode)
         run: |
-          cd backend && npm run start > ../backend.log 2>&1 &
+          cd backend && npm run start:test > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
-          NODE_ENV: production
+          NODE_ENV: test
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
