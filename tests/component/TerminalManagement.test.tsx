@@ -259,10 +259,14 @@ describe("Terminal Management Component", () => {
       await user.click(addButton);
 
       // THEN: Create terminal dialog should be visible
-      expect(screen.getByText("Add Terminal")).toBeInTheDocument();
-      expect(
-        screen.getByText(/Create a new POS terminal for this store/i),
-      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(
+          screen.getByRole("heading", { name: "Add Terminal" }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/Create a new POS terminal for this store/i),
+        ).toBeInTheDocument();
+      });
     });
 
     it("[P0] Should create terminal with valid data", async () => {
@@ -274,6 +278,13 @@ describe("Terminal Management Component", () => {
 
       const addButton = screen.getByRole("button", { name: /Add Terminal/i });
       await user.click(addButton);
+
+      // Wait for dialog to open
+      await waitFor(() => {
+        expect(
+          screen.getByRole("heading", { name: "Add Terminal" }),
+        ).toBeInTheDocument();
+      });
 
       // WHEN: User fills form and submits
       const nameInput = screen.getByLabelText(/Terminal Name/i);
@@ -342,6 +353,13 @@ describe("Terminal Management Component", () => {
       const addButton = screen.getByRole("button", { name: /Add Terminal/i });
       await user.click(addButton);
 
+      // Wait for dialog to open
+      await waitFor(() => {
+        expect(
+          screen.getByRole("heading", { name: "Add Terminal" }),
+        ).toBeInTheDocument();
+      });
+
       // WHEN: User enters name with whitespace
       const nameInput = screen.getByLabelText(/Terminal Name/i);
       await user.type(nameInput, "  Trimmed Terminal  ");
@@ -375,6 +393,13 @@ describe("Terminal Management Component", () => {
       const addButton = screen.getByRole("button", { name: /Add Terminal/i });
       await user.click(addButton);
 
+      // Wait for dialog to open
+      await waitFor(() => {
+        expect(
+          screen.getByRole("heading", { name: "Add Terminal" }),
+        ).toBeInTheDocument();
+      });
+
       const nameInput = screen.getByLabelText(/Terminal Name/i);
       await user.type(nameInput, "New Terminal");
 
@@ -402,19 +427,21 @@ describe("Terminal Management Component", () => {
         <StoreForm companyId={companyId} store={mockStore} />,
       );
 
-      // WHEN: User clicks edit button for a terminal
-      const editButtons = screen.getAllByRole("button", { name: "" });
-      const editButton = editButtons.find((btn) =>
-        btn.querySelector('svg[class*="Edit"]'),
-      );
-      expect(editButton).toBeDefined();
-      await user.click(editButton!);
+      // WHEN: User clicks edit button for Terminal 1
+      const editButton = screen.getByRole("button", {
+        name: /Edit Terminal 1/i,
+      });
+      await user.click(editButton);
 
       // THEN: Edit terminal dialog should be visible
-      expect(screen.getByText("Edit Terminal")).toBeInTheDocument();
-      expect(
-        screen.getByText(/Update terminal information/i),
-      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(
+          screen.getByRole("heading", { name: "Edit Terminal" }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/Update terminal information/i),
+        ).toBeInTheDocument();
+      });
     });
 
     it("[P0] Should pre-fill form with terminal data when editing", async () => {
@@ -425,11 +452,17 @@ describe("Terminal Management Component", () => {
       );
 
       // WHEN: User clicks edit button
-      const editButtons = screen.getAllByRole("button", { name: "" });
-      const editButton = editButtons.find((btn) =>
-        btn.querySelector('svg[class*="Edit"]'),
-      );
-      await user.click(editButton!);
+      const editButton = screen.getByRole("button", {
+        name: /Edit Terminal 1/i,
+      });
+      await user.click(editButton);
+
+      // Wait for dialog to open
+      await waitFor(() => {
+        expect(
+          screen.getByRole("heading", { name: "Edit Terminal" }),
+        ).toBeInTheDocument();
+      });
 
       // THEN: Form should be pre-filled with terminal data
       const nameInput = screen.getByLabelText(
@@ -445,11 +478,17 @@ describe("Terminal Management Component", () => {
         <StoreForm companyId={companyId} store={mockStore} />,
       );
 
-      const editButtons = screen.getAllByRole("button", { name: "" });
-      const editButton = editButtons.find((btn) =>
-        btn.querySelector('svg[class*="Edit"]'),
-      );
-      await user.click(editButton!);
+      const editButton = screen.getByRole("button", {
+        name: /Edit Terminal 1/i,
+      });
+      await user.click(editButton);
+
+      // Wait for dialog to open
+      await waitFor(() => {
+        expect(
+          screen.getByRole("heading", { name: "Edit Terminal" }),
+        ).toBeInTheDocument();
+      });
 
       // WHEN: User updates name and submits
       const nameInput = screen.getByLabelText(/Terminal Name/i);
@@ -487,11 +526,17 @@ describe("Terminal Management Component", () => {
         <StoreForm companyId={companyId} store={mockStore} />,
       );
 
-      const editButtons = screen.getAllByRole("button", { name: "" });
-      const editButton = editButtons.find((btn) =>
-        btn.querySelector('svg[class*="Edit"]'),
-      );
-      await user.click(editButton!);
+      const editButton = screen.getByRole("button", {
+        name: /Edit Terminal 1/i,
+      });
+      await user.click(editButton);
+
+      // Wait for dialog to open
+      await waitFor(() => {
+        expect(
+          screen.getByRole("heading", { name: "Edit Terminal" }),
+        ).toBeInTheDocument();
+      });
 
       // WHEN: User clears name and tries to submit
       const nameInput = screen.getByLabelText(/Terminal Name/i);
@@ -525,13 +570,11 @@ describe("Terminal Management Component", () => {
         <StoreForm companyId={companyId} store={mockStore} />,
       );
 
-      // WHEN: User clicks delete button
-      const deleteButtons = screen.getAllByRole("button", { name: "" });
-      const deleteButton = deleteButtons.find((btn) =>
-        btn.querySelector('svg[class*="Trash"]'),
-      );
-      expect(deleteButton).toBeDefined();
-      await user.click(deleteButton!);
+      // WHEN: User clicks delete button for Terminal 1
+      const deleteButton = screen.getByRole("button", {
+        name: /Delete Terminal 1/i,
+      });
+      await user.click(deleteButton);
 
       // THEN: Confirmation dialog should be shown
       expect(confirmSpy).toHaveBeenCalledWith(
@@ -551,11 +594,10 @@ describe("Terminal Management Component", () => {
       );
 
       // WHEN: User confirms deletion
-      const deleteButtons = screen.getAllByRole("button", { name: "" });
-      const deleteButton = deleteButtons.find((btn) =>
-        btn.querySelector('svg[class*="Trash"]'),
-      );
-      await user.click(deleteButton!);
+      const deleteButton = screen.getByRole("button", {
+        name: /Delete Terminal 1/i,
+      });
+      await user.click(deleteButton);
 
       // THEN: Delete mutation should be called
       await waitFor(() => {
@@ -584,11 +626,10 @@ describe("Terminal Management Component", () => {
       );
 
       // WHEN: User cancels deletion
-      const deleteButtons = screen.getAllByRole("button", { name: "" });
-      const deleteButton = deleteButtons.find((btn) =>
-        btn.querySelector('svg[class*="Trash"]'),
-      );
-      await user.click(deleteButton!);
+      const deleteButton = screen.getByRole("button", {
+        name: /Delete Terminal 1/i,
+      });
+      await user.click(deleteButton);
 
       // THEN: Delete mutation should NOT be called
       expect(mockDeleteMutation.mutateAsync).not.toHaveBeenCalled();
@@ -603,13 +644,9 @@ describe("Terminal Management Component", () => {
       );
 
       // THEN: Delete button for Terminal 2 (has active shift) should be disabled
-      const deleteButtons = screen.getAllByRole("button", { name: "" });
-      const terminal2DeleteButton = deleteButtons.find(
-        (btn) =>
-          btn.querySelector('svg[class*="Trash"]') &&
-          btn.closest('[class*="border"]')?.textContent?.includes("Terminal 2"),
-      );
-      expect(terminal2DeleteButton).toBeDefined();
+      const terminal2DeleteButton = screen.getByRole("button", {
+        name: /Delete Terminal 2/i,
+      });
       expect(terminal2DeleteButton).toBeDisabled();
     });
 
@@ -626,11 +663,10 @@ describe("Terminal Management Component", () => {
       );
 
       // WHEN: User confirms deletion
-      const deleteButtons = screen.getAllByRole("button", { name: "" });
-      const deleteButton = deleteButtons.find((btn) =>
-        btn.querySelector('svg[class*="Trash"]'),
-      );
-      await user.click(deleteButton!);
+      const deleteButton = screen.getByRole("button", {
+        name: /Delete Terminal 1/i,
+      });
+      await user.click(deleteButton);
 
       // THEN: Error toast should be shown
       await waitFor(() => {

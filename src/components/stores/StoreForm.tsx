@@ -508,6 +508,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
                         updateMutation.isPending ||
                         deleteMutation.isPending
                       }
+                      aria-label={`Edit ${terminal.name}`}
                     >
                       <Edit2 className="h-4 w-4" />
                     </Button>
@@ -522,6 +523,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
                         deleteMutation.isPending ||
                         terminal.has_active_shift
                       }
+                      aria-label={`Delete ${terminal.name}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -544,8 +546,14 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Terminal Name</label>
+              <label
+                htmlFor="create-terminal-name"
+                className="text-sm font-medium"
+              >
+                Terminal Name
+              </label>
               <Input
+                id="create-terminal-name"
                 value={terminalName}
                 onChange={(e) => setTerminalName(e.target.value)}
                 placeholder="e.g., Terminal 1"
@@ -553,10 +561,14 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">
+              <label
+                htmlFor="create-terminal-device-id"
+                className="text-sm font-medium"
+              >
                 Device ID (Optional)
               </label>
               <Input
+                id="create-terminal-device-id"
                 value={terminalDeviceId}
                 onChange={(e) => setTerminalDeviceId(e.target.value)}
                 placeholder="e.g., DEV-001"
@@ -597,8 +609,14 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Terminal Name</label>
+              <label
+                htmlFor="edit-terminal-name"
+                className="text-sm font-medium"
+              >
+                Terminal Name
+              </label>
               <Input
+                id="edit-terminal-name"
                 value={terminalName}
                 onChange={(e) => setTerminalName(e.target.value)}
                 placeholder="e.g., Terminal 1"
@@ -606,10 +624,14 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">
+              <label
+                htmlFor="edit-terminal-device-id"
+                className="text-sm font-medium"
+              >
                 Device ID (Optional)
               </label>
               <Input
+                id="edit-terminal-device-id"
                 value={terminalDeviceId}
                 onChange={(e) => setTerminalDeviceId(e.target.value)}
                 placeholder="e.g., DEV-001"

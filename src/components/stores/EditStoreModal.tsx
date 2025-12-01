@@ -196,10 +196,14 @@ export function EditStoreModal({
     const currentFormStatus = form.getValues("status");
     // Compare against current form value to detect any status change from the form's current state
     if (currentFormStatus !== newStatus) {
-      setPendingStatus(newStatus);
-      setShowStatusChangeDialog(true);
-    } else {
-      form.setValue("status", newStatus as EditStoreFormValues["status"]);
+      // Only show confirmation for INACTIVE or CLOSED (destructive changes)
+      // Changing to ACTIVE is non-destructive and doesn't need confirmation
+      if (newStatus === "INACTIVE" || newStatus === "CLOSED") {
+        setPendingStatus(newStatus);
+        setShowStatusChangeDialog(true);
+      } else {
+        form.setValue("status", newStatus as EditStoreFormValues["status"]);
+      }
     }
   };
 
@@ -617,6 +621,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
                         updateMutation.isPending ||
                         deleteMutation.isPending
                       }
+                      aria-label={`Edit ${terminal.name}`}
                     >
                       <Edit2 className="h-4 w-4" />
                     </Button>
@@ -631,6 +636,7 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
                         deleteMutation.isPending ||
                         terminal.has_active_shift
                       }
+                      aria-label={`Delete ${terminal.name}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>

@@ -282,7 +282,8 @@ describe("2.5-COMPONENT: EditStoreModal Component", () => {
       // WHEN: User changes status to INACTIVE
       const statusSelect = screen.getByLabelText(/Status/i);
       await user.click(statusSelect);
-      const inactiveOption = screen.getByText("Inactive");
+      // Use getByRole to find the option in the dropdown
+      const inactiveOption = screen.getByRole("option", { name: "Inactive" });
       await user.click(inactiveOption);
 
       // THEN: Confirmation dialog should appear
@@ -313,7 +314,8 @@ describe("2.5-COMPONENT: EditStoreModal Component", () => {
       // WHEN: User changes status to CLOSED
       const statusSelect = screen.getByLabelText(/Status/i);
       await user.click(statusSelect);
-      const closedOption = screen.getByText("Closed");
+      // Use getByRole to find the option in the dropdown
+      const closedOption = screen.getByRole("option", { name: "Closed" });
       await user.click(closedOption);
 
       // THEN: Confirmation dialog should appear
@@ -340,7 +342,8 @@ describe("2.5-COMPONENT: EditStoreModal Component", () => {
       // WHEN: User changes status to ACTIVE
       const statusSelect = screen.getByLabelText(/Status/i);
       await user.click(statusSelect);
-      const activeOption = screen.getByText("Active");
+      // Use getByRole to find the option in the dropdown
+      const activeOption = screen.getByRole("option", { name: "Active" });
       await user.click(activeOption);
 
       // THEN: Confirmation dialog should NOT appear
@@ -366,7 +369,8 @@ describe("2.5-COMPONENT: EditStoreModal Component", () => {
       // WHEN: User changes status to INACTIVE and confirms
       const statusSelect = screen.getByLabelText(/Status/i);
       await user.click(statusSelect);
-      const inactiveOption = screen.getByText("Inactive");
+      // Use getByRole to find the option in the dropdown
+      const inactiveOption = screen.getByRole("option", { name: "Inactive" });
       await user.click(inactiveOption);
 
       await waitFor(() => {
@@ -403,7 +407,8 @@ describe("2.5-COMPONENT: EditStoreModal Component", () => {
       // WHEN: User changes status to INACTIVE and cancels
       const statusSelect = screen.getByLabelText(/Status/i);
       await user.click(statusSelect);
-      const inactiveOption = screen.getByText("Inactive");
+      // Use getByRole to find the option in the dropdown
+      const inactiveOption = screen.getByRole("option", { name: "Inactive" });
       await user.click(inactiveOption);
 
       await waitFor(() => {
@@ -637,7 +642,9 @@ describe("2.5-COMPONENT: EditStoreModal Component", () => {
 
       // THEN: Create terminal dialog should be visible
       await waitFor(() => {
-        expect(screen.getByText("Add Terminal")).toBeInTheDocument();
+        expect(
+          screen.getByRole("heading", { name: "Add Terminal" }),
+        ).toBeInTheDocument();
         expect(
           screen.getByText(/Create a new POS terminal for this store/i),
         ).toBeInTheDocument();

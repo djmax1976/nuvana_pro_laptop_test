@@ -181,9 +181,12 @@ describe("4.8-COMPONENT: CashierShiftStartDialog Component", () => {
     );
 
     // THEN: "No terminals found" message should be displayed
+    // The component shows "No terminals found for this store. Please create terminals first." in the alert div
     await waitFor(() => {
       expect(
-        screen.getByText(/no terminals found for this store/i),
+        screen.getByText(
+          /no terminals found for this store\. please create terminals first/i,
+        ),
       ).toBeInTheDocument();
     });
   });
