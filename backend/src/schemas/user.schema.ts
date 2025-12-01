@@ -6,12 +6,39 @@ import { z } from "zod";
  */
 
 // Role assignment schema
-export const roleAssignmentSchema = z.object({
-  role_id: z.string().uuid("Invalid role ID format"),
-  scope_type: z.enum(["SYSTEM", "COMPANY", "STORE"]),
-  company_id: z.string().uuid("Invalid company ID format").optional(),
-  store_id: z.string().uuid("Invalid store ID format").optional(),
-});
+export const roleAssignmentSchema = z
+  .object({
+    role_id: z.string().uuid("Invalid role ID format"),
+    scope_type: z.enum(["SYSTEM", "COMPANY", "STORE"]),
+    company_id: z.string().uuid("Invalid company ID format").optional(),
+    store_id: z.string().uuid("Invalid store ID format").optional(),
+  })
+  .refine(
+    (data) => {
+      // For COMPANY and STORE scopes, company_id is required
+      if (data.scope_type === "COMPANY" || data.scope_type === "STORE") {
+        return !!data.company_id;
+      }
+      return true;
+    },
+    {
+      message: "Company ID is required for COMPANY and STORE scopes",
+      path: ["company_id"],
+    },
+  )
+  .refine(
+    (data) => {
+      // For STORE scope, store_id is required
+      if (data.scope_type === "STORE") {
+        return !!data.store_id;
+      }
+      return true;
+    },
+    {
+      message: "Store ID is required for STORE scope",
+      path: ["store_id"],
+    },
+  );
 
 // User creation schema
 export const createUserSchema = z.object({
@@ -39,7 +66,7 @@ export const createUserSchema = z.object({
     )
     .optional(),
   roles: z.array(roleAssignmentSchema).min(1, "At least one role is required"),
-  // Company fields for CLIENT_OWNER role
+  // Company fields for CLIENT_OWNER role (creates new company)
   companyName: z
     .string()
     .min(1, "Company name is required")
@@ -50,6 +77,9 @@ export const createUserSchema = z.object({
     .min(1, "Company address is required")
     .max(500, "Company address cannot exceed 500 characters")
     .optional(),
+  // Company and store IDs for CLIENT_USER role (assigns to existing company/store)
+  company_id: z.string().uuid("Invalid company ID format").optional(),
+  store_id: z.string().uuid("Invalid store ID format").optional(),
 });
 
 // User status update schema

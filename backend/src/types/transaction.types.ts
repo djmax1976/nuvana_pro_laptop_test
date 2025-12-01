@@ -25,6 +25,9 @@ export type ShiftStatus = "OPEN" | "CLOSED" | "RECONCILED";
 
 /**
  * POS Terminal status types
+ * @deprecated POSTerminal model no longer has a status field. Terminals use soft-delete only (deleted_at).
+ * This type is kept for backward compatibility but should not be used in new code.
+ * Use deleted_at === null to check if a terminal is available.
  */
 export type POSTerminalStatus = "ACTIVE" | "INACTIVE" | "MAINTENANCE";
 

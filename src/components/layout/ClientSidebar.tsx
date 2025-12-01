@@ -7,12 +7,14 @@ import { useClientAuth } from "@/contexts/ClientAuthContext";
 import {
   LayoutDashboard,
   Clock,
+  CalendarDays,
   Package,
   Ticket,
   Users,
   Shield,
   BarChart3,
   Bot,
+  Settings,
 } from "lucide-react";
 
 interface NavItem {
@@ -72,10 +74,17 @@ export function ClientSidebar({ className, onNavigate }: ClientSidebarProps) {
       icon: LayoutDashboard,
       exact: true,
     },
+    // Shift Management: View and manage individual shifts, open new shifts, and reconcile cash
     {
-      title: "Shifts",
+      title: "Shift Management",
       href: "/client-dashboard/shifts",
       icon: Clock,
+    },
+    // Daily Summary: View day reconciliations, daily summaries, and shift totals for a given day
+    {
+      title: "Daily Summary",
+      href: "/client-dashboard/shift-and-day",
+      icon: CalendarDays,
     },
     {
       title: "Inventory",
@@ -120,6 +129,11 @@ export function ClientSidebar({ className, onNavigate }: ClientSidebarProps) {
       title: "AI Assistant",
       href: "/client-dashboard/ai",
       icon: Bot,
+    },
+    {
+      title: "Settings",
+      href: "/client-dashboard/settings",
+      icon: Settings,
     },
   ];
 

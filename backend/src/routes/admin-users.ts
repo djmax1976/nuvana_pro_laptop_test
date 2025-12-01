@@ -78,8 +78,16 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           };
         }
 
-        const { email, name, password, roles, companyName, companyAddress } =
-          parseResult.data;
+        const {
+          email,
+          name,
+          password,
+          roles,
+          companyName,
+          companyAddress,
+          company_id,
+          store_id,
+        } = parseResult.data;
 
         const auditContext = getAuditContext(request, user);
 
@@ -96,6 +104,8 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
             }>,
             companyName,
             companyAddress,
+            company_id,
+            store_id,
           },
           auditContext,
         );
@@ -598,6 +608,18 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         }
 
         if (message.includes("ACTIVE user")) {
+          reply.code(400);
+          return {
+            success: false,
+            error: "Validation error",
+            message,
+          };
+        }
+
+        if (
+          message.includes("active company") ||
+          message.includes("active store")
+        ) {
           reply.code(400);
           return {
             success: false,

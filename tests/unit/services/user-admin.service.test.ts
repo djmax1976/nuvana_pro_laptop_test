@@ -12,16 +12,20 @@ import {
 import bcrypt from "bcrypt";
 
 /**
- * Unit Tests: User Admin Service - CLIENT_OWNER Creation
+ * Unit Tests: User Admin Service - CLIENT_OWNER and CLIENT_USER Creation
  *
  * CRITICAL TEST COVERAGE:
  * - CLIENT_OWNER user creation with company
+ * - CLIENT_USER user creation with company and store assignment
  * - Company linking to user_role (company_id must be set)
- * - Permission scope validation for CLIENT_OWNER
+ * - Store linking to user_role for CLIENT_USER (store_id must be set)
+ * - Permission scope validation for CLIENT_OWNER and CLIENT_USER
+ * - Security validations (store belongs to company, active status checks)
  *
  * These tests ensure the bugs we fixed don't regress:
  * 1. Company must show in users list for CLIENT_OWNER
  * 2. CLIENT_OWNER must have permissions after creation
+ * 3. CLIENT_USER must have company_id and store_id in user_role
  */
 
 const prisma = new PrismaClient();
@@ -30,9 +34,11 @@ const userAdminService = new UserAdminService();
 // Shared test data - initialized in global beforeAll
 let testAdminUser: any;
 let clientOwnerRoleId: string;
+let clientUserRoleId: string;
 let superadminRoleId: string;
 const createdUserIds: string[] = [];
 const createdCompanyIds: string[] = [];
+const createdStoreIds: string[] = [];
 
 const auditContext: AuditContext = {
   userId: "",
@@ -67,6 +73,15 @@ beforeAll(async () => {
   }
   clientOwnerRoleId = clientOwnerRole.role_id;
 
+  // Get CLIENT_USER role ID
+  const clientUserRole = await prisma.role.findUnique({
+    where: { code: "CLIENT_USER" },
+  });
+  if (!clientUserRole) {
+    throw new Error("CLIENT_USER role not found - run RBAC seed first");
+  }
+  clientUserRoleId = clientUserRole.role_id;
+
   // Get SUPERADMIN role ID
   const superadminRole = await prisma.role.findUnique({
     where: { code: "SUPERADMIN" },
@@ -86,6 +101,14 @@ afterAll(async () => {
       await prisma.user.delete({ where: { user_id: userId } });
     } catch (e) {
       // User may already be deleted
+    }
+  }
+
+  for (const storeId of createdStoreIds) {
+    try {
+      await prisma.store.delete({ where: { store_id: storeId } });
+    } catch (e) {
+      // Store may already be deleted
     }
   }
 
@@ -439,5 +462,405 @@ describe("UserAdminService - CLIENT_OWNER Permission Scope Verification", () => 
     for (const requiredPerm of requiredPermissions) {
       expect(permissionCodes).toContain(requiredPerm);
     }
+  });
+});
+
+describe("UserAdminService - CLIENT_USER Creation with Company and Store", () => {
+  let testCompanyId: string;
+  let testStoreId: string;
+
+  beforeAll(async () => {
+    // Create a test company and store for CLIENT_USER assignment
+    const testCompany = await prisma.company.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: `Test Company for CLIENT_USER ${Date.now()}`,
+        address: "123 Test Street, Test City",
+        owner_user_id: testAdminUser.user_id,
+        status: "ACTIVE",
+      },
+    });
+    testCompanyId = testCompany.company_id;
+    createdCompanyIds.push(testCompanyId);
+
+    const testStore = await prisma.store.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        name: `Test Store for CLIENT_USER ${Date.now()}`,
+        company_id: testCompanyId,
+        location_json: { address: "123 Test St" },
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      },
+    });
+    testStoreId = testStore.store_id;
+    createdStoreIds.push(testStoreId);
+  });
+
+  describe("Creating CLIENT_USER with company and store assignment", () => {
+    it("should create CLIENT_USER user with company_id and store_id linked to user_role", async () => {
+      const uniqueEmail = `client-user-${Date.now()}@test.com`;
+
+      const input: CreateUserInput = {
+        email: uniqueEmail,
+        name: "Test Client User",
+        password: "TestPassword123!",
+        roles: [
+          {
+            role_id: clientUserRoleId,
+            scope_type: "COMPANY",
+            company_id: testCompanyId,
+            store_id: testStoreId,
+          },
+        ],
+      };
+
+      const result = await userAdminService.createUser(input, auditContext);
+
+      // Track for cleanup
+      createdUserIds.push(result.user_id);
+
+      // CRITICAL ASSERTION: Verify user was created
+      expect(result.user_id).toBeDefined();
+      expect(result.email).toBe(uniqueEmail.toLowerCase());
+      expect(result.name).toBe("Test Client User");
+
+      // CRITICAL ASSERTION: Verify user has roles
+      expect(result.roles.length).toBeGreaterThan(0);
+
+      // CRITICAL ASSERTION: Verify company_id and store_id are linked to user_role
+      const clientUserRole = result.roles.find(
+        (r) => r.role.code === "CLIENT_USER",
+      );
+      expect(clientUserRole).toBeDefined();
+      expect(clientUserRole?.company_id).not.toBeNull();
+      expect(clientUserRole?.company_id).toBe(testCompanyId);
+      expect(clientUserRole?.store_id).not.toBeNull();
+      expect(clientUserRole?.store_id).toBe(testStoreId);
+    });
+
+    it("should set is_client_user flag to true for CLIENT_USER", async () => {
+      const uniqueEmail = `client-user-flag-${Date.now()}@test.com`;
+
+      const input: CreateUserInput = {
+        email: uniqueEmail,
+        name: "Flag Test Client User",
+        password: "TestPassword123!",
+        roles: [
+          {
+            role_id: clientUserRoleId,
+            scope_type: "COMPANY",
+            company_id: testCompanyId,
+            store_id: testStoreId,
+          },
+        ],
+      };
+
+      const result = await userAdminService.createUser(input, auditContext);
+      createdUserIds.push(result.user_id);
+
+      // Verify is_client_user flag is set
+      const user = await prisma.user.findUnique({
+        where: { user_id: result.user_id },
+      });
+      expect(user?.is_client_user).toBe(true);
+    });
+
+    it("should fail if CLIENT_USER is missing company_id", async () => {
+      const uniqueEmail = `client-user-missing-company-${Date.now()}@test.com`;
+
+      const input: CreateUserInput = {
+        email: uniqueEmail,
+        name: "Missing Company Client User",
+        password: "TestPassword123!",
+        roles: [
+          {
+            role_id: clientUserRoleId,
+            scope_type: "COMPANY",
+            // Missing company_id
+            store_id: testStoreId,
+          },
+        ],
+      };
+
+      await expect(
+        userAdminService.createUser(input, auditContext),
+      ).rejects.toThrow(
+        "Company ID is required for CLIENT_USER role assignment",
+      );
+    });
+
+    it("should fail if CLIENT_USER is missing store_id", async () => {
+      const uniqueEmail = `client-user-missing-store-${Date.now()}@test.com`;
+
+      const input: CreateUserInput = {
+        email: uniqueEmail,
+        name: "Missing Store Client User",
+        password: "TestPassword123!",
+        roles: [
+          {
+            role_id: clientUserRoleId,
+            scope_type: "COMPANY",
+            company_id: testCompanyId,
+            // Missing store_id
+          },
+        ],
+      };
+
+      await expect(
+        userAdminService.createUser(input, auditContext),
+      ).rejects.toThrow("Store ID is required for CLIENT_USER role assignment");
+    });
+
+    it("should fail if store does not belong to the specified company (security check)", async () => {
+      // Create another company and store
+      const otherCompany = await prisma.company.create({
+        data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+          name: `Other Company ${Date.now()}`,
+          address: "456 Other Street",
+          owner_user_id: testAdminUser.user_id,
+          status: "ACTIVE",
+        },
+      });
+      createdCompanyIds.push(otherCompany.company_id);
+
+      const otherStore = await prisma.store.create({
+        data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+          name: `Other Store ${Date.now()}`,
+          company_id: otherCompany.company_id,
+          location_json: { address: "456 Other St" },
+          timezone: "America/New_York",
+          status: "ACTIVE",
+        },
+      });
+      createdStoreIds.push(otherStore.store_id);
+
+      const uniqueEmail = `client-user-wrong-store-${Date.now()}@test.com`;
+
+      const input: CreateUserInput = {
+        email: uniqueEmail,
+        name: "Wrong Store Client User",
+        password: "TestPassword123!",
+        roles: [
+          {
+            role_id: clientUserRoleId,
+            scope_type: "COMPANY",
+            company_id: testCompanyId, // First company
+            store_id: otherStore.store_id, // Store from different company
+          },
+        ],
+      };
+
+      await expect(
+        userAdminService.createUser(input, auditContext),
+      ).rejects.toThrow(
+        "Store does not belong to the specified company. This is a security violation.",
+      );
+    });
+
+    it("should fail if store does not exist", async () => {
+      const uniqueEmail = `client-user-invalid-store-${Date.now()}@test.com`;
+      const fakeStoreId = "00000000-0000-0000-0000-000000000000";
+
+      const input: CreateUserInput = {
+        email: uniqueEmail,
+        name: "Invalid Store Client User",
+        password: "TestPassword123!",
+        roles: [
+          {
+            role_id: clientUserRoleId,
+            scope_type: "COMPANY",
+            company_id: testCompanyId,
+            store_id: fakeStoreId,
+          },
+        ],
+      };
+
+      await expect(
+        userAdminService.createUser(input, auditContext),
+      ).rejects.toThrow(`Store with ID ${fakeStoreId} not found`);
+    });
+
+    it("should fail if company does not exist", async () => {
+      const uniqueEmail = `client-user-invalid-company-${Date.now()}@test.com`;
+      const fakeCompanyId = "00000000-0000-0000-0000-000000000000";
+
+      const input: CreateUserInput = {
+        email: uniqueEmail,
+        name: "Invalid Company Client User",
+        password: "TestPassword123!",
+        roles: [
+          {
+            role_id: clientUserRoleId,
+            scope_type: "COMPANY",
+            company_id: fakeCompanyId,
+            store_id: testStoreId,
+          },
+        ],
+      };
+
+      await expect(
+        userAdminService.createUser(input, auditContext),
+      ).rejects.toThrow(`Company with ID ${fakeCompanyId} not found`);
+    });
+
+    it("should fail if store is inactive", async () => {
+      // Create an inactive store
+      const inactiveStore = await prisma.store.create({
+        data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+          name: `Inactive Store ${Date.now()}`,
+          company_id: testCompanyId,
+          location_json: { address: "789 Inactive St" },
+          timezone: "America/New_York",
+          status: "INACTIVE",
+        },
+      });
+      createdStoreIds.push(inactiveStore.store_id);
+
+      const uniqueEmail = `client-user-inactive-store-${Date.now()}@test.com`;
+
+      const input: CreateUserInput = {
+        email: uniqueEmail,
+        name: "Inactive Store Client User",
+        password: "TestPassword123!",
+        roles: [
+          {
+            role_id: clientUserRoleId,
+            scope_type: "COMPANY",
+            company_id: testCompanyId,
+            store_id: inactiveStore.store_id,
+          },
+        ],
+      };
+
+      await expect(
+        userAdminService.createUser(input, auditContext),
+      ).rejects.toThrow("Cannot assign CLIENT_USER to an inactive store");
+    });
+
+    it("should fail if company is inactive", async () => {
+      // Create an inactive company
+      const inactiveCompany = await prisma.company.create({
+        data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+          name: `Inactive Company ${Date.now()}`,
+          address: "789 Inactive Ave",
+          owner_user_id: testAdminUser.user_id,
+          status: "INACTIVE",
+        },
+      });
+      createdCompanyIds.push(inactiveCompany.company_id);
+
+      const inactiveStore = await prisma.store.create({
+        data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+          name: `Inactive Company Store ${Date.now()}`,
+          company_id: inactiveCompany.company_id,
+          location_json: { address: "789 Inactive St" },
+          timezone: "America/New_York",
+          status: "ACTIVE",
+        },
+      });
+      createdStoreIds.push(inactiveStore.store_id);
+
+      const uniqueEmail = `client-user-inactive-company-${Date.now()}@test.com`;
+
+      const input: CreateUserInput = {
+        email: uniqueEmail,
+        name: "Inactive Company Client User",
+        password: "TestPassword123!",
+        roles: [
+          {
+            role_id: clientUserRoleId,
+            scope_type: "COMPANY",
+            company_id: inactiveCompany.company_id,
+            store_id: inactiveStore.store_id,
+          },
+        ],
+      };
+
+      await expect(
+        userAdminService.createUser(input, auditContext),
+      ).rejects.toThrow("Cannot assign CLIENT_USER to an inactive company");
+    });
+  });
+
+  describe("CLIENT_USER user_role company_id and store_id linking verification", () => {
+    it("should have company_id and store_id in user_roles table for CLIENT_USER", async () => {
+      const uniqueEmail = `client-user-db-check-${Date.now()}@test.com`;
+
+      const input: CreateUserInput = {
+        email: uniqueEmail,
+        name: "DB Check Client User",
+        password: "TestPassword123!",
+        roles: [
+          {
+            role_id: clientUserRoleId,
+            scope_type: "COMPANY",
+            company_id: testCompanyId,
+            store_id: testStoreId,
+          },
+        ],
+      };
+
+      const result = await userAdminService.createUser(input, auditContext);
+      createdUserIds.push(result.user_id);
+
+      // CRITICAL: Direct database check - this is what the permission middleware relies on
+      const userRole = await prisma.userRole.findFirst({
+        where: {
+          user_id: result.user_id,
+          role_id: clientUserRoleId,
+        },
+      });
+
+      expect(userRole).not.toBeNull();
+      expect(userRole?.company_id).not.toBeNull();
+      expect(userRole?.company_id).toBe(testCompanyId);
+      expect(userRole?.store_id).not.toBeNull();
+      expect(userRole?.store_id).toBe(testStoreId);
+    });
+
+    it("should return company and store in getUsers list for CLIENT_USER", async () => {
+      const uniqueEmail = `client-user-list-${Date.now()}@test.com`;
+
+      const input: CreateUserInput = {
+        email: uniqueEmail,
+        name: "List Test Client User",
+        password: "TestPassword123!",
+        roles: [
+          {
+            role_id: clientUserRoleId,
+            scope_type: "COMPANY",
+            company_id: testCompanyId,
+            store_id: testStoreId,
+          },
+        ],
+      };
+
+      const createdUser = await userAdminService.createUser(
+        input,
+        auditContext,
+      );
+      createdUserIds.push(createdUser.user_id);
+
+      // Get users list and find our user
+      const usersList = await userAdminService.getUsers({
+        search: uniqueEmail,
+      });
+
+      const foundUser = usersList.data.find((u) => u.email === uniqueEmail);
+      expect(foundUser).toBeDefined();
+
+      // CRITICAL: Company and store should be visible in the list
+      const clientUserRole = foundUser?.roles.find(
+        (r) => r.role.code === "CLIENT_USER",
+      );
+      expect(clientUserRole?.company_id).toBe(testCompanyId);
+      expect(clientUserRole?.store_id).toBe(testStoreId);
+    });
   });
 });

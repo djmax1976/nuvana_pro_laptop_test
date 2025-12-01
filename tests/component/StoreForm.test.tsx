@@ -25,6 +25,10 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/api/stores", () => ({
   useCreateStore: vi.fn(),
   useUpdateStore: vi.fn(),
+  useStoreTerminals: vi.fn(),
+  useCreateTerminal: vi.fn(),
+  useUpdateTerminal: vi.fn(),
+  useDeleteTerminal: vi.fn(),
 }));
 
 // Mock toast hook
@@ -65,6 +69,13 @@ describe("2.4-COMPONENT: StoreForm Component", () => {
     error: null,
   };
 
+  const mockTerminalMutation = {
+    mutateAsync: vi.fn().mockResolvedValue({}),
+    isLoading: false,
+    isError: false,
+    error: null,
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(storesApi.useCreateStore).mockReturnValue(
@@ -72,6 +83,22 @@ describe("2.4-COMPONENT: StoreForm Component", () => {
     );
     vi.mocked(storesApi.useUpdateStore).mockReturnValue(
       mockUpdateMutation as any,
+    );
+    vi.mocked(storesApi.useStoreTerminals).mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(storesApi.useCreateTerminal).mockReturnValue(
+      mockTerminalMutation as any,
+    );
+    vi.mocked(storesApi.useUpdateTerminal).mockReturnValue(
+      mockTerminalMutation as any,
+    );
+    vi.mocked(storesApi.useDeleteTerminal).mockReturnValue(
+      mockTerminalMutation as any,
     );
   });
 

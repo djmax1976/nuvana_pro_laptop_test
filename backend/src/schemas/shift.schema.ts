@@ -10,10 +10,11 @@ import { z } from "zod";
 /**
  * Open Shift Request Schema
  * Validates the request body for POST /api/shifts/open
+ * Story 4.8: cashier_id is optional - if not provided, backend auto-assigns from authenticated user
  */
 export const OpenShiftSchema = z.object({
   store_id: z.string().uuid("store_id must be a valid UUID"),
-  cashier_id: z.string().uuid("cashier_id must be a valid UUID"),
+  cashier_id: z.string().uuid("cashier_id must be a valid UUID").optional(),
   pos_terminal_id: z.string().uuid("pos_terminal_id must be a valid UUID"),
   opening_cash: z
     .number()

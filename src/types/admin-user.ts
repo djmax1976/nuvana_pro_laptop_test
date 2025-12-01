@@ -60,6 +60,7 @@ export interface AssignRoleRequest {
 /**
  * Create user input
  * When roles include CLIENT_OWNER, companyName and companyAddress are required
+ * When roles include CLIENT_USER, company_id and store_id are required in the role assignment
  */
 export interface CreateUserInput {
   email: string;
@@ -68,6 +69,8 @@ export interface CreateUserInput {
   roles: AssignRoleRequest[];
   companyName?: string;
   companyAddress?: string;
+  company_id?: string;
+  store_id?: string;
 }
 
 /**

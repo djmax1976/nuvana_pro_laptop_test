@@ -505,6 +505,402 @@ export class StoreService {
   }
 
   /**
+   * Get terminals for a store with active shift status
+   * Story 4.8: Cashier Shift Start Flow
+   * @param storeId - Store UUID
+   * @param userCompanyId - User's assigned company ID (for isolation check)
+   * @returns Array of terminals with has_active_shift boolean flag
+   * @throws Error if store not found or user tries to access store from different company
+   */
+  async getStoreTerminals(storeId: string, userCompanyId: string) {
+    try {
+      // Verify store exists and user has access (company isolation)
+      const store = await prisma.store.findUnique({
+        where: {
+          store_id: storeId,
+        },
+      });
+
+      if (!store) {
+        throw new Error(`Store with ID ${storeId} not found`);
+      }
+
+      // Company isolation check: user can only access terminals for their company
+      if (store.company_id !== userCompanyId) {
+        throw new Error(
+          "Forbidden: You can only access terminals for your assigned company",
+        );
+      }
+
+      // Get all non-deleted terminals for the store
+      const terminals = await prisma.pOSTerminal.findMany({
+        where: {
+          store_id: storeId,
+          deleted_at: null, // Only get non-deleted terminals
+        },
+        orderBy: {
+          name: "asc",
+        },
+      });
+
+      // For each terminal, check if it has an active shift
+      const terminalsWithStatus = await Promise.all(
+        terminals.map(async (terminal) => {
+          // Check for active shifts (status IN ['OPEN', 'ACTIVE', 'CLOSING', 'RECONCILING'])
+          const activeShift = await prisma.shift.findFirst({
+            where: {
+              pos_terminal_id: terminal.pos_terminal_id,
+              status: {
+                in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"],
+              },
+              closed_at: null,
+            },
+          });
+
+          return {
+            pos_terminal_id: terminal.pos_terminal_id,
+            store_id: terminal.store_id,
+            name: terminal.name,
+            device_id: terminal.device_id,
+            has_active_shift: !!activeShift,
+            created_at: terminal.created_at,
+            updated_at: terminal.updated_at,
+          };
+        }),
+      );
+
+      return terminalsWithStatus;
+    } catch (error: any) {
+      if (
+        error.message.includes("not found") ||
+        error.message.includes("Forbidden")
+      ) {
+        throw error;
+      }
+      console.error("Error retrieving store terminals:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a new POS terminal for a store
+   * @param storeId - Store UUID
+   * @param data - Terminal creation data
+   * @param userCompanyId - User's assigned company ID (for isolation check)
+   * @returns Created terminal
+   * @throws Error if store not found, device_id is duplicate, or user tries to create terminal for store from different company
+   */
+  async createTerminal(
+    storeId: string,
+    data: { name: string; device_id?: string },
+    userCompanyId: string,
+  ) {
+    try {
+      // Verify store exists and user has access (company isolation)
+      const store = await prisma.store.findUnique({
+        where: {
+          store_id: storeId,
+        },
+      });
+
+      if (!store) {
+        throw new Error(`Store with ID ${storeId} not found`);
+      }
+
+      // Company isolation check: user can only create terminals for their company
+      if (store.company_id !== userCompanyId) {
+        throw new Error(
+          "Forbidden: You can only create terminals for your assigned company",
+        );
+      }
+
+      // Validate terminal name
+      if (!data.name || data.name.trim().length === 0) {
+        throw new Error("Terminal name is required");
+      }
+
+      if (data.name.length > 100) {
+        throw new Error("Terminal name must be 100 characters or less");
+      }
+
+      // Validate device_id if provided
+      if (data.device_id !== undefined) {
+        if (data.device_id.trim().length === 0) {
+          // Empty string means no device_id
+          data.device_id = undefined;
+        } else {
+          if (data.device_id.length > 255) {
+            throw new Error("Device ID must be 255 characters or less");
+          }
+
+          const trimmedDeviceId = data.device_id.trim();
+
+          // Check global uniqueness (device_id must be unique across all stores)
+          const existingGlobal = await prisma.pOSTerminal.findFirst({
+            where: {
+              device_id: trimmedDeviceId,
+              deleted_at: null, // Only check non-deleted terminals
+            },
+          });
+
+          if (existingGlobal) {
+            throw new Error(
+              `Device ID "${trimmedDeviceId}" is already in use. Device IDs must be globally unique.`,
+            );
+          }
+
+          data.device_id = trimmedDeviceId;
+        }
+      }
+
+      // Create terminal
+      const terminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: storeId,
+          name: data.name.trim(),
+          device_id: data.device_id || null,
+        },
+      });
+
+      return terminal;
+    } catch (error: any) {
+      if (
+        error.message.includes("not found") ||
+        error.message.includes("Forbidden") ||
+        error.message.includes("required") ||
+        error.message.includes("must be") ||
+        error.message.includes("already in use") ||
+        error.code === "P2002" // Prisma unique constraint violation
+      ) {
+        if (error.code === "P2002") {
+          // Handle Prisma unique constraint error
+          if (error.meta?.target?.includes("device_id")) {
+            throw new Error(
+              "Device ID is already in use. Device IDs must be globally unique.",
+            );
+          }
+        }
+        throw error;
+      }
+      console.error("Error creating terminal:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update a POS terminal
+   * @param terminalId - Terminal UUID
+   * @param data - Terminal update data
+   * @param userCompanyId - User's assigned company ID (for isolation check)
+   * @returns Updated terminal
+   * @throws Error if terminal not found, device_id is duplicate, or user tries to update terminal from different company
+   */
+  async updateTerminal(
+    terminalId: string,
+    data: { name?: string; device_id?: string },
+    userCompanyId: string,
+  ) {
+    try {
+      // Verify terminal exists and get store info (exclude soft-deleted)
+      const terminal = await prisma.pOSTerminal.findFirst({
+        where: {
+          pos_terminal_id: terminalId,
+          deleted_at: null, // Only find non-deleted terminals
+        },
+        include: {
+          store: {
+            select: {
+              company_id: true,
+            },
+          },
+        },
+      });
+
+      if (!terminal) {
+        throw new Error(`Terminal with ID ${terminalId} not found`);
+      }
+
+      // Company isolation check: user can only update terminals for their company
+      if (terminal.store.company_id !== userCompanyId) {
+        throw new Error(
+          "Forbidden: You can only update terminals for your assigned company",
+        );
+      }
+
+      // Validate terminal name if provided
+      if (data.name !== undefined) {
+        if (data.name.trim().length === 0) {
+          throw new Error("Terminal name is required");
+        }
+
+        if (data.name.length > 100) {
+          throw new Error("Terminal name must be 100 characters or less");
+        }
+      }
+
+      // Validate device_id if provided
+      if (data.device_id !== undefined) {
+        if (data.device_id.trim().length === 0) {
+          // Empty string means no device_id
+          data.device_id = undefined;
+        } else {
+          if (data.device_id.length > 255) {
+            throw new Error("Device ID must be 255 characters or less");
+          }
+
+          const trimmedDeviceId = data.device_id.trim();
+
+          // Check global uniqueness (device_id must be unique across all stores)
+          // Exclude current terminal from check
+          const existingGlobal = await prisma.pOSTerminal.findFirst({
+            where: {
+              device_id: trimmedDeviceId,
+              deleted_at: null, // Only check non-deleted terminals
+              pos_terminal_id: {
+                not: terminalId, // Exclude current terminal
+              },
+            },
+          });
+
+          if (existingGlobal) {
+            throw new Error(
+              `Device ID "${trimmedDeviceId}" is already in use. Device IDs must be globally unique.`,
+            );
+          }
+
+          data.device_id = trimmedDeviceId;
+        }
+      }
+
+      // Build update data
+      const updateData: any = {};
+      if (data.name !== undefined) {
+        updateData.name = data.name.trim();
+      }
+      if (data.device_id !== undefined) {
+        updateData.device_id = data.device_id || null;
+      }
+
+      // Update terminal
+      const updatedTerminal = await prisma.pOSTerminal.update({
+        where: {
+          pos_terminal_id: terminalId,
+        },
+        data: updateData,
+      });
+
+      return updatedTerminal;
+    } catch (error: any) {
+      if (
+        error.message.includes("not found") ||
+        error.message.includes("Forbidden") ||
+        error.message.includes("required") ||
+        error.message.includes("must be") ||
+        error.message.includes("already in use") ||
+        error.code === "P2002" // Prisma unique constraint violation
+      ) {
+        if (error.code === "P2002") {
+          // Handle Prisma unique constraint error
+          if (error.meta?.target?.includes("device_id")) {
+            throw new Error(
+              "Device ID is already in use. Device IDs must be globally unique.",
+            );
+          }
+        }
+        throw error;
+      }
+      console.error("Error updating terminal:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Soft delete a POS terminal
+   * Sets deleted_at timestamp instead of hard deleting
+   * @param terminalId - Terminal UUID
+   * @param storeId - Store UUID (must match terminal's store)
+   * @param userCompanyId - User's assigned company ID (for isolation check)
+   * @throws Error if terminal not found, terminal doesn't belong to store, terminal has active shift, or user tries to delete terminal from different company
+   */
+  async deleteTerminal(
+    terminalId: string,
+    storeId: string,
+    userCompanyId: string,
+  ): Promise<void> {
+    try {
+      // Verify terminal exists and get store info (exclude soft-deleted)
+      const terminal = await prisma.pOSTerminal.findFirst({
+        where: {
+          pos_terminal_id: terminalId,
+          deleted_at: null, // Only find non-deleted terminals
+        },
+        include: {
+          store: {
+            select: {
+              company_id: true,
+            },
+          },
+        },
+      });
+
+      if (!terminal) {
+        throw new Error(`Terminal with ID ${terminalId} not found`);
+      }
+
+      // Company isolation check: user can only delete terminals for their company
+      if (terminal.store.company_id !== userCompanyId) {
+        throw new Error(
+          "Forbidden: You can only delete terminals for your assigned company",
+        );
+      }
+
+      // Validate terminal belongs to the provided store
+      if (terminal.store_id !== storeId) {
+        throw new Error(
+          `Terminal with ID ${terminalId} does not belong to store ${storeId}`,
+        );
+      }
+
+      // Check for active shifts on this terminal
+      const activeShift = await prisma.shift.findFirst({
+        where: {
+          pos_terminal_id: terminalId,
+          status: {
+            in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"],
+          },
+          closed_at: null,
+        },
+      });
+
+      if (activeShift) {
+        throw new Error(
+          "Cannot delete terminal with active shift. Close the shift first.",
+        );
+      }
+
+      // Soft delete terminal (set deleted_at timestamp)
+      await prisma.pOSTerminal.update({
+        where: {
+          pos_terminal_id: terminalId,
+        },
+        data: {
+          deleted_at: new Date(),
+        },
+      });
+    } catch (error: any) {
+      if (
+        error.message.includes("not found") ||
+        error.message.includes("Forbidden") ||
+        error.message.includes("active shift")
+      ) {
+        throw error;
+      }
+      console.error("Error deleting terminal:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Hard delete store with company isolation check
    * Permanently removes the store and cascades to all user roles associated with this store
    * @param storeId - Store UUID

@@ -29,10 +29,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useUpdateStore, type Store } from "@/lib/api/stores";
+import {
+  useUpdateStore,
+  useStoreTerminals,
+  useCreateTerminal,
+  useUpdateTerminal,
+  useDeleteTerminal,
+  type Store,
+  type Terminal,
+  type TerminalWithStatus,
+} from "@/lib/api/stores";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Plus, Trash2, Edit2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 /**
  * Validate IANA timezone format (safer implementation to avoid ReDoS)
@@ -184,10 +196,14 @@ export function EditStoreModal({
     const currentFormStatus = form.getValues("status");
     // Compare against current form value to detect any status change from the form's current state
     if (currentFormStatus !== newStatus) {
-      setPendingStatus(newStatus);
-      setShowStatusChangeDialog(true);
-    } else {
-      form.setValue("status", newStatus as EditStoreFormValues["status"]);
+      // Only show confirmation for INACTIVE or CLOSED (destructive changes)
+      // Changing to ACTIVE is non-destructive and doesn't need confirmation
+      if (newStatus === "INACTIVE" || newStatus === "CLOSED") {
+        setPendingStatus(newStatus);
+        setShowStatusChangeDialog(true);
+      } else {
+        form.setValue("status", newStatus as EditStoreFormValues["status"]);
+      }
     }
   };
 
@@ -372,6 +388,9 @@ export function EditStoreModal({
                 )}
               />
 
+              {/* Terminal Management Section */}
+              {store && <TerminalManagementSection storeId={store.store_id} />}
+
               <div className="flex gap-4 justify-end pt-4">
                 <Button
                   type="button"
@@ -401,6 +420,353 @@ export function EditStoreModal({
         onConfirm={confirmStatusChange}
         destructive={pendingStatus === "INACTIVE" || pendingStatus === "CLOSED"}
       />
+    </>
+  );
+}
+
+/**
+ * Terminal Management Section Component
+ * Allows adding, editing, and deleting terminals for a store
+ * Reused in both StoreForm and EditStoreModal
+ */
+function TerminalManagementSection({ storeId }: { storeId: string }) {
+  const { toast } = useToast();
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [editingTerminal, setEditingTerminal] =
+    useState<TerminalWithStatus | null>(null);
+  const [terminalName, setTerminalName] = useState("");
+  const [terminalDeviceId, setTerminalDeviceId] = useState("");
+
+  const { data: terminals, isLoading } = useStoreTerminals(storeId);
+  const createMutation = useCreateTerminal();
+  const updateMutation = useUpdateTerminal();
+  const deleteMutation = useDeleteTerminal();
+
+  const handleCreateTerminal = async () => {
+    if (!terminalName.trim()) {
+      toast({
+        title: "Error",
+        description: "Terminal name is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await createMutation.mutateAsync({
+        storeId,
+        data: {
+          name: terminalName.trim(),
+          device_id: terminalDeviceId.trim() || undefined,
+        },
+      });
+      toast({
+        title: "Success",
+        description: "Terminal created successfully",
+      });
+      setIsCreateDialogOpen(false);
+      setTerminalName("");
+      setTerminalDeviceId("");
+    } catch (error) {
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to create terminal. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdateTerminal = async () => {
+    if (!editingTerminal) return;
+    if (!terminalName.trim()) {
+      toast({
+        title: "Error",
+        description: "Terminal name is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await updateMutation.mutateAsync({
+        storeId,
+        terminalId: editingTerminal.pos_terminal_id,
+        data: {
+          name: terminalName.trim(),
+          device_id: terminalDeviceId.trim() || undefined,
+        },
+      });
+      toast({
+        title: "Success",
+        description: "Terminal updated successfully",
+      });
+      setEditingTerminal(null);
+      setTerminalName("");
+      setTerminalDeviceId("");
+    } catch (error) {
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to update terminal. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteTerminal = async (terminal: TerminalWithStatus) => {
+    if (
+      !confirm(
+        `Are you sure you want to delete terminal "${terminal.name}"? This action cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await deleteMutation.mutateAsync({
+        storeId,
+        terminalId: terminal.pos_terminal_id,
+      });
+      toast({
+        title: "Success",
+        description: "Terminal deleted successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to delete terminal. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const openEditDialog = (terminal: TerminalWithStatus) => {
+    setEditingTerminal(terminal);
+    setTerminalName(terminal.name);
+    setTerminalDeviceId(terminal.device_id || "");
+  };
+
+  const closeEditDialog = () => {
+    setEditingTerminal(null);
+    setTerminalName("");
+    setTerminalDeviceId("");
+  };
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>POS Terminals</CardTitle>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setIsCreateDialogOpen(true)}
+              disabled={
+                createMutation.isPending ||
+                updateMutation.isPending ||
+                deleteMutation.isPending
+              }
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Terminal
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">
+              Loading terminals...
+            </p>
+          ) : !terminals || terminals.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No terminals configured. Add a terminal to get started.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {terminals.map((terminal) => (
+                <div
+                  key={terminal.pos_terminal_id}
+                  className="flex items-center justify-between p-3 border rounded-lg"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{terminal.name}</span>
+                      {terminal.has_active_shift && (
+                        <Badge variant="outline">Active Shift</Badge>
+                      )}
+                    </div>
+                    {terminal.device_id && (
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Device ID: {terminal.device_id}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openEditDialog(terminal)}
+                      disabled={
+                        createMutation.isPending ||
+                        updateMutation.isPending ||
+                        deleteMutation.isPending
+                      }
+                      aria-label={`Edit ${terminal.name}`}
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteTerminal(terminal)}
+                      disabled={
+                        createMutation.isPending ||
+                        updateMutation.isPending ||
+                        deleteMutation.isPending ||
+                        terminal.has_active_shift
+                      }
+                      aria-label={`Delete ${terminal.name}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Create Terminal Dialog */}
+      <Dialog
+        open={isCreateDialogOpen}
+        onOpenChange={(open) => {
+          setIsCreateDialogOpen(open);
+          if (!open) {
+            setTerminalName("");
+            setTerminalDeviceId("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Terminal</DialogTitle>
+            <DialogDescription>
+              Create a new POS terminal for this store
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="terminal-name" className="text-sm font-medium">
+                Terminal Name
+              </label>
+              <Input
+                id="terminal-name"
+                value={terminalName}
+                onChange={(e) => setTerminalName(e.target.value)}
+                placeholder="e.g., Terminal 1"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="terminal-device-id"
+                className="text-sm font-medium"
+              >
+                Device ID (Optional)
+              </label>
+              <Input
+                id="terminal-device-id"
+                value={terminalDeviceId}
+                onChange={(e) => setTerminalDeviceId(e.target.value)}
+                placeholder="e.g., DEV-001"
+                className="mt-1"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsCreateDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreateTerminal}
+                disabled={createMutation.isPending}
+              >
+                {createMutation.isPending ? "Creating..." : "Create Terminal"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Terminal Dialog */}
+      <Dialog
+        open={!!editingTerminal}
+        onOpenChange={(open) => !open && closeEditDialog()}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Terminal</DialogTitle>
+            <DialogDescription>Update terminal information</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label
+                htmlFor="edit-terminal-name"
+                className="text-sm font-medium"
+              >
+                Terminal Name
+              </label>
+              <Input
+                id="edit-terminal-name"
+                value={terminalName}
+                onChange={(e) => setTerminalName(e.target.value)}
+                placeholder="e.g., Terminal 1"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="edit-terminal-device-id"
+                className="text-sm font-medium"
+              >
+                Device ID (Optional)
+              </label>
+              <Input
+                id="edit-terminal-device-id"
+                value={terminalDeviceId}
+                onChange={(e) => setTerminalDeviceId(e.target.value)}
+                placeholder="e.g., DEV-001"
+                className="mt-1"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={closeEditDialog}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleUpdateTerminal}
+                disabled={updateMutation.isPending}
+              >
+                {updateMutation.isPending ? "Updating..." : "Update Terminal"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -39,6 +39,7 @@ import { Prisma } from "@prisma/client";
 
 /**
  * Creates a POS terminal for testing
+ * Note: POSTerminal model uses soft-delete (deleted_at) only, no status field
  */
 async function createPOSTerminal(
   prismaClient: any,
@@ -50,7 +51,7 @@ async function createPOSTerminal(
       store_id: storeId,
       name: name || `Terminal ${Date.now()}`,
       device_id: `device-${Date.now()}`,
-      status: "ACTIVE",
+      deleted_at: null, // Active terminal (not soft-deleted)
     },
   });
 
