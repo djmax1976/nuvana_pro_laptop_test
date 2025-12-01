@@ -774,12 +774,12 @@ jobs:
         run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
       - name: Clean up port 3001 (if occupied)
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
-      - name: Start backend
+      - name: Start backend (production mode)
         run: |
-          cd backend && npm run start:test > ../backend.log 2>&1 &
+          cd backend && npm run start > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
-          NODE_ENV: test
+          NODE_ENV: production
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672
@@ -1191,12 +1191,12 @@ jobs:
         run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
       - name: Clean up port 3001 (if occupied)
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
-      - name: Start backend
+      - name: Start backend (production mode)
         run: |
-          cd backend && npm run start:test > ../backend.log 2>&1 &
+          cd backend && npm run start > ../backend.log 2>&1 &
           echo $! > ../backend.pid
         env:
-          NODE_ENV: test
+          NODE_ENV: production
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           RABBITMQ_URL: amqp://guest:guest@localhost:5672

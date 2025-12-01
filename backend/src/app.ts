@@ -192,10 +192,16 @@ app.register(helmet, {
 });
 
 // Register rate limiting
-// In development, use higher limits to accommodate Fast Refresh and hot reloading
+// Rate limit configuration:
+// - CI/Test: Very high limit (10000) to prevent false test failures from rate limiting
+// - Development: High limit (1000) for Fast Refresh and hot reloading
+// - Production: Standard limit (100) for real users
 const isDevelopment = process.env.NODE_ENV !== "production";
+const isCI = process.env.CI === "true";
+const rateLimitMax = isCI ? 10000 : isDevelopment ? 1000 : 100;
+
 app.register(rateLimit, {
-  max: isDevelopment ? 1000 : 100, // Higher limit in development for Fast Refresh
+  max: rateLimitMax,
   timeWindow: "1 minute",
   // Note: Per-company rate limiting (500/min) would require custom implementation
   // based on company context from authentication middleware
