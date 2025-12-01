@@ -22,7 +22,6 @@ env:
   BACKEND_URL: "http://localhost:3001"
   FRONTEND_URL: "http://localhost:3000"
   NEXT_TELEMETRY_DISABLED: "1"
-  BURN_IN_ITERATIONS: "5"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -276,238 +275,8 @@ jobs:
           # Extra cleanup: kill any remaining process on port 3001
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
-  burn_in_tests:
-    name: Burn-In Tests
-    needs: [full_test_suite, e2e_smoke]
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-    permissions:
-      contents: read
-    services:
-      postgres:
-        image: postgres:15.14
-        env:
-          POSTGRES_DB: nuvana_test
-          POSTGRES_USER: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=5s
-          --health-timeout=3s
-          --health-retries=5
-      rabbitmq:
-        image: rabbitmq:3.13-management
-        ports:
-          - 5672:5672
-          - 15672:15672
-        options: >-
-          --health-cmd="rabbitmq-diagnostics -q ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            backend/package-lock.json
-      - run: npm ci
-      - name: Install backend dependencies
-        run: cd backend && npm ci
-      - name: Generate Prisma Client (backend)
-        run: cd backend && npx prisma generate
-        env:
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-      - name: Run Prisma migrations
-        run: cd backend && npx prisma migrate deploy
-        env:
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-      - name: Cache Playwright browsers
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-      - name: Build backend
-        run: cd backend && npm run build
-      - name: Build frontend for production
-        run: npm run build
-      - name: Make scripts executable
-        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
-      - name: Clean up ports (if occupied)
-        run: |
-          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000
-          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
-      - name: Start full stack (built app, test mode with worker)
-        run: |
-          npm run start > frontend.log 2>&1 &
-          echo $! > frontend.pid
-          cd backend && npm run start:test > ../backend.log 2>&1 &
-          echo $! > ../backend.pid
-          cd backend && node dist/workers/transaction.worker.js > ../worker.log 2>&1 &
-          echo $! > ../worker.pid
-        env:
-          NODE_ENV: test
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-          REDIS_URL: redis://localhost:6379
-          RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          BACKEND_URL: ${{ env.BACKEND_URL }}
-          FRONTEND_URL: ${{ env.FRONTEND_URL }}
-          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
-          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
-          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
-          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
-          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
-      - name: Wait for frontend and backend
-        run: |
-          echo "Waiting for frontend..."
-          FRONTEND_READY=false
-          for i in {1..30}; do
-            if curl -sf --max-time 5 --retry 2 ${{ env.FRONTEND_URL }} > /dev/null 2>&1; then
-              echo "Frontend is ready"
-              FRONTEND_READY=true
-              break
-            fi
-            echo "Waiting for frontend... ($i/30)"
-            sleep $((i > 10 ? 5 : 2))
-          done
-
-          if [ "$FRONTEND_READY" = false ]; then
-            echo "❌ Frontend failed to start"
-            echo "Frontend logs:"
-            cat frontend.log || echo "No frontend.log found"
-            exit 1
-          fi
-
-          echo "Waiting for backend..."
-          BACKEND_READY=false
-          for i in {1..30}; do
-            if curl -sf --max-time 5 --retry 2 ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
-              echo "Backend is ready"
-              BACKEND_READY=true
-              break
-            fi
-            echo "Waiting for backend... ($i/30)"
-            sleep $((i > 10 ? 5 : 2))
-          done
-
-          if [ "$BACKEND_READY" = false ]; then
-            echo "❌ Backend failed to start"
-            echo "Backend logs:"
-            cat backend.log || echo "No backend.log found"
-            exit 1
-          fi
-
-          echo "✅ Both services are ready"
-      - name: Wait for transaction worker readiness
-        run: |
-          echo "Waiting for transaction worker to be ready..."
-          for i in {1..30}; do
-            if grep -q "Transaction worker started successfully" worker.log 2>/dev/null; then
-              echo "✅ Transaction worker is ready"
-              exit 0
-            fi
-            # Also check if worker process crashed
-            if [ -f worker.pid ]; then
-              if ! kill -0 $(cat worker.pid) 2>/dev/null; then
-                echo "❌ Transaction worker process died"
-                echo "Worker logs:"
-                cat worker.log || echo "No worker.log found"
-                exit 1
-              fi
-            fi
-            echo "Waiting for worker... ($i/30)"
-            sleep $((i > 10 ? 3 : 1))
-          done
-          echo "❌ Transaction worker readiness timeout"
-          echo "Worker logs:"
-          cat worker.log || echo "No worker.log found"
-          exit 1
-      - name: Run burn-in loop (full suite)
-        env:
-          BURN_IN_ITERATIONS: ${{ env.BURN_IN_ITERATIONS }}
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-          REDIS_URL: redis://localhost:6379
-          RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
-          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
-          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
-          CI: "true"
-        run: |
-          echo "Running FULL test suite burn-in ($BURN_IN_ITERATIONS iterations)"
-          for i in $(seq 1 $BURN_IN_ITERATIONS); do
-            echo "=== Burn-in iteration $i/$BURN_IN_ITERATIONS ==="
-            npm run test:api
-            npm run test:e2e
-          done
-      - name: Upload burn-in test results (includes slow tests)
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: burn-in-test-results
-          path: |
-            playwright-report/
-            test-results/
-          retention-days: 7
-      - name: Scrub secrets from logs
-        if: failure()
-        run: |
-          for log_file in frontend.log backend.log worker.log; do
-            if [ -f "$log_file" ]; then
-              sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' "$log_file"
-              sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' "$log_file"
-              sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' "$log_file"
-              sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' "$log_file"
-              sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' "$log_file"
-            fi
-          done
-      - name: Upload full stack logs
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: full-stack-logs-burn-in
-          path: |
-            frontend.log
-            backend.log
-            worker.log
-          retention-days: 7
-      - name: Stop full stack
-        if: always()
-        run: |
-          if [ -f frontend.pid ]; then
-            kill $(cat frontend.pid) 2>/dev/null || true
-            rm -f frontend.pid
-          fi
-          if [ -f worker.pid ]; then
-            kill $(cat worker.pid) 2>/dev/null || true
-            rm -f worker.pid
-          fi
-          if [ -f backend.pid ]; then
-            kill $(cat backend.pid) 2>/dev/null || true
-            rm -f backend.pid
-          fi
-          # Extra cleanup: kill any remaining processes on ports
-          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000 || true
-          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
-
-  component_smoke:
-    name: Component Smoke
+  component_tests:
+    name: Component Tests
     needs: lint_typecheck
     runs-on: ubuntu-latest
     permissions:
@@ -544,8 +313,8 @@ jobs:
             test-results/vitest-results.json
           retention-days: 7
 
-  unit_tests:
-    name: Unit Tests
+  unit_integration_tests:
+    name: Unit & Integration Tests
     needs: lint_typecheck
     runs-on: ubuntu-latest
     permissions:
@@ -603,6 +372,12 @@ jobs:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
           CI: "true"
+      - name: Run integration tests
+        run: npm run test:integration 2>&1 | tee integration-tests.log
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
+          REDIS_URL: redis://localhost:6379
+          CI: "true"
       - name: Upload unit coverage
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
@@ -610,18 +385,19 @@ jobs:
           name: coverage-unit
           path: coverage
           retention-days: 7
-      - name: Upload unit test results (includes slow tests)
+      - name: Upload test results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: unit-test-results
+          name: unit-integration-test-results
           path: |
             unit-tests.log
+            integration-tests.log
             test-results/vitest-results.json
           retention-days: 7
 
-  api_smoke:
-    name: API Smoke
+  api_tests:
+    name: API Tests
     needs: lint_typecheck
     runs-on: ubuntu-latest
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
@@ -790,202 +566,6 @@ jobs:
           name: build-logs
           path: build.log
           retention-days: 7
-
-  e2e_smoke:
-    name: E2E Tests
-    needs: build_app
-    runs-on: ubuntu-latest
-    timeout-minutes: 30  # Increased for full E2E suite on main/schedule
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-    permissions:
-      contents: read
-    services:
-      postgres:
-        image: postgres:15.14
-        env:
-          POSTGRES_DB: nuvana_test
-          POSTGRES_USER: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=5s
-          --health-timeout=3s
-          --health-retries=5
-      rabbitmq:
-        image: rabbitmq:3.13-management
-        ports:
-          - 5672:5672
-          - 15672:15672
-        options: >-
-          --health-cmd="rabbitmq-diagnostics -q ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-      - run: npm ci
-      - name: Install backend dependencies
-        run: cd backend && npm ci
-      - name: Generate Prisma Client (backend)
-        run: cd backend && npx prisma generate
-        env:
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-      - name: Run Prisma migrations
-        run: cd backend && npx prisma migrate deploy
-        env:
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-      - name: Cache Playwright browsers
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-      - name: Build backend
-        run: cd backend && npm run build
-      - name: Build frontend for production
-        run: npm run build
-      - name: Make scripts executable
-        run: chmod +x nuvana_control/workflows/11-ci_pipeline/scripts/*.sh
-      - name: Clean up ports (if occupied)
-        run: |
-          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000
-          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001
-      - name: Start full stack (built app, test mode)
-        run: |
-          npm run start > frontend.log 2>&1 &
-          echo $! > frontend.pid
-          cd backend && npm run start:test > ../backend.log 2>&1 &
-          echo $! > ../backend.pid
-          cd backend && node dist/workers/transaction.worker.js > ../worker.log 2>&1 &
-          echo $! > ../worker.pid
-        env:
-          NODE_ENV: test
-          DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
-          REDIS_URL: redis://localhost:6379
-          RABBITMQ_URL: amqp://guest:guest@localhost:5672
-          BACKEND_URL: ${{ env.BACKEND_URL }}
-          FRONTEND_URL: ${{ env.FRONTEND_URL }}
-          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
-          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
-          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
-          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
-          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
-      - name: Wait for frontend and backend
-        run: |
-          echo "Waiting for frontend..."
-          FRONTEND_READY=false
-          for i in {1..30}; do
-            if curl -sf --max-time 5 --retry 2 ${{ env.FRONTEND_URL }} > /dev/null 2>&1; then
-              echo "Frontend is ready"
-              FRONTEND_READY=true
-              break
-            fi
-            echo "Waiting for frontend... ($i/30)"
-            sleep $((i > 10 ? 5 : 2))
-          done
-
-          if [ "$FRONTEND_READY" = false ]; then
-            echo "❌ Frontend failed to start"
-            echo "Frontend logs:"
-            cat frontend.log || echo "No frontend.log found"
-            exit 1
-          fi
-
-          echo "Waiting for backend..."
-          BACKEND_READY=false
-          for i in {1..30}; do
-            if curl -sf --max-time 5 --retry 2 ${{ env.BACKEND_URL }}/api/health > /dev/null 2>&1; then
-              echo "Backend is ready"
-              BACKEND_READY=true
-              break
-            fi
-            echo "Waiting for backend... ($i/30)"
-            sleep $((i > 10 ? 5 : 2))
-          done
-
-          if [ "$BACKEND_READY" = false ]; then
-            echo "❌ Backend failed to start"
-            echo "Backend logs:"
-            cat backend.log || echo "No backend.log found"
-            exit 1
-          fi
-
-          echo "✅ Both services are ready"
-      - name: Run E2E tests (full suite)
-        env:
-          BACKEND_URL: ${{ env.BACKEND_URL }}
-          FRONTEND_URL: ${{ env.FRONTEND_URL }}
-          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
-          JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
-          COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
-          CI: "true"
-        run: |
-          echo "Running FULL E2E test suite"
-          npm run test:e2e
-      - name: Scrub secrets from logs
-        if: failure()
-        run: |
-          for log_file in frontend.log backend.log; do
-            if [ -f "$log_file" ]; then
-              sed -i 's/Bearer [A-Za-z0-9._-]*/Bearer [REDACTED]/g' "$log_file"
-              sed -i 's/"token":"[^"]*"/"token":"[REDACTED]"/g' "$log_file"
-              sed -i 's/"password":"[^"]*"/"password":"[REDACTED]"/g' "$log_file"
-              sed -i 's/"secret":"[^"]*"/"secret":"[REDACTED]"/g' "$log_file"
-              sed -i 's/postgresql:\/\/[^@]*@/postgresql:\/\/[REDACTED]@/g' "$log_file"
-            fi
-          done
-      - name: Upload full stack logs
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: full-stack-logs-e2e-smoke
-          path: |
-            frontend.log
-            backend.log
-          retention-days: 7
-      - name: Upload E2E test results (includes slow tests)
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: e2e-test-results
-          path: |
-            playwright-report/
-            test-results/
-          retention-days: 7
-      - name: Stop full stack
-        if: always()
-        run: |
-          if [ -f frontend.pid ]; then
-            kill $(cat frontend.pid) 2>/dev/null || true
-            rm -f frontend.pid
-          fi
-          if [ -f backend.pid ]; then
-            kill $(cat backend.pid) 2>/dev/null || true
-            rm -f backend.pid
-          fi
-          if [ -f full.pid ]; then
-            kill $(cat full.pid) 2>/dev/null || true
-            rm -f full.pid
-          fi
-          # Extra cleanup: kill any remaining processes on ports
-          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3000 || true
-          bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
   security_static:
     name: Static Security & Dependencies
@@ -1260,7 +840,7 @@ jobs:
 
   deployment_gate:
     name: Deploy to Production
-    needs: [security_static, security_dynamic, e2e_smoke, artifact_build, bundle_security_scan]
+    needs: [full_test_suite, security_static, security_dynamic, artifact_build, bundle_security_scan]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     permissions:
