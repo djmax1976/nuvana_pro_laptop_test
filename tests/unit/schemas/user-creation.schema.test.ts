@@ -338,6 +338,7 @@ describe("User Creation Schema - Full Payload Validation", () => {
         {
           role_id: "123e4567-e89b-12d3-a456-426614174000",
           scope_type: "COMPANY" as const,
+          company_id: "223e4567-e89b-12d3-a456-426614174001",
         },
       ],
       companyName: "Acme Corporation",
