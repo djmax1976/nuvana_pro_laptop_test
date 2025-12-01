@@ -835,13 +835,14 @@ test.describe("Terminal Management API", () => {
   });
 
   /**
-   * BR-TERM-013: Invalid store ID returns 404
+   * BR-TERM-013: Invalid store ID returns 403
    *
-   * WHY: Clear error messaging
-   * RISK: Confusing error messages
-   * VALIDATES: Error handling
+   * WHY: Security - don't reveal if store exists
+   * RISK: Information disclosure through error messages
+   * VALIDATES: Error handling with access control
+   * NOTE: Returns 403 (not 404) to prevent store ID enumeration
    */
-  test("[P1-BR-TERM-013] Invalid store ID returns 404", async ({
+  test("[P1-BR-TERM-013] Invalid store ID returns 403", async ({
     superadminApiRequest,
   }) => {
     // GIVEN: An invalid store ID
@@ -857,12 +858,12 @@ test.describe("Terminal Management API", () => {
       terminalData,
     );
 
-    // THEN: Request fails with 404
-    expect(response.status()).toBe(404);
+    // THEN: Request fails with 403 (security: don't reveal store existence)
+    expect(response.status()).toBe(403);
 
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.error.code).toBe("NOT_FOUND");
+    expect(body.error.code).toBe("PERMISSION_DENIED");
   });
 
   /**
