@@ -156,7 +156,7 @@ test.describe("4.8-API: Shift Opening Auto-Assignment", () => {
     apiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A store with terminal and authenticated cashier
+    // GIVEN: A store with terminal and authenticated cashier with proper role assignment
     const cashier = await prismaClient.user.create({
       data: createUser(),
     });
@@ -168,6 +168,22 @@ test.describe("4.8-API: Shift Opening Auto-Assignment", () => {
     });
     const terminal = await prismaClient.pOSTerminal.create({
       data: createTerminal({ store_id: store.store_id }),
+    });
+
+    // Assign CASHIER role to the user at the store level
+    const cashierRole = await prismaClient.role.findFirst({
+      where: { code: "CASHIER" },
+    });
+    if (!cashierRole) {
+      throw new Error("CASHIER role not found in database");
+    }
+    await prismaClient.userRole.create({
+      data: {
+        user_id: cashier.user_id,
+        role_id: cashierRole.role_id,
+        store_id: store.store_id,
+        company_id: company.company_id,
+      },
     });
 
     // Create JWT token for the cashier user with SHIFT_OPEN permission
@@ -258,6 +274,22 @@ test.describe("4.8-API: Shift List RLS Filtering", () => {
     });
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
+    });
+
+    // Assign CASHIER role to cashier1 at the store level
+    const cashierRole = await prismaClient.role.findFirst({
+      where: { code: "CASHIER" },
+    });
+    if (!cashierRole) {
+      throw new Error("CASHIER role not found in database");
+    }
+    await prismaClient.userRole.create({
+      data: {
+        user_id: cashier1.user_id,
+        role_id: cashierRole.role_id,
+        store_id: store.store_id,
+        company_id: company.company_id,
+      },
     });
 
     // Create shifts for both cashiers
