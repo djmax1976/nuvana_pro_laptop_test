@@ -170,23 +170,23 @@ test.describe("4.8-API: Shift Opening Auto-Assignment", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Assign CASHIER role to the user at the store level
-    const cashierRole = await prismaClient.role.findFirst({
-      where: { code: "CASHIER" },
+    // Assign SHIFT_MANAGER role to the user at the store level (SHIFT_MANAGER has SHIFT_OPEN permission)
+    const shiftManagerRole = await prismaClient.role.findFirst({
+      where: { code: "SHIFT_MANAGER" },
     });
-    if (!cashierRole) {
-      throw new Error("CASHIER role not found in database");
+    if (!shiftManagerRole) {
+      throw new Error("SHIFT_MANAGER role not found in database");
     }
     await prismaClient.userRole.create({
       data: {
         user_id: cashier.user_id,
-        role_id: cashierRole.role_id,
+        role_id: shiftManagerRole.role_id,
         store_id: store.store_id,
         company_id: company.company_id,
       },
     });
 
-    // Create JWT token for the cashier user with SHIFT_OPEN permission
+    // Create JWT token for the user with SHIFT_OPEN permission
     const cashierToken = createJWTAccessToken({
       user_id: cashier.user_id,
       email: cashier.email,
