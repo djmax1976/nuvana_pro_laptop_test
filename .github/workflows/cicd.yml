@@ -288,7 +288,17 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+          CI: "true"
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/test-changed.sh
+      - name: Upload selective test results (includes slow tests)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: selective-test-results
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
       - name: Scrub secrets from logs
         if: failure()
         run: |
@@ -498,7 +508,17 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
+          CI: "true"
         run: bash nuvana_control/workflows/11-ci_pipeline/scripts/burn-in.sh
+      - name: Upload burn-in test results (includes slow tests)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: burn-in-test-results
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
       - name: Scrub secrets from logs
         if: failure()
         run: |
@@ -560,6 +580,7 @@ jobs:
         run: npm run test:component -- --reporter=dot -- --coverage 2>&1 | tee component-tests.log
         env:
           DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
+          CI: "true"
       - name: Upload component coverage
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
@@ -567,12 +588,14 @@ jobs:
           name: coverage-component
           path: coverage
           retention-days: 7
-      - name: Upload component test logs
-        if: failure()
+      - name: Upload component test results (includes slow tests)
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: component-test-logs
-          path: component-tests.log
+          name: component-test-results
+          path: |
+            component-tests.log
+            test-results/vitest-results.json
           retention-days: 7
 
   unit_tests:
@@ -633,6 +656,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
           REDIS_URL: redis://localhost:6379
+          CI: "true"
       - name: Upload unit coverage
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
@@ -640,12 +664,14 @@ jobs:
           name: coverage-unit
           path: coverage
           retention-days: 7
-      - name: Upload unit test logs
-        if: failure()
+      - name: Upload unit test results (includes slow tests)
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: unit-test-logs
-          path: unit-tests.log
+          name: unit-test-results
+          path: |
+            unit-tests.log
+            test-results/vitest-results.json
           retention-days: 7
 
   api_smoke:
@@ -776,6 +802,15 @@ jobs:
         with:
           name: backend-logs-api-smoke
           path: backend.log
+          retention-days: 7
+      - name: Upload API test results (includes slow tests)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: api-smoke-test-results
+          path: |
+            playwright-report/
+            test-results/
           retention-days: 7
       - name: Stop backend
         if: always()
@@ -972,6 +1007,15 @@ jobs:
           path: |
             frontend.log
             backend.log
+          retention-days: 7
+      - name: Upload E2E test results (includes slow tests)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: e2e-test-results
+          path: |
+            playwright-report/
+            test-results/
           retention-days: 7
       - name: Stop full stack
         if: always()

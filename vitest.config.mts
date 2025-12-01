@@ -10,6 +10,15 @@ export default defineConfig({
     setupFiles: ["./tests/support/vitest-setup.ts"],
     include: ["tests/**/*.{test,spec}.{ts,tsx}"],
     pool: "forks",
+    // Slow test detection - tests taking longer than these thresholds are flagged
+    slowTestThreshold: 1000, // 1 second - flag slow tests
+    testTimeout: 30000, // 30 seconds - fail hanging tests
+    hookTimeout: 30000, // 30 seconds - fail hanging hooks
+    // Output slow tests in CI
+    reporters: process.env.CI
+      ? ["default", "json", "hanging-process"]
+      : ["default"],
+    outputFile: process.env.CI ? "./test-results/vitest-results.json" : undefined,
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html", "lcov"],
