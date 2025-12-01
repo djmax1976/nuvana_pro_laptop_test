@@ -1,4 +1,5 @@
 "use client";
+import { use } from "react";
 
 import { useStore } from "@/lib/api/stores";
 import { StoreConfigurationForm } from "@/components/stores/StoreConfigurationForm";
@@ -9,9 +10,9 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 
 interface StoreConfigurationPageProps {
-  params: {
+  params: Promise<{
     storeId: string;
-  };
+  }>;
 }
 
 /**
@@ -19,9 +20,10 @@ interface StoreConfigurationPageProps {
  * Allows Store Managers to configure their store settings (timezone, location, operating hours)
  * Route protection: Store Manager only for their store (enforced by API)
  */
-export default function StoreConfigurationPage({
-  params,
-}: StoreConfigurationPageProps) {
+export default function StoreConfigurationPage(
+  props: StoreConfigurationPageProps,
+) {
+  const params = use(props.params);
   const router = useRouter();
   const searchParams = useSearchParams();
   const companyId = searchParams?.get("companyId");

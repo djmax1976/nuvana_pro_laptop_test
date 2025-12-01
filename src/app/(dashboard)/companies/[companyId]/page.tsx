@@ -1,5 +1,6 @@
 "use client";
 
+import { use } from "react";
 import { useCompany, useDeleteCompany } from "@/lib/api/companies";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
@@ -21,9 +22,9 @@ import {
 } from "@/components/ui/alert-dialog";
 
 interface CompanyDetailPageProps {
-  params: {
+  params: Promise<{
     companyId: string;
-  };
+  }>;
 }
 
 /**
@@ -31,12 +32,13 @@ interface CompanyDetailPageProps {
  * Displays company details and provides edit/delete actions
  */
 export default function CompanyDetailPage({ params }: CompanyDetailPageProps) {
+  const { companyId } = use(params);
   const router = useRouter();
   const { toast } = useToast();
   const [isDeleting, setIsDeleting] = useState(false);
   const deleteMutation = useDeleteCompany();
 
-  const { data: company, isLoading, error } = useCompany(params.companyId);
+  const { data: company, isLoading, error } = useCompany(companyId);
 
   const handleDelete = async () => {
     if (!company) return;
