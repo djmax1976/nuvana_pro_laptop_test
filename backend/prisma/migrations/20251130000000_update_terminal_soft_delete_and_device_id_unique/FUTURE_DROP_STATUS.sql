@@ -7,18 +7,83 @@
 -- 4. Monitoring confirms no queries are using the status column
 --
 -- To use this migration:
--- 1. Rename this file to: YYYYMMDDHHMMSS_remove_pos_terminals_status_column/migration.sql
--- 2. Update the timestamp in the filename to the current date/time
+-- 1. Create a new Prisma migration using: npx prisma migrate dev --create-only --name remove_pos_terminals_status_column
+--    (This will create a properly timestamped migration directory in the migrations folder)
+-- 2. Copy the SQL content from this file into the generated migration.sql file
 -- 3. Review and adjust the migration as needed
--- 4. Run: npx prisma migrate deploy (or npx prisma migrate dev)
+-- 4. Apply the migration using: npx prisma migrate dev
+--    (Or use npx prisma migrate deploy in production environments)
+--
+-- NOTE: Do NOT manually rename this file or create migration directories manually.
+-- Prisma manages migration timestamps and tracking automatically. Manual file operations
+-- will break Prisma's migration history tracking.
 --
 -- ROLLBACK: If you need to rollback, use the ROLLBACK.sql file from the previous migration
 
--- Step 1: Verify backup table exists and has data
+-- Step 1: Verify backup table exists and has required columns
 DO $$
+DECLARE
+  table_exists BOOLEAN;
+  has_pos_terminal_id BOOLEAN;
+  has_status BOOLEAN;
+  pos_terminal_id_type TEXT;
+  status_type TEXT;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pos_terminals_status_backup') THEN
+  -- Check if backup table exists
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.tables 
+    WHERE table_schema = 'public' AND table_name = 'pos_terminals_status_backup'
+  ) INTO table_exists;
+  
+  IF NOT table_exists THEN
     RAISE EXCEPTION 'Backup table pos_terminals_status_backup does not exist. Cannot safely remove status column.';
+  END IF;
+  
+  -- Check if pos_terminal_id column exists
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+      AND table_name = 'pos_terminals_status_backup' 
+      AND column_name = 'pos_terminal_id'
+  ) INTO has_pos_terminal_id;
+  
+  IF NOT has_pos_terminal_id THEN
+    RAISE EXCEPTION 'Backup table pos_terminals_status_backup is missing required column: pos_terminal_id. Cannot safely remove status column.';
+  END IF;
+  
+  -- Check if status column exists
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+      AND table_name = 'pos_terminals_status_backup' 
+      AND column_name = 'status'
+  ) INTO has_status;
+  
+  IF NOT has_status THEN
+    RAISE EXCEPTION 'Backup table pos_terminals_status_backup is missing required column: status. Cannot safely remove status column.';
+  END IF;
+  
+  -- Optionally validate data types
+  SELECT data_type INTO pos_terminal_id_type
+  FROM information_schema.columns 
+  WHERE table_schema = 'public' 
+    AND table_name = 'pos_terminals_status_backup' 
+    AND column_name = 'pos_terminal_id';
+  
+  SELECT data_type INTO status_type
+  FROM information_schema.columns 
+  WHERE table_schema = 'public' 
+    AND table_name = 'pos_terminals_status_backup' 
+    AND column_name = 'status';
+  
+  -- Validate pos_terminal_id is integer type (uuid, integer, bigint are common)
+  IF pos_terminal_id_type NOT IN ('uuid', 'integer', 'bigint', 'character varying') THEN
+    RAISE EXCEPTION 'Backup table pos_terminals_status_backup has unexpected data type (%) for pos_terminal_id column. Expected: uuid, integer, bigint, or character varying. Cannot safely remove status column.', pos_terminal_id_type;
+  END IF;
+  
+  -- Validate status is text/varchar type
+  IF status_type NOT IN ('character varying', 'varchar', 'text', 'character') THEN
+    RAISE EXCEPTION 'Backup table pos_terminals_status_backup has unexpected data type (%) for status column. Expected: character varying, varchar, text, or character. Cannot safely remove status column.', status_type;
   END IF;
 END $$;
 
