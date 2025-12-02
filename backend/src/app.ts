@@ -38,24 +38,21 @@ const PORT = parseInt(
 );
 const SERVER_START_TIME = Date.now();
 
-// SECURITY: Configure body size limit to prevent DoS attacks via oversized payloads
-// The bodyLimit must be >= max upload file size + multipart encoding overhead
-// to prevent Fastify from rejecting multipart uploads before the multipart plugin
-// can process them and apply fileSize validation.
+// SECURITY: Configure body size limits to prevent DoS attacks via oversized payloads
+//
+// Strategy: Use conservative default limit for JSON APIs, higher limit for upload routes
+// - Default bodyLimit: 1MB (sufficient for JSON payloads, protects against DoS)
+// - Upload routes: Higher limit set per-route to accommodate file uploads
 //
 // Configuration:
 // - MAX_UPLOAD_FILE_SIZE_MB: Maximum file size for uploads (default: 10MB)
-// - MULTIPART_OVERHEAD_MB: Overhead for multipart encoding (boundaries, headers, etc.) (default: 2MB)
-// - MAX_REQUEST_BODY_SIZE_MB: Minimum body limit for non-upload routes (default: 1MB)
-//   If MAX_UPLOAD_FILE_SIZE_MB is set, bodyLimit = max(maxUploadSize + overhead, MAX_REQUEST_BODY_SIZE_MB)
-//   Otherwise, bodyLimit = MAX_REQUEST_BODY_SIZE_MB
+// - MULTIPART_OVERHEAD_MB: Overhead for multipart encoding (default: 2MB)
+// - DEFAULT_JSON_BODY_LIMIT_MB: Default limit for JSON endpoints (default: 1MB)
 //
-// This ensures:
-// 1. Multipart uploads aren't preemptively rejected by bodyLimit
-// 2. Non-upload routes still have a conservative limit
-// 3. Configuration is environment-driven and documented
+// Upload routes should set their own bodyLimit via route options:
+//   fastify.post('/upload', { bodyLimit: uploadBodyLimitBytes }, handler)
 
-// Read max upload file size (used for multipart fileSize limit)
+// Read max upload file size (used for multipart fileSize limit and upload route bodyLimit)
 const maxFileSizeMB = parseInt(process.env.MAX_UPLOAD_FILE_SIZE_MB || "10", 10);
 
 // Read multipart overhead (boundaries, headers, field names, etc.)
@@ -64,48 +61,24 @@ const multipartOverheadMB = parseInt(
   10,
 );
 
-// Read minimum body limit for non-upload routes
-const MIN_REQUEST_BODY_SIZE_MB = 1;
-const MAX_REQUEST_BODY_SIZE_MB = 500; // Increased max to accommodate large uploads
-const DEFAULT_REQUEST_BODY_SIZE_MB = 1;
-
-const rawMinRequestBodySizeMB =
-  process.env.MAX_REQUEST_BODY_SIZE_MB || String(DEFAULT_REQUEST_BODY_SIZE_MB);
-let minRequestBodySizeMB = parseInt(rawMinRequestBodySizeMB, 10);
-
-// Validate and clamp the minimum body size
-if (
-  isNaN(minRequestBodySizeMB) ||
-  minRequestBodySizeMB < MIN_REQUEST_BODY_SIZE_MB
-) {
-  if (isNaN(minRequestBodySizeMB)) {
-    console.warn(
-      `Invalid MAX_REQUEST_BODY_SIZE_MB value "${rawMinRequestBodySizeMB}" (not a number). Using default: ${DEFAULT_REQUEST_BODY_SIZE_MB}MB`,
-    );
-  } else {
-    console.warn(
-      `MAX_REQUEST_BODY_SIZE_MB value ${minRequestBodySizeMB}MB is below minimum ${MIN_REQUEST_BODY_SIZE_MB}MB. Using minimum: ${MIN_REQUEST_BODY_SIZE_MB}MB`,
-    );
-  }
-  minRequestBodySizeMB = MIN_REQUEST_BODY_SIZE_MB;
-} else if (minRequestBodySizeMB > MAX_REQUEST_BODY_SIZE_MB) {
-  console.warn(
-    `MAX_REQUEST_BODY_SIZE_MB value ${minRequestBodySizeMB}MB exceeds maximum ${MAX_REQUEST_BODY_SIZE_MB}MB. Clamping to maximum: ${MAX_REQUEST_BODY_SIZE_MB}MB`,
-  );
-  minRequestBodySizeMB = MAX_REQUEST_BODY_SIZE_MB;
-}
-
-// Calculate bodyLimit: max upload size + overhead, but at least the minimum for non-upload routes
-const calculatedBodyLimitMB = maxFileSizeMB + multipartOverheadMB;
-const maxRequestBodySizeMB = Math.max(
-  calculatedBodyLimitMB,
-  minRequestBodySizeMB,
+// Default body limit for JSON endpoints (1MB is industry standard for JSON APIs)
+const DEFAULT_JSON_BODY_LIMIT_MB = 1;
+const defaultJsonBodyLimitMB = parseInt(
+  process.env.DEFAULT_JSON_BODY_LIMIT_MB || String(DEFAULT_JSON_BODY_LIMIT_MB),
+  10,
 );
+
+// Calculate upload body limit (for routes that handle file uploads)
+const uploadBodyLimitMB = maxFileSizeMB + multipartOverheadMB;
+export const uploadBodyLimitBytes = uploadBodyLimitMB * 1024 * 1024;
+
+// Use conservative default for all routes (JSON APIs)
+const maxRequestBodySizeMB = defaultJsonBodyLimitMB;
 const maxRequestBodySizeBytes = maxRequestBodySizeMB * 1024 * 1024;
 
 // Log the configuration for debugging
 console.log(
-  `Body limit configuration: maxUploadSize=${maxFileSizeMB}MB, overhead=${multipartOverheadMB}MB, minBodyLimit=${minRequestBodySizeMB}MB, finalBodyLimit=${maxRequestBodySizeMB}MB`,
+  `Body limit configuration: defaultJsonLimit=${defaultJsonBodyLimitMB}MB, uploadLimit=${uploadBodyLimitMB}MB (for upload routes)`,
 );
 
 // Create Fastify instance with ajv-formats for UUID validation

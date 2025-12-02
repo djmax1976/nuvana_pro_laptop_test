@@ -396,12 +396,22 @@ export const test = base.extend<RBACFixture>({
     const dbUrl =
       process.env.DATABASE_URL ||
       "postgresql://postgres@localhost:5432/nuvana_dev";
-    const appUserUrl = dbUrl
+    let appUserUrl = dbUrl
       .replace("postgres:postgres@", "app_user:app_user_password@")
       .replace(
         /^postgresql:\/\/postgres@/,
         "postgresql://app_user:app_user_password@",
       );
+
+    // IMPORTANT: Force single connection pool to ensure SET session variables
+    // persist across all queries. Without this, Prisma's connection pooling
+    // may assign different connections to SET and subsequent queries,
+    // causing RLS context to be lost. This is critical for RLS tests.
+    if (appUserUrl.includes("?")) {
+      appUserUrl += "&connection_limit=1";
+    } else {
+      appUserUrl += "?connection_limit=1";
+    }
 
     const rlsPrisma = new PrismaClient({
       datasources: {

@@ -33,6 +33,7 @@ import {
   checkUploadQuota,
   recordUpload,
 } from "../services/upload-quota.service";
+import { uploadBodyLimitBytes } from "../app";
 
 /**
  * Transaction routes
@@ -924,6 +925,9 @@ export async function transactionRoutes(fastify: FastifyInstance) {
   fastify.post(
     "/api/transactions/bulk-import",
     {
+      // SECURITY: Override default 1MB bodyLimit for file uploads
+      // This route handles multipart file uploads up to MAX_UPLOAD_FILE_SIZE_MB + overhead
+      bodyLimit: uploadBodyLimitBytes,
       // Upload-specific rate limiting: stricter than global limits
       // Configurable via env: UPLOAD_RATE_LIMIT_MAX (default: 5) and UPLOAD_RATE_LIMIT_WINDOW (default: "1 minute")
       // CI/Test: Higher limit (100) to prevent false test failures from rate limiting
