@@ -1934,11 +1934,33 @@ export const test = base.extend<RBACFixture>({
       },
     ]);
 
-    // Navigate to dashboard - the real /api/auth/me endpoint will be called
-    // and will validate the JWT cookie, returning user data
+    // Set localStorage auth_session directly to bypass API call during tests
+    // This ensures the AuthContext recognizes the user as authenticated
+    // The cookie is still set for API calls that need it
+    await page.addInitScript((userData) => {
+      localStorage.setItem(
+        "auth_session",
+        JSON.stringify({
+          user: {
+            id: userData.user_id,
+            email: userData.email,
+            name: userData.name,
+          },
+          authenticated: true,
+          isClientUser: false,
+        }),
+      );
+    }, superadminUser);
+
+    // Navigate to dashboard - AuthContext will use the localStorage session
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
+      { waitUntil: "networkidle" },
     );
+
+    // Wait for the dashboard to load (check for a dashboard element)
+    // This ensures the page has fully rendered
+    await page.waitForLoadState("networkidle");
 
     await use(page);
 
@@ -2086,10 +2108,30 @@ export const test = base.extend<RBACFixture>({
       },
     ]);
 
-    // Navigate to dashboard - the real /api/auth/me endpoint will be called
+    // Set localStorage auth_session directly to bypass API call during tests
+    await page.addInitScript((userData) => {
+      localStorage.setItem(
+        "auth_session",
+        JSON.stringify({
+          user: {
+            id: userData.user_id,
+            email: userData.email,
+            name: userData.name,
+          },
+          authenticated: true,
+          isClientUser: true, // Cashier is a client user
+        }),
+      );
+    }, cashierUser);
+
+    // Navigate to dashboard - AuthContext will use the localStorage session
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
+      { waitUntil: "networkidle" },
     );
+
+    // Wait for the dashboard to load
+    await page.waitForLoadState("networkidle");
 
     await use(page);
 
@@ -2115,10 +2157,30 @@ export const test = base.extend<RBACFixture>({
       },
     ]);
 
-    // Navigate to dashboard - the real /api/auth/me endpoint will be called
+    // Set localStorage auth_session directly to bypass API call during tests
+    await page.addInitScript((userData) => {
+      localStorage.setItem(
+        "auth_session",
+        JSON.stringify({
+          user: {
+            id: userData.user_id,
+            email: userData.email,
+            name: userData.name,
+          },
+          authenticated: true,
+          isClientUser: true, // Store manager is a client user
+        }),
+      );
+    }, storeManagerUser);
+
+    // Navigate to dashboard - AuthContext will use the localStorage session
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
+      { waitUntil: "networkidle" },
     );
+
+    // Wait for the dashboard to load
+    await page.waitForLoadState("networkidle");
 
     await use(page);
 

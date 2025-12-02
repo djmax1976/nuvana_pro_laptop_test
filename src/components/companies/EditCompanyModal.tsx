@@ -177,7 +177,9 @@ export function EditCompanyModal({
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Edit Company</DialogTitle>
+            <DialogTitle data-testid="edit-company-modal-title">
+              Edit Company
+            </DialogTitle>
             <DialogDescription>
               Update company information. The owner assignment cannot be changed
               after creation.
@@ -192,12 +194,17 @@ export function EditCompanyModal({
             >
               {/* Display owner name (read-only) */}
               {company && (
-                <div>
+                <div data-testid="edit-company-owner-info">
                   <label className="text-sm font-medium">Owner</label>
                   <div className="mt-2 rounded-md border bg-muted px-3 py-2 text-sm">
-                    <div>{company.owner_name || "N/A"}</div>
+                    <div data-testid="edit-company-owner-name">
+                      {company.owner_name || "N/A"}
+                    </div>
                     {company.owner_email && (
-                      <div className="text-xs text-muted-foreground">
+                      <div
+                        className="text-xs text-muted-foreground"
+                        data-testid="edit-company-owner-email"
+                      >
                         {company.owner_email}
                       </div>
                     )}

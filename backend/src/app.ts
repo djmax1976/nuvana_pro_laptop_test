@@ -39,8 +39,17 @@ const PORT = parseInt(
 const SERVER_START_TIME = Date.now();
 
 // Create Fastify instance with ajv-formats for UUID validation
+// SECURITY: Configure body size limit to prevent DoS attacks via oversized payloads
+// Default: 1MB (1048576 bytes) - configurable via MAX_REQUEST_BODY_SIZE_MB env var
+const maxRequestBodySizeMB = parseInt(
+  process.env.MAX_REQUEST_BODY_SIZE_MB || "1",
+  10,
+);
+const maxRequestBodySizeBytes = maxRequestBodySizeMB * 1024 * 1024;
+
 const app = Fastify({
   logger: true,
+  bodyLimit: maxRequestBodySizeBytes,
   ajv: {
     customOptions: {
       removeAdditional: false,
@@ -88,6 +97,20 @@ app.setErrorHandler((error: any, _request, reply) => {
       error: {
         code: "INVALID_JSON_BODY",
         message: "Request body must be valid JSON",
+      },
+    });
+    return;
+  }
+
+  // Handle request body too large errors
+  // Fastify throws FST_ERR_CTP_BODY_TOO_LARGE when body exceeds bodyLimit
+  if (error.code === "FST_ERR_CTP_BODY_TOO_LARGE") {
+    app.log.warn({ error }, "Request body too large");
+    reply.status(413).send({
+      success: false,
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: `Request body exceeds maximum size of ${maxRequestBodySizeMB}MB`,
       },
     });
     return;
