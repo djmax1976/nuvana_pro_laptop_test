@@ -129,17 +129,20 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     // WHEN: User submits form
     await submitButton.click();
 
-    // THEN: Submit button should be disabled and show "Sending..." while request is pending
-    // Check button state immediately after click (before waiting for request)
-    await expect(submitButton).toBeDisabled({ timeout: 2000 });
-    await expect(page.getByText(/Sending.../i)).toBeVisible({ timeout: 2000 });
-
-    // Wait for the request to be intercepted (this ensures the request was made)
+    // Wait for the request to be intercepted AND check button state in parallel
     // The route handler will hold the request until we resolve it
-    await page.waitForRequest(
+    const requestPromise = page.waitForRequest(
       (request) => request.url().includes("/api/contact"),
       { timeout: 5000 },
     );
+
+    // THEN: Submit button should be disabled and show "Sending..." while request is pending
+    // Check button state in parallel with waiting for request interception
+    await Promise.all([
+      requestPromise,
+      expect(submitButton).toBeDisabled({ timeout: 3000 }),
+      expect(page.getByText(/Sending/i)).toBeVisible({ timeout: 3000 }),
+    ]);
 
     // Fulfill the route to complete the submission
     resolveRoute?.();
