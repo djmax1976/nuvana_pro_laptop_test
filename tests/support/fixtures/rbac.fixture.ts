@@ -1498,10 +1498,16 @@ export const test = base.extend<RBACFixture>({
 
     // Assign default STORE scope roles to the company via CompanyAllowedRole
     // This is required for client role permission management (Story 2.92)
-    const storeRoles = await prismaClient.role.findMany({
-      where: { scope: "STORE", deleted_at: null },
-    });
+    // IMPORTANT: Query MUST be inside withBypassClient to prevent race conditions
+    // in parallel test workers where roles could be deleted between query and insert
     await withBypassClient(async (bypassClient) => {
+      const storeRoles = await bypassClient.role.findMany({
+        where: {
+          scope: "STORE",
+          deleted_at: null,
+          is_system_role: true, // Only system roles (never deleted during tests)
+        },
+      });
       await bypassClient.companyAllowedRole.createMany({
         data: storeRoles.map((storeRole) => ({
           company_id: company.company_id,
