@@ -122,8 +122,11 @@ test.describe("E2E-003: Homepage Contact Form", () => {
 
     // THEN: Button shows "Sending..." text AND is disabled
     // The form implementation sets both: button text changes to "Sending..." and button is disabled
-    await expect(page.getByText(/Sending.../i)).toBeVisible();
-    await expect(submitButton).toBeDisabled();
+    // Note: We need to use a different locator to find the button during submission
+    // because its accessible name changes from "Send Message" to "Sending..."
+    const sendingButton = page.getByRole("button", { name: /Sending.../i });
+    await expect(sendingButton).toBeVisible();
+    await expect(sendingButton).toBeDisabled();
   });
 
   test("[P2] should clear form fields after successful submission", async ({

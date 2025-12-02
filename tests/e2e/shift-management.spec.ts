@@ -385,16 +385,16 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     await page.goto("/client-dashboard/shifts", { waitUntil: "networkidle" });
 
     // THEN: Should redirect to login or show unauthorized
-    // Wait for navigation to complete
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(2000); // Wait for potential redirect
+    // Wait for client-side redirect to complete (React hydration + auth check + redirect)
+    // The redirect happens via router.push("/login") after auth context determines user is not authenticated
+    await page.waitForURL(/\/(login|auth)/, { timeout: 15000 });
 
     const currentUrl = page.url();
-    // Check if redirected to login/auth page
-    const isRedirected =
+    // Verify we're on a login/auth page
+    const isOnAuthPage =
       currentUrl.includes("/login") || currentUrl.includes("/auth");
 
-    expect(isRedirected).toBeTruthy();
+    expect(isOnAuthPage).toBeTruthy();
   });
 
   test("4.7-E2E-SEC-002: [P1] Should enforce RLS - users only see shifts for accessible stores", async ({
