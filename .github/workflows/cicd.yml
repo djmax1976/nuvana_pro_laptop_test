@@ -228,6 +228,7 @@ jobs:
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
           CI: "true"
           WORKER_RUNNING: "true"
+          BULK_IMPORT_TESTS: "true"
         run: |
           echo "Running API test suite"
           npm run test:api
