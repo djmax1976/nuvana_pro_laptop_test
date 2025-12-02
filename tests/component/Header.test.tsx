@@ -63,7 +63,7 @@ describe("Header Component - Theme Toggle Visibility", () => {
     mockUseAuth.mockReturnValue({
       user: {
         user_id: "user-123",
-        email: "test@example.com",
+        email: "test@test.com",
         name: "Test User",
         status: "ACTIVE",
       },
@@ -118,7 +118,7 @@ describe("Header Component - Theme Toggle Visibility", () => {
     mockUseAuth.mockReturnValue({
       user: {
         user_id: "user-123",
-        email: "test@example.com",
+        email: "test@test.com",
         name: "Test User",
         status: "ACTIVE",
       },

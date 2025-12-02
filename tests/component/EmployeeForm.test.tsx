@@ -238,7 +238,7 @@ describe("2.91-COMPONENT: EmployeeForm - Password Validation", () => {
     );
 
     // Fill in fields
-    await user.type(screen.getByTestId("employee-email"), "test@example.com");
+    await user.type(screen.getByTestId("employee-email"), "test@test.com");
     await user.type(screen.getByTestId("employee-name"), "Test User");
     await user.type(screen.getByTestId("employee-password"), "Short1!");
 
@@ -263,7 +263,7 @@ describe("2.91-COMPONENT: EmployeeForm - Password Validation", () => {
       <EmployeeForm onSuccess={mockOnSuccess} onCancel={mockOnCancel} />,
     );
 
-    await user.type(screen.getByTestId("employee-email"), "test@example.com");
+    await user.type(screen.getByTestId("employee-email"), "test@test.com");
     await user.type(screen.getByTestId("employee-name"), "Test User");
     await user.type(screen.getByTestId("employee-password"), "password123!");
 
@@ -287,7 +287,7 @@ describe("2.91-COMPONENT: EmployeeForm - Password Validation", () => {
       <EmployeeForm onSuccess={mockOnSuccess} onCancel={mockOnCancel} />,
     );
 
-    await user.type(screen.getByTestId("employee-email"), "test@example.com");
+    await user.type(screen.getByTestId("employee-email"), "test@test.com");
     await user.type(screen.getByTestId("employee-name"), "Test User");
     await user.type(screen.getByTestId("employee-password"), "PASSWORD123!");
 
@@ -311,7 +311,7 @@ describe("2.91-COMPONENT: EmployeeForm - Password Validation", () => {
       <EmployeeForm onSuccess={mockOnSuccess} onCancel={mockOnCancel} />,
     );
 
-    await user.type(screen.getByTestId("employee-email"), "test@example.com");
+    await user.type(screen.getByTestId("employee-email"), "test@test.com");
     await user.type(screen.getByTestId("employee-name"), "Test User");
     await user.type(screen.getByTestId("employee-password"), "Password!");
 
@@ -333,7 +333,7 @@ describe("2.91-COMPONENT: EmployeeForm - Password Validation", () => {
       <EmployeeForm onSuccess={mockOnSuccess} onCancel={mockOnCancel} />,
     );
 
-    await user.type(screen.getByTestId("employee-email"), "test@example.com");
+    await user.type(screen.getByTestId("employee-email"), "test@test.com");
     await user.type(screen.getByTestId("employee-name"), "Test User");
     await user.type(screen.getByTestId("employee-password"), "Password123");
 
@@ -358,7 +358,7 @@ describe("2.91-COMPONENT: EmployeeForm - Password Validation", () => {
     );
 
     // Fill in all required fields with valid data
-    await user.type(screen.getByTestId("employee-email"), "test@example.com");
+    await user.type(screen.getByTestId("employee-email"), "test@test.com");
     await user.type(screen.getByTestId("employee-name"), "Test User");
     await user.type(
       screen.getByTestId("employee-password"),
@@ -386,7 +386,7 @@ describe("2.91-COMPONENT: EmployeeForm - Password Validation", () => {
     await waitFor(() => {
       expect(mockCreateEmployee).toHaveBeenCalledWith(
         expect.objectContaining({
-          email: "test@example.com",
+          email: "test@test.com",
           name: "Test User",
           password: "StrongPassword123!",
           store_id: "store-1",
@@ -476,7 +476,7 @@ describe("2.91-COMPONENT: EmployeeForm - Field Validation", () => {
     );
 
     // Fill in fields except name
-    await user.type(screen.getByTestId("employee-email"), "test@example.com");
+    await user.type(screen.getByTestId("employee-email"), "test@test.com");
     await user.type(
       screen.getByTestId("employee-password"),
       "StrongPassword123!",
@@ -499,7 +499,7 @@ describe("2.91-COMPONENT: EmployeeForm - Field Validation", () => {
     );
 
     // Fill in user info but not store
-    await user.type(screen.getByTestId("employee-email"), "test@example.com");
+    await user.type(screen.getByTestId("employee-email"), "test@test.com");
     await user.type(screen.getByTestId("employee-name"), "Test User");
     await user.type(
       screen.getByTestId("employee-password"),
@@ -523,7 +523,7 @@ describe("2.91-COMPONENT: EmployeeForm - Field Validation", () => {
     );
 
     // Fill in user info and store but not role
-    await user.type(screen.getByTestId("employee-email"), "test@example.com");
+    await user.type(screen.getByTestId("employee-email"), "test@test.com");
     await user.type(screen.getByTestId("employee-name"), "Test User");
     await user.type(
       screen.getByTestId("employee-password"),
@@ -590,7 +590,7 @@ describe("2.91-COMPONENT: EmployeeForm - Field Validation", () => {
     );
 
     // Enter whitespace-only name
-    await user.type(screen.getByTestId("employee-email"), "test@example.com");
+    await user.type(screen.getByTestId("employee-email"), "test@test.com");
     await user.type(screen.getByTestId("employee-name"), "   ");
     await user.type(
       screen.getByTestId("employee-password"),
@@ -670,7 +670,7 @@ describe("2.91-COMPONENT: EmployeeForm - Form Submission", () => {
     );
 
     // Fill in all fields
-    await user.type(screen.getByTestId("employee-email"), "test@example.com");
+    await user.type(screen.getByTestId("employee-email"), "test@test.com");
     await user.type(screen.getByTestId("employee-name"), "Test User");
     await user.type(
       screen.getByTestId("employee-password"),
@@ -775,12 +775,12 @@ describe("2.91-COMPONENT: EmployeeForm - Store and Role Selection", () => {
     {
       store_id: "store-1",
       name: "Downtown Store",
-      company_name: "Acme Corp",
+      company_name: "Test Acme Corp",
     },
     {
       store_id: "store-2",
       name: "Uptown Store",
-      company_name: "Acme Corp",
+      company_name: "Test Acme Corp",
     },
   ];
 

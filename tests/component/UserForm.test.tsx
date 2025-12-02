@@ -212,7 +212,7 @@ describe("2.8-COMPONENT: UserForm Component", () => {
     renderWithProviders(<UserForm />);
 
     // Fill in valid email and name
-    await user.type(screen.getByTestId("user-email-input"), "test@example.com");
+    await user.type(screen.getByTestId("user-email-input"), "test@test.com");
     await user.type(screen.getByTestId("user-name-input"), "Test User");
 
     // WHEN: Weak password is entered and form is submitted
@@ -237,7 +237,7 @@ describe("2.8-COMPONENT: UserForm Component", () => {
     renderWithProviders(<UserForm />);
 
     // WHEN: Email is filled but name is empty
-    await user.type(screen.getByTestId("user-email-input"), "test@example.com");
+    await user.type(screen.getByTestId("user-email-input"), "test@test.com");
 
     // Submit form
     await user.click(screen.getByTestId("user-form-submit"));
@@ -254,7 +254,7 @@ describe("2.8-COMPONENT: UserForm Component", () => {
     renderWithProviders(<UserForm />);
 
     // Fill in required fields but not role
-    await user.type(screen.getByTestId("user-email-input"), "test@example.com");
+    await user.type(screen.getByTestId("user-email-input"), "test@test.com");
     await user.type(screen.getByTestId("user-name-input"), "Test User");
     await user.type(
       screen.getByTestId("user-password-input"),

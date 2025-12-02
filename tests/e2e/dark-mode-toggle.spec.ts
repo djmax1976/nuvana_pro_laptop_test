@@ -58,7 +58,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User is authenticated
     const user = createUser({
       id: "user-123",
-      email: "user@example.com",
+      email: "user@test.com",
       name: "Test User",
     });
     await setAuthenticatedUser(page, {
@@ -83,7 +83,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User is authenticated and viewing dashboard in light theme
     const user = createUser({
       id: "user-123",
-      email: "user@example.com",
+      email: "user@test.com",
       name: "Test User",
     });
     await setAuthenticatedUser(page, {
@@ -115,7 +115,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User is authenticated and viewing dashboard in dark theme
     const user = createUser({
       id: "user-123",
-      email: "user@example.com",
+      email: "user@test.com",
       name: "Test User",
     });
     await setAuthenticatedUser(page, {
@@ -147,7 +147,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User is authenticated and sets theme to dark
     const user = createUser({
       id: "user-123",
-      email: "user@example.com",
+      email: "user@test.com",
       name: "Test User",
     });
     await setAuthenticatedUser(page, {
@@ -185,7 +185,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User is authenticated
     const user = createUser({
       id: "user-123",
-      email: "user@example.com",
+      email: "user@test.com",
       name: "Test User",
     });
     await setAuthenticatedUser(page, {
@@ -215,7 +215,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User is authenticated
     const user = createUser({
       id: "user-123",
-      email: "user@example.com",
+      email: "user@test.com",
       name: "Test User",
     });
     await setAuthenticatedUser(page, {
@@ -256,7 +256,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User is authenticated and has set theme to dark
     const user = createUser({
       id: "user-123",
-      email: "user@example.com",
+      email: "user@test.com",
       name: "Test User",
     });
     await setAuthenticatedUser(page, {
@@ -321,7 +321,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User authenticates and sets theme to dark
     const user = createUser({
       id: "user-123",
-      email: "user@example.com",
+      email: "user@test.com",
       name: "Test User",
     });
     await setAuthenticatedUser(page, {
@@ -386,7 +386,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User has dark theme preference saved from previous session
     const user = createUser({
       id: "user-123",
-      email: "user@example.com",
+      email: "user@test.com",
       name: "Test User",
     });
     const userThemeKey = `nuvana-theme-${user.id}`;
@@ -420,7 +420,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User has light theme preference saved from previous session
     const user = createUser({
       id: "user-456",
-      email: "user2@example.com",
+      email: "user2@test.com",
       name: "User 2",
     });
     const userThemeKey = `nuvana-theme-${user.id}`;
@@ -454,7 +454,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User has NO theme preference saved
     const user = createUser({
       id: "user-789",
-      email: "newuser@example.com",
+      email: "newuser@test.com",
       name: "New User",
     });
 
@@ -492,12 +492,12 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User A has dark preference, User B has light preference
     const userA = createUser({
       id: "user-a",
-      email: "usera@example.com",
+      email: "usera@test.com",
       name: "User A",
     });
     const userB = createUser({
       id: "user-b",
-      email: "userb@example.com",
+      email: "userb@test.com",
       name: "User B",
     });
     const userAThemeKey = `nuvana-theme-${userA.id}`;
@@ -562,7 +562,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
     // GIVEN: User has existing session and dark theme preference
     const user = createUser({
       id: "user-123",
-      email: "user@example.com",
+      email: "user@test.com",
       name: "Test User",
     });
     const userThemeKey = `nuvana-theme-${user.id}`;

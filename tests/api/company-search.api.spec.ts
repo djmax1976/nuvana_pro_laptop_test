@@ -49,17 +49,17 @@ test.describe("Company Search API - Search by Company Name", () => {
     });
 
     await createCompany(prismaClient, {
-      name: `${searchPrefix}Acme Corporation`,
+      name: `Test ${searchPrefix}Acme Corporation`,
       owner_user_id: owner1.user_id,
       status: "ACTIVE",
     });
     await createCompany(prismaClient, {
-      name: `${searchPrefix}ACME Industries`,
+      name: `Test ${searchPrefix}ACME Industries`,
       owner_user_id: owner2.user_id,
       status: "ACTIVE",
     });
     await createCompany(prismaClient, {
-      name: `${searchPrefix}Beta Corp`,
+      name: `Test ${searchPrefix}Beta Corp`,
       owner_user_id: owner3.user_id,
       status: "ACTIVE",
     });
@@ -168,11 +168,11 @@ test.describe("Company Search API - Search by Owner", () => {
 
     // GIVEN: Companies with different owner emails
     const owner1 = await createUser(prismaClient, {
-      email: `admin@${uniqueEmailDomain}.com`,
+      email: `admin@${uniqueEmailDomain}.test.nuvana.local`,
       name: "Admin User",
     });
     const owner2 = await createUser(prismaClient, {
-      email: `ceo_${testId}@betacorp.com`,
+      email: `ceo_${testId}@test.nuvana.local`,
       name: "CEO User",
     });
 
@@ -197,7 +197,9 @@ test.describe("Company Search API - Search by Owner", () => {
     const body = await response.json();
     expect(body.data).toHaveLength(1);
     expect(body.data[0].company_id).toBe(company1.company_id);
-    expect(body.data[0].owner_email).toContain(`@${uniqueEmailDomain}.com`);
+    expect(body.data[0].owner_email).toContain(
+      `@${uniqueEmailDomain}.test.nuvana.local`,
+    );
   });
 
   test("should search across company name, owner name, and owner email simultaneously", async ({
@@ -209,35 +211,35 @@ test.describe("Company Search API - Search by Owner", () => {
 
     // GIVEN: Companies where the searchTerm appears in different fields
     const owner1 = await createUser(prismaClient, {
-      email: `admin_${testId}@company.com`,
+      email: `admin_${testId}@test.nuvana.local`,
       name: `${searchTerm} Expert`, // searchTerm in name
     });
     const owner2 = await createUser(prismaClient, {
-      email: `${searchTerm}guru@company.com`, // searchTerm in email
+      email: `${searchTerm}guru@test.nuvana.local`, // searchTerm in email
       name: "Regular User",
     });
     const owner3 = await createUser(prismaClient, {
-      email: `admin2_${testId}@other.com`,
+      email: `admin2_${testId}@test.nuvana.local`,
       name: "Other User",
     });
 
     const company1 = await createCompany(prismaClient, {
-      name: `${searchTerm} Solutions Inc`, // searchTerm in company name
+      name: `Test ${searchTerm} Solutions Inc`, // searchTerm in company name
       owner_user_id: owner1.user_id,
       status: "ACTIVE",
     });
     const company2 = await createCompany(prismaClient, {
-      name: `Business Corp ${testId}`, // owner1 also owns this - searchTerm in owner name
+      name: `Test Business Corp ${testId}`, // owner1 also owns this - searchTerm in owner name
       owner_user_id: owner1.user_id,
       status: "ACTIVE",
     });
     const company3 = await createCompany(prismaClient, {
-      name: `Consulting LLC ${testId}`, // searchTerm in owner email
+      name: `Test Consulting LLC ${testId}`, // searchTerm in owner email
       owner_user_id: owner2.user_id,
       status: "ACTIVE",
     });
     const company4 = await createCompany(prismaClient, {
-      name: `Services Inc ${testId}`, // No searchTerm anywhere
+      name: `Test Services Inc ${testId}`, // No searchTerm anywhere
       owner_user_id: owner3.user_id,
       status: "ACTIVE",
     });
@@ -275,7 +277,7 @@ test.describe("Company Search API - Minimum Length", () => {
       name: "Owner",
     });
     await createCompany(prismaClient, {
-      name: `Acme Corp ${testId}`,
+      name: `Test Acme Corp ${testId}`,
       owner_user_id: owner.user_id,
       status: "ACTIVE",
     });
@@ -330,7 +332,7 @@ test.describe("Company Search API - Minimum Length", () => {
       name: "Owner",
     });
     await createCompany(prismaClient, {
-      name: `Acme Corp ${testId}`,
+      name: `Test Acme Corp ${testId}`,
       owner_user_id: owner.user_id,
       status: "ACTIVE",
     });

@@ -693,7 +693,7 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     const createResponse = await regularUserApiRequest.post(
       "/api/client/employees",
       {
-        email: "test@example.com",
+        email: "test@test.com",
         name: "Test",
         store_id: "00000000-0000-0000-0000-000000000000",
         role_id: "00000000-0000-0000-0000-000000000000",
@@ -726,7 +726,7 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     // GIVEN: I am NOT authenticated (no token)
     // WHEN: Attempting to access employee endpoints without authentication
     const createResponse = await apiRequest.post("/api/client/employees", {
-      email: "test@example.com",
+      email: "test@test.com",
       name: "Test",
       store_id: "00000000-0000-0000-0000-000000000000",
       role_id: "00000000-0000-0000-0000-000000000000",

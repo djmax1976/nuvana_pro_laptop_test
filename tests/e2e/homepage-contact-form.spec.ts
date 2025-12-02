@@ -18,7 +18,7 @@ test.describe("E2E-003: Homepage Contact Form", () => {
 
     // WHEN: User fills out form with valid data and submits
     await page.locator('input[name="name"]').fill("John Doe");
-    await page.locator('input[name="email"]').fill("john.doe@example.com");
+    await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page
       .locator('textarea[name="message"]')
       .fill("I'm interested in learning more about Nuvana Pro.");
@@ -99,7 +99,7 @@ test.describe("E2E-003: Homepage Contact Form", () => {
       .click();
 
     await page.locator('input[name="name"]').fill("John Doe");
-    await page.locator('input[name="email"]').fill("john.doe@example.com");
+    await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page.locator('textarea[name="message"]').fill("Test message");
 
     // WHEN: User submits form
@@ -132,7 +132,7 @@ test.describe("E2E-003: Homepage Contact Form", () => {
       .click();
 
     await page.locator('input[name="name"]').fill("John Doe");
-    await page.locator('input[name="email"]').fill("john.doe@example.com");
+    await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page.locator('textarea[name="message"]').fill("Test message");
 
     await page.route("**/api/contact", async (route) => {
@@ -167,7 +167,7 @@ test.describe("E2E-003: Homepage Contact Form", () => {
       .click();
 
     await page.locator('input[name="name"]').fill("John Doe");
-    await page.locator('input[name="email"]').fill("john.doe@example.com");
+    await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page.locator('textarea[name="message"]').fill("Test message");
 
     // WHEN: Form submission fails (server error)

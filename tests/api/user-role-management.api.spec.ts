@@ -138,7 +138,7 @@ test.describe("2.8-API: User Management API - User CRUD Operations", () => {
     // GIVEN: I am authenticated as a System Admin with missing name
     // WHEN: Creating a user without name
     const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "test@example.com",
+      email: "test@test.com",
       // name is missing
     });
 
@@ -871,7 +871,7 @@ test.describe("2.8-API: User Management API - Permission Enforcement", () => {
     const createResponse = await storeManagerApiRequest.post(
       "/api/admin/users",
       {
-        email: "test@example.com",
+        email: "test@test.com",
         name: "Test User",
       },
     );
@@ -928,7 +928,7 @@ test.describe("2.8-API: User Management API - Permission Enforcement", () => {
       `${backendUrl}/api/admin/users/${user.user_id}`,
     );
     const createResponse = await request.post(`${backendUrl}/api/admin/users`, {
-      data: { email: "test@example.com", name: "Test" },
+      data: { email: "test@test.com", name: "Test" },
     });
 
     // THEN: All return 401 Unauthorized
@@ -944,7 +944,7 @@ test.describe("2.8-API: User Management API - Security", () => {
   }) => {
     // WHEN: Attempting SQL injection
     const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "test@example.com",
+      email: "test@test.com",
       name: "'; DROP TABLE users;--",
     });
 
@@ -962,7 +962,7 @@ test.describe("2.8-API: User Management API - Security", () => {
   }) => {
     // WHEN: Attempting XSS injection
     const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "test@example.com",
+      email: "test@test.com",
       name: "<script>alert('xss')</script>",
     });
 

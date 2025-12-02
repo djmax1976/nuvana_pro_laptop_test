@@ -428,7 +428,7 @@ test.describe("Admin User Management E2E", () => {
 
     await page
       .locator('input[data-testid="user-email-input"]')
-      .fill("test@example.com");
+      .fill("test@test.com");
     await page
       .locator('input[data-testid="user-name-input"]')
       .fill("Test User");
@@ -448,7 +448,7 @@ test.describe("Admin User Management E2E", () => {
 
     await page
       .locator('input[data-testid="user-email-input"]')
-      .fill("test@example.com");
+      .fill("test@test.com");
     await page
       .locator('input[data-testid="user-name-input"]')
       .fill("Test User");
@@ -470,7 +470,7 @@ test.describe("Admin User Management E2E", () => {
 
     await page
       .locator('input[data-testid="user-email-input"]')
-      .fill("test@example.com");
+      .fill("test@test.com");
     await page
       .locator('input[data-testid="user-name-input"]')
       .fill("Test User");
