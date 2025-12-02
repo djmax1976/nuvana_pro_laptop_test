@@ -1920,48 +1920,11 @@ export const test = base.extend<RBACFixture>({
   },
 
   superadminPage: async ({ page, superadminUser }, use) => {
-    // Setup: Set localStorage auth session (AuthContext reads from localStorage)
-    // Format must match what AuthContext expects: { authenticated: true, user: {...} }
-    await page.addInitScript(
-      (userData: any) => {
-        localStorage.setItem(
-          "auth_session",
-          JSON.stringify({
-            authenticated: true,
-            user: {
-              id: userData.user_id,
-              email: userData.email,
-              name: userData.name,
-            },
-            isClientUser: false,
-          }),
-        );
-      },
-      {
-        user_id: superadminUser.user_id,
-        email: superadminUser.email,
-        name: superadminUser.name,
-      },
-    );
+    // Setup: Use real authentication with JWT cookie
+    // This is proper E2E testing - no mocking of auth endpoints
+    // The cookie contains a valid JWT that the backend will verify
 
-    // Intercept auth check endpoint
-    await page.route("**/api/auth/me*", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          user: {
-            id: superadminUser.user_id,
-            email: superadminUser.email,
-            name: superadminUser.name,
-            roles: superadminUser.roles,
-            permissions: superadminUser.permissions,
-          },
-        }),
-      });
-    });
-
-    // Add authentication cookie
+    // Add authentication cookie (real JWT token)
     await page.context().addCookies([
       {
         name: "access_token",
@@ -1971,7 +1934,8 @@ export const test = base.extend<RBACFixture>({
       },
     ]);
 
-    // Navigate to dashboard
+    // Navigate to dashboard - the real /api/auth/me endpoint will be called
+    // and will validate the JWT cookie, returning user data
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
     );
@@ -2109,48 +2073,10 @@ export const test = base.extend<RBACFixture>({
   },
 
   cashierPage: async ({ page, cashierUser }, use) => {
-    // Setup: Set localStorage auth session (AuthContext reads from localStorage)
-    // Format must match what AuthContext expects: { authenticated: true, user: {...} }
-    await page.addInitScript(
-      (userData: any) => {
-        localStorage.setItem(
-          "auth_session",
-          JSON.stringify({
-            authenticated: true,
-            user: {
-              id: userData.user_id,
-              email: userData.email,
-              name: userData.name,
-            },
-            isClientUser: true,
-          }),
-        );
-      },
-      {
-        user_id: cashierUser.user_id,
-        email: cashierUser.email,
-        name: cashierUser.name,
-      },
-    );
+    // Setup: Use real authentication with JWT cookie
+    // This is proper E2E testing - no mocking of auth endpoints
 
-    // Intercept auth check endpoint
-    await page.route("**/api/auth/me*", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          user: {
-            id: cashierUser.user_id,
-            email: cashierUser.email,
-            name: cashierUser.name,
-            roles: cashierUser.roles,
-            permissions: cashierUser.permissions,
-          },
-        }),
-      });
-    });
-
-    // Add authentication cookie
+    // Add authentication cookie (real JWT token)
     await page.context().addCookies([
       {
         name: "access_token",
@@ -2160,7 +2086,7 @@ export const test = base.extend<RBACFixture>({
       },
     ]);
 
-    // Navigate to dashboard
+    // Navigate to dashboard - the real /api/auth/me endpoint will be called
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
     );
@@ -2176,48 +2102,10 @@ export const test = base.extend<RBACFixture>({
   },
 
   storeManagerPage: async ({ page, storeManagerUser }, use) => {
-    // Setup: Set localStorage auth session (AuthContext reads from localStorage)
-    // Format must match what AuthContext expects: { authenticated: true, user: {...} }
-    await page.addInitScript(
-      (userData: any) => {
-        localStorage.setItem(
-          "auth_session",
-          JSON.stringify({
-            authenticated: true,
-            user: {
-              id: userData.user_id,
-              email: userData.email,
-              name: userData.name,
-            },
-            isClientUser: false,
-          }),
-        );
-      },
-      {
-        user_id: storeManagerUser.user_id,
-        email: storeManagerUser.email,
-        name: storeManagerUser.name,
-      },
-    );
+    // Setup: Use real authentication with JWT cookie
+    // This is proper E2E testing - no mocking of auth endpoints
 
-    // Intercept auth check endpoint
-    await page.route("**/api/auth/me*", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          user: {
-            id: storeManagerUser.user_id,
-            email: storeManagerUser.email,
-            name: storeManagerUser.name,
-            roles: storeManagerUser.roles,
-            permissions: storeManagerUser.permissions,
-          },
-        }),
-      });
-    });
-
-    // Add authentication cookie
+    // Add authentication cookie (real JWT token)
     await page.context().addCookies([
       {
         name: "access_token",
@@ -2227,7 +2115,7 @@ export const test = base.extend<RBACFixture>({
       },
     ]);
 
-    // Navigate to dashboard
+    // Navigate to dashboard - the real /api/auth/me endpoint will be called
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
     );
