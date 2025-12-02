@@ -38,14 +38,77 @@ const PORT = parseInt(
 );
 const SERVER_START_TIME = Date.now();
 
-// Create Fastify instance with ajv-formats for UUID validation
 // SECURITY: Configure body size limit to prevent DoS attacks via oversized payloads
-// Default: 1MB (1048576 bytes) - configurable via MAX_REQUEST_BODY_SIZE_MB env var
-const maxRequestBodySizeMB = parseInt(
-  process.env.MAX_REQUEST_BODY_SIZE_MB || "1",
+// The bodyLimit must be >= max upload file size + multipart encoding overhead
+// to prevent Fastify from rejecting multipart uploads before the multipart plugin
+// can process them and apply fileSize validation.
+//
+// Configuration:
+// - MAX_UPLOAD_FILE_SIZE_MB: Maximum file size for uploads (default: 10MB)
+// - MULTIPART_OVERHEAD_MB: Overhead for multipart encoding (boundaries, headers, etc.) (default: 2MB)
+// - MAX_REQUEST_BODY_SIZE_MB: Minimum body limit for non-upload routes (default: 1MB)
+//   If MAX_UPLOAD_FILE_SIZE_MB is set, bodyLimit = max(maxUploadSize + overhead, MAX_REQUEST_BODY_SIZE_MB)
+//   Otherwise, bodyLimit = MAX_REQUEST_BODY_SIZE_MB
+//
+// This ensures:
+// 1. Multipart uploads aren't preemptively rejected by bodyLimit
+// 2. Non-upload routes still have a conservative limit
+// 3. Configuration is environment-driven and documented
+
+// Read max upload file size (used for multipart fileSize limit)
+const maxFileSizeMB = parseInt(process.env.MAX_UPLOAD_FILE_SIZE_MB || "10", 10);
+
+// Read multipart overhead (boundaries, headers, field names, etc.)
+const multipartOverheadMB = parseInt(
+  process.env.MULTIPART_OVERHEAD_MB || "2",
   10,
 );
+
+// Read minimum body limit for non-upload routes
+const MIN_REQUEST_BODY_SIZE_MB = 1;
+const MAX_REQUEST_BODY_SIZE_MB = 500; // Increased max to accommodate large uploads
+const DEFAULT_REQUEST_BODY_SIZE_MB = 1;
+
+const rawMinRequestBodySizeMB =
+  process.env.MAX_REQUEST_BODY_SIZE_MB || String(DEFAULT_REQUEST_BODY_SIZE_MB);
+let minRequestBodySizeMB = parseInt(rawMinRequestBodySizeMB, 10);
+
+// Validate and clamp the minimum body size
+if (
+  isNaN(minRequestBodySizeMB) ||
+  minRequestBodySizeMB < MIN_REQUEST_BODY_SIZE_MB
+) {
+  if (isNaN(minRequestBodySizeMB)) {
+    console.warn(
+      `Invalid MAX_REQUEST_BODY_SIZE_MB value "${rawMinRequestBodySizeMB}" (not a number). Using default: ${DEFAULT_REQUEST_BODY_SIZE_MB}MB`,
+    );
+  } else {
+    console.warn(
+      `MAX_REQUEST_BODY_SIZE_MB value ${minRequestBodySizeMB}MB is below minimum ${MIN_REQUEST_BODY_SIZE_MB}MB. Using minimum: ${MIN_REQUEST_BODY_SIZE_MB}MB`,
+    );
+  }
+  minRequestBodySizeMB = MIN_REQUEST_BODY_SIZE_MB;
+} else if (minRequestBodySizeMB > MAX_REQUEST_BODY_SIZE_MB) {
+  console.warn(
+    `MAX_REQUEST_BODY_SIZE_MB value ${minRequestBodySizeMB}MB exceeds maximum ${MAX_REQUEST_BODY_SIZE_MB}MB. Clamping to maximum: ${MAX_REQUEST_BODY_SIZE_MB}MB`,
+  );
+  minRequestBodySizeMB = MAX_REQUEST_BODY_SIZE_MB;
+}
+
+// Calculate bodyLimit: max upload size + overhead, but at least the minimum for non-upload routes
+const calculatedBodyLimitMB = maxFileSizeMB + multipartOverheadMB;
+const maxRequestBodySizeMB = Math.max(
+  calculatedBodyLimitMB,
+  minRequestBodySizeMB,
+);
 const maxRequestBodySizeBytes = maxRequestBodySizeMB * 1024 * 1024;
+
+// Log the configuration for debugging
+console.log(
+  `Body limit configuration: maxUploadSize=${maxFileSizeMB}MB, overhead=${multipartOverheadMB}MB, minBodyLimit=${minRequestBodySizeMB}MB, finalBodyLimit=${maxRequestBodySizeMB}MB`,
+);
+
+// Create Fastify instance with ajv-formats for UUID validation
 
 const app = Fastify({
   logger: true,
@@ -177,13 +240,13 @@ app.register(cookie, {
 // Register multipart form data parser (required for file uploads)
 // SECURITY: File upload configuration
 // - File size limit: Configurable via MAX_UPLOAD_FILE_SIZE_MB env var (default: 10MB)
+// - Note: bodyLimit (configured above) is automatically set to accommodate max upload size + overhead
 // - Route handlers MUST:
 //   1. Enforce file-type whitelists (check both MIME type and file signature/magic bytes)
 //   2. Use streaming (file.file or file.stream) - NEVER use toBuffer() for large files
 //   3. Validate content-type header matches actual file content (prevent MIME spoofing)
 //   4. Implement per-user upload quota checks before accepting uploads
 //   5. Reject any buffered-toBuffer() usage patterns for files > 1MB
-const maxFileSizeMB = parseInt(process.env.MAX_UPLOAD_FILE_SIZE_MB || "10", 10);
 const maxFileSizeBytes = maxFileSizeMB * 1024 * 1024;
 
 app.register(multipart, {

@@ -93,7 +93,6 @@ test.describe("E2E-003: Homepage Contact Form", () => {
   }) => {
     // GIVEN: User is on homepage contact form with valid data
     await page.goto("/", { waitUntil: "networkidle" });
-    await page.waitForLoadState("networkidle");
 
     const getStartedButton = page
       .getByRole("button", { name: /Get Started/i })
@@ -121,18 +120,10 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     // Click and immediately check for disabled state
     await submitButton.click();
 
-    // Wait a bit for the form to process the click
-    await page.waitForTimeout(100);
-
-    // THEN: Button shows "Sending..." text and is disabled
-    // Check for either "Sending..." text OR button being disabled
-    // (The form might handle this differently)
-    const sendingText = page.getByText(/Sending.../i);
-    const hasSendingText = await sendingText.isVisible().catch(() => false);
-    const isDisabled = await submitButton.isDisabled().catch(() => false);
-
-    // At least one of these should be true
-    expect(hasSendingText || isDisabled).toBeTruthy();
+    // THEN: Button shows "Sending..." text AND is disabled
+    // The form implementation sets both: button text changes to "Sending..." and button is disabled
+    await expect(page.getByText(/Sending.../i)).toBeVisible();
+    await expect(submitButton).toBeDisabled();
   });
 
   test("[P2] should clear form fields after successful submission", async ({

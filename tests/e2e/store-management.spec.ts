@@ -140,14 +140,31 @@ test.describe("Store Management E2E", () => {
   });
 
   test("[P0] Should load stores list page", async ({ page }) => {
+    // WHEN: Navigating to stores page
     await page.goto("http://localhost:3000/stores", {
       waitUntil: "networkidle",
     });
     await page.waitForLoadState("networkidle");
-    await expect(page).toHaveURL(/\/stores$/, { timeout: 10000 });
-    await expect(
-      page.locator("h1, h2").filter({ hasText: /stores/i }),
-    ).toBeVisible({ timeout: 10000 });
+
+    // THEN: Should be on stores URL
+    await expect(page).toHaveURL(/\/stores$/, { timeout: 15000 });
+
+    // THEN: Page heading should be visible
+    const heading = page.locator("h1, h2").filter({ hasText: /stores/i });
+    await expect(heading).toBeVisible({ timeout: 15000 });
+
+    // THEN: Either table OR empty state should be visible (exactly one)
+    const table = page.locator("table");
+    const emptyState = page.locator("text=No stores found");
+
+    // Wait for at least one to appear
+    await expect(table.or(emptyState)).toBeVisible({ timeout: 15000 });
+
+    // Verify exactly one is visible (not both, not neither)
+    const isTableVisible = await table.isVisible().catch(() => false);
+    const isEmptyVisible = await emptyState.isVisible().catch(() => false);
+    expect(isTableVisible || isEmptyVisible).toBe(true);
+    expect(isTableVisible && isEmptyVisible).toBe(false);
   });
 
   test("[P0] Should navigate to store detail page from stores list", async ({
@@ -164,27 +181,13 @@ test.describe("Store Management E2E", () => {
     // Click the store row
     await storeRow.click();
 
-    // Wait for navigation - the row might be clickable or might have a link inside
-    // Try waiting for either the detail page URL or check if we're still on stores page
-    try {
-      // eslint-disable-next-line security/detect-non-literal-regexp
-      await page.waitForURL(new RegExp(`/stores/${testStore.store_id}`), {
-        timeout: 15000,
-      });
-      // eslint-disable-next-line security/detect-non-literal-regexp
-      await expect(page).toHaveURL(new RegExp(`/stores/${testStore.store_id}`));
-    } catch {
-      // If navigation didn't happen, the row might not be clickable
-      // Check if we're still on stores page (row might not be clickable)
-      const currentUrl = page.url();
-      if (currentUrl.includes("/stores")) {
-        // Row might not be clickable - this is acceptable if the feature isn't implemented
-        // Just verify we're still on the stores page
-        expect(currentUrl).toContain("/stores");
-      } else {
-        throw new Error("Unexpected navigation occurred");
-      }
-    }
+    // Wait for navigation to store detail page - P0 navigation path must succeed
+    // eslint-disable-next-line security/detect-non-literal-regexp
+    await page.waitForURL(new RegExp(`/stores/${testStore.store_id}`), {
+      timeout: 15000,
+    });
+    // eslint-disable-next-line security/detect-non-literal-regexp
+    await expect(page).toHaveURL(new RegExp(`/stores/${testStore.store_id}`));
   });
 
   test("[P0] Should successfully edit store name and status", async ({
