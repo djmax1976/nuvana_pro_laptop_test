@@ -114,11 +114,15 @@ test.describe("Store Management E2E", () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    // Login
+    // Login - use domcontentloaded for better CI reliability
     await page.goto("http://localhost:3000/login", {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
     });
-    await page.fill('input[type="email"]', "store-e2e@test.com");
+    // Wait for login form to be ready
+    await page.waitForLoadState("load");
+    const emailInput = page.locator('input[type="email"]');
+    await emailInput.waitFor({ state: "visible", timeout: 15000 });
+    await emailInput.fill("store-e2e@test.com");
     await page.fill('input[type="password"]', "TestPassword123!");
     await page.click('button[type="submit"]');
     await page.waitForURL("**/dashboard", { timeout: 30000 });
@@ -140,11 +144,11 @@ test.describe("Store Management E2E", () => {
   });
 
   test("[P0] Should load stores list page", async ({ page }) => {
-    // WHEN: Navigating to stores page
+    // WHEN: Navigating to stores page - use domcontentloaded for CI reliability
     await page.goto("http://localhost:3000/stores", {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
     });
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     // THEN: Should be on stores URL
     await expect(page).toHaveURL(/\/stores$/, { timeout: 15000 });
@@ -171,9 +175,9 @@ test.describe("Store Management E2E", () => {
     page,
   }) => {
     await page.goto("http://localhost:3000/stores", {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
     });
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     const storeRow = page.locator(`tr:has-text("${testStore.name}")`).first();
     await expect(storeRow).toBeVisible({ timeout: 10000 });
@@ -197,7 +201,7 @@ test.describe("Store Management E2E", () => {
     page,
   }) => {
     await page.goto(`http://localhost:3000/stores/${testStore.store_id}/edit`);
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     const newName = `Updated Store ${Date.now()}`;
     // Use accessible selectors - the label is "Store Name"
@@ -231,7 +235,7 @@ test.describe("Store Management E2E", () => {
 
   test("[P0] Should successfully edit store location", async ({ page }) => {
     await page.goto(`http://localhost:3000/stores/${testStore.store_id}/edit`);
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     // Use accessible selector for Address textarea
     const addressInput = page.getByLabel("Address");
@@ -259,7 +263,7 @@ test.describe("Store Management E2E", () => {
 
   test("[P0] Should successfully change store timezone", async ({ page }) => {
     await page.goto(`http://localhost:3000/stores/${testStore.store_id}/edit`);
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     // Timezone is an Input field, not a Select
     const timezoneInput = page.getByLabel("Timezone");
@@ -288,7 +292,7 @@ test.describe("Store Management E2E", () => {
     await page.goto(
       `http://localhost:3000/stores/new?companyId=${testCompany.company_id}`,
     );
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     const newStoreName = `New E2E Store ${Date.now()}`;
     const nameInput = page.getByLabel("Store Name");
@@ -322,7 +326,7 @@ test.describe("Store Management E2E", () => {
     await page.goto(
       `http://localhost:3000/stores/${testStore.store_id}/configuration`,
     );
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     // Wait for page to load
     const heading = page.getByRole("heading", { name: "Store Configuration" });
@@ -371,7 +375,7 @@ test.describe("Store Management E2E", () => {
     page,
   }) => {
     await page.goto(`http://localhost:3000/stores/${testStore.store_id}/edit`);
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     const nameInput = page.getByLabel("Store Name");
     await expect(nameInput).toBeVisible({ timeout: 10000 });
@@ -389,7 +393,7 @@ test.describe("Store Management E2E", () => {
     page,
   }) => {
     await page.goto(`http://localhost:3000/stores/${testStore.store_id}/edit`);
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     // Timezone is an Input field, fill it with invalid value
     const timezoneInput = page.getByLabel("Timezone");
@@ -412,7 +416,7 @@ test.describe("Store Management E2E", () => {
     });
 
     await page.goto("http://localhost:3000/stores");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     // Find the row for our test store
     const storeRow = page.locator(`tr:has-text("${testStore.name}")`).first();
@@ -436,7 +440,7 @@ test.describe("Store Management E2E", () => {
     });
 
     await page.goto("http://localhost:3000/stores");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     // Find the row for our test store
     const storeRow = page
@@ -477,7 +481,7 @@ test.describe("Store Management E2E", () => {
   test("[P1] Should display properly on mobile screens", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto(`http://localhost:3000/stores/${testStore.store_id}/edit`);
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     // Verify the edit page renders correctly on mobile
     const heading = page.getByRole("heading", { name: "Edit Store" });
@@ -498,7 +502,7 @@ test.describe("Store Management E2E", () => {
     await page.goto(
       `http://localhost:3000/stores/${testStore.store_id}/configuration`,
     );
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("load");
 
     // Verify the configuration page renders correctly on mobile
     const heading = page.getByRole("heading", { name: "Store Configuration" });
@@ -559,7 +563,7 @@ test.describe("Store Management E2E", () => {
 
     try {
       await page.goto("http://localhost:3000/stores");
-      await page.waitForLoadState("networkidle");
+      await page.waitForLoadState("load");
 
       // Wait for table to be visible and have data
       const tableBody = page.locator("tbody");

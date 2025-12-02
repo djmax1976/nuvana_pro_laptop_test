@@ -123,8 +123,8 @@ test.describe("E2E-002: Homepage - Marketing Page", () => {
     page,
   }) => {
     // GIVEN: User navigates to homepage
-    await page.goto("/", { waitUntil: "networkidle" });
-    await page.waitForLoadState("networkidle");
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("load");
 
     // WHEN: User scrolls to benefits section
     // THEN: Key statistics are displayed
@@ -147,8 +147,8 @@ test.describe("E2E-002: Homepage - Marketing Page", () => {
     page,
   }) => {
     // GIVEN: User is on homepage
-    await page.goto("/", { waitUntil: "networkidle" });
-    await page.waitForLoadState("networkidle");
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("load");
 
     // WHEN: User clicks "View Dashboard" button
     const dashboardLink = page

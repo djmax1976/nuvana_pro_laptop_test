@@ -68,8 +68,10 @@ async function assignStoreManagerToStore(
  * Helper function to navigate to shifts page and wait for it to load
  */
 async function navigateToShiftsPage(page: any) {
-  await page.goto("/client-dashboard/shifts", { waitUntil: "networkidle" });
-  await page.waitForLoadState("networkidle");
+  await page.goto("/client-dashboard/shifts", {
+    waitUntil: "domcontentloaded",
+  });
+  await page.waitForLoadState("load");
 
   // Wait for the shifts page container
   await page.waitForSelector('[data-testid="client-shifts-page"]', {
@@ -330,7 +332,7 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     await applyButton.click();
 
     // Wait for filters to be applied and list to update
-    await storeManagerPage.waitForLoadState("networkidle");
+    await storeManagerPage.waitForLoadState("load");
     await storeManagerPage.waitForTimeout(500);
 
     // THEN: Filter should be applied (status filter should show Open)
@@ -382,7 +384,9 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     // (Using page fixture without authentication)
 
     // WHEN: Attempting to navigate to shifts page
-    await page.goto("/client-dashboard/shifts", { waitUntil: "networkidle" });
+    await page.goto("/client-dashboard/shifts", {
+      waitUntil: "domcontentloaded",
+    });
 
     // THEN: Should redirect to login or show unauthorized
     // Wait for client-side redirect to complete (React hydration + auth check + redirect)

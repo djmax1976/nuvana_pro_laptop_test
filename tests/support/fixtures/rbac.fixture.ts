@@ -1963,14 +1963,16 @@ export const test = base.extend<RBACFixture>({
     }, superadminUser);
 
     // Navigate to dashboard - AuthContext will use the localStorage session
+    // Use domcontentloaded instead of networkidle for better CI reliability
+    // networkidle can timeout in resource-constrained CI environments
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
-      { waitUntil: "networkidle" },
+      { waitUntil: "domcontentloaded" },
     );
 
-    // Wait for the dashboard to load (check for a dashboard element)
-    // This ensures the page has fully rendered
-    await page.waitForLoadState("networkidle");
+    // Wait for the page to be ready by checking for a dashboard-specific element
+    // This is more reliable than networkidle in CI environments
+    await page.waitForLoadState("load");
 
     await use(page);
 
@@ -2135,13 +2137,14 @@ export const test = base.extend<RBACFixture>({
     }, cashierUser);
 
     // Navigate to dashboard - AuthContext will use the localStorage session
+    // Use domcontentloaded instead of networkidle for better CI reliability
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
-      { waitUntil: "networkidle" },
+      { waitUntil: "domcontentloaded" },
     );
 
-    // Wait for the dashboard to load
-    await page.waitForLoadState("networkidle");
+    // Wait for the page to be ready
+    await page.waitForLoadState("load");
 
     await use(page);
 
@@ -2184,13 +2187,14 @@ export const test = base.extend<RBACFixture>({
     }, storeManagerUser);
 
     // Navigate to dashboard - AuthContext will use the localStorage session
+    // Use domcontentloaded instead of networkidle for better CI reliability
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
-      { waitUntil: "networkidle" },
+      { waitUntil: "domcontentloaded" },
     );
 
-    // Wait for the dashboard to load
-    await page.waitForLoadState("networkidle");
+    // Wait for the page to be ready
+    await page.waitForLoadState("load");
 
     await use(page);
 

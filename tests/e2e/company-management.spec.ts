@@ -46,7 +46,7 @@ test.describe("2.4-E2E: Company List - Display and Owner Information", () => {
     });
 
     // WHEN: Navigating to the company list page
-    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
     // THEN: Page should load successfully
     await expect(
@@ -99,7 +99,7 @@ test.describe("2.4-E2E: Company List - Display and Owner Information", () => {
     });
 
     // WHEN: Navigating to the company list page
-    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
     // THEN: Company list container should be visible
     await expect(
@@ -138,7 +138,7 @@ test.describe("2.4-E2E: Company List - Display and Owner Information", () => {
     });
 
     // WHEN: Navigating to the company list page
-    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
     // THEN: Company list container should be visible
     await expect(
@@ -165,7 +165,7 @@ test.describe("2.4-E2E: Company List - Empty State", () => {
   }) => {
     // GIVEN: Navigating to company list (may or may not have companies)
     // WHEN: Navigating to the company list page
-    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
     // THEN: Company list container should always be visible
     await expect(
@@ -212,7 +212,7 @@ test.describe("2.4-E2E: Company Editing", () => {
     });
 
     // WHEN: Navigating to the company list and clicking edit
-    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
     // THEN: Company list should be visible
     await expect(
@@ -266,7 +266,7 @@ test.describe("2.4-E2E: Company Editing", () => {
     });
 
     // WHEN: Opening the edit modal
-    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
     // THEN: Company list should be visible
     await expect(
@@ -318,7 +318,7 @@ test.describe("2.4-E2E: Company Status Management", () => {
     });
 
     // WHEN: Navigating to company list
-    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
     // THEN: Company list should be visible
     await expect(
@@ -382,7 +382,7 @@ test.describe("2.4-E2E: Company Status Management", () => {
     });
 
     // WHEN: Viewing the company list
-    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
     // THEN: Company list should be visible
     await expect(
@@ -423,7 +423,7 @@ test.describe("2.4-E2E: Company Status Management", () => {
     });
 
     // WHEN: Navigating to company list
-    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
     // THEN: Company list should be visible
     await expect(
@@ -519,7 +519,7 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
     });
 
     // WHEN: Navigating to the company list page
-    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
     // THEN: Company list should be visible
     await expect(
@@ -625,7 +625,7 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
 
       // WHEN: Clicking to sort ascending
       await header.click();
-      await superadminPage.waitForLoadState("networkidle");
+      await superadminPage.waitForLoadState("load");
       await superadminPage.waitForTimeout(500);
 
       // THEN: Values should be sorted ascending
@@ -644,7 +644,7 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
 
       // WHEN: Clicking again to sort descending
       await header.click();
-      await superadminPage.waitForLoadState("networkidle");
+      await superadminPage.waitForLoadState("load");
       await superadminPage.waitForTimeout(500);
 
       // THEN: Values should be sorted descending
@@ -664,7 +664,7 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
 
       // WHEN: Clicking again to clear sort (return to default)
       await header.click();
-      await superadminPage.waitForLoadState("networkidle");
+      await superadminPage.waitForLoadState("load");
       await superadminPage.waitForTimeout(500);
 
       // THEN: Order should return to initial/default
@@ -704,7 +704,7 @@ test.describe("2.4-E2E: Company List - Stores Relationship", () => {
     });
 
     // WHEN: Navigating to the company list
-    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
     // THEN: Company list should be visible
     await expect(
