@@ -75,12 +75,12 @@ test.describe("Company Search API - Search by Company Name", () => {
     expect(body.data).toHaveLength(2);
     expect(body.data.map((c: any) => c.name)).toEqual(
       expect.arrayContaining([
-        `${searchPrefix}Acme Corporation`,
-        `${searchPrefix}ACME Industries`,
+        `Test ${searchPrefix}Acme Corporation`,
+        `Test ${searchPrefix}ACME Industries`,
       ]),
     );
     expect(body.data.map((c: any) => c.name)).not.toContain(
-      `${searchPrefix}Beta Corp`,
+      `Test ${searchPrefix}Beta Corp`,
     );
   });
 

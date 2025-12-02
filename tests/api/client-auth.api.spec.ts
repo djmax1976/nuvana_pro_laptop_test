@@ -297,13 +297,13 @@ test.describe("2.9-API: Client Authentication - POST /api/auth/client-login", ()
     });
 
     try {
-      // WHEN: Login with uppercase email
+      // WHEN: Login with uppercase email (same domain, different case)
       const response = await apiRequest.post("/api/auth/client-login", {
-        email: "CLIENTUSER@EXAMPLE.COM",
+        email: "CLIENTUSER@TEST.COM",
         password: password,
       });
 
-      // THEN: Login succeeds (email normalized)
+      // THEN: Login succeeds (email normalized to lowercase)
       expect(response.status()).toBe(200);
 
       const body = await response.json();

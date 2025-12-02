@@ -179,9 +179,9 @@ test.describe("Local Authentication API", () => {
       });
 
       try {
-        // Login with uppercase email
+        // Login with uppercase email (same domain, different case)
         const response = await apiRequest.post("/api/auth/login", {
-          email: "TESTUSER@EXAMPLE.COM",
+          email: "TESTUSER@TEST.COM",
           password: password,
         });
 

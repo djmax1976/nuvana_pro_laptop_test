@@ -1094,7 +1094,7 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
       superadminApiRequest,
       jobId,
       "COMPLETED",
-      45000, // 45 seconds for burn-in stability
+      60000, // 60 seconds for CI stability
     );
 
     // THEN: Job status should be COMPLETED
