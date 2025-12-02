@@ -18,7 +18,7 @@ import { rbacService } from "../services/rbac.service";
 import { ZodError } from "zod";
 import { validateTransactionQuery } from "../schemas/transaction.schema";
 import { v4 as uuidv4 } from "uuid";
-import { prisma } from "../utils/db";
+import { prisma, withRLSContext } from "../utils/db";
 import { promises as fs } from "fs";
 import { join } from "path";
 import { pipeline } from "stream/promises";
@@ -1464,45 +1464,233 @@ async function processBulkImport(
   ipAddress: string | null,
   userAgent: string | null,
 ): Promise<void> {
-  const { parseCsvFile, parseJsonFile } = await import("../utils/file-parser");
-  const { publishToTransactionsQueue } = await import("../utils/rabbitmq");
-  const { transactionService } =
-    await import("../services/transaction.service");
-  const { prisma } = await import("../utils/db");
+  // IMPORTANT: Wrap entire function body with RLS context
+  // This ensures that all database queries (especially getUserRoles in checkStoreAccess)
+  // have the proper RLS context set, since this function runs asynchronously
+  // after the HTTP request has completed.
+  return withRLSContext(userId, async () => {
+    const { parseCsvFile, parseJsonFile } =
+      await import("../utils/file-parser");
+    const { publishToTransactionsQueue } = await import("../utils/rabbitmq");
+    const { transactionService } =
+      await import("../services/transaction.service");
+    const { prisma } = await import("../utils/db");
 
-  try {
-    // Update job status to PROCESSING
-    await transactionService.updateBulkImportJob(jobId, {
-      status: "PROCESSING",
-    });
-
-    // Read file content from disk only when processing starts
-    // This avoids keeping file content in memory during the upload response
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is constructed from controlled tempDir and UUID
-    const fileContent = await fs.readFile(tempFilePath, "utf-8");
-
-    // Parse file
-    const parseResult =
-      fileType === "CSV"
-        ? parseCsvFile(fileContent)
-        : parseJsonFile(fileContent);
-
-    // If file parsing resulted in errors and no transactions, mark as failed
-    // All rows failed to parse, so there are no valid transactions to process
-    if (
-      parseResult.errors.length > 0 &&
-      parseResult.transactions.length === 0
-    ) {
+    try {
+      // Update job status to PROCESSING
       await transactionService.updateBulkImportJob(jobId, {
-        status: "FAILED",
-        total_rows: parseResult.errors.length,
-        error_rows: parseResult.errors.length,
-        error_summary: parseResult.errors,
+        status: "PROCESSING",
+      });
+
+      // Read file content from disk only when processing starts
+      // This avoids keeping file content in memory during the upload response
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is constructed from controlled tempDir and UUID
+      const fileContent = await fs.readFile(tempFilePath, "utf-8");
+
+      // Parse file
+      const parseResult =
+        fileType === "CSV"
+          ? parseCsvFile(fileContent)
+          : parseJsonFile(fileContent);
+
+      // If file parsing resulted in errors and no transactions, mark as failed
+      // All rows failed to parse, so there are no valid transactions to process
+      if (
+        parseResult.errors.length > 0 &&
+        parseResult.transactions.length === 0
+      ) {
+        await transactionService.updateBulkImportJob(jobId, {
+          status: "FAILED",
+          total_rows: parseResult.errors.length,
+          error_rows: parseResult.errors.length,
+          error_summary: parseResult.errors,
+          completed_at: new Date(),
+        });
+
+        // Log parsing failure to AuditLog for compliance and debugging
+        // This ensures all job status transitions to FAILED are audited
+        await prisma.auditLog.create({
+          data: {
+            user_id: userId,
+            action: "UPDATE",
+            table_name: "bulk_import_jobs",
+            record_id: jobId,
+            old_values: { status: "PROCESSING" } as any,
+            new_values: {
+              status: "FAILED",
+              total_rows: parseResult.errors.length,
+              error_rows: parseResult.errors.length,
+            } as any,
+            reason: `Bulk import failed by ${userEmail}: All rows failed to parse. ${parseResult.errors.length} parsing error(s)`,
+            ip_address: ipAddress,
+            user_agent: userAgent,
+          },
+        });
+
+        return;
+      }
+
+      // Update total rows
+      await transactionService.updateBulkImportJob(jobId, {
+        total_rows: parseResult.transactions.length + parseResult.errors.length,
+      });
+
+      // Validate each transaction and collect errors
+      const validationErrors: Array<{
+        row_number: number;
+        field?: string;
+        error: string;
+      }> = [...parseResult.errors];
+
+      const validTransactions: any[] = [];
+
+      for (const [index, transaction] of parseResult.transactions.entries()) {
+        const rowNumber = index + 1;
+
+        try {
+          // Validate transaction payload
+          const validated =
+            transactionService.validateTransactionPayload(transaction);
+
+          // Check store access
+          const hasAccess = await transactionService.checkStoreAccess(
+            userId,
+            validated.store_id,
+          );
+          if (!hasAccess) {
+            validationErrors.push({
+              row_number: rowNumber,
+              field: "store_id",
+              error: "User does not have access to this store",
+            });
+            continue;
+          }
+
+          // Validate shift
+          const shiftValidation = await transactionService.validateShift(
+            validated.shift_id,
+            validated.store_id,
+          );
+          if (!shiftValidation.valid) {
+            validationErrors.push({
+              row_number: rowNumber,
+              field: "shift_id",
+              error: shiftValidation.error?.message || "Invalid shift",
+            });
+            continue;
+          }
+
+          // Validate product_ids exist in product catalog (if provided)
+          // Note: Product model not yet available (Epic 5), so we validate UUID format only
+          // Product existence validation will be added when Product model is available
+          // XSS protection: Validate line item names for dangerous HTML/script content
+          const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+          let hasXssInLineItems = false;
+          for (const lineItem of validated.line_items) {
+            if (lineItem.product_id) {
+              // UUID format is already validated by schema, but we can add additional checks here
+              // when Product model becomes available, we'll check: await prisma.product.findUnique({ where: { product_id: lineItem.product_id } })
+              // For now, product_id format validation is sufficient (handled by schema)
+            }
+            // Check for XSS in line item name
+            if (lineItem.name && xssPattern.test(lineItem.name)) {
+              validationErrors.push({
+                row_number: rowNumber,
+                field: `line_items[${validated.line_items.indexOf(lineItem)}].name`,
+                error: "Invalid name: HTML tags and scripts are not allowed",
+              });
+              hasXssInLineItems = true;
+              break;
+            }
+          }
+          if (hasXssInLineItems) {
+            continue;
+          }
+
+          // Validate payment methods are valid
+          // Payment methods are already validated by schema (PaymentMethodEnum), but we explicitly check here
+          const validPaymentMethods = [
+            "CASH",
+            "CREDIT",
+            "DEBIT",
+            "EBT",
+            "OTHER",
+          ] as const;
+          let hasInvalidPayment = false;
+          for (const payment of validated.payments) {
+            if (!validPaymentMethods.includes(payment.method as any)) {
+              validationErrors.push({
+                row_number: rowNumber,
+                field: `payments[${validated.payments.indexOf(payment)}].method`,
+                error: `Invalid payment method: ${payment.method}. Must be one of: ${validPaymentMethods.join(", ")}`,
+              });
+              hasInvalidPayment = true;
+              break;
+            }
+          }
+          if (hasInvalidPayment) {
+            continue;
+          }
+
+          validTransactions.push(validated);
+        } catch (error: any) {
+          validationErrors.push({
+            row_number: rowNumber,
+            field: "transaction",
+            error: error.message || "Validation failed",
+          });
+        }
+      }
+
+      // Update error summary
+      await transactionService.updateBulkImportJob(jobId, {
+        error_rows: validationErrors.length,
+        error_summary: validationErrors,
+      });
+
+      // Enqueue valid transactions in batches of 100
+      const batchSize = 100;
+      let processedCount = 0;
+
+      for (let i = 0; i < validTransactions.length; i += batchSize) {
+        const batch = validTransactions.slice(i, i + batchSize);
+
+        const enqueuePromises = batch.map((tx) => {
+          const correlationId = uuidv4();
+          const message = {
+            correlation_id: correlationId,
+            timestamp: new Date().toISOString(),
+            source: "BULK_IMPORT" as const,
+            user_id: userId,
+            payload: tx,
+          };
+
+          return publishToTransactionsQueue(message, correlationId);
+        });
+
+        await Promise.all(enqueuePromises);
+        processedCount += batch.length;
+
+        // Update progress
+        await transactionService.updateBulkImportJob(jobId, {
+          processed_rows: processedCount,
+        });
+      }
+
+      // Get final job state
+      const finalJob = await transactionService.getBulkImportJob(
+        jobId,
+        userId,
+        true,
+      );
+
+      // Mark job as completed
+      await transactionService.updateBulkImportJob(jobId, {
+        status: "COMPLETED",
         completed_at: new Date(),
       });
 
-      // Log parsing failure to AuditLog for compliance and debugging
-      // This ensures all job status transitions to FAILED are audited
+      // Log import completion to AuditLog
       await prisma.auditLog.create({
         data: {
           user_id: userId,
@@ -1511,233 +1699,52 @@ async function processBulkImport(
           record_id: jobId,
           old_values: { status: "PROCESSING" } as any,
           new_values: {
-            status: "FAILED",
-            total_rows: parseResult.errors.length,
-            error_rows: parseResult.errors.length,
+            status: "COMPLETED",
+            total_rows: finalJob?.total_rows || 0,
+            processed_rows: finalJob?.processed_rows || 0,
+            error_rows: finalJob?.error_rows || 0,
           } as any,
-          reason: `Bulk import failed by ${userEmail}: All rows failed to parse. ${parseResult.errors.length} parsing error(s)`,
+          reason: `Bulk import completed by ${userEmail} - ${finalJob?.processed_rows || 0} processed, ${finalJob?.error_rows || 0} errors`,
+          ip_address: ipAddress,
+          user_agent: userAgent,
+        },
+      });
+    } catch (error: any) {
+      // Mark job as failed
+      await transactionService.updateBulkImportJob(jobId, {
+        status: "FAILED",
+        completed_at: new Date(),
+      });
+
+      // Log import failure to AuditLog
+      const { prisma: prismaClient } = await import("../utils/db");
+      await prismaClient.auditLog.create({
+        data: {
+          user_id: userId,
+          action: "UPDATE",
+          table_name: "bulk_import_jobs",
+          record_id: jobId,
+          old_values: { status: "PROCESSING" } as any,
+          new_values: { status: "FAILED" } as any,
+          reason: `Bulk import failed by ${userEmail}: ${error.message || "Unknown error"}`,
           ip_address: ipAddress,
           user_agent: userAgent,
         },
       });
 
-      return;
-    }
-
-    // Update total rows
-    await transactionService.updateBulkImportJob(jobId, {
-      total_rows: parseResult.transactions.length + parseResult.errors.length,
-    });
-
-    // Validate each transaction and collect errors
-    const validationErrors: Array<{
-      row_number: number;
-      field?: string;
-      error: string;
-    }> = [...parseResult.errors];
-
-    const validTransactions: any[] = [];
-
-    for (const [index, transaction] of parseResult.transactions.entries()) {
-      const rowNumber = index + 1;
-
+      throw error;
+    } finally {
+      // Clean up temp file after processing
       try {
-        // Validate transaction payload
-        const validated =
-          transactionService.validateTransactionPayload(transaction);
-
-        // Check store access
-        const hasAccess = await transactionService.checkStoreAccess(
-          userId,
-          validated.store_id,
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is constructed from controlled tempDir and UUID
+        await fs.unlink(tempFilePath);
+      } catch (cleanupError) {
+        // Log but don't throw - cleanup errors shouldn't fail the job
+        console.warn(
+          `Failed to cleanup temp file ${tempFilePath}:`,
+          cleanupError,
         );
-        if (!hasAccess) {
-          validationErrors.push({
-            row_number: rowNumber,
-            field: "store_id",
-            error: "User does not have access to this store",
-          });
-          continue;
-        }
-
-        // Validate shift
-        const shiftValidation = await transactionService.validateShift(
-          validated.shift_id,
-          validated.store_id,
-        );
-        if (!shiftValidation.valid) {
-          validationErrors.push({
-            row_number: rowNumber,
-            field: "shift_id",
-            error: shiftValidation.error?.message || "Invalid shift",
-          });
-          continue;
-        }
-
-        // Validate product_ids exist in product catalog (if provided)
-        // Note: Product model not yet available (Epic 5), so we validate UUID format only
-        // Product existence validation will be added when Product model is available
-        // XSS protection: Validate line item names for dangerous HTML/script content
-        const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
-        let hasXssInLineItems = false;
-        for (const lineItem of validated.line_items) {
-          if (lineItem.product_id) {
-            // UUID format is already validated by schema, but we can add additional checks here
-            // when Product model becomes available, we'll check: await prisma.product.findUnique({ where: { product_id: lineItem.product_id } })
-            // For now, product_id format validation is sufficient (handled by schema)
-          }
-          // Check for XSS in line item name
-          if (lineItem.name && xssPattern.test(lineItem.name)) {
-            validationErrors.push({
-              row_number: rowNumber,
-              field: `line_items[${validated.line_items.indexOf(lineItem)}].name`,
-              error: "Invalid name: HTML tags and scripts are not allowed",
-            });
-            hasXssInLineItems = true;
-            break;
-          }
-        }
-        if (hasXssInLineItems) {
-          continue;
-        }
-
-        // Validate payment methods are valid
-        // Payment methods are already validated by schema (PaymentMethodEnum), but we explicitly check here
-        const validPaymentMethods = [
-          "CASH",
-          "CREDIT",
-          "DEBIT",
-          "EBT",
-          "OTHER",
-        ] as const;
-        let hasInvalidPayment = false;
-        for (const payment of validated.payments) {
-          if (!validPaymentMethods.includes(payment.method as any)) {
-            validationErrors.push({
-              row_number: rowNumber,
-              field: `payments[${validated.payments.indexOf(payment)}].method`,
-              error: `Invalid payment method: ${payment.method}. Must be one of: ${validPaymentMethods.join(", ")}`,
-            });
-            hasInvalidPayment = true;
-            break;
-          }
-        }
-        if (hasInvalidPayment) {
-          continue;
-        }
-
-        validTransactions.push(validated);
-      } catch (error: any) {
-        validationErrors.push({
-          row_number: rowNumber,
-          field: "transaction",
-          error: error.message || "Validation failed",
-        });
       }
     }
-
-    // Update error summary
-    await transactionService.updateBulkImportJob(jobId, {
-      error_rows: validationErrors.length,
-      error_summary: validationErrors,
-    });
-
-    // Enqueue valid transactions in batches of 100
-    const batchSize = 100;
-    let processedCount = 0;
-
-    for (let i = 0; i < validTransactions.length; i += batchSize) {
-      const batch = validTransactions.slice(i, i + batchSize);
-
-      const enqueuePromises = batch.map((tx) => {
-        const correlationId = uuidv4();
-        const message = {
-          correlation_id: correlationId,
-          timestamp: new Date().toISOString(),
-          source: "BULK_IMPORT" as const,
-          user_id: userId,
-          payload: tx,
-        };
-
-        return publishToTransactionsQueue(message, correlationId);
-      });
-
-      await Promise.all(enqueuePromises);
-      processedCount += batch.length;
-
-      // Update progress
-      await transactionService.updateBulkImportJob(jobId, {
-        processed_rows: processedCount,
-      });
-    }
-
-    // Get final job state
-    const finalJob = await transactionService.getBulkImportJob(
-      jobId,
-      userId,
-      true,
-    );
-
-    // Mark job as completed
-    await transactionService.updateBulkImportJob(jobId, {
-      status: "COMPLETED",
-      completed_at: new Date(),
-    });
-
-    // Log import completion to AuditLog
-    await prisma.auditLog.create({
-      data: {
-        user_id: userId,
-        action: "UPDATE",
-        table_name: "bulk_import_jobs",
-        record_id: jobId,
-        old_values: { status: "PROCESSING" } as any,
-        new_values: {
-          status: "COMPLETED",
-          total_rows: finalJob?.total_rows || 0,
-          processed_rows: finalJob?.processed_rows || 0,
-          error_rows: finalJob?.error_rows || 0,
-        } as any,
-        reason: `Bulk import completed by ${userEmail} - ${finalJob?.processed_rows || 0} processed, ${finalJob?.error_rows || 0} errors`,
-        ip_address: ipAddress,
-        user_agent: userAgent,
-      },
-    });
-  } catch (error: any) {
-    // Mark job as failed
-    await transactionService.updateBulkImportJob(jobId, {
-      status: "FAILED",
-      completed_at: new Date(),
-    });
-
-    // Log import failure to AuditLog
-    const { prisma: prismaClient } = await import("../utils/db");
-    await prismaClient.auditLog.create({
-      data: {
-        user_id: userId,
-        action: "UPDATE",
-        table_name: "bulk_import_jobs",
-        record_id: jobId,
-        old_values: { status: "PROCESSING" } as any,
-        new_values: { status: "FAILED" } as any,
-        reason: `Bulk import failed by ${userEmail}: ${error.message || "Unknown error"}`,
-        ip_address: ipAddress,
-        user_agent: userAgent,
-      },
-    });
-
-    throw error;
-  } finally {
-    // Clean up temp file after processing
-    try {
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- Safe: tempFilePath is constructed from controlled tempDir and UUID
-      await fs.unlink(tempFilePath);
-    } catch (cleanupError) {
-      // Log but don't throw - cleanup errors shouldn't fail the job
-      console.warn(
-        `Failed to cleanup temp file ${tempFilePath}:`,
-        cleanupError,
-      );
-    }
-  }
+  }); // End of withRLSContext
 }

@@ -1515,7 +1515,9 @@ test.describe("RLS Policies - Context Isolation", () => {
       data: { company_id: companyA.company_id },
     });
 
-    // Set RLS context once
+    // Clear any previous RLS context, then set new context
+    // This prevents flakiness from context leaking between tests
+    await clearRLSContext(rlsPrismaClient);
     await setRLSContext(rlsPrismaClient, corporateAdminUser.user_id);
 
     // WHEN: Running multiple queries in same context
