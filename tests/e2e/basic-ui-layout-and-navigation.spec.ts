@@ -28,18 +28,19 @@ const test = base.extend<{
     const user = createUser();
 
     // Setup: Set localStorage before test
+    // Format must match what AuthContext expects: { authenticated: true, user: {...} }
     await page.addInitScript(
       (userData: any) => {
         localStorage.setItem(
           "auth_session",
           JSON.stringify({
-            id: userData.id,
-            email: userData.email,
-            name: userData.name,
-            user_metadata: {
+            authenticated: true,
+            user: {
+              id: userData.id,
               email: userData.email,
-              full_name: userData.name,
+              name: userData.name,
             },
+            isClientUser: false,
           }),
         );
       },
@@ -88,10 +89,10 @@ test.describe("1.8-E2E-001: Dashboard Layout and Navigation", () => {
       page.locator('[data-testid="sidebar-navigation"]'),
     ).toBeVisible();
 
-    // AND: Sidebar contains navigation links (8 nav items: Dashboard, Companies, Stores, Shifts, Inventory, Lottery, Reports, AI Assistant)
+    // AND: Sidebar contains navigation links (11 nav items: Dashboard, Users, Roles, Companies, Stores, Transactions, Shift Settings, Inventory, Lottery, Reports, AI Assistant)
     await expect(
       page.locator('[data-testid="sidebar-navigation"] a'),
-    ).toHaveCount(8, { timeout: 5000 });
+    ).toHaveCount(11, { timeout: 5000 });
   });
 
   test("[P0] 1.8-E2E-001-002: should display header with user info and logout when user is authenticated", async ({

@@ -664,18 +664,19 @@ test.describe("3.5-E2E: Transaction Display UI", () => {
     // (regularUser has only SHIFT_READ and INVENTORY_READ, not TRANSACTION_READ)
 
     // Set up authentication for regularUser (similar to storeManagerPage fixture)
+    // Format must match what AuthContext expects: { authenticated: true, user: {...} }
     await page.addInitScript(
       (userData: any) => {
         localStorage.setItem(
           "auth_session",
           JSON.stringify({
-            id: userData.user_id,
-            email: userData.email,
-            name: userData.name,
-            user_metadata: {
+            authenticated: true,
+            user: {
+              id: userData.user_id,
               email: userData.email,
-              full_name: userData.name,
+              name: userData.name,
             },
+            isClientUser: false,
           }),
         );
       },

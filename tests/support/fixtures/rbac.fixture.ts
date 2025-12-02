@@ -1920,10 +1920,48 @@ export const test = base.extend<RBACFixture>({
   },
 
   superadminPage: async ({ page, superadminUser }, use) => {
-    // Login as superadmin
-    await page.goto(
-      `${process.env.FRONTEND_URL || "http://localhost:3000"}/login`,
+    // Setup: Set localStorage auth session (AuthContext reads from localStorage)
+    // Format must match what AuthContext expects: { authenticated: true, user: {...} }
+    await page.addInitScript(
+      (userData: any) => {
+        localStorage.setItem(
+          "auth_session",
+          JSON.stringify({
+            authenticated: true,
+            user: {
+              id: userData.user_id,
+              email: userData.email,
+              name: userData.name,
+            },
+            isClientUser: false,
+          }),
+        );
+      },
+      {
+        user_id: superadminUser.user_id,
+        email: superadminUser.email,
+        name: superadminUser.name,
+      },
     );
+
+    // Intercept auth check endpoint
+    await page.route("**/api/auth/me*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          user: {
+            id: superadminUser.user_id,
+            email: superadminUser.email,
+            name: superadminUser.name,
+            roles: superadminUser.roles,
+            permissions: superadminUser.permissions,
+          },
+        }),
+      });
+    });
+
+    // Add authentication cookie
     await page.context().addCookies([
       {
         name: "access_token",
@@ -1932,10 +1970,20 @@ export const test = base.extend<RBACFixture>({
         path: "/",
       },
     ]);
+
+    // Navigate to dashboard
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
     );
+
     await use(page);
+
+    // Cleanup: Clear session state
+    await page.context().clearCookies();
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
   },
 
   cashierUser: async ({ prismaClient }, use) => {
@@ -2061,19 +2109,20 @@ export const test = base.extend<RBACFixture>({
   },
 
   cashierPage: async ({ page, cashierUser }, use) => {
-    // Setup: Set localStorage auth session (Header component reads from localStorage)
+    // Setup: Set localStorage auth session (AuthContext reads from localStorage)
+    // Format must match what AuthContext expects: { authenticated: true, user: {...} }
     await page.addInitScript(
       (userData: any) => {
         localStorage.setItem(
           "auth_session",
           JSON.stringify({
-            id: userData.user_id,
-            email: userData.email,
-            name: userData.name,
-            user_metadata: {
+            authenticated: true,
+            user: {
+              id: userData.user_id,
               email: userData.email,
-              full_name: userData.name,
+              name: userData.name,
             },
+            isClientUser: true,
           }),
         );
       },
@@ -2127,19 +2176,20 @@ export const test = base.extend<RBACFixture>({
   },
 
   storeManagerPage: async ({ page, storeManagerUser }, use) => {
-    // Setup: Set localStorage auth session (Header component reads from localStorage)
+    // Setup: Set localStorage auth session (AuthContext reads from localStorage)
+    // Format must match what AuthContext expects: { authenticated: true, user: {...} }
     await page.addInitScript(
       (userData: any) => {
         localStorage.setItem(
           "auth_session",
           JSON.stringify({
-            id: userData.user_id,
-            email: userData.email,
-            name: userData.name,
-            user_metadata: {
+            authenticated: true,
+            user: {
+              id: userData.user_id,
               email: userData.email,
-              full_name: userData.name,
+              name: userData.name,
             },
+            isClientUser: false,
           }),
         );
       },

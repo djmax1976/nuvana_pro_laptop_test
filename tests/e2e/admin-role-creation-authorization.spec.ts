@@ -38,16 +38,35 @@ test.describe("2.93-E2E: Admin Role Creation - Authorization Enforcement", () =>
 
   test("2.93-E2E-002: [P0] Non-Super Admin user should be redirected from role creation page", async ({
     page,
-    prismaClient,
     storeManagerUser,
   }) => {
     // GIVEN: I am authenticated as a Store Manager (not Super Admin)
     // Store Manager does not have ADMIN_SYSTEM_CONFIG permission
 
-    // Set up authenticated session with store manager token
-    await page.goto(
-      `${process.env.FRONTEND_URL || "http://localhost:3000"}/login`,
+    // Set up localStorage auth session (AuthContext reads from localStorage)
+    await page.addInitScript(
+      (userData: any) => {
+        localStorage.setItem(
+          "auth_session",
+          JSON.stringify({
+            authenticated: true,
+            user: {
+              id: userData.user_id,
+              email: userData.email,
+              name: userData.name,
+            },
+            isClientUser: false,
+          }),
+        );
+      },
+      {
+        user_id: storeManagerUser.user_id,
+        email: storeManagerUser.email,
+        name: storeManagerUser.name,
+      },
     );
+
+    // Set up cookie for server-side auth check
     await page.context().addCookies([
       {
         name: "access_token",
@@ -58,17 +77,18 @@ test.describe("2.93-E2E: Admin Role Creation - Authorization Enforcement", () =>
     ]);
 
     // WHEN: Attempting to navigate to the role creation page
-    const response = await page.goto(
+    await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/admin/roles/new`,
-      { waitUntil: "networkidle" },
     );
 
-    // THEN: User is redirected (status should be 307/308 for redirect, or page should redirect)
-    // The redirect happens server-side, so we check the final URL
+    // THEN: User is redirected to roles list with error=unauthorized
+    // The server-side auth check sees the user doesn't have ADMIN_SYSTEM_CONFIG permission
+    // Wait for the redirect to complete
+    await page.waitForURL(/\/admin\/roles\?error=unauthorized/, {
+      timeout: 10000,
+    });
     const finalUrl = page.url();
     expect(finalUrl).not.toContain("/admin/roles/new");
-
-    // AND: User is redirected to the roles list page with error parameter
     expect(finalUrl).toMatch(/\/admin\/roles/);
     expect(finalUrl).toContain("error=unauthorized");
   });
@@ -81,27 +101,48 @@ test.describe("2.93-E2E: Admin Role Creation - Authorization Enforcement", () =>
     // WHEN: Attempting to navigate to the role creation page
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/admin/roles/new`,
-      { waitUntil: "networkidle" },
     );
 
     // THEN: User is redirected to login page
-    // The dashboard layout should redirect unauthenticated users
+    // The dashboard layout redirects unauthenticated users via client-side router.push
+    // Wait for the URL to change to /login
+    await page.waitForURL(/\/login/, { timeout: 10000 });
     const finalUrl = page.url();
     expect(finalUrl).toMatch(/\/login/);
   });
 
   test("2.93-E2E-004: [P0] Client Owner should be redirected from role creation page", async ({
     page,
-    prismaClient,
     clientUser,
   }) => {
     // GIVEN: I am authenticated as a Client Owner (not Super Admin)
     // Client Owner does not have ADMIN_SYSTEM_CONFIG permission
 
-    // Set up authenticated session with client user token
-    await page.goto(
-      `${process.env.FRONTEND_URL || "http://localhost:3000"}/login`,
+    // Set up localStorage auth session with isClientUser: true
+    // The dashboard layout redirects client users to /client-dashboard
+    await page.addInitScript(
+      (userData: any) => {
+        localStorage.setItem(
+          "auth_session",
+          JSON.stringify({
+            authenticated: true,
+            user: {
+              id: userData.user_id,
+              email: userData.email,
+              name: userData.name,
+            },
+            isClientUser: true, // Client users get redirected by layout
+          }),
+        );
+      },
+      {
+        user_id: clientUser.user_id,
+        email: clientUser.email,
+        name: clientUser.name,
+      },
     );
+
+    // Set up cookie for server-side auth check
     await page.context().addCookies([
       {
         name: "access_token",
@@ -114,18 +155,13 @@ test.describe("2.93-E2E: Admin Role Creation - Authorization Enforcement", () =>
     // WHEN: Attempting to navigate to the role creation page
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/admin/roles/new`,
-      { waitUntil: "networkidle" },
     );
 
-    // THEN: User is redirected (not on the role creation page)
+    // THEN: User is redirected to client dashboard
+    // The dashboard layout redirects client users before the server-side auth check runs
+    await page.waitForURL(/\/client-dashboard/, { timeout: 10000 });
     const finalUrl = page.url();
     expect(finalUrl).not.toContain("/admin/roles/new");
-
-    // AND: User is redirected (either to roles list or client dashboard)
-    // Client users are typically redirected to client dashboard by the layout
-    expect(
-      finalUrl.includes("/admin/roles") ||
-        finalUrl.includes("/client-dashboard"),
-    ).toBe(true);
+    expect(finalUrl).toContain("/client-dashboard");
   });
 });

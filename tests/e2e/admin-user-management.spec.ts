@@ -235,12 +235,25 @@ test.describe("Admin User Management E2E", () => {
       .locator('input[data-testid="user-password-input"]')
       .fill(newUserPassword);
 
-    // Select a role
+    // Select a role (avoid CLIENT_OWNER which requires company info)
     const roleSelect = page.locator('button[data-testid="user-role-select"]');
     await roleSelect.click();
     await page.waitForTimeout(500);
-    // Select the first available role
-    await page.locator('div[role="option"]').first().click();
+    // Look for a non-CLIENT_OWNER role (e.g., SYSTEM_ADMIN or STORE_MANAGER)
+    const nonClientRole = page.locator(
+      'div[role="option"]:not(:has-text("CLIENT_OWNER")):not(:has-text("Company"))',
+    );
+    const roleOptions = page.locator('div[role="option"]');
+    const count = await roleOptions.count();
+    // Find first role that is not CLIENT_OWNER
+    for (let i = 0; i < count; i++) {
+      const option = roleOptions.nth(i);
+      const text = await option.textContent();
+      if (text && !text.includes("CLIENT_OWNER") && !text.includes("COMPANY")) {
+        await option.click();
+        break;
+      }
+    }
 
     await page.locator('button[data-testid="user-form-submit"]').click();
     await page.waitForTimeout(1000);

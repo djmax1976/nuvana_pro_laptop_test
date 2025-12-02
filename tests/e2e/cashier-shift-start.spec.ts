@@ -123,7 +123,10 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
     await cashierPage.getByTestId("start-shift-button").click();
 
     // THEN: CashierShiftStartDialog should open
-    await expect(cashierPage.getByText(/start shift/i)).toBeVisible({
+    // Check for dialog heading specifically to avoid matching multiple "Start Shift" elements
+    await expect(
+      cashierPage.getByRole("heading", { name: "Start Shift" }),
+    ).toBeVisible({
       timeout: 5000,
     });
     await expect(cashierPage.getByTestId("terminal-select")).toBeVisible();
@@ -515,18 +518,19 @@ test.describe("4.8-E2E: Cashier Shift Start Flow", () => {
 
     // Set up authentication similar to cashierPage fixture
     // Set localStorage auth session
+    // Format must match what AuthContext expects: { authenticated: true, user: {...}, isClientUser: boolean }
     await page.addInitScript(
       (userData: any) => {
         localStorage.setItem(
           "auth_session",
           JSON.stringify({
-            id: userData.user_id,
-            email: userData.email,
-            name: userData.name,
-            user_metadata: {
+            authenticated: true,
+            user: {
+              id: userData.user_id,
               email: userData.email,
-              full_name: userData.name,
+              name: userData.name,
             },
+            isClientUser: false,
           }),
         );
       },

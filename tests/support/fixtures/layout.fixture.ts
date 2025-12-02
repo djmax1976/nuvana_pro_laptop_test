@@ -50,17 +50,18 @@ export const test = base.extend<LayoutFixture>({
     });
 
     // Set localStorage auth session (Header component reads from localStorage)
+    // Format must match what AuthContext expects: { authenticated: true, user: {...}, isClientUser: boolean }
     await page.addInitScript((userData) => {
       localStorage.setItem(
         "auth_session",
         JSON.stringify({
-          id: userData.id,
-          email: userData.email,
-          name: userData.name,
-          user_metadata: {
+          authenticated: true,
+          user: {
+            id: userData.id,
             email: userData.email,
-            full_name: userData.name,
+            name: userData.name,
           },
+          isClientUser: false,
         }),
       );
     }, user);

@@ -17,6 +17,7 @@ import { createUser } from "../support/factories";
  */
 
 // Helper to set authenticated user in localStorage
+// Format must match what AuthContext expects: { authenticated: true, user: {...} }
 async function setAuthenticatedUser(
   page: any,
   user: { id: string; email: string; name: string },
@@ -25,13 +26,13 @@ async function setAuthenticatedUser(
     localStorage.setItem(
       "auth_session",
       JSON.stringify({
-        id: userData.id,
-        email: userData.email,
-        name: userData.name,
-        user_metadata: {
+        authenticated: true,
+        user: {
+          id: userData.id,
           email: userData.email,
-          full_name: userData.name,
+          name: userData.name,
         },
+        isClientUser: false,
       }),
     );
   }, user);
@@ -579,6 +580,7 @@ test.describe("1.9-E2E-001: Dark Mode Toggle", () => {
               email: userData.email,
               name: userData.name,
             },
+            isClientUser: false,
           }),
         );
         localStorage.setItem(themeKey, "dark");
