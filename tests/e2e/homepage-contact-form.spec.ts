@@ -88,9 +88,7 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     );
   });
 
-  // TODO: This test is flaky due to cross-origin request timing issues
-  // The form posts to backend (localhost:3001) which can't be reliably intercepted
-  test.skip("[P1] should disable submit button while form is submitting", async ({
+  test("[P1] should disable submit button while form is submitting", async ({
     page,
   }) => {
     // GIVEN: User is on homepage contact form with valid data
@@ -106,29 +104,47 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page.locator('textarea[name="message"]').fill("Test message");
 
-    // WHEN: User submits form
-    // The form submits to the backend (cross-origin), so we verify behavior by:
-    // 1. Checking that the button becomes disabled after clicking
-    // 2. Verifying either success or error state appears (form completion)
+    // Set up route interception that holds the request until we manually fulfill it
+    let fulfillRoute: (() => void) | undefined;
+    const routeReady = new Promise<void>((resolve) => {
+      fulfillRoute = resolve;
+    });
+
+    await page.route("**/api/contact", async (route) => {
+      // Wait for signal to continue
+      await routeReady;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true }),
+      });
+    });
+
     const submitButton = page.getByRole("button", { name: /Send Message/i });
     await expect(submitButton).toBeEnabled();
 
-    // Click and immediately verify the button gets disabled
+    // WHEN: User submits form
     await submitButton.click();
 
-    // THEN: The form should either show success message OR error message
-    // This confirms the form submission was attempted and completed
-    // (We can't reliably intercept cross-origin requests in Playwright)
-    const successMessage = page.getByText(/Thank you! We'll be in touch soon/i);
-    const errorMessage = page.getByText(/Something went wrong/i);
+    // Wait for the request to be intercepted
+    await page.waitForRequest("**/api/contact", { timeout: 5000 });
 
-    // Wait for either success or error - both indicate form submission worked
-    await expect(successMessage.or(errorMessage)).toBeVisible({
-      timeout: 10000,
-    });
+    // THEN: Submit button should be disabled and show "Sending..." while request is pending
+    await expect(submitButton).toBeDisabled({ timeout: 1000 });
+    await expect(page.getByText(/Sending.../i)).toBeVisible({ timeout: 1000 });
 
-    // Additionally verify the button is re-enabled after submission completes
-    // This confirms the loading state cycle completed
+    // Fulfill the route to complete the submission
+    fulfillRoute?.();
+
+    // Wait for the response to complete
+    await page.waitForResponse("**/api/contact", { timeout: 5000 });
+
+    // THEN: Success message should appear
+    await expect(
+      page.getByText(/Thank you! We'll be in touch soon/i),
+    ).toBeVisible({ timeout: 5000 });
+
+    // AND: Submit button should be re-enabled after submission completes
     const finalButton = page.getByRole("button", { name: /Send Message/i });
     await expect(finalButton).toBeEnabled({ timeout: 5000 });
   });

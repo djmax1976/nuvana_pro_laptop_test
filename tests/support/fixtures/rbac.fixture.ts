@@ -1970,7 +1970,7 @@ export const test = base.extend<RBACFixture>({
       { waitUntil: "domcontentloaded" },
     );
 
-    // Wait for the page to be ready by checking for a dashboard-specific element
+    // Wait for the page to finish loading; this uses the load state rather than waiting for a specific dashboard element
     // This is more reliable than networkidle in CI environments
     await page.waitForLoadState("load");
 

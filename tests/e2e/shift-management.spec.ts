@@ -281,7 +281,7 @@ test.describe("4.7-E2E: Shift Management UI", () => {
       data: createClientUser(),
     });
 
-    await createShiftHelper(
+    const openShift = await createShiftHelper(
       {
         store_id: store.store_id,
         cashier_id: cashier.user_id,
@@ -292,7 +292,7 @@ test.describe("4.7-E2E: Shift Management UI", () => {
       prismaClient,
     );
 
-    await createShiftHelper(
+    const closedShift = await createShiftHelper(
       {
         store_id: store.store_id,
         cashier_id: cashier.user_id,
@@ -324,19 +324,57 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     // Wait for dropdown to close
     await storeManagerPage.waitForTimeout(300);
 
-    // Click Apply Filters button
+    // Click Apply Filters button and wait for API response
     const applyButton = storeManagerPage.getByRole("button", {
       name: /apply filters/i,
     });
     await expect(applyButton).toBeVisible({ timeout: 5000 });
+
+    // Wait for the API response to complete with status filter
+    // Match the response URL pattern for /api/shifts with status=OPEN parameter
+    const responsePromise = storeManagerPage.waitForResponse(
+      (response) => {
+        const url = response.url();
+        return (
+          url.includes("/api/shifts") &&
+          (url.includes("status=OPEN") || url.includes("status%3DOPEN")) &&
+          response.status() === 200
+        );
+      },
+      { timeout: 15000 },
+    );
+
     await applyButton.click();
 
-    // Wait for filters to be applied and list to update
-    await storeManagerPage.waitForLoadState("load");
-    await storeManagerPage.waitForTimeout(500);
+    // Wait for the API response to complete
+    await responsePromise;
 
-    // THEN: Filter should be applied (status filter should show Open)
+    // Wait for loading spinner to disappear
+    await storeManagerPage
+      .locator('[data-testid="shift-list-loading"]')
+      .waitFor({ state: "hidden", timeout: 10000 })
+      .catch(() => {
+        // Loading state might not appear if response is fast, continue
+      });
+
+    // THEN: Filter should be applied and only OPEN shifts should be displayed
     await expect(statusFilter).toBeVisible();
+
+    // Verify the table is visible and contains only OPEN shifts
+    const table = storeManagerPage.locator('[data-testid="shift-list-table"]');
+    await expect(table).toBeVisible({ timeout: 10000 });
+
+    // Verify OPEN shift is visible
+    const openShiftRow = storeManagerPage.locator(
+      `[data-testid="shift-list-row-${openShift.shift_id}"]`,
+    );
+    await expect(openShiftRow).toBeVisible({ timeout: 5000 });
+
+    // Verify CLOSED shift is NOT visible
+    const closedShiftRow = storeManagerPage.locator(
+      `[data-testid="shift-list-row-${closedShift.shift_id}"]`,
+    );
+    await expect(closedShiftRow).not.toBeVisible();
   });
 
   test.skip("4.7-E2E-005: [P0] Should close and reconcile a shift", async ({
