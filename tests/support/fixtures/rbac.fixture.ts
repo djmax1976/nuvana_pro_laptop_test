@@ -711,11 +711,19 @@ export const test = base.extend<RBACFixture>({
       // 4. Delete user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
-      // 5. Delete stores under company (required due to onDelete: Restrict)
+      // 5. Delete POS terminals for all stores (before deleting stores)
+      if (storeIds.length > 0) {
+        await bypassClient.pOSTerminal.deleteMany({
+          where: { store_id: { in: storeIds } },
+        });
+      }
+
+      // 6. Delete stores under company (required due to onDelete: Restrict)
       await bypassClient.store.deleteMany({
         where: { company_id: company.company_id },
       });
-      // 5. Delete company last
+
+      // 7. Delete company last
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });
@@ -848,17 +856,25 @@ export const test = base.extend<RBACFixture>({
         where: { user_id: user.user_id },
       });
 
-      // 5. Delete the store manager user
+      // 5. Delete POS terminals for the store (before deleting store)
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 6. Delete the store manager user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
+
+      // 7. Delete store
+      await bypassClient.store.delete({ where: { store_id: store.store_id } });
+
+      // 8. Delete company
+      await bypassClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+
+      // 9. Delete the owner user (created for company ownership)
+      await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
     });
-    // 4. Delete store
-    await prismaClient.store.delete({ where: { store_id: store.store_id } });
-    // 5. Delete company
-    await prismaClient.company.delete({
-      where: { company_id: company.company_id },
-    });
-    // 6. Delete the owner user (created for company ownership)
-    await prismaClient.user.delete({ where: { user_id: ownerUser.user_id } });
   },
 
   authenticatedShiftManager: async (
@@ -1025,18 +1041,23 @@ export const test = base.extend<RBACFixture>({
         where: { user_id: user.user_id },
       });
 
-      // 4. Delete the shift manager user
+      // 4. Delete POS terminals for the store (before deleting store)
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 5. Delete the shift manager user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
-      // 5. Delete store
+      // 6. Delete store
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
 
-      // 6. Delete company
+      // 7. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });
 
-      // 7. Delete the owner user (created for company ownership)
+      // 8. Delete the owner user (created for company ownership)
       await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
     });
   },
@@ -1152,18 +1173,23 @@ export const test = base.extend<RBACFixture>({
         where: { user_id: user.user_id },
       });
 
-      // 4. Delete the authenticated user
+      // 4. Delete POS terminals for the store (before deleting store)
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 5. Delete the authenticated user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
-      // 5. Delete store
+      // 6. Delete store
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
 
-      // 6. Delete company
+      // 7. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });
 
-      // 7. Delete the owner user (created for company ownership)
+      // 8. Delete the owner user (created for company ownership)
       await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
     });
   },
@@ -1518,27 +1544,68 @@ export const test = base.extend<RBACFixture>({
 
     await use(clientUser);
 
-    // Cleanup
+    // Cleanup: Delete all related data in correct FK order using bypass client
     await withBypassClient(async (bypassClient) => {
-      // Delete user roles
+      // 1. Find shifts created by this user
+      const userShifts = await bypassClient.shift.findMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        // Delete transaction payments (child of transaction)
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transaction line items (child of transaction)
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transactions (child of shift)
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      // 2. Delete shifts for this user
+      await bypassClient.shift.deleteMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+      });
+
+      // 3. Delete user roles
       await bypassClient.userRole.deleteMany({
         where: { user_id: user.user_id },
       });
-      // Delete company allowed roles
+
+      // 4. Delete company allowed roles
       await bypassClient.companyAllowedRole.deleteMany({
         where: { company_id: company.company_id },
       });
-      // Delete client role permissions (if any were created during tests)
+
+      // 5. Delete client role permissions (if any were created during tests)
       await bypassClient.clientRolePermission.deleteMany({
         where: { owner_user_id: user.user_id },
       });
-      // Delete store
+
+      // 6. Delete POS terminals for the store
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 7. Delete store
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
-      // Delete company
+
+      // 8. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });
-      // Delete user
+
+      // 9. Delete user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
     });
   },
@@ -1633,22 +1700,71 @@ export const test = base.extend<RBACFixture>({
 
     await use(regularUser);
 
-    // Cleanup
+    // Cleanup: Delete all related data in correct FK order using bypass client
     await withBypassClient(async (bypassClient) => {
+      // 1. Find shifts created by this user
+      const userShifts = await bypassClient.shift.findMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        // Delete transaction payments (child of transaction)
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transaction line items (child of transaction)
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transactions (child of shift)
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      // 2. Delete shifts for this user
+      await bypassClient.shift.deleteMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+      });
+
+      // 3. Delete user roles
       await bypassClient.userRole.deleteMany({
         where: { user_id: user.user_id },
       });
+
+      // 4. Delete role permissions for the restricted role
       await bypassClient.rolePermission.deleteMany({
         where: { role_id: restrictedRole.role_id },
       });
+
+      // 5. Delete the restricted role
       await bypassClient.role.delete({
         where: { role_id: restrictedRole.role_id },
       });
+
+      // 6. Delete the regular user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
+
+      // 7. Delete POS terminals for the store
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 8. Delete store
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
+
+      // 9. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });
+
+      // 10. Delete owner user
       await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
     });
   },
@@ -1882,15 +1998,58 @@ export const test = base.extend<RBACFixture>({
 
     await use(cashierUser);
 
-    // Cleanup
+    // Cleanup: Delete all related data in correct FK order using bypass client
     await withBypassClient(async (bypassClient) => {
+      // 1. Find shifts created by this user (cashier_id or opened_by references user)
+      const userShifts = await bypassClient.shift.findMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        // Delete transaction payments (child of transaction)
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transaction line items (child of transaction)
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transactions (child of shift)
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      // 2. Delete shifts for this user
+      await bypassClient.shift.deleteMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+      });
+
+      // 3. Delete POS terminals for the store (before deleting store)
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 4. Delete user roles
       await bypassClient.userRole.deleteMany({
         where: { user_id: user.user_id },
       });
+
+      // 5. Delete store (must delete after terminals)
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
+
+      // 6. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });
+
+      // 7. Delete the user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
     });
   },

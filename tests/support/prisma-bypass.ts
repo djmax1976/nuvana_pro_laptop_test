@@ -40,7 +40,12 @@ export async function withBypassClient<T>(
 ): Promise<T> {
   const bypassClient = createBypassPrismaClient();
   try {
-    return await cleanupFn(bypassClient);
+    const result = await cleanupFn(bypassClient);
+    return result;
+  } catch (error) {
+    // Log errors for debugging - these should NOT be silently swallowed
+    console.error("[withBypassClient] Error during bypass operation:", error);
+    throw error; // Re-throw to surface the issue
   } finally {
     await bypassClient.$disconnect();
   }
