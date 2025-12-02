@@ -84,7 +84,7 @@ export const transactionService = {
 
     // Check for superadmin (system scope - can access all stores)
     const hasSuperadminRole = userRoles.some(
-      (role) => role.scope === "SYSTEM" || role.role_code === "superadmin",
+      (role) => role.scope === "SYSTEM" || role.role_code === "SUPERADMIN",
     );
 
     if (hasSuperadminRole) {
@@ -288,7 +288,7 @@ export const transactionService = {
 
     // Check for superadmin (system scope - can see all)
     const hasSuperadminRole = userRoles.some(
-      (role) => role.scope === "SYSTEM" || role.role_code === "superadmin",
+      (role) => role.scope === "SYSTEM" || role.role_code === "SUPERADMIN",
     );
 
     if (hasSuperadminRole) {
