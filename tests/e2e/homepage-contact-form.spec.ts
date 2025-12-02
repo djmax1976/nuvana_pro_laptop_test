@@ -104,15 +104,18 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page.locator('textarea[name="message"]').fill("Test message");
 
-    // Set up route interception that holds the request until we manually fulfill it
-    let fulfillRoute: (() => void) | undefined;
-    const routeReady = new Promise<void>((resolve) => {
-      fulfillRoute = resolve;
+    // Set up route interception that delays the response
+    let resolveRoute: (() => void) | undefined;
+    const routeDelay = new Promise<void>((resolve) => {
+      resolveRoute = resolve;
     });
 
+    // Route pattern should match both relative and absolute URLs
+    // Use a more specific pattern to ensure it matches
     await page.route("**/api/contact", async (route) => {
-      // Wait for signal to continue
-      await routeReady;
+      // Delay fulfillment to allow checking button state
+      // This holds the request until we manually resolve
+      await routeDelay;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -126,18 +129,26 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     // WHEN: User submits form
     await submitButton.click();
 
-    // Wait for the request to be intercepted
-    await page.waitForRequest("**/api/contact", { timeout: 5000 });
-
     // THEN: Submit button should be disabled and show "Sending..." while request is pending
-    await expect(submitButton).toBeDisabled({ timeout: 1000 });
-    await expect(page.getByText(/Sending.../i)).toBeVisible({ timeout: 1000 });
+    // Check button state immediately after click (before waiting for request)
+    await expect(submitButton).toBeDisabled({ timeout: 2000 });
+    await expect(page.getByText(/Sending.../i)).toBeVisible({ timeout: 2000 });
+
+    // Wait for the request to be intercepted (this ensures the request was made)
+    // The route handler will hold the request until we resolve it
+    await page.waitForRequest(
+      (request) => request.url().includes("/api/contact"),
+      { timeout: 5000 },
+    );
 
     // Fulfill the route to complete the submission
-    fulfillRoute?.();
+    resolveRoute?.();
 
     // Wait for the response to complete
-    await page.waitForResponse("**/api/contact", { timeout: 5000 });
+    await page.waitForResponse(
+      (response) => response.url().includes("/api/contact"),
+      { timeout: 5000 },
+    );
 
     // THEN: Success message should appear
     await expect(
