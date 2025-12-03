@@ -9,7 +9,7 @@
  */
 
 import * as amqp from "amqplib";
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   initializeRabbitMQ,
   setupTransactionsQueue,

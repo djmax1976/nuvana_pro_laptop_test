@@ -3,7 +3,6 @@ import bcrypt from "bcrypt";
 import { getUserById } from "../services/user.service";
 import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
-import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../utils/db";
 
@@ -167,8 +166,8 @@ export async function authRoutes(fastify: FastifyInstance) {
           userRole = "SHIFT_MANAGER";
         } else if (roleCodes.includes("CASHIER")) {
           userRole = "CASHIER";
-        } else if (roleCodes.includes("SUPER_ADMIN")) {
-          userRole = "SUPER_ADMIN";
+        } else if (roleCodes.includes("SUPERADMIN")) {
+          userRole = "SUPERADMIN";
         }
 
         // Return success response with user data (including user_role for routing)

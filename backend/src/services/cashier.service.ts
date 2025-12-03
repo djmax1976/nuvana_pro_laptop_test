@@ -435,7 +435,7 @@ export class CashierService {
   async getCashiers(
     storeId: string,
     filters: CashierListFilters = {},
-    auditContext: AuditContext,
+    _auditContext: AuditContext,
   ): Promise<CashierResponse[]> {
     const where: Prisma.CashierWhereInput = {
       store_id: storeId,
@@ -474,7 +474,7 @@ export class CashierService {
   async getCashierById(
     storeId: string,
     cashierId: string,
-    auditContext: AuditContext,
+    _auditContext: AuditContext,
     includeDeleted: boolean = false,
   ): Promise<CashierResponse | null> {
     const where: Prisma.CashierWhereInput = {

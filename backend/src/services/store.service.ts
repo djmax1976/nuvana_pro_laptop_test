@@ -1,6 +1,5 @@
 import {
   Prisma,
-  PrismaClient,
   POSConnectionType,
   POSVendorType,
   POSTerminalStatus,

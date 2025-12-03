@@ -265,8 +265,6 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           data: cashiers,
         };
       } catch (error: unknown) {
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error listing cashiers");
 
         reply.code(500);
@@ -324,8 +322,6 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           data: cashier,
         };
       } catch (error: unknown) {
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error getting cashier");
 
         reply.code(500);

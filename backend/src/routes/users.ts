@@ -2,7 +2,6 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
 import { USER_CREATE, USER_READ, USER_DELETE } from "../constants/permissions";
-import { PrismaClient } from "@prisma/client";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 import { prisma } from "../utils/db";
 

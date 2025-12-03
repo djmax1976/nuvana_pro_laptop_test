@@ -4,7 +4,6 @@ import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
 import { storeService } from "../services/store.service";
 import { rbacService } from "../services/rbac.service";
-import { PrismaClient } from "@prisma/client";
 import crypto from "crypto";
 import {
   safeValidateCreateTerminalInput,
