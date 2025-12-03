@@ -7,6 +7,19 @@ import { test, expect } from "@playwright/test";
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
+// Validate required environment variables for E2E tests
+const TEST_EMAIL = process.env.TEST_EMAIL;
+const TEST_PASSWORD = process.env.TEST_PASSWORD;
+
+if (!TEST_EMAIL || !TEST_PASSWORD) {
+  throw new Error(
+    "Missing required environment variables for E2E tests. " +
+      "Please set TEST_EMAIL and TEST_PASSWORD in your environment or .env.local file. " +
+      "These credentials should be for a test client user with access to stores and cashiers. " +
+      "Never commit real credentials to version control.",
+  );
+}
+
 test.describe("Cashier Store Dropdown", () => {
   test("should show store in dropdown when adding cashier", async ({
     page,
@@ -53,13 +66,13 @@ test.describe("Cashier Store Dropdown", () => {
       )
       .first();
     await emailInput.waitFor({ state: "visible", timeout: 10000 });
-    await emailInput.fill("kfpllcusa@gmail.com");
+    await emailInput.fill(TEST_EMAIL);
 
     // Find and fill password field
     const passwordInput = page
       .locator('input[type="password"], input[name="password"]')
       .first();
-    await passwordInput.fill("Milkey27#");
+    await passwordInput.fill(TEST_PASSWORD);
 
     // Take screenshot before submit
     await page.screenshot({ path: "test-results/02-login-filled.png" });
@@ -214,12 +227,12 @@ test.describe("Cashier Store Dropdown", () => {
       )
       .first();
     await emailInput.waitFor({ state: "visible", timeout: 10000 });
-    await emailInput.fill("kfpllcusa@gmail.com");
+    await emailInput.fill(TEST_EMAIL);
 
     const passwordInput = page
       .locator('input[type="password"], input[name="password"]')
       .first();
-    await passwordInput.fill("Milkey27#");
+    await passwordInput.fill(TEST_PASSWORD);
 
     const submitButton = page.locator('button[type="submit"]').first();
     await submitButton.click();
@@ -302,17 +315,23 @@ test.describe("Cashier Store Dropdown", () => {
 
     // Check for success - either toast message or dialog closed
     const toastSuccess = page.locator(
-      "text=has been added successfully, text=Cashier created",
+      'text="has been added successfully" or text="Cashier created"',
     );
+    const toastVisible = await toastSuccess
+      .isVisible({ timeout: 3000 })
+      .catch(() => false);
     const dialogClosed = await page
       .locator('[data-testid="cashier-name"]')
       .isHidden({ timeout: 3000 })
       .catch(() => false);
 
+    console.log("Toast visible:", toastVisible);
     console.log("Dialog closed:", dialogClosed);
 
-    // The form should have submitted (either toast shown or dialog closed)
-    // Just check that there's no validation error for store
+    // The form should have submitted successfully - either toast shown or dialog closed
+    expect(toastVisible || dialogClosed).toBe(true);
+
+    // Ensure there's no validation error for store
     const storeError = page.locator("text=Store is required");
     expect(
       await storeError.isVisible({ timeout: 1000 }).catch(() => false),

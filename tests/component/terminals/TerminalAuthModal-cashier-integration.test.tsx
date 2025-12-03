@@ -100,10 +100,12 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
     await user.click(selectTrigger);
 
     // THEN: Real cashier names are displayed (not static placeholders)
+    // Note: Radix Select renders both a hidden native select and a visible dropdown,
+    // so we use getAllByText and check that at least one exists
     await waitFor(() => {
-      expect(screen.getByText("John Smith")).toBeInTheDocument();
-      expect(screen.getByText("Jane Doe")).toBeInTheDocument();
-      expect(screen.getByText("Mike Johnson")).toBeInTheDocument();
+      expect(screen.getAllByText("John Smith").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Jane Doe").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Mike Johnson").length).toBeGreaterThan(0);
 
       // AND: Static placeholders are NOT displayed
       // (Old static data: "John Doe", "Jane Smith", "Mike Johnson" should not appear)
@@ -141,8 +143,9 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
     await user.click(selectTrigger);
 
     // THEN: Only cashier name is displayed (not employee_id)
+    // Note: Radix Select renders both a hidden native select and a visible dropdown
     await waitFor(() => {
-      expect(screen.getByText("John Smith")).toBeInTheDocument();
+      expect(screen.getAllByText("John Smith").length).toBeGreaterThan(0);
       // Employee ID should NOT be displayed
       expect(screen.queryByText("0001")).not.toBeInTheDocument();
     });
@@ -185,9 +188,16 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
     const selectTrigger = screen.getByTestId("cashier-name-select");
     await user.click(selectTrigger);
     await waitFor(() => {
-      expect(screen.getByText("John Smith")).toBeInTheDocument();
+      expect(screen.getAllByText("John Smith").length).toBeGreaterThan(0);
     });
-    await user.click(screen.getByText("John Smith"));
+    // Click the SelectItem (role="option") in the dropdown
+    const selectItems = screen.getAllByRole("option", { name: "John Smith" });
+    await user.click(selectItems[0]);
+
+    // Wait for the select to update with the selected value
+    await waitFor(() => {
+      expect(selectTrigger).toHaveTextContent("John Smith");
+    });
 
     const pinInput = screen.getByTestId("pin-number-input");
     await user.type(pinInput, "1234");
@@ -245,9 +255,15 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
     const selectTrigger = screen.getByTestId("cashier-name-select");
     await user.click(selectTrigger);
     await waitFor(() => {
-      expect(screen.getByText("John Smith")).toBeInTheDocument();
+      expect(screen.getAllByText("John Smith").length).toBeGreaterThan(0);
     });
-    await user.click(screen.getByText("John Smith"));
+    const selectItems = screen.getAllByRole("option", { name: "John Smith" });
+    await user.click(selectItems[0]);
+
+    // Wait for the select to update with the selected value
+    await waitFor(() => {
+      expect(selectTrigger).toHaveTextContent("John Smith");
+    });
 
     const pinInput = screen.getByTestId("pin-number-input");
     await user.type(pinInput, "1234");
@@ -304,9 +320,15 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
     const selectTrigger = screen.getByTestId("cashier-name-select");
     await user.click(selectTrigger);
     await waitFor(() => {
-      expect(screen.getByText("John Smith")).toBeInTheDocument();
+      expect(screen.getAllByText("John Smith").length).toBeGreaterThan(0);
     });
-    await user.click(screen.getByText("John Smith"));
+    const selectItems = screen.getAllByRole("option", { name: "John Smith" });
+    await user.click(selectItems[0]);
+
+    // Wait for the select to update with the selected value
+    await waitFor(() => {
+      expect(selectTrigger).toHaveTextContent("John Smith");
+    });
 
     const pinInput = screen.getByTestId("pin-number-input");
     await user.type(pinInput, "9999"); // Wrong PIN
@@ -390,13 +412,22 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
     await user.click(selectTrigger);
 
     // THEN: Malicious content is escaped (not executed as script)
+    // React renders the text content safely - we verify by checking the text appears
+    // as displayable text (not executed). The native select shows HTML entities,
+    // while Radix dropdown shows raw text safely.
     await waitFor(() => {
-      // React should escape HTML, so script tags should appear as text
-      const scriptText = screen.queryByText(/<script>/i);
+      // Check that the malicious cashier names are present in some form
+      // (either as text or escaped HTML entities)
+      const scriptTexts = screen.queryAllByText(/<script>alert/i);
+      const imgTexts = screen.queryAllByText(/John<img/i);
+      // At least one representation should exist
       expect(
-        scriptText || screen.queryByText("alert('XSS')"),
-        "Script should not execute",
-      ).toBeInTheDocument();
+        scriptTexts.length > 0 ||
+          screen.queryByText(/&lt;script&gt;/i) !== null,
+      ).toBe(true);
+      expect(
+        imgTexts.length > 0 || screen.queryByText(/John&lt;img/i) !== null,
+      ).toBe(true);
     });
 
     // AND: Component doesn't crash
@@ -425,14 +456,41 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
       expect(global.fetch).toHaveBeenCalled();
     });
 
-    // WHEN: Entering invalid PIN (3 digits)
+    // WHEN: Selecting a cashier and entering invalid PIN (3 digits)
+    const selectTrigger = screen.getByTestId("cashier-name-select");
+    await user.click(selectTrigger);
+    await waitFor(() => {
+      expect(screen.getAllByText("John Smith").length).toBeGreaterThan(0);
+    });
+    const selectItems = screen.getAllByRole("option", { name: "John Smith" });
+    await user.click(selectItems[0]);
+
+    // Wait for the select to update with the selected value
+    await waitFor(() => {
+      expect(selectTrigger).toHaveTextContent("John Smith");
+    });
+
     const pinInput = screen.getByTestId("pin-number-input");
     await user.type(pinInput, "123"); // Invalid: only 3 digits
 
-    // THEN: Form validation should catch it (if client-side validation exists)
-    // Note: Current implementation may rely on server validation
-    // This test verifies the input accepts the value (server will reject)
+    // THEN: PIN input accepts the value
     expect(pinInput).toHaveValue("123");
+
+    // WHEN: Attempting to submit the form
+    const submitButton = screen.getByTestId("terminal-auth-submit-button");
+    await user.click(submitButton);
+
+    // THEN: Client-side validation error is displayed
+    await waitFor(() => {
+      expect(
+        screen.getByText(/pin must be exactly 4 numeric digits/i),
+      ).toBeInTheDocument();
+    });
+
+    // AND: Form submission is prevented (API is not called)
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1); // Only the initial cashiers fetch
+    });
   });
 
   it("[P0] 4.91-COMPONENT-SEC-003: should not expose sensitive data in error messages", async () => {
@@ -470,9 +528,15 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
     const selectTrigger = screen.getByTestId("cashier-name-select");
     await user.click(selectTrigger);
     await waitFor(() => {
-      expect(screen.getByText("John Smith")).toBeInTheDocument();
+      expect(screen.getAllByText("John Smith").length).toBeGreaterThan(0);
     });
-    await user.click(screen.getByText("John Smith"));
+    const selectItems = screen.getAllByRole("option", { name: "John Smith" });
+    await user.click(selectItems[0]);
+
+    // Wait for the select to update with the selected value
+    await waitFor(() => {
+      expect(selectTrigger).toHaveTextContent("John Smith");
+    });
 
     const pinInput = screen.getByTestId("pin-number-input");
     await user.type(pinInput, "9999"); // Wrong PIN

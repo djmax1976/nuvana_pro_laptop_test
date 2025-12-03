@@ -5,8 +5,7 @@ import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
-
-const prisma = new PrismaClient();
+import { prisma } from "../utils/db";
 
 // NOTE: OAuth has been removed from this application
 // Using local email/password authentication with bcrypt
@@ -134,10 +133,22 @@ export async function authRoutes(fastify: FastifyInstance) {
         if (!isClientUser && hasClientRole) {
           isClientUser = true;
           // Update the database to fix the is_client_user flag for future logins
-          await prisma.user.update({
-            where: { user_id: user.user_id },
-            data: { is_client_user: true },
-          });
+          try {
+            await prisma.user.update({
+              where: { user_id: user.user_id },
+              data: { is_client_user: true },
+            });
+          } catch (updateError) {
+            // Log error but don't fail the login
+            fastify.log.error(
+              {
+                error: updateError,
+                user_id: user.user_id,
+                context: "best-effort migration of is_client_user",
+              },
+              "Failed to update is_client_user flag during login",
+            );
+          }
         }
 
         // Determine primary user role for routing:

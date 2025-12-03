@@ -51,8 +51,8 @@ function ClientDashboardLayoutInner({
     );
   }
 
-  // Don't render dashboard if not authenticated or not CLIENT_OWNER
-  if (!isAuthenticated || !isClientOwner) {
+  // Don't render dashboard if not authenticated, not CLIENT_OWNER, or is store user
+  if (!isAuthenticated || !isClientOwner || isStoreUser) {
     return null;
   }
 

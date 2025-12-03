@@ -137,19 +137,6 @@ export function CashierForm({
     }
   }, [stores, isEditing, form]);
 
-  // Also check on every render if store_id got cleared and re-set it
-  // This handles the case where form state gets reset
-  const currentStoreId = form.watch("store_id");
-  useEffect(() => {
-    if (!isEditing && stores.length === 1 && !currentStoreId) {
-      form.setValue("store_id", stores[0].store_id, {
-        shouldValidate: true,
-        shouldDirty: false,
-        shouldTouch: false,
-      });
-    }
-  }, [currentStoreId, stores, isEditing, form]);
-
   // Handle form submission
   async function onSubmit(data: CashierFormValues | CashierEditFormValues) {
     try {
@@ -168,11 +155,25 @@ export function CashierForm({
         if (data.pin && data.pin.length === 4) {
           updateData.pin = data.pin;
         }
-        if (data.hired_on) {
+
+        // Get original values in YYYY-MM-DD format for comparison
+        const originalHiredOn = cashier.hired_on
+          ? new Date(cashier.hired_on).toISOString().split("T")[0]
+          : null;
+        const originalTerminationDate = cashier.termination_date
+          ? new Date(cashier.termination_date).toISOString().split("T")[0]
+          : null;
+
+        // Only include hired_on if it's non-empty and different from original
+        if (data.hired_on && data.hired_on !== originalHiredOn) {
           updateData.hired_on = data.hired_on;
         }
-        if (data.termination_date !== undefined) {
-          updateData.termination_date = data.termination_date || null;
+
+        // Normalize termination_date: empty string -> null
+        const normalizedTerminationDate = data.termination_date || null;
+        // Only include termination_date if it's different from original
+        if (normalizedTerminationDate !== originalTerminationDate) {
+          updateData.termination_date = normalizedTerminationDate;
         }
 
         await updateCashierMutation.mutateAsync({

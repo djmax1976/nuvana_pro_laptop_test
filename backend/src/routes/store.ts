@@ -10,8 +10,7 @@ import {
   safeValidateCreateTerminalInput,
   safeValidateUpdateTerminalInput,
 } from "../schemas/terminal.schema";
-
-const prisma = new PrismaClient();
+import { prisma } from "../utils/db";
 
 /**
  * Validate IANA timezone using Intl.DateTimeFormat

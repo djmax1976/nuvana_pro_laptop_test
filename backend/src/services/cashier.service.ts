@@ -1,7 +1,16 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import { prisma } from "../utils/db";
 
-const prisma = new PrismaClient();
+/**
+ * Retry configuration for employee_id generation race condition handling
+ */
+const EMPLOYEE_ID_RETRY_CONFIG = {
+  maxAttempts: 5,
+  initialDelayMs: 10,
+  maxDelayMs: 200,
+  backoffMultiplier: 2,
+} as const;
 
 /**
  * Audit context for logging operations
@@ -127,42 +136,81 @@ export class CashierService {
   /**
    * Validate PIN uniqueness within store
    * @param storeId - Store UUID
-   * @param pinHash - Hashed PIN to check
+   * @param pin - Plain text PIN to check
    * @param excludeCashierId - Cashier ID to exclude (for updates)
    * @param prismaClient - Prisma client (for transaction support)
    * @returns True if unique, throws error if duplicate
+   * @note For performance: consider adding a separate indexed non-bcrypt hash column
+   * (e.g. sha256_pin_fingerprint) and enforce uniqueness on that column instead of
+   * comparing every row with bcrypt.compare
    */
   async validatePINUniqueness(
     storeId: string,
-    pinHash: string,
+    pin: string,
     excludeCashierId?: string,
     prismaClient: PrismaClient | Prisma.TransactionClient = prisma,
   ): Promise<boolean> {
     const where: Prisma.CashierWhereInput = {
       store_id: storeId,
-      pin_hash: pinHash,
     };
 
     if (excludeCashierId) {
       where.cashier_id = { not: excludeCashierId };
     }
 
-    const existing = await prismaClient.cashier.findFirst({
+    // Query all cashiers in the store to check PIN uniqueness
+    // We need to compare using bcrypt.compare since bcrypt hashes are salted
+    const cashiers = await prismaClient.cashier.findMany({
       where,
+      select: {
+        pin_hash: true,
+      },
     });
 
-    if (existing) {
-      throw new Error("PIN already in use by another cashier in this store");
+    // Iterate through cashiers and compare PINs using bcrypt
+    for (const cashier of cashiers) {
+      if (cashier.pin_hash && (await bcrypt.compare(pin, cashier.pin_hash))) {
+        throw new Error("PIN already in use by another cashier in this store");
+      }
     }
 
     return true;
   }
 
   /**
-   * Create a new cashier
+   * Sleep for specified milliseconds
+   * @param ms - Milliseconds to sleep
+   */
+  private async sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Check if error is a unique constraint violation on (store_id, employee_id)
+   * @param error - Error to check
+   * @returns True if error is P2002 for store_id/employee_id constraint
+   */
+  private isEmployeeIdConstraintViolation(error: unknown): boolean {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      const target = error.meta?.target as string[] | undefined;
+      return (
+        Array.isArray(target) &&
+        target.includes("store_id") &&
+        target.includes("employee_id")
+      );
+    }
+    return false;
+  }
+
+  /**
+   * Create a new cashier with retry logic for employee_id race conditions
    * @param data - Cashier creation data
    * @param auditContext - Audit context for logging
    * @returns Created cashier (without pin_hash)
+   * @throws Error if creation fails after all retries
    */
   async createCashier(
     data: CreateCashierInput,
@@ -184,60 +232,125 @@ export class CashierService {
     // Validate PIN format
     this.validatePIN(data.pin);
 
-    // Hash PIN
+    // Hash PIN (done once outside retry loop since it's deterministic)
     const pinHash = await this.hashPIN(data.pin);
 
-    // Use transaction for atomicity
-    const result = await prisma.$transaction(
-      async (tx: Prisma.TransactionClient) => {
-        // Validate PIN uniqueness within store
-        await this.validatePINUniqueness(data.store_id, pinHash, undefined, tx);
+    let lastError: unknown;
+    let attempt = 0;
 
-        // Generate employee_id
-        const employeeId = await this.generateEmployeeId(data.store_id, tx);
+    // Retry loop with exponential backoff
+    while (attempt < EMPLOYEE_ID_RETRY_CONFIG.maxAttempts) {
+      try {
+        // Use transaction for atomicity
+        const result = await prisma.$transaction(
+          async (tx: Prisma.TransactionClient) => {
+            // Validate PIN uniqueness within store
+            await this.validatePINUniqueness(
+              data.store_id,
+              data.pin,
+              undefined,
+              tx,
+            );
 
-        // Create cashier
-        const cashier = await tx.cashier.create({
-          data: {
-            store_id: data.store_id,
-            employee_id: employeeId,
-            name: data.name.trim(),
-            pin_hash: pinHash,
-            hired_on: data.hired_on,
-            termination_date: data.termination_date || null,
-            created_by: auditContext.userId,
-            is_active: true,
+            // Generate employee_id
+            const employeeId = await this.generateEmployeeId(data.store_id, tx);
+
+            // Create cashier
+            // Set both is_active=true and disabled_at=NULL atomically for consistency
+            const cashier = await tx.cashier.create({
+              data: {
+                store_id: data.store_id,
+                employee_id: employeeId,
+                name: data.name.trim(),
+                pin_hash: pinHash,
+                hired_on: data.hired_on,
+                termination_date: data.termination_date || null,
+                created_by: auditContext.userId,
+                is_active: true,
+                disabled_at: null, // Explicitly set to NULL for new active cashiers
+              },
+            });
+
+            // Log audit
+            await tx.auditLog.create({
+              data: {
+                user_id: auditContext.userId,
+                action: "CREATE",
+                table_name: "cashiers",
+                record_id: cashier.cashier_id,
+                new_values: {
+                  store_id: cashier.store_id,
+                  employee_id: cashier.employee_id,
+                  name: cashier.name,
+                  hired_on: cashier.hired_on,
+                },
+                ip_address: auditContext.ipAddress,
+                user_agent: auditContext.userAgent,
+              },
+            });
+
+            return cashier;
           },
-        });
+        );
 
-        // Log audit
-        await tx.auditLog.create({
-          data: {
-            user_id: auditContext.userId,
-            action: "CREATE",
-            table_name: "cashiers",
-            record_id: cashier.cashier_id,
-            new_values: {
-              store_id: cashier.store_id,
-              employee_id: cashier.employee_id,
-              name: cashier.name,
-              hired_on: cashier.hired_on,
+        // Success - return result
+        return this.toCashierResponse(result);
+      } catch (error: unknown) {
+        lastError = error;
+
+        // Check if this is an employee_id unique constraint violation
+        if (this.isEmployeeIdConstraintViolation(error)) {
+          attempt++;
+
+          // Calculate exponential backoff delay
+          const delayMs = Math.min(
+            EMPLOYEE_ID_RETRY_CONFIG.initialDelayMs *
+              Math.pow(EMPLOYEE_ID_RETRY_CONFIG.backoffMultiplier, attempt - 1),
+            EMPLOYEE_ID_RETRY_CONFIG.maxDelayMs,
+          );
+
+          // Log retry attempt
+          console.warn(
+            `[CashierService] Employee ID generation race condition detected (attempt ${attempt}/${EMPLOYEE_ID_RETRY_CONFIG.maxAttempts}). Retrying in ${delayMs}ms...`,
+            {
+              store_id: data.store_id,
+              attempt,
+              maxAttempts: EMPLOYEE_ID_RETRY_CONFIG.maxAttempts,
+              delayMs,
             },
-            ip_address: auditContext.ipAddress,
-            user_agent: auditContext.userAgent,
-          },
-        });
+          );
 
-        return cashier;
-      },
-    );
+          // If we've exhausted retries, throw a clear error
+          if (attempt >= EMPLOYEE_ID_RETRY_CONFIG.maxAttempts) {
+            console.error(
+              `[CashierService] Failed to create cashier after ${EMPLOYEE_ID_RETRY_CONFIG.maxAttempts} attempts due to employee_id race condition`,
+              {
+                store_id: data.store_id,
+                attempts: attempt,
+              },
+            );
+            throw new Error(
+              `Failed to create cashier: unable to generate unique employee ID after ${EMPLOYEE_ID_RETRY_CONFIG.maxAttempts} attempts. Please try again.`,
+            );
+          }
 
-    // Return without pin_hash
-    return this.toCashierResponse(result);
+          // Wait before retrying
+          await this.sleep(delayMs);
+          continue;
+        }
+
+        // For non-constraint-violation errors, rethrow immediately
+        throw error;
+      }
+    }
+
+    // This should never be reached, but TypeScript requires it
+    throw lastError || new Error("Unknown error creating cashier");
   }
 
   /**
    * Get cashiers for a store with optional filtering
+   * Uses disabled_at IS NULL as the authoritative field for filtering
    * @param storeId - Store UUID
    * @param filters - Filter options
    * @param auditContext - Audit context for logging
@@ -252,11 +365,17 @@ export class CashierService {
       store_id: storeId,
     };
 
-    // Default to active cashiers only
+    // Use disabled_at IS NULL as authoritative field for filtering
+    // is_active filter is translated to disabled_at for consistency
     if (filters.is_active !== undefined) {
-      where.is_active = filters.is_active;
+      if (filters.is_active) {
+        where.disabled_at = null; // Active = disabled_at IS NULL
+      } else {
+        where.disabled_at = { not: null }; // Inactive = disabled_at IS NOT NULL
+      }
     } else {
-      where.is_active = true;
+      // Default to active cashiers only
+      where.disabled_at = null;
     }
 
     const cashiers = await prisma.cashier.findMany({
@@ -269,21 +388,31 @@ export class CashierService {
 
   /**
    * Get cashier by ID
+   * By default, only returns active cashiers (disabled_at IS NULL)
    * @param storeId - Store UUID
    * @param cashierId - Cashier UUID
    * @param auditContext - Audit context for logging
+   * @param includeDeleted - If true, returns cashier even if soft-deleted
    * @returns Cashier (without pin_hash) or null if not found
    */
   async getCashierById(
     storeId: string,
     cashierId: string,
     auditContext: AuditContext,
+    includeDeleted: boolean = false,
   ): Promise<CashierResponse | null> {
+    const where: Prisma.CashierWhereInput = {
+      cashier_id: cashierId,
+      store_id: storeId,
+    };
+
+    // By default, only return active cashiers (disabled_at IS NULL)
+    if (!includeDeleted) {
+      where.disabled_at = null;
+    }
+
     const cashier = await prisma.cashier.findFirst({
-      where: {
-        cashier_id: cashierId,
-        store_id: storeId,
-      },
+      where,
     });
 
     if (!cashier) {
@@ -340,8 +469,8 @@ export class CashierService {
     // Handle PIN update
     if (data.pin !== undefined) {
       this.validatePIN(data.pin);
+      await this.validatePINUniqueness(storeId, data.pin, cashierId);
       const pinHash = await this.hashPIN(data.pin);
-      await this.validatePINUniqueness(storeId, pinHash, cashierId);
       updateData.pin_hash = pinHash;
     }
 
@@ -390,7 +519,8 @@ export class CashierService {
   }
 
   /**
-   * Soft delete cashier (set is_active=false, disabled_at=now)
+   * Soft delete cashier (set is_active=false, disabled_at=now atomically)
+   * Uses disabled_at as the authoritative field
    * @param storeId - Store UUID
    * @param cashierId - Cashier UUID
    * @param auditContext - Audit context for logging
@@ -400,16 +530,17 @@ export class CashierService {
     cashierId: string,
     auditContext: AuditContext,
   ): Promise<void> {
-    // Verify cashier exists and belongs to store
+    // Verify cashier exists and belongs to store (only check active ones)
     const existing = await prisma.cashier.findFirst({
       where: {
         cashier_id: cashierId,
         store_id: storeId,
+        disabled_at: null, // Only allow deleting active cashiers
       },
     });
 
     if (!existing) {
-      throw new Error("Cashier not found");
+      throw new Error("Cashier not found or already deleted");
     }
 
     // Use transaction for atomicity
@@ -419,13 +550,14 @@ export class CashierService {
         disabled_at: existing.disabled_at,
       };
 
+      const now = new Date();
       await tx.cashier.update({
         where: { cashier_id: cashierId },
         data: {
           is_active: false,
-          disabled_at: new Date(),
+          disabled_at: now,
           updated_by: auditContext.userId,
-          updated_at: new Date(),
+          updated_at: now,
         },
       });
 
@@ -439,13 +571,80 @@ export class CashierService {
           old_values: oldValues,
           new_values: {
             is_active: false,
-            disabled_at: new Date(),
+            disabled_at: now,
           },
           ip_address: auditContext.ipAddress,
           user_agent: auditContext.userAgent,
         },
       });
     });
+  }
+
+  /**
+   * Restore a soft-deleted cashier (set is_active=true, disabled_at=NULL atomically)
+   * Uses disabled_at as the authoritative field
+   * @param storeId - Store UUID
+   * @param cashierId - Cashier UUID
+   * @param auditContext - Audit context for logging
+   */
+  async restoreCashier(
+    storeId: string,
+    cashierId: string,
+    auditContext: AuditContext,
+  ): Promise<CashierResponse> {
+    // Verify cashier exists and belongs to store (only check deleted ones)
+    const existing = await prisma.cashier.findFirst({
+      where: {
+        cashier_id: cashierId,
+        store_id: storeId,
+        disabled_at: { not: null }, // Only allow restoring deleted cashiers
+      },
+    });
+
+    if (!existing) {
+      throw new Error("Cashier not found or already active");
+    }
+
+    // Use transaction for atomicity
+    const result = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const oldValues = {
+          is_active: existing.is_active,
+          disabled_at: existing.disabled_at,
+        };
+
+        const updated = await tx.cashier.update({
+          where: { cashier_id: cashierId },
+          data: {
+            is_active: true,
+            disabled_at: null,
+            updated_by: auditContext.userId,
+            updated_at: new Date(),
+          },
+        });
+
+        // Log audit
+        await tx.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "RESTORE",
+            table_name: "cashiers",
+            record_id: cashierId,
+            old_values: oldValues,
+            new_values: {
+              is_active: true,
+              disabled_at: null,
+            },
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+          },
+        });
+
+        return updated;
+      },
+    );
+
+    return this.toCashierResponse(result);
   }
 
   /**
@@ -467,8 +666,10 @@ export class CashierService {
     }
 
     // Build where clause
+    // Only search active cashiers (disabled_at IS NULL)
     const where: Prisma.CashierWhereInput = {
       store_id: storeId,
+      disabled_at: null, // Only authenticate active cashiers
     };
 
     if (identifier.name) {
@@ -508,8 +709,8 @@ export class CashierService {
       throw new Error("Invalid credentials");
     }
 
-    // Check if cashier is active
-    if (!cashier.is_active) {
+    // Check if cashier is active using authoritative field (disabled_at IS NULL)
+    if (cashier.disabled_at !== null) {
       await logAuthAttempt(false, "Cashier account is inactive");
       throw new Error("Cashier account is inactive");
     }

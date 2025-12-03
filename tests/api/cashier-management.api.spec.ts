@@ -6,6 +6,7 @@ import {
   createUser,
   createClientUser,
 } from "../support/factories";
+import bcrypt from "bcrypt";
 
 /**
  * Cashier Management API Tests
@@ -38,6 +39,14 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
   }) => {
     // GIVEN: I am authenticated as a Client User with CASHIER_CREATE permission
     // (clientUser fixture provides user with company and store)
+
+    // Query existing cashiers count to calculate expected employee_id
+    const existingCashiersCount = await prismaClient.cashier.count({
+      where: { store_id: clientUser.store_id },
+    });
+    const expectedEmployeeId = (existingCashiersCount + 1)
+      .toString()
+      .padStart(4, "0");
 
     const cashierData = createCashierRequest({
       store_id: clientUser.store_id,
@@ -78,8 +87,8 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
       "pin",
     );
 
-    // AND: Employee ID is sequential (0001 for first cashier)
-    expect(body.data.employee_id).toBe("0001");
+    // AND: Employee ID is sequential (based on existing cashiers count)
+    expect(body.data.employee_id).toBe(expectedEmployeeId);
 
     // AND: Cashier record exists in database
     const cashier = await prismaClient.cashier.findUnique({
@@ -87,7 +96,7 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     });
     expect(cashier, "Cashier should exist in database").not.toBeNull();
     expect(cashier?.name).toBe(cashierData.name);
-    expect(cashier?.employee_id).toBe("0001");
+    expect(cashier?.employee_id).toBe(expectedEmployeeId);
 
     // AND: PIN is hashed in database
     expect(cashier?.pin_hash).toBeDefined();
@@ -114,7 +123,17 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     clientUser,
     prismaClient,
   }) => {
-    // GIVEN: I am authenticated and have created one cashier
+    // GIVEN: I am authenticated and query existing cashiers count
+    const initialCashiersCount = await prismaClient.cashier.count({
+      where: { store_id: clientUser.store_id },
+    });
+    const expectedFirstEmployeeId = (initialCashiersCount + 1)
+      .toString()
+      .padStart(4, "0");
+    const expectedSecondEmployeeId = (initialCashiersCount + 2)
+      .toString()
+      .padStart(4, "0");
+
     const cashier1Data = createCashierRequest({
       store_id: clientUser.store_id,
     });
@@ -141,11 +160,11 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
       },
     );
 
-    // THEN: Second cashier has employee_id 0002
+    // THEN: Second cashier has sequential employee_id
     expect(response2.status()).toBe(201);
     const cashier2 = await response2.json();
-    expect(cashier2.data.employee_id).toBe("0002");
-    expect(cashier1.data.employee_id).toBe("0001");
+    expect(cashier2.data.employee_id).toBe(expectedSecondEmployeeId);
+    expect(cashier1.data.employee_id).toBe(expectedFirstEmployeeId);
   });
 
   test("4.91-API-003: [P0] POST /api/stores/:storeId/cashiers - should validate PIN format (4 numeric digits) (AC #3)", async ({
@@ -303,7 +322,7 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
       where: { cashier_id: body.data.cashier_id },
     });
     expect(cashier?.pin_hash, "PIN should be hashed").toBeDefined();
-    const isValid = await require("bcrypt").compare("0001", cashier!.pin_hash!);
+    const isValid = await bcrypt.compare("0001", cashier!.pin_hash!);
     expect(isValid, "PIN hash should verify correctly").toBe(true);
   });
 
@@ -495,7 +514,7 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     expect(cashier).not.toHaveProperty("pin");
   });
 
-  test("4.91-API-007: [P1] GET /api/stores/:storeId/cashiers - should filter by is_active (default: true) (AC #4)", async ({
+  test("4.91-API-007: [P1] GET /api/stores/:storeId/cashiers - should filter by disabled_at IS NULL (default: active only) (AC #4)", async ({
     clientUserApiRequest,
     clientUser,
   }) => {
@@ -529,15 +548,16 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
       `/api/stores/${clientUser.store_id}/cashiers/${inactiveCashierId}`,
     );
 
-    // WHEN: Fetching cashiers with default filter (is_active=true)
+    // WHEN: Fetching cashiers with default filter (disabled_at IS NULL = active)
     const response = await clientUserApiRequest.get(
       `/api/stores/${clientUser.store_id}/cashiers`,
     );
 
-    // THEN: Only active cashiers are returned
+    // THEN: Only active cashiers are returned (disabled_at IS NULL)
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.data.every((c: any) => c.is_active === true)).toBe(true);
+    expect(body.data.every((c: any) => c.disabled_at === null)).toBe(true);
     expect(
       body.data.find((c: any) => c.cashier_id === inactiveCashierId),
     ).toBeUndefined();
@@ -704,7 +724,7 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     expect(cashier?.pin_hash).toMatch(/^\$2[ab]\$/);
 
     // AND: New PIN can be verified
-    const isValid = await require("bcrypt").compare("5678", cashier!.pin_hash!);
+    const isValid = await bcrypt.compare("5678", cashier!.pin_hash!);
     expect(isValid).toBe(true);
   });
 
@@ -739,16 +759,92 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     // THEN: Request succeeds
     expect(response.status()).toBe(204);
 
-    // AND: Cashier is soft-deleted (is_active=false, disabled_at set)
+    // AND: Cashier is soft-deleted (is_active=false, disabled_at set atomically)
     const cashier = await prismaClient.cashier.findUnique({
       where: { cashier_id: cashierId },
     });
     expect(cashier).not.toBeNull();
     expect(cashier?.is_active).toBe(false);
     expect(cashier?.disabled_at).not.toBeNull();
+    expect(cashier?.disabled_at).toBeInstanceOf(Date);
 
     // AND: Record is NOT physically deleted
     expect(cashier?.cashier_id).toBe(cashierId);
+
+    // AND: Cashier is filtered out by default queries (disabled_at IS NOT NULL)
+    const activeCashiers = await prismaClient.cashier.findMany({
+      where: {
+        store_id: clientUser.store_id,
+        disabled_at: null, // Authoritative field for filtering
+      },
+    });
+    expect(
+      activeCashiers.find((c) => c.cashier_id === cashierId),
+    ).toBeUndefined();
+  });
+
+  test("4.91-API-013b: [P1] POST /api/stores/:storeId/cashiers/:cashierId/restore - should restore soft-deleted cashier (AC #5)", async ({
+    clientUserApiRequest,
+    clientUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated and have created and soft-deleted a cashier
+    const cashierData = createCashierRequest({
+      store_id: clientUser.store_id,
+    });
+    const createResponse = await clientUserApiRequest.post(
+      `/api/stores/${clientUser.store_id}/cashiers`,
+      {
+        name: cashierData.name,
+        pin: cashierData.pin,
+        hired_on: cashierData.hired_on,
+      },
+    );
+    const cashierId = (await createResponse.json()).data.cashier_id;
+
+    // Soft delete the cashier
+    await clientUserApiRequest.delete(
+      `/api/stores/${clientUser.store_id}/cashiers/${cashierId}`,
+    );
+
+    // Verify it's deleted
+    const deletedCashier = await prismaClient.cashier.findUnique({
+      where: { cashier_id: cashierId },
+    });
+    expect(deletedCashier?.is_active).toBe(false);
+    expect(deletedCashier?.disabled_at).not.toBeNull();
+
+    // WHEN: Restoring cashier
+    const response = await clientUserApiRequest.post(
+      `/api/stores/${clientUser.store_id}/cashiers/${cashierId}/restore`,
+    );
+
+    // THEN: Request succeeds
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.cashier_id).toBe(cashierId);
+    expect(body.data.is_active).toBe(true);
+    expect(body.data.disabled_at).toBeNull();
+
+    // AND: Cashier is restored (is_active=true, disabled_at=NULL atomically)
+    const restoredCashier = await prismaClient.cashier.findUnique({
+      where: { cashier_id: cashierId },
+    });
+    expect(restoredCashier).not.toBeNull();
+    expect(restoredCashier?.is_active).toBe(true);
+    expect(restoredCashier?.disabled_at).toBeNull();
+
+    // AND: Cashier is included in default queries (disabled_at IS NULL)
+    const activeCashiers = await prismaClient.cashier.findMany({
+      where: {
+        store_id: clientUser.store_id,
+        disabled_at: null, // Authoritative field for filtering
+      },
+    });
+    expect(
+      activeCashiers.find((c) => c.cashier_id === cashierId),
+    ).toBeDefined();
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

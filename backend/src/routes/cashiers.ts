@@ -18,8 +18,7 @@ const createCashierSchema = z.object({
     }),
   pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits"),
   hired_on: z.coerce.date({
-    required_error: "Hired date is required",
-    invalid_type_error: "Invalid date format",
+    message: "Hired date is required and must be a valid date",
   }),
   termination_date: z.coerce.date().nullable().optional(),
 });
@@ -42,7 +41,7 @@ const updateCashierSchema = z.object({
     .optional(),
   hired_on: z.coerce
     .date({
-      invalid_type_error: "Invalid date format",
+      message: "Invalid date format",
     })
     .optional(),
   termination_date: z.coerce.date().nullable().optional(),
@@ -60,13 +59,6 @@ const authenticateCashierSchema = z
   .refine((data) => data.name || data.employee_id, {
     message: "Either name or employee_id must be provided",
   });
-
-/**
- * Zod schema for list query parameters
- */
-const listCashiersQuerySchema = z.object({
-  is_active: z.coerce.boolean().optional(),
-});
 
 /**
  * Validation middleware for POST /api/stores/:storeId/cashiers
@@ -424,7 +416,7 @@ export async function cashierRoutes(fastify: FastifyInstance) {
 
   /**
    * DELETE /api/stores/:storeId/cashiers/:cashierId
-   * Soft delete cashier (set is_active=false, disabled_at=now)
+   * Soft delete cashier (set is_active=false, disabled_at=now atomically)
    *
    * @security Requires CASHIER_DELETE permission
    * @returns 204 No Content
@@ -455,7 +447,7 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error deleting cashier");
 
-        if (message.includes("not found")) {
+        if (message.includes("not found") || message.includes("already")) {
           reply.code(404);
           return {
             success: false,
@@ -469,6 +461,65 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           success: false,
           error: "Internal server error",
           message: "Failed to delete cashier",
+        };
+      }
+    },
+  );
+
+  /**
+   * POST /api/stores/:storeId/cashiers/:cashierId/restore
+   * Restore a soft-deleted cashier (set is_active=true, disabled_at=NULL atomically)
+   *
+   * @security Requires CASHIER_UPDATE permission
+   * @returns Restored cashier data (without pin_hash)
+   */
+  fastify.post(
+    "/api/stores/:storeId/cashiers/:cashierId/restore",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.CASHIER_UPDATE),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as unknown as { user: UserIdentity }).user;
+        const { storeId, cashierId } = request.params as {
+          storeId: string;
+          cashierId: string;
+        };
+        const auditContext = getAuditContext(request, user);
+
+        const cashier = await cashierService.restoreCashier(
+          storeId,
+          cashierId,
+          auditContext,
+        );
+
+        reply.code(200);
+        return {
+          success: true,
+          data: cashier,
+        };
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        fastify.log.error({ error }, "Error restoring cashier");
+
+        if (message.includes("not found") || message.includes("already")) {
+          reply.code(404);
+          return {
+            success: false,
+            error: "Not found",
+            message,
+          };
+        }
+
+        reply.code(500);
+        return {
+          success: false,
+          error: "Internal server error",
+          message: "Failed to restore cashier",
         };
       }
     },
@@ -542,9 +593,7 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           return {
             success: false,
             error: "Authentication failed",
-            message: message.includes("inactive")
-              ? "Cashier account is inactive"
-              : "Invalid credentials",
+            message: "Authentication failed",
           };
         }
 

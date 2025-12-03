@@ -23,8 +23,7 @@ import {
   TransactionLineItemResponse,
   TransactionPaymentResponse,
 } from "../types/transaction.types";
-
-const prisma = new PrismaClient();
+import { prisma } from "../utils/db";
 
 /**
  * Transaction message structure for RabbitMQ

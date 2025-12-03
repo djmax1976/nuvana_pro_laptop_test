@@ -92,18 +92,30 @@ model Store {
   @@map("stores")
 }
 
+/// Cashier model with soft-delete semantics
+/// 
+/// SOFT-DELETE SEMANTICS:
+/// - disabled_at IS NULL = cashier is active (authoritative field for filtering)
+/// - disabled_at IS NOT NULL = cashier is soft-deleted
+/// - is_active is a denormalized boolean for quick checks and backward compatibility
+/// 
+/// RULES:
+/// - When disabling: set is_active=false AND disabled_at=now() atomically
+/// - When re-enabling: set is_active=true AND disabled_at=NULL atomically
+/// - All queries MUST filter by disabled_at IS NULL (not is_active) to ensure consistency
+/// - is_active should be kept in sync with disabled_at for backward compatibility
 model Cashier {
   cashier_id       String    @id @default(uuid()) @db.Uuid
   store_id         String    @db.Uuid
   employee_id      String    @db.VarChar(4) // 4-digit zero-padded, unique per store
   name             String    @db.VarChar(255)
   pin_hash         String    @db.VarChar(255) // bcrypt hashed
-  is_active        Boolean   @default(true)
+  is_active        Boolean   @default(true) // Denormalized: true when disabled_at IS NULL, false when disabled_at IS NOT NULL
   hired_on         DateTime  @db.Date
   termination_date DateTime? @db.Date
   created_at       DateTime  @default(now()) @db.Timestamptz(6)
   updated_at       DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
-  disabled_at      DateTime? @db.Timestamptz(6)
+  disabled_at      DateTime? @db.Timestamptz(6) // Authoritative: NULL = active, NOT NULL = soft-deleted
   created_by       String    @db.Uuid
   updated_by       String?   @db.Uuid
 
@@ -117,6 +129,9 @@ model Cashier {
   @@index([store_id])
   @@index([employee_id])
   @@index([is_active])
+  @@index([disabled_at])
+  @@index([created_by])
+  @@index([updated_by])
   @@map("cashiers")
 }
 

@@ -97,6 +97,22 @@ npm run test:api
 npm run test:e2e
 ```
 
+**Environment Variables**:
+Some E2E tests require authentication credentials. These must be set as environment variables and should never be committed to version control:
+
+- `TEST_EMAIL` - Email address for a test client user with access to stores and cashiers
+- `TEST_PASSWORD` - Password for the test client user
+
+Set these in your `.env.local` file (which should be in `.gitignore`) or in your CI/CD pipeline secrets:
+
+```bash
+# .env.local (do not commit this file)
+TEST_EMAIL=your-test-user@example.com
+TEST_PASSWORD=your-secure-password
+```
+
+Tests will fail fast with a clear error message if these variables are not set.
+
 ## Key Principles
 
 ### 1. No Mocking Auth in E2E Tests

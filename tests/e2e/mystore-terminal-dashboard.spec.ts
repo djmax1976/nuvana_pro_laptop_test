@@ -462,10 +462,11 @@ test.describe("4.9-E2E: CLIENT_OWNER Access Control", () => {
     await page.fill('input[name="password"], input[type="password"]', password);
 
     // WHEN: User submits login form
-    await page.click('button[type="submit"]');
-
-    // Wait for navigation to complete
-    await page.waitForURL(/.*client-dashboard.*/, { timeout: 15000 });
+    // Attach navigation listener BEFORE triggering navigation to avoid race condition
+    await Promise.all([
+      page.waitForURL(/.*client-dashboard.*/, { timeout: 15000 }),
+      page.click('button[type="submit"]'),
+    ]);
 
     // THEN: User should be redirected to /client-dashboard (NOT /mystore or /dashboard)
     expect(page.url()).toContain("/client-dashboard");

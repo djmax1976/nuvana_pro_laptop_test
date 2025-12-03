@@ -18,7 +18,7 @@ export interface ShiftReportData {
       name: string;
     } | null;
     cashier_id: string;
-    cashier_name: {
+    cashier: {
       cashier_id: string;
       name: string;
     } | null;

@@ -49,7 +49,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 /**
  * Form validation schema for terminal authentication
- * Validates cashier name (required) and PIN number (required, minimum length)
+ * Validates cashier name (required) and PIN number (required, exactly 4 numeric digits)
  *
  * MCP Guidance Applied:
  * - FORM_VALIDATION: Mirror backend validation client-side, sanitize all user input
@@ -61,7 +61,8 @@ const terminalAuthFormSchema = z.object({
     .min(1, { message: "Cashier name is required" }),
   pin_number: z
     .string({ message: "PIN number is required" })
-    .min(1, { message: "PIN number is required" }),
+    .min(1, { message: "PIN number is required" })
+    .regex(/^\d{4}$/, { message: "PIN must be exactly 4 numeric digits" }),
 });
 
 type TerminalAuthFormValues = z.infer<typeof terminalAuthFormSchema>;

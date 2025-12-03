@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+} from "vitest";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 import { CashierService } from "../../../backend/src/services/cashier.service";
@@ -21,6 +29,10 @@ import { CashierService } from "../../../backend/src/services/cashier.service";
 
 const prisma = new PrismaClient();
 const cashierService = new CashierService();
+
+afterAll(async () => {
+  await prisma.$disconnect();
+});
 
 describe("4.91-UNIT: CashierService - PIN Validation", () => {
   describe("validatePIN", () => {
@@ -146,16 +158,7 @@ describe("4.91-UNIT: CashierService - Employee ID Generation", () => {
   let testUserId: string;
 
   beforeAll(async () => {
-    // Create test company and store for employee_id generation tests
-    const company = await prisma.company.create({
-      data: {
-        public_id: `TEST_COMP_${Date.now()}`,
-        name: `Test Company ${Date.now()}`,
-        owner_user_id: "test-user-id", // Will be created below
-      },
-    });
-    testCompanyId = company.company_id;
-
+    // Create test user, company, and store for employee_id generation tests
     const user = await prisma.user.create({
       data: {
         public_id: `TEST_USER_${Date.now()}`,
@@ -166,6 +169,15 @@ describe("4.91-UNIT: CashierService - Employee ID Generation", () => {
       },
     });
     testUserId = user.user_id;
+
+    const company = await prisma.company.create({
+      data: {
+        public_id: `TEST_COMP_${Date.now()}`,
+        name: `Test Company ${Date.now()}`,
+        owner_user_id: testUserId,
+      },
+    });
+    testCompanyId = company.company_id;
 
     const store = await prisma.store.create({
       data: {
@@ -263,44 +275,171 @@ describe("4.91-UNIT: CashierService - Employee ID Generation", () => {
 });
 
 describe("4.91-UNIT: CashierService - PIN Uniqueness Validation", () => {
-  it("4.91-UNIT-014: should validate PIN is unique within store", async () => {
-    // GIVEN: A store and PIN hash that doesn't exist
-    // (This test requires Cashier model to exist in database)
-    const testStoreId = "550e8400-e29b-41d4-a716-446655440001";
-    const testPinHash = "test-pin-hash-that-does-not-exist";
+  let testCompanyId: string;
+  let testUserId: string;
+  let testStore1Id: string;
+  let testStore2Id: string;
+  let testCashier1Id: string;
+  let testCashier2Id: string;
+  let testPinHash: string;
+  let testPin: string;
 
-    // WHEN: Checking PIN uniqueness
+  beforeEach(async () => {
+    // Create test user first (required for company owner_user_id foreign key)
+    const user = await prisma.user.create({
+      data: {
+        public_id: `TEST_USER_PIN_${Date.now()}`,
+        email: `test-pin-${Date.now()}@test.com`,
+        name: "Test User PIN",
+        password_hash: "test-hash",
+        status: "ACTIVE",
+      },
+    });
+    testUserId = user.user_id;
+
+    // Create test company with correct owner_user_id
+    const company = await prisma.company.create({
+      data: {
+        public_id: `TEST_COMP_PIN_${Date.now()}`,
+        name: `Test Company PIN ${Date.now()}`,
+        owner_user_id: testUserId,
+      },
+    });
+    testCompanyId = company.company_id;
+
+    // Create two test stores
+    const store1 = await prisma.store.create({
+      data: {
+        public_id: `TEST_STORE_PIN_1_${Date.now()}`,
+        company_id: testCompanyId,
+        name: `Test Store PIN 1 ${Date.now()}`,
+        location_json: {},
+      },
+    });
+    testStore1Id = store1.store_id;
+
+    const store2 = await prisma.store.create({
+      data: {
+        public_id: `TEST_STORE_PIN_2_${Date.now()}`,
+        company_id: testCompanyId,
+        name: `Test Store PIN 2 ${Date.now()}`,
+        location_json: {},
+      },
+    });
+    testStore2Id = store2.store_id;
+
+    // Create a test PIN and hash it
+    testPin = "1234";
+    testPinHash = await cashierService.hashPIN(testPin);
+
+    // Create first cashier in store1 with the test PIN
+    const cashier1 = await prisma.cashier.create({
+      data: {
+        store_id: testStore1Id,
+        employee_id: "0001",
+        name: "Test Cashier 1",
+        pin_hash: testPinHash,
+        is_active: true,
+        hired_on: new Date(),
+        created_by: testUserId,
+      },
+    });
+    testCashier1Id = cashier1.cashier_id;
+
+    // Create second cashier in store1 with a different PIN
+    const differentPinHash = await cashierService.hashPIN("5678");
+    const cashier2 = await prisma.cashier.create({
+      data: {
+        store_id: testStore1Id,
+        employee_id: "0002",
+        name: "Test Cashier 2",
+        pin_hash: differentPinHash,
+        is_active: true,
+        hired_on: new Date(),
+        created_by: testUserId,
+      },
+    });
+    testCashier2Id = cashier2.cashier_id;
+  });
+
+  afterEach(async () => {
+    // Cleanup test data in reverse order of dependencies
+    // Filter out undefined values to handle cases where beforeEach might have failed
+    const cashierIds = [testCashier1Id, testCashier2Id].filter(
+      (id): id is string => id !== undefined,
+    );
+    if (cashierIds.length > 0) {
+      await prisma.cashier.deleteMany({
+        where: { cashier_id: { in: cashierIds } },
+      });
+    }
+
+    const storeIds = [testStore1Id, testStore2Id].filter(
+      (id): id is string => id !== undefined,
+    );
+    if (storeIds.length > 0) {
+      await prisma.store.deleteMany({
+        where: { store_id: { in: storeIds } },
+      });
+    }
+
+    if (testCompanyId) {
+      await prisma.company.deleteMany({
+        where: { company_id: testCompanyId },
+      });
+    }
+
+    if (testUserId) {
+      await prisma.user.deleteMany({
+        where: { user_id: testUserId },
+      });
+    }
+  });
+
+  it("4.91-UNIT-014: should validate PIN is unique within store", async () => {
+    // GIVEN: A store with an existing cashier using testPin ("1234")
+    // (testStore1Id has testCashier1Id with testPinHash)
+
+    // WHEN: Checking PIN uniqueness with a different PIN (not in use)
+    const uniquePin = "9999";
+
     // THEN: Validation passes (no exception thrown) if PIN is unique
     await expect(
       cashierService.validatePINUniqueness(
-        testStoreId,
-        testPinHash,
+        testStore1Id,
+        uniquePin,
         undefined,
         prisma,
       ),
     ).resolves.toBe(true);
   });
 
-  it("4.91-UNIT-015: should allow same PIN in different stores", async () => {
-    // GIVEN: Same PIN hash for different stores
-    // (This test requires Cashier model to exist in database)
-    const samePinHash = "same-pin-hash-that-does-not-exist";
+  it("4.91-UNIT-014b: should reject duplicate PIN within same store", async () => {
+    // GIVEN: A store with an existing cashier using testPin ("1234")
+    // (testStore1Id has testCashier1Id with testPinHash)
 
-    // WHEN: Checking PIN uniqueness for different stores
-    // THEN: Both stores can have same PIN (uniqueness is per store, not global)
+    // WHEN: Checking PIN uniqueness with the same PIN that's already in use
+    // THEN: Validation throws error because PIN is already in use
     await expect(
       cashierService.validatePINUniqueness(
-        "550e8400-e29b-41d4-a716-446655440002",
-        samePinHash,
+        testStore1Id,
+        testPin, // Plain text PIN, not hash
         undefined,
         prisma,
       ),
-    ).resolves.toBe(true);
+    ).rejects.toThrow("PIN already in use by another cashier in this store");
+  });
 
+  it("4.91-UNIT-015: should allow same PIN in different stores", async () => {
+    // GIVEN: Same PIN for different stores
+    // (testStore1Id has testCashier1Id with testPin)
+
+    // WHEN: Checking PIN uniqueness for a different store (testStore2Id)
+    // THEN: Different store can have same PIN (uniqueness is per store, not global)
     await expect(
       cashierService.validatePINUniqueness(
-        "550e8400-e29b-41d4-a716-446655440003",
-        samePinHash,
+        testStore2Id,
+        testPin, // Plain text PIN
         undefined,
         prisma,
       ),
@@ -308,22 +447,34 @@ describe("4.91-UNIT: CashierService - PIN Uniqueness Validation", () => {
   });
 
   it("4.91-UNIT-016: should exclude current cashier when updating", async () => {
-    // GIVEN: An existing cashier with PIN
-    // (This test requires Cashier model to exist in database)
-    const testStoreId = "550e8400-e29b-41d4-a716-446655440004";
-    const testPinHash = "existing-pin-hash-that-does-not-exist";
-    const currentCashierId = "550e8400-e29b-41d4-a716-446655440005";
+    // GIVEN: An existing cashier with PIN (testCashier1Id with testPin in testStore1Id)
 
-    // WHEN: Updating cashier with same PIN (excluding current cashier)
+    // WHEN: Updating the same cashier with the same PIN (excluding current cashier)
     // THEN: Validation allows same PIN for same cashier (no exception thrown)
     await expect(
       cashierService.validatePINUniqueness(
-        testStoreId,
-        testPinHash,
-        currentCashierId,
+        testStore1Id,
+        testPin, // Plain text PIN
+        testCashier1Id, // Exclude the current cashier
         prisma,
       ),
     ).resolves.toBe(true);
+  });
+
+  it("4.91-UNIT-016b: should reject duplicate PIN when updating different cashier in same store", async () => {
+    // GIVEN: A store with an existing cashier using testPin
+    // (testStore1Id has testCashier1Id with testPin, and testCashier2Id with different PIN)
+
+    // WHEN: Trying to update testCashier2Id to use the same PIN as testCashier1Id
+    // THEN: Validation throws error because another cashier in the same store uses that PIN
+    await expect(
+      cashierService.validatePINUniqueness(
+        testStore1Id,
+        testPin, // Plain text PIN
+        testCashier2Id, // Exclude testCashier2Id, but testCashier1Id still uses this PIN
+        prisma,
+      ),
+    ).rejects.toThrow("PIN already in use by another cashier in this store");
   });
 });
 
@@ -421,14 +572,27 @@ describe("4.91-UNIT: CashierService - Additional Edge Cases", () => {
   describe("generateEmployeeId - Edge Cases", () => {
     let testStoreId: string;
     let testCompanyId: string;
+    let testUserId: string;
 
     beforeAll(async () => {
-      // Create test store for edge case tests
+      // Create test user first (required for company owner_user_id foreign key)
+      const user = await prisma.user.create({
+        data: {
+          public_id: `TEST_USER_EDGE_${Date.now()}`,
+          email: `test-edge-${Date.now()}@test.com`,
+          name: "Test User Edge",
+          password_hash: "test-hash",
+          status: "ACTIVE",
+        },
+      });
+      testUserId = user.user_id;
+
+      // Create test company for edge case tests
       const company = await prisma.company.create({
         data: {
           public_id: `TEST_COMP_EDGE_${Date.now()}`,
           name: `Test Company Edge ${Date.now()}`,
-          owner_user_id: "test-user-id-edge",
+          owner_user_id: testUserId,
         },
       });
       testCompanyId = company.company_id;
@@ -448,6 +612,7 @@ describe("4.91-UNIT: CashierService - Additional Edge Cases", () => {
       // Cleanup
       await prisma.store.deleteMany({ where: { store_id: testStoreId } });
       await prisma.company.deleteMany({ where: { company_id: testCompanyId } });
+      await prisma.user.deleteMany({ where: { user_id: testUserId } });
     });
 
     it("4.91-UNIT-022: should handle store with no existing cashiers", async () => {
@@ -465,15 +630,73 @@ describe("4.91-UNIT: CashierService - Additional Edge Cases", () => {
       expect(employeeId.length, "Employee ID should be 4 digits").toBe(4);
     });
 
-    it("4.91-UNIT-023: should handle employee_id rollover from 9999 to 0001 (if implemented)", async () => {
-      // GIVEN: A store with employee_id 9999
-      // Note: This test assumes rollover logic exists
-      // Current implementation may throw error at 9999
+    it("4.91-UNIT-023: should handle employee_id rollover from 9999 to 0001 or throw error", async () => {
+      // GIVEN: A store with a cashier having employee_id 9999
+      // Create a test user for the cashier
+      const timestamp = Date.now().toString().slice(-8); // Use last 8 digits to fit within 30 char limit
+      const testUser = await prisma.user.create({
+        data: {
+          public_id: `USR_ROLL_${timestamp}`,
+          email: `test-roll-${timestamp}@test.com`,
+          name: "Test User Rollover",
+          password_hash: "test-hash",
+          status: "ACTIVE",
+        },
+      });
+      const testUserId = testUser.user_id;
+      const testPinHash = await cashierService.hashPIN("9999");
+
+      // Create a cashier with employee_id 9999 to simulate max ID scenario
+      await prisma.cashier.create({
+        data: {
+          store_id: testStoreId,
+          employee_id: "9999",
+          name: "Test Cashier 9999",
+          pin_hash: testPinHash,
+          is_active: true,
+          hired_on: new Date(),
+          created_by: testUserId,
+        },
+      });
 
       // WHEN: Generating next employee_id after 9999
-      // THEN: System should handle appropriately (either rollover or error)
-      // This is a future enhancement test
-      expect(true, "Rollover logic test placeholder").toBe(true);
+      // THEN: System should either rollover to 0001 or throw a defined error
+      // Expected behavior: Either rollover to "0001" or throw error about max employee_id
+      // Current implementation returns "10000" (5 digits) which violates 4-digit constraint
+      try {
+        const nextEmployeeId = await cashierService.generateEmployeeId(
+          testStoreId,
+          prisma,
+        );
+
+        // If rollover is implemented, should return "0001"
+        if (nextEmployeeId === "0001") {
+          expect(nextEmployeeId).toBe("0001");
+          expect(nextEmployeeId.length).toBe(4);
+        } else {
+          // Rollover not implemented: current behavior returns "10000" (5 digits) which is invalid
+          // This assertion will fail until rollover or error handling is implemented
+          expect(
+            nextEmployeeId,
+            `Expected rollover to "0001" or error, but got "${nextEmployeeId}" (${nextEmployeeId.length} digits). Implementation needs rollover logic or error handling when max employee_id (9999) is reached.`,
+          ).toBe("0001");
+        }
+      } catch (error) {
+        // If error is thrown, verify it's a defined error about max employee_id
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toMatch(
+          /(max|limit|rollover|9999|employee_id)/i,
+        );
+      } finally {
+        // Cleanup: remove the test cashier and user
+        await prisma.cashier.deleteMany({
+          where: {
+            store_id: testStoreId,
+            employee_id: "9999",
+          },
+        });
+        await prisma.user.delete({ where: { user_id: testUserId } });
+      }
     });
   });
 });

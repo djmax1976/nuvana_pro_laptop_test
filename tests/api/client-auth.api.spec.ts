@@ -2290,17 +2290,21 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
       where: { code: "CLIENT_OWNER" },
     });
 
-    if (clientOwnerRole) {
-      // Also assign a role to the same store (creating potential duplicate)
-      await prismaClient.userRole.create({
-        data: {
-          user_id: owner.user_id,
-          role_id: clientOwnerRole.role_id,
-          company_id: company.company_id,
-          store_id: store.store_id,
-        },
-      });
+    if (!clientOwnerRole) {
+      throw new Error(
+        "CLIENT_OWNER role not found - cannot test deduplication scenario",
+      );
     }
+
+    // Also assign a role to the same store (creating potential duplicate)
+    await prismaClient.userRole.create({
+      data: {
+        user_id: owner.user_id,
+        role_id: clientOwnerRole.role_id,
+        company_id: company.company_id,
+        store_id: store.store_id,
+      },
+    });
 
     const token = createJWTAccessToken({
       user_id: owner.user_id,

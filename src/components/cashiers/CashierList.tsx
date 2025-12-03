@@ -336,6 +336,7 @@ export function CashierList({
                         variant="ghost"
                         size="icon"
                         onClick={() => onEditCashier(cashier)}
+                        aria-label={`Edit cashier ${cashier.name || cashier.cashier_id}`}
                         data-testid={`edit-cashier-${cashier.cashier_id}`}
                       >
                         <Edit className="h-4 w-4" />
@@ -344,6 +345,7 @@ export function CashierList({
                         variant="ghost"
                         size="icon"
                         onClick={() => setCashierToDelete(cashier)}
+                        aria-label={`Delete cashier ${cashier.name || cashier.cashier_id}`}
                         data-testid={`delete-cashier-${cashier.cashier_id}`}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />

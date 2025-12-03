@@ -86,6 +86,11 @@ async function apiRequest<T>(
     );
   }
 
+  // Handle 204 No Content responses
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   const result: ApiSuccessResponse<T> = await response.json();
   return result.data;
 }
@@ -220,23 +225,9 @@ export async function deleteCashier(
     throw new Error("Cashier ID is required");
   }
 
-  const url = `${API_BASE_URL}/api/stores/${storeId}/cashiers/${cashierId}`;
-  const response = await fetch(url, {
+  await apiRequest<void>(`/api/stores/${storeId}/cashiers/${cashierId}`, {
     method: "DELETE",
-    credentials: "include",
   });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-    throw new Error(
-      errorData.message || errorData.error || "Failed to delete cashier",
-    );
-  }
-  // DELETE returns 204 No Content, no body to parse
 }
 
 /**

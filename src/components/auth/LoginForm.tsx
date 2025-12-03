@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useToast } from "@/hooks/use-toast";
 
 interface LoginFormProps {
   onSuccess?: () => void;
@@ -15,6 +16,17 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  // Define explicit set of allowed roles
+  const ALLOWED_ROLES = [
+    "CLIENT_OWNER",
+    "CLIENT_USER",
+    "STORE_MANAGER",
+    "SHIFT_MANAGER",
+    "CASHIER",
+    "SUPER_ADMIN",
+  ] as const;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,6 +55,39 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
       // Get user role and client user flag for routing
       const userRole = data.user?.user_role;
       const isClientUser = data.user?.is_client_user === true;
+
+      // Validate userRole against explicit set of allowed roles
+      const isValidRole =
+        userRole &&
+        typeof userRole === "string" &&
+        ALLOWED_ROLES.includes(userRole as any);
+      if (!isValidRole) {
+        console.error("[LoginForm] Role validation failed:", {
+          userRole,
+          allowedRoles: ALLOWED_ROLES,
+          userData: data.user,
+        });
+
+        toast({
+          title: "Authentication Error",
+          description:
+            "Your account has an invalid role. Please contact support.",
+          variant: "destructive",
+        });
+
+        // Clear any partial auth state
+        localStorage.removeItem("auth_session");
+        localStorage.removeItem("client_auth_session");
+
+        // Redirect to login page (safe fallback)
+        setTimeout(() => {
+          window.location.href = "/login";
+        }, 2000);
+
+        setError("Invalid user role. Redirecting to login...");
+        setIsLoading(false);
+        return;
+      }
 
       // Determine if user should go to mystore (terminal dashboard)
       // Only store-level roles go to /mystore: CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER

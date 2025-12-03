@@ -1,8 +1,7 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
-
-const prisma = new PrismaClient();
+import { prisma } from "../utils/db";
 
 /**
  * Audit context for logging operations
