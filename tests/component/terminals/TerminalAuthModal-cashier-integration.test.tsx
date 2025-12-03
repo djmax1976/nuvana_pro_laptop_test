@@ -28,7 +28,6 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
   const mockTerminalName = "Terminal 1";
   const mockStoreId = "store-uuid-123";
   const mockOnOpenChange = vi.fn();
-  const mockOnSubmit = vi.fn();
 
   // Mock cashier data
   const mockCashiers = [
@@ -168,6 +167,7 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
       });
 
     const user = userEvent.setup();
+    // NOTE: Do NOT pass onSubmit to test the internal authentication mutation
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
@@ -175,7 +175,6 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
         storeId={mockStoreId}
         open={true}
         onOpenChange={mockOnOpenChange}
-        onSubmit={mockOnSubmit}
       />,
     );
 
@@ -220,7 +219,7 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
   });
 
   it("[P3] 4.91-COMPONENT-005: should handle authentication success and proceed to shift operations", async () => {
-    // GIVEN: Authentication succeeds
+    // GIVEN: Authentication succeeds (no onSubmit prop = uses internal mutation)
     (global.fetch as any)
       .mockResolvedValueOnce({
         ok: true,
@@ -236,6 +235,7 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
       });
 
     const user = userEvent.setup();
+    // NOTE: Do NOT pass onSubmit to test the internal authentication flow
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
@@ -243,7 +243,6 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
         storeId={mockStoreId}
         open={true}
         onOpenChange={mockOnOpenChange}
-        onSubmit={mockOnSubmit}
       />,
     );
 
@@ -271,18 +270,19 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
     const submitButton = screen.getByTestId("terminal-auth-submit-button");
     await user.click(submitButton);
 
-    // THEN: onSubmit is called with cashier data
+    // THEN: Authenticate endpoint is called
     await waitFor(() => {
-      expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `/api/stores/${mockStoreId}/cashiers/authenticate`,
+        ),
         expect.objectContaining({
-          cashier_id: "cashier-1",
-          employee_id: "0001",
-          name: "John Smith",
+          method: "POST",
         }),
       );
     });
 
-    // AND: Modal closes (proceeds to shift operations)
+    // AND: Modal closes on success (proceeds to shift operations)
     await waitFor(() => {
       expect(mockOnOpenChange).toHaveBeenCalledWith(false);
     });
@@ -416,18 +416,42 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
     // as displayable text (not executed). The native select shows HTML entities,
     // while Radix dropdown shows raw text safely.
     await waitFor(() => {
-      // Check that the malicious cashier names are present in some form
-      // (either as text or escaped HTML entities)
+      // First: Assert that at least one representation of each malicious string exists
+      // (either as escaped HTML entities or as literal-safe text)
       const scriptTexts = screen.queryAllByText(/<script>alert/i);
+      const scriptEscaped = screen.queryByText(/&lt;script&gt;/i);
       const imgTexts = screen.queryAllByText(/John<img/i);
-      // At least one representation should exist
-      expect(
-        scriptTexts.length > 0 ||
-          screen.queryByText(/&lt;script&gt;/i) !== null,
-      ).toBe(true);
-      expect(
-        imgTexts.length > 0 || screen.queryByText(/John&lt;img/i) !== null,
-      ).toBe(true);
+      const imgEscaped = screen.queryByText(/John&lt;img/i);
+
+      // Assert presence: at least one representation must exist for script tag
+      // This ensures the test fails if the malicious content is completely absent
+      const hasScriptRepresentation =
+        scriptTexts.length > 0 || scriptEscaped !== null;
+      expect(hasScriptRepresentation).toBe(true);
+
+      // Assert presence: at least one representation must exist for img tag
+      // This ensures the test fails if the malicious content is completely absent
+      const hasImgRepresentation = imgTexts.length > 0 || imgEscaped !== null;
+      expect(hasImgRepresentation).toBe(true);
+
+      // Second: Assert that no actual executable HTML elements were created
+      // Query for actual <script> elements in the DOM
+      const actualScriptElements = document.querySelectorAll("script");
+      // Filter to only scripts that match our malicious content (not framework scripts)
+      const maliciousScripts = Array.from(actualScriptElements).filter(
+        (script) => script.textContent?.includes("alert('XSS')"),
+      );
+      // This ensures the test fails if real script elements were injected
+      expect(maliciousScripts.length).toBe(0);
+
+      // Query for actual <img> elements that might have been injected
+      const actualImgElements = document.querySelectorAll("img");
+      // Filter to only images that match our malicious content
+      const maliciousImages = Array.from(actualImgElements).filter(
+        (img) => img.getAttribute("src") === "x" || img.getAttribute("onerror"),
+      );
+      // This ensures the test fails if real img elements with malicious attributes were injected
+      expect(maliciousImages.length).toBe(0);
     });
 
     // AND: Component doesn't crash

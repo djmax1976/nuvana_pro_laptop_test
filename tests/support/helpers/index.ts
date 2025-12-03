@@ -19,4 +19,5 @@ export {
   createStore,
   createShift,
   createTransaction,
+  getNextExpectedEmployeeId,
 } from "./database-helpers";

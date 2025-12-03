@@ -311,3 +311,58 @@ export async function createTransaction(
   if (!prisma) await prismaClient.$disconnect();
   return result;
 }
+
+/**
+ * Calculate the next expected employee_id for a store
+ *
+ * This helper queries the maximum existing employee_id for a store (ignoring
+ * soft-deleted rows) and calculates the next sequential employee_id.
+ *
+ * This is more reliable than counting cashiers because:
+ * - It ignores soft-deleted rows (disabled_at IS NOT NULL)
+ * - It handles gaps in employee_id sequences
+ * - It's not affected by parallel tests or leftover records
+ *
+ * @param storeId - Store UUID
+ * @param offset - Optional offset from the next employee_id (default: 0)
+ *                 offset=0 returns the next employee_id
+ *                 offset=1 returns the employee_id after the next one
+ * @param prismaClient - Prisma client instance
+ * @returns Next expected employee_id (4-digit zero-padded string)
+ */
+export async function getNextExpectedEmployeeId(
+  storeId: string,
+  offset: number = 0,
+  prismaClient?: PrismaClient,
+): Promise<string> {
+  const client = prismaClient || new PrismaClient();
+
+  try {
+    // Query max employee_id for this store, ignoring soft-deleted rows
+    const maxCashier = await client.cashier.findFirst({
+      where: {
+        store_id: storeId,
+        disabled_at: null, // Only active (non-soft-deleted) cashiers
+      },
+      orderBy: { employee_id: "desc" },
+      select: { employee_id: true },
+    });
+
+    let nextNumber = 1;
+    if (maxCashier) {
+      // Parse the numeric portion of the employee_id
+      const currentNumber = parseInt(maxCashier.employee_id, 10);
+      if (!isNaN(currentNumber)) {
+        nextNumber = currentNumber + 1 + offset;
+      }
+    } else {
+      // No existing cashiers, start at 1 + offset
+      nextNumber = 1 + offset;
+    }
+
+    // Zero-pad to 4 digits
+    return nextNumber.toString().padStart(4, "0");
+  } finally {
+    if (!prismaClient) await client.$disconnect();
+  }
+}

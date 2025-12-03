@@ -86,13 +86,61 @@ async function apiRequest<T>(
     );
   }
 
-  // Handle 204 No Content responses
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
   const result: ApiSuccessResponse<T> = await response.json();
   return result.data;
+}
+
+/**
+ * Make authenticated API request that returns void (for 204 No Content responses)
+ * Uses credentials: "include" to send httpOnly cookies
+ */
+async function apiRequestVoid(
+  endpoint: string,
+  options: RequestInit = {},
+): Promise<void> {
+  const url = `${API_BASE_URL}${endpoint}`;
+
+  // Only set Content-Type header if there's a body
+  const headers: Record<string, string> = {
+    ...((options.headers as Record<string, string>) || {}),
+  };
+  if (options.body) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    credentials: "include",
+    headers,
+  });
+
+  if (!response.ok) {
+    const errorData: ApiError = await response.json().catch(() => ({
+      success: false,
+      error: "Unknown error",
+      message: `HTTP ${response.status}: ${response.statusText}`,
+    }));
+
+    throw new Error(
+      errorData.message || errorData.error || "API request failed",
+    );
+  }
+
+  // 204 No Content responses have no body, so we just return void
+  if (response.status === 204) {
+    return;
+  }
+
+  // For other successful responses, verify they're empty or parse if needed
+  const contentType = response.headers.get("Content-Type");
+  if (contentType && contentType.includes("application/json")) {
+    const result: ApiSuccessResponse<never> = await response.json();
+    // If we get here, the response had data but we expected void
+    // This shouldn't happen, but we'll return void anyway
+    return;
+  }
+
+  return;
 }
 
 /**
@@ -225,7 +273,7 @@ export async function deleteCashier(
     throw new Error("Cashier ID is required");
   }
 
-  await apiRequest<void>(`/api/stores/${storeId}/cashiers/${cashierId}`, {
+  await apiRequestVoid(`/api/stores/${storeId}/cashiers/${cashierId}`, {
     method: "DELETE",
   });
 }

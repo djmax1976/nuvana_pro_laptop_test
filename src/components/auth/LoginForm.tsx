@@ -62,11 +62,22 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         typeof userRole === "string" &&
         ALLOWED_ROLES.includes(userRole as any);
       if (!isValidRole) {
-        console.error("[LoginForm] Role validation failed:", {
-          userRole,
-          allowedRoles: ALLOWED_ROLES,
-          userData: data.user,
-        });
+        // Log minimal non-PII info in production, detailed info in development
+        if (process.env.NODE_ENV === "development") {
+          console.error("[LoginForm] Role validation failed:", {
+            userRole,
+            allowedRoles: ALLOWED_ROLES,
+            userData: data.user,
+          });
+        } else {
+          console.error("[LoginForm] Role validation failed:", {
+            userRole,
+            allowedRoles: ALLOWED_ROLES,
+            userId: data.user?.id
+              ? `user_${data.user.id.substring(0, 8)}...`
+              : "unknown",
+          });
+        }
 
         toast({
           title: "Authentication Error",

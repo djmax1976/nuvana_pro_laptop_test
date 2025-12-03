@@ -1,5 +1,6 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import { createHash } from "crypto";
 import { prisma } from "../utils/db";
 
 /**
@@ -95,6 +96,15 @@ export class CashierService {
   }
 
   /**
+   * Compute SHA-256 fingerprint of PIN for fast uniqueness checks
+   * @param pin - PIN to fingerprint
+   * @returns SHA-256 hex digest
+   */
+  computePINFingerprint(pin: string): string {
+    return createHash("sha256").update(pin).digest("hex");
+  }
+
+  /**
    * Hash PIN using bcrypt
    * @param pin - PIN to hash
    * @returns Hashed PIN
@@ -140,9 +150,11 @@ export class CashierService {
    * @param excludeCashierId - Cashier ID to exclude (for updates)
    * @param prismaClient - Prisma client (for transaction support)
    * @returns True if unique, throws error if duplicate
-   * @note For performance: consider adding a separate indexed non-bcrypt hash column
-   * (e.g. sha256_pin_fingerprint) and enforce uniqueness on that column instead of
-   * comparing every row with bcrypt.compare
+   * @note Uses fast SHA-256 fingerprint check first, with bcrypt.compare as rare-collision fallback
+   * @deprecated This method is race-prone and should not be used for create/update operations.
+   * The createCashier and updateCashier methods now rely on database unique constraints
+   * on (store_id, sha256_pin_fingerprint) to enforce uniqueness atomically.
+   * This method is kept for testing and early validation purposes only.
    */
   async validatePINUniqueness(
     storeId: string,
@@ -150,25 +162,65 @@ export class CashierService {
     excludeCashierId?: string,
     prismaClient: PrismaClient | Prisma.TransactionClient = prisma,
   ): Promise<boolean> {
+    // Compute SHA-256 fingerprint for fast deterministic check
+    const pinFingerprint = this.computePINFingerprint(pin);
+
+    // Build where clause for fingerprint lookup
     const where: Prisma.CashierWhereInput = {
       store_id: storeId,
+      sha256_pin_fingerprint: pinFingerprint,
     };
 
     if (excludeCashierId) {
       where.cashier_id = { not: excludeCashierId };
     }
 
-    // Query all cashiers in the store to check PIN uniqueness
-    // We need to compare using bcrypt.compare since bcrypt hashes are salted
-    const cashiers = await prismaClient.cashier.findMany({
+    // Fast path: check for existing cashier with same fingerprint
+    const existingCashier = await prismaClient.cashier.findFirst({
       where,
       select: {
+        cashier_id: true,
         pin_hash: true,
       },
     });
 
+    if (existingCashier) {
+      // Verify with bcrypt.compare as rare-collision fallback
+      // (extremely unlikely but provides extra safety)
+      if (
+        existingCashier.pin_hash &&
+        (await bcrypt.compare(pin, existingCashier.pin_hash))
+      ) {
+        throw new Error("PIN already in use by another cashier in this store");
+      }
+    }
+
+    // If no fingerprint match found, check all cashiers with bcrypt as fallback
+    // This handles edge cases where fingerprint might not be set (legacy data)
+    const fallbackWhere: Prisma.CashierWhereInput = {
+      store_id: storeId,
+    };
+
+    if (excludeCashierId) {
+      fallbackWhere.cashier_id = { not: excludeCashierId };
+    }
+
+    const cashiers = await prismaClient.cashier.findMany({
+      where: fallbackWhere,
+      select: {
+        pin_hash: true,
+        sha256_pin_fingerprint: true,
+      },
+    });
+
     // Iterate through cashiers and compare PINs using bcrypt
+    // Skip those we already checked via fingerprint
     for (const cashier of cashiers) {
+      // Skip if we already checked this via fingerprint
+      if (cashier.sha256_pin_fingerprint === pinFingerprint) {
+        continue;
+      }
+
       if (cashier.pin_hash && (await bcrypt.compare(pin, cashier.pin_hash))) {
         throw new Error("PIN already in use by another cashier in this store");
       }
@@ -206,6 +258,26 @@ export class CashierService {
   }
 
   /**
+   * Check if error is a unique constraint violation on (store_id, sha256_pin_fingerprint)
+   * @param error - Error to check
+   * @returns True if error is P2002 for store_id/sha256_pin_fingerprint constraint
+   */
+  private isPINFingerprintConstraintViolation(error: unknown): boolean {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      const target = error.meta?.target as string[] | undefined;
+      return (
+        Array.isArray(target) &&
+        target.includes("store_id") &&
+        target.includes("sha256_pin_fingerprint")
+      );
+    }
+    return false;
+  }
+
+  /**
    * Create a new cashier with retry logic for employee_id race conditions
    * @param data - Cashier creation data
    * @param auditContext - Audit context for logging
@@ -232,9 +304,6 @@ export class CashierService {
     // Validate PIN format
     this.validatePIN(data.pin);
 
-    // Hash PIN (done once outside retry loop since it's deterministic)
-    const pinHash = await this.hashPIN(data.pin);
-
     let lastError: unknown;
     let attempt = 0;
 
@@ -244,18 +313,16 @@ export class CashierService {
         // Use transaction for atomicity
         const result = await prisma.$transaction(
           async (tx: Prisma.TransactionClient) => {
-            // Validate PIN uniqueness within store
-            await this.validatePINUniqueness(
-              data.store_id,
-              data.pin,
-              undefined,
-              tx,
-            );
+            // Compute fingerprint inside transaction to ensure atomicity
+            // This prevents TOCTOU race conditions by relying on DB constraint
+            const pinFingerprint = this.computePINFingerprint(data.pin);
+            const pinHash = await this.hashPIN(data.pin);
 
             // Generate employee_id
             const employeeId = await this.generateEmployeeId(data.store_id, tx);
 
             // Create cashier
+            // The unique constraint on (store_id, sha256_pin_fingerprint) enforces PIN uniqueness
             // Set both is_active=true and disabled_at=NULL atomically for consistency
             const cashier = await tx.cashier.create({
               data: {
@@ -263,6 +330,7 @@ export class CashierService {
                 employee_id: employeeId,
                 name: data.name.trim(),
                 pin_hash: pinHash,
+                sha256_pin_fingerprint: pinFingerprint,
                 hired_on: data.hired_on,
                 termination_date: data.termination_date || null,
                 created_by: auditContext.userId,
@@ -337,6 +405,14 @@ export class CashierService {
           // Wait before retrying
           await this.sleep(delayMs);
           continue;
+        }
+
+        // Check if this is a PIN fingerprint unique constraint violation
+        if (this.isPINFingerprintConstraintViolation(error)) {
+          // PIN already exists - throw immediately with clear error message
+          throw new Error(
+            "PIN already in use by another cashier in this store",
+          );
         }
 
         // For non-constraint-violation errors, rethrow immediately
@@ -467,55 +543,71 @@ export class CashierService {
     }
 
     // Handle PIN update
+    // Pre-validate PIN format (early validation for better UX)
     if (data.pin !== undefined) {
       this.validatePIN(data.pin);
-      await this.validatePINUniqueness(storeId, data.pin, cashierId);
-      const pinHash = await this.hashPIN(data.pin);
-      updateData.pin_hash = pinHash;
     }
 
     updateData.updater = { connect: { user_id: auditContext.userId } };
     updateData.updated_at = new Date();
 
-    // Use transaction for atomicity
-    const result = await prisma.$transaction(
-      async (tx: Prisma.TransactionClient) => {
-        const oldValues = {
-          name: existing.name,
-          hired_on: existing.hired_on,
-          termination_date: existing.termination_date,
-          is_active: existing.is_active,
-        };
+    try {
+      // Use transaction for atomicity
+      const result = await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          // Compute fingerprint inside transaction to ensure atomicity
+          // This prevents TOCTOU race conditions by relying on DB constraint
+          if (data.pin !== undefined) {
+            const pinFingerprint = this.computePINFingerprint(data.pin);
+            const pinHash = await this.hashPIN(data.pin);
+            updateData.pin_hash = pinHash;
+            updateData.sha256_pin_fingerprint = pinFingerprint;
+          }
 
-        const updated = await tx.cashier.update({
-          where: { cashier_id: cashierId },
-          data: updateData,
-        });
+          const oldValues = {
+            name: existing.name,
+            hired_on: existing.hired_on,
+            termination_date: existing.termination_date,
+            is_active: existing.is_active,
+          };
 
-        // Log audit
-        await tx.auditLog.create({
-          data: {
-            user_id: auditContext.userId,
-            action: "UPDATE",
-            table_name: "cashiers",
-            record_id: updated.cashier_id,
-            old_values: oldValues,
-            new_values: {
-              name: updated.name,
-              hired_on: updated.hired_on,
-              termination_date: updated.termination_date,
-              is_active: updated.is_active,
+          const updated = await tx.cashier.update({
+            where: { cashier_id: cashierId },
+            data: updateData,
+          });
+
+          // Log audit
+          await tx.auditLog.create({
+            data: {
+              user_id: auditContext.userId,
+              action: "UPDATE",
+              table_name: "cashiers",
+              record_id: updated.cashier_id,
+              old_values: oldValues,
+              new_values: {
+                name: updated.name,
+                hired_on: updated.hired_on,
+                termination_date: updated.termination_date,
+                is_active: updated.is_active,
+              },
+              ip_address: auditContext.ipAddress,
+              user_agent: auditContext.userAgent,
             },
-            ip_address: auditContext.ipAddress,
-            user_agent: auditContext.userAgent,
-          },
-        });
+          });
 
-        return updated;
-      },
-    );
+          return updated;
+        },
+      );
 
-    return this.toCashierResponse(result);
+      return this.toCashierResponse(result);
+    } catch (error: unknown) {
+      // Handle PIN fingerprint constraint violation
+      if (this.isPINFingerprintConstraintViolation(error)) {
+        throw new Error("PIN already in use by another cashier in this store");
+      }
+      // Re-throw other errors
+      throw error;
+    }
   }
 
   /**

@@ -6,6 +6,7 @@ import {
   createUser,
   createClientUser,
 } from "../support/factories";
+import { getNextExpectedEmployeeId } from "../support/helpers";
 import bcrypt from "bcrypt";
 
 /**
@@ -40,13 +41,12 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     // GIVEN: I am authenticated as a Client User with CASHIER_CREATE permission
     // (clientUser fixture provides user with company and store)
 
-    // Query existing cashiers count to calculate expected employee_id
-    const existingCashiersCount = await prismaClient.cashier.count({
-      where: { store_id: clientUser.store_id },
-    });
-    const expectedEmployeeId = (existingCashiersCount + 1)
-      .toString()
-      .padStart(4, "0");
+    // Calculate expected employee_id by querying max employee_id (ignoring soft-deleted rows)
+    const expectedEmployeeId = await getNextExpectedEmployeeId(
+      clientUser.store_id,
+      0,
+      prismaClient,
+    );
 
     const cashierData = createCashierRequest({
       store_id: clientUser.store_id,
@@ -123,16 +123,13 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     clientUser,
     prismaClient,
   }) => {
-    // GIVEN: I am authenticated and query existing cashiers count
-    const initialCashiersCount = await prismaClient.cashier.count({
-      where: { store_id: clientUser.store_id },
-    });
-    const expectedFirstEmployeeId = (initialCashiersCount + 1)
-      .toString()
-      .padStart(4, "0");
-    const expectedSecondEmployeeId = (initialCashiersCount + 2)
-      .toString()
-      .padStart(4, "0");
+    // GIVEN: I am authenticated and calculate expected employee_ids
+    // Query max employee_id (ignoring soft-deleted rows) to get next sequential IDs
+    const expectedFirstEmployeeId = await getNextExpectedEmployeeId(
+      clientUser.store_id,
+      0,
+      prismaClient,
+    );
 
     const cashier1Data = createCashierRequest({
       store_id: clientUser.store_id,
@@ -146,6 +143,13 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
       },
     );
     const cashier1 = await response1.json();
+
+    // Calculate expected second employee_id after first cashier is created
+    const expectedSecondEmployeeId = await getNextExpectedEmployeeId(
+      clientUser.store_id,
+      0,
+      prismaClient,
+    );
 
     // WHEN: Creating a second cashier for the same store
     const cashier2Data = createCashierRequest({

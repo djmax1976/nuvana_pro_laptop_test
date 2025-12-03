@@ -105,19 +105,20 @@ model Store {
 /// - All queries MUST filter by disabled_at IS NULL (not is_active) to ensure consistency
 /// - is_active should be kept in sync with disabled_at for backward compatibility
 model Cashier {
-  cashier_id       String    @id @default(uuid()) @db.Uuid
-  store_id         String    @db.Uuid
-  employee_id      String    @db.VarChar(4) // 4-digit zero-padded, unique per store
-  name             String    @db.VarChar(255)
-  pin_hash         String    @db.VarChar(255) // bcrypt hashed
-  is_active        Boolean   @default(true) // Denormalized: true when disabled_at IS NULL, false when disabled_at IS NOT NULL
-  hired_on         DateTime  @db.Date
-  termination_date DateTime? @db.Date
-  created_at       DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
-  disabled_at      DateTime? @db.Timestamptz(6) // Authoritative: NULL = active, NOT NULL = soft-deleted
-  created_by       String    @db.Uuid
-  updated_by       String?   @db.Uuid
+  cashier_id              String    @id @default(uuid()) @db.Uuid
+  store_id                String    @db.Uuid
+  employee_id             String    @db.VarChar(4) // 4-digit zero-padded, unique per store
+  name                    String    @db.VarChar(255)
+  pin_hash                String    @db.VarChar(255) // bcrypt hashed
+  sha256_pin_fingerprint  String?   @db.VarChar(64) // SHA-256 hex digest for fast uniqueness checks
+  is_active               Boolean   @default(true) // Denormalized: true when disabled_at IS NULL, false when disabled_at IS NOT NULL
+  hired_on                DateTime  @db.Date
+  termination_date        DateTime? @db.Date
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  disabled_at             DateTime? @db.Timestamptz(6) // Authoritative: NULL = active, NOT NULL = soft-deleted
+  created_by              String    @db.Uuid
+  updated_by              String?   @db.Uuid
 
   store    Store    @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
   creator  User     @relation("CashierCreatedBy", fields: [created_by], references: [user_id])
@@ -126,6 +127,7 @@ model Cashier {
 
   @@unique([store_id, employee_id])
   @@unique([store_id, pin_hash])
+  @@unique([store_id, sha256_pin_fingerprint])
   @@index([store_id])
   @@index([employee_id])
   @@index([is_active])

@@ -314,9 +314,9 @@ test.describe("Cashier Store Dropdown", () => {
     await page.screenshot({ path: "test-results/cashier-after-submit.png" });
 
     // Check for success - either toast message or dialog closed
-    const toastSuccess = page.locator(
-      'text="has been added successfully" or text="Cashier created"',
-    );
+    const toastSuccess = page
+      .locator('text="has been added successfully"')
+      .or(page.locator('text="Cashier created"'));
     const toastVisible = await toastSuccess
       .isVisible({ timeout: 3000 })
       .catch(() => false);
