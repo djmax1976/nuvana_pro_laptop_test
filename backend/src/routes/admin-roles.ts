@@ -104,12 +104,18 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const { include_deleted } = request.query as {
+        const { include_deleted, scope } = request.query as {
           include_deleted?: string;
+          scope?: "SYSTEM" | "COMPANY" | "STORE";
         };
         const includeDeleted = include_deleted === "true";
 
-        const roles = await roleAdminService.getAllRoles(includeDeleted);
+        let roles = await roleAdminService.getAllRoles(includeDeleted);
+
+        // Filter by scope if provided
+        if (scope && ["SYSTEM", "COMPANY", "STORE"].includes(scope)) {
+          roles = roles.filter((role) => role.scope === scope);
+        }
 
         return {
           success: true,

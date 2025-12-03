@@ -30,6 +30,10 @@ import { createTransactionPayload } from "../support/factories";
 import { createCompany, createStore, createUser } from "../support/helpers";
 import { PrismaClient } from "@prisma/client";
 
+// Skip bulk import integration tests unless explicitly enabled (requires RabbitMQ and worker)
+// Set BULK_IMPORT_TESTS=true to run these tests
+const bulkImportEnabled = process.env.BULK_IMPORT_TESTS === "true";
+
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
@@ -164,6 +168,10 @@ async function waitForJobStatus(
 // =============================================================================
 
 test.describe("Bulk Import Integration - End-to-End Flow", () => {
+  test.skip(
+    !bulkImportEnabled,
+    "Bulk import integration tests require BULK_IMPORT_TESTS=true",
+  );
   // Run tests serially to avoid rate limiting on bulk import endpoint
   // The endpoint has a rate limit of 5 uploads per minute per user
   test.describe.configure({ mode: "serial" });

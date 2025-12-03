@@ -59,7 +59,7 @@ describe("4.8-COMPONENT: ShiftAndDayPage Component", () => {
   const mockDashboardData = {
     user: {
       id: "550e8400-e29b-41d4-a716-446655440001",
-      email: "cashier@example.com",
+      email: "cashier@test.com",
       name: "Test Cashier",
     },
     companies: [],
@@ -84,7 +84,7 @@ describe("4.8-COMPONENT: ShiftAndDayPage Component", () => {
     mockUseClientAuth.mockReturnValue({
       user: {
         id: "550e8400-e29b-41d4-a716-446655440001",
-        email: "cashier@example.com",
+        email: "cashier@test.com",
         name: "Test Cashier",
       },
       permissions: [],

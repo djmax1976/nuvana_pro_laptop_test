@@ -105,10 +105,24 @@ test.describe("2.8-API: User Management API - User CRUD Operations", () => {
     const existingUser = createAdminUser();
     await prismaClient.user.create({ data: existingUser });
 
+    // Get a SYSTEM scope role for the new user request
+    const systemRole = await prismaClient.role.findFirst({
+      where: { scope: "SYSTEM" },
+    });
+    if (!systemRole) {
+      throw new Error("No SYSTEM scope role found in database");
+    }
+
     // WHEN: Creating another user with the same email
     const response = await superadminApiRequest.post("/api/admin/users", {
       email: existingUser.email,
       name: "New User",
+      roles: [
+        {
+          role_id: systemRole.role_id,
+          scope_type: "SYSTEM",
+        },
+      ],
     });
 
     // THEN: Duplicate email error is returned
@@ -124,7 +138,7 @@ test.describe("2.8-API: User Management API - User CRUD Operations", () => {
     // GIVEN: I am authenticated as a System Admin with missing name
     // WHEN: Creating a user without name
     const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "test@example.com",
+      email: "test@test.com",
       // name is missing
     });
 
@@ -728,28 +742,55 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: A user with an assigned role
+    // GIVEN: A user with TWO assigned roles (users must have at least one role)
     const user = await prismaClient.user.create({
       data: createAdminUser(),
     });
 
-    const role = await prismaClient.role.findFirst({
-      where: { scope: "SYSTEM" },
+    // Get SUPERADMIN role (SYSTEM scope) and any COMPANY scope role
+    const superadminRole = await prismaClient.role.findUnique({
+      where: { code: "SUPERADMIN" },
     });
-    if (!role) {
-      throw new Error("No SYSTEM scope role found in database");
+    const companyRole = await prismaClient.role.findFirst({
+      where: { scope: "COMPANY" },
+    });
+    if (!superadminRole || !companyRole) {
+      throw new Error(
+        "Need SUPERADMIN and at least one COMPANY scope role in database",
+      );
     }
 
-    const userRole = await prismaClient.userRole.create({
+    // Create a test company for the COMPANY-scoped role
+    const testCompany = await prismaClient.company.create({
       data: {
-        user_id: user.user_id,
-        role_id: role.role_id,
+        name: `TEST_REVOKE_COMPANY_${Date.now()}`,
+        public_id: `TREV${Date.now()}`.slice(0, 20),
+        status: "ACTIVE",
+        owner_user_id: user.user_id,
       },
     });
 
-    // WHEN: Revoking the role
+    // Create first role (SUPERADMIN - SYSTEM scope, the one to keep)
+    await prismaClient.userRole.create({
+      data: {
+        user_id: user.user_id,
+        role_id: superadminRole.role_id,
+        company_id: null,
+      },
+    });
+
+    // Create second role (COMPANY scope, the one to revoke)
+    const userRoleToRevoke = await prismaClient.userRole.create({
+      data: {
+        user_id: user.user_id,
+        role_id: companyRole.role_id,
+        company_id: testCompany.company_id,
+      },
+    });
+
+    // WHEN: Revoking the second role
     const response = await superadminApiRequest.delete(
-      `/api/admin/users/${user.user_id}/roles/${userRole.user_role_id}`,
+      `/api/admin/users/${user.user_id}/roles/${userRoleToRevoke.user_role_id}`,
     );
 
     // THEN: Role is revoked successfully
@@ -759,7 +800,7 @@ test.describe("2.8-API: User Management API - Role Assignment Operations", () =>
 
     // AND: Role assignment no longer exists
     const deletedUserRole = await prismaClient.userRole.findUnique({
-      where: { user_role_id: userRole.user_role_id },
+      where: { user_role_id: userRoleToRevoke.user_role_id },
     });
     expect(deletedUserRole).toBeNull();
 
@@ -830,7 +871,7 @@ test.describe("2.8-API: User Management API - Permission Enforcement", () => {
     const createResponse = await storeManagerApiRequest.post(
       "/api/admin/users",
       {
-        email: "test@example.com",
+        email: "test@test.com",
         name: "Test User",
       },
     );
@@ -887,7 +928,7 @@ test.describe("2.8-API: User Management API - Permission Enforcement", () => {
       `${backendUrl}/api/admin/users/${user.user_id}`,
     );
     const createResponse = await request.post(`${backendUrl}/api/admin/users`, {
-      data: { email: "test@example.com", name: "Test" },
+      data: { email: "test@test.com", name: "Test" },
     });
 
     // THEN: All return 401 Unauthorized
@@ -903,7 +944,7 @@ test.describe("2.8-API: User Management API - Security", () => {
   }) => {
     // WHEN: Attempting SQL injection
     const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "test@example.com",
+      email: "test@test.com",
       name: "'; DROP TABLE users;--",
     });
 
@@ -921,7 +962,7 @@ test.describe("2.8-API: User Management API - Security", () => {
   }) => {
     // WHEN: Attempting XSS injection
     const response = await superadminApiRequest.post("/api/admin/users", {
-      email: "test@example.com",
+      email: "test@test.com",
       name: "<script>alert('xss')</script>",
     });
 

@@ -47,7 +47,7 @@ describe("AuthContext Theme Restoration", () => {
       // GIVEN: User has existing session and dark theme preference
       const user = {
         id: "user-123",
-        email: "user@example.com",
+        email: "user@test.com",
         name: "Test User",
       };
       const authSession = JSON.stringify({
@@ -87,7 +87,7 @@ describe("AuthContext Theme Restoration", () => {
       // GIVEN: User has existing session and light theme preference
       const user = {
         id: "user-456",
-        email: "user2@example.com",
+        email: "user2@test.com",
         name: "User 2",
       };
       const authSession = JSON.stringify({
@@ -127,7 +127,7 @@ describe("AuthContext Theme Restoration", () => {
       // GIVEN: User has existing session but NO theme preference
       const user = {
         id: "user-789",
-        email: "newuser@example.com",
+        email: "newuser@test.com",
         name: "New User",
       };
       const authSession = JSON.stringify({
@@ -182,7 +182,7 @@ describe("AuthContext Theme Restoration", () => {
       // GIVEN: User has dark theme preference saved
       const user = {
         id: "user-123",
-        email: "user@example.com",
+        email: "user@test.com",
         name: "Test User",
       };
       const userThemeKey = `nuvana-theme-${user.id}`;
@@ -236,7 +236,7 @@ describe("AuthContext Theme Restoration", () => {
       // GIVEN: User has light theme preference saved
       const user = {
         id: "user-456",
-        email: "user2@example.com",
+        email: "user2@test.com",
         name: "User 2",
       };
       const userThemeKey = `nuvana-theme-${user.id}`;
@@ -259,7 +259,7 @@ describe("AuthContext Theme Restoration", () => {
       // GIVEN: User has NO theme preference saved
       const user = {
         id: "user-789",
-        email: "newuser@example.com",
+        email: "newuser@test.com",
         name: "New User",
       };
       const userThemeKey = `nuvana-theme-${user.id}`;
@@ -282,7 +282,7 @@ describe("AuthContext Theme Restoration", () => {
       // GIVEN: User A has dark preference
       const userA = {
         id: "user-a",
-        email: "usera@example.com",
+        email: "usera@test.com",
         name: "User A",
       };
       const userAThemeKey = `nuvana-theme-${userA.id}`;
@@ -302,12 +302,12 @@ describe("AuthContext Theme Restoration", () => {
       // GIVEN: User A has dark, User B has light
       const userA = {
         id: "user-a",
-        email: "usera@example.com",
+        email: "usera@test.com",
         name: "User A",
       };
       const userB = {
         id: "user-b",
-        email: "userb@example.com",
+        email: "userb@test.com",
         name: "User B",
       };
       const userAThemeKey = `nuvana-theme-${userA.id}`;

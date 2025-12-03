@@ -18,7 +18,7 @@ test.describe("E2E-003: Homepage Contact Form", () => {
 
     // WHEN: User fills out form with valid data and submits
     await page.locator('input[name="name"]').fill("John Doe");
-    await page.locator('input[name="email"]').fill("john.doe@example.com");
+    await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page
       .locator('textarea[name="message"]')
       .fill("I'm interested in learning more about Nuvana Pro.");
@@ -92,20 +92,23 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     page,
   }) => {
     // GIVEN: User is on homepage contact form with valid data
-    await page.goto("/");
-    await page
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    const getStartedButton = page
       .getByRole("button", { name: /Get Started/i })
-      .first()
-      .click();
+      .first();
+    await expect(getStartedButton).toBeVisible({ timeout: 10000 });
+    await getStartedButton.click();
 
     await page.locator('input[name="name"]').fill("John Doe");
-    await page.locator('input[name="email"]').fill("john.doe@example.com");
+    await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page.locator('textarea[name="message"]').fill("Test message");
 
-    // WHEN: User submits form
-    // Intercept with delay to test loading state
+    // Set up route interception BEFORE clicking submit
+    // Use full URL pattern to intercept cross-origin request to backend
     await page.route("**/api/contact", async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Add delay to allow checking button state during submission
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -114,11 +117,28 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     });
 
     const submitButton = page.getByRole("button", { name: /Send Message/i });
-    await submitButton.click();
+    await expect(submitButton).toBeEnabled();
 
-    // THEN: Button shows "Sending..." text and is disabled
-    await expect(page.getByText(/Sending.../i)).toBeVisible();
-    await expect(submitButton).toBeDisabled();
+    // WHEN: User submits form - click and immediately check for loading state
+    const clickPromise = submitButton.click();
+
+    // THEN: Button should show "Sending..." text while request is in flight
+    // Use a short timeout since we need to catch the transient state
+    const sendingButton = page.getByRole("button", { name: /Sending/i });
+    await expect(sendingButton).toBeVisible({ timeout: 3000 });
+    await expect(sendingButton).toBeDisabled();
+
+    // Wait for click action and response to complete
+    await clickPromise;
+
+    // THEN: Success message should appear after submission completes
+    await expect(
+      page.getByText(/Thank you! We'll be in touch soon/i),
+    ).toBeVisible({ timeout: 5000 });
+
+    // AND: Submit button should be re-enabled after submission completes
+    const finalButton = page.getByRole("button", { name: /Send Message/i });
+    await expect(finalButton).toBeEnabled({ timeout: 5000 });
   });
 
   test("[P2] should clear form fields after successful submission", async ({
@@ -132,7 +152,7 @@ test.describe("E2E-003: Homepage Contact Form", () => {
       .click();
 
     await page.locator('input[name="name"]').fill("John Doe");
-    await page.locator('input[name="email"]').fill("john.doe@example.com");
+    await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page.locator('textarea[name="message"]').fill("Test message");
 
     await page.route("**/api/contact", async (route) => {
@@ -167,7 +187,7 @@ test.describe("E2E-003: Homepage Contact Form", () => {
       .click();
 
     await page.locator('input[name="name"]').fill("John Doe");
-    await page.locator('input[name="email"]').fill("john.doe@example.com");
+    await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page.locator('textarea[name="message"]').fill("Test message");
 
     // WHEN: Form submission fails (server error)

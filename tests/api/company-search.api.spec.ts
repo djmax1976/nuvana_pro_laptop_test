@@ -18,6 +18,8 @@ import { createCompany, createUser } from "../support/helpers";
  * - Focus on critical search scenarios
  * - Verify security (SQL injection, XSS)
  * - Validate business rules (min length, ACTIVE filter)
+ *
+ * NOTE: Each test uses unique identifiers to prevent data collision with other tests
  */
 
 // =============================================================================
@@ -29,39 +31,42 @@ test.describe("Company Search API - Search by Company Name", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
+    const testId = Date.now();
+    const searchPrefix = `SearchTest${testId}`;
+
     // GIVEN: Multiple companies with similar names
     const owner1 = await createUser(prismaClient, {
-      email: "owner1@test.com",
+      email: `owner1_${testId}@test.com`,
       name: "Owner One",
     });
     const owner2 = await createUser(prismaClient, {
-      email: "owner2@test.com",
+      email: `owner2_${testId}@test.com`,
       name: "Owner Two",
     });
     const owner3 = await createUser(prismaClient, {
-      email: "owner3@test.com",
+      email: `owner3_${testId}@test.com`,
       name: "Owner Three",
     });
 
     await createCompany(prismaClient, {
-      name: "Acme Corporation",
+      name: `Test ${searchPrefix}Acme Corporation`,
       owner_user_id: owner1.user_id,
       status: "ACTIVE",
     });
     await createCompany(prismaClient, {
-      name: "ACME Industries",
+      name: `Test ${searchPrefix}ACME Industries`,
       owner_user_id: owner2.user_id,
       status: "ACTIVE",
     });
     await createCompany(prismaClient, {
-      name: "Beta Corp",
+      name: `Test ${searchPrefix}Beta Corp`,
       owner_user_id: owner3.user_id,
       status: "ACTIVE",
     });
 
-    // WHEN: Searching for "acme" (lowercase)
+    // WHEN: Searching for the unique prefix + "acme" (lowercase)
     const response = await superadminApiRequest.get(
-      "/api/companies?search=acme",
+      `/api/companies?search=${searchPrefix}acme`,
     );
 
     // THEN: Both ACME companies are returned
@@ -69,29 +74,35 @@ test.describe("Company Search API - Search by Company Name", () => {
     const body = await response.json();
     expect(body.data).toHaveLength(2);
     expect(body.data.map((c: any) => c.name)).toEqual(
-      expect.arrayContaining(["Acme Corporation", "ACME Industries"]),
+      expect.arrayContaining([
+        `Test ${searchPrefix}Acme Corporation`,
+        `Test ${searchPrefix}ACME Industries`,
+      ]),
     );
-    expect(body.data.map((c: any) => c.name)).not.toContain("Beta Corp");
+    expect(body.data.map((c: any) => c.name)).not.toContain(
+      `Test ${searchPrefix}Beta Corp`,
+    );
   });
 
   test("should return empty array when no companies match search", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
+    const testId = Date.now();
     // GIVEN: A company that won't match the search
     const owner = await createUser(prismaClient, {
-      email: "owner@test.com",
+      email: `owner_${testId}@test.com`,
       name: "Owner",
     });
     await createCompany(prismaClient, {
-      name: "Acme Corporation",
+      name: `ExistingCompany${testId}`,
       owner_user_id: owner.user_id,
       status: "ACTIVE",
     });
 
-    // WHEN: Searching for non-existent company
+    // WHEN: Searching for non-existent company with unique string
     const response = await superadminApiRequest.get(
-      "/api/companies?search=NonExistent",
+      `/api/companies?search=NonExistent${testId}xyz`,
     );
 
     // THEN: Empty array is returned
@@ -111,30 +122,33 @@ test.describe("Company Search API - Search by Owner", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
+    const testId = Date.now();
+    const uniqueOwnerName = `UniqueJohn${testId}`;
+
     // GIVEN: Companies with different owners
     const owner1 = await createUser(prismaClient, {
-      email: "john.smith@test.com",
-      name: "John Smith",
+      email: `john.smith_${testId}@test.com`,
+      name: `${uniqueOwnerName} Smith`,
     });
     const owner2 = await createUser(prismaClient, {
-      email: "jane.doe@test.com",
+      email: `jane.doe_${testId}@test.com`,
       name: "Jane Doe",
     });
 
     const company1 = await createCompany(prismaClient, {
-      name: "Company A",
+      name: `Company A ${testId}`,
       owner_user_id: owner1.user_id,
       status: "ACTIVE",
     });
     const company2 = await createCompany(prismaClient, {
-      name: "Company B",
+      name: `Company B ${testId}`,
       owner_user_id: owner2.user_id,
       status: "ACTIVE",
     });
 
-    // WHEN: Searching for "john" (owner name)
+    // WHEN: Searching for the unique owner name
     const response = await superadminApiRequest.get(
-      "/api/companies?search=john",
+      `/api/companies?search=${uniqueOwnerName}`,
     );
 
     // THEN: Only Company A is returned
@@ -142,37 +156,40 @@ test.describe("Company Search API - Search by Owner", () => {
     const body = await response.json();
     expect(body.data).toHaveLength(1);
     expect(body.data[0].company_id).toBe(company1.company_id);
-    expect(body.data[0].owner_name).toBe("John Smith");
+    expect(body.data[0].owner_name).toBe(`${uniqueOwnerName} Smith`);
   });
 
   test("should find companies by owner email (case-insensitive partial match)", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
+    const testId = Date.now();
+    const uniqueEmailDomain = `acmecorp${testId}`;
+
     // GIVEN: Companies with different owner emails
     const owner1 = await createUser(prismaClient, {
-      email: "admin@acmecorp.com",
+      email: `admin@${uniqueEmailDomain}.test.nuvana.local`,
       name: "Admin User",
     });
     const owner2 = await createUser(prismaClient, {
-      email: "ceo@betacorp.com",
+      email: `ceo_${testId}@test.nuvana.local`,
       name: "CEO User",
     });
 
     const company1 = await createCompany(prismaClient, {
-      name: "Company A",
+      name: `Company A ${testId}`,
       owner_user_id: owner1.user_id,
       status: "ACTIVE",
     });
     const company2 = await createCompany(prismaClient, {
-      name: "Company B",
+      name: `Company B ${testId}`,
       owner_user_id: owner2.user_id,
       status: "ACTIVE",
     });
 
-    // WHEN: Searching for "acmecorp" (part of email)
+    // WHEN: Searching for the unique email domain
     const response = await superadminApiRequest.get(
-      "/api/companies?search=acmecorp",
+      `/api/companies?search=${uniqueEmailDomain}`,
     );
 
     // THEN: Only Company A is returned
@@ -180,61 +197,66 @@ test.describe("Company Search API - Search by Owner", () => {
     const body = await response.json();
     expect(body.data).toHaveLength(1);
     expect(body.data[0].company_id).toBe(company1.company_id);
-    expect(body.data[0].owner_email).toBe("admin@acmecorp.com");
+    expect(body.data[0].owner_email).toContain(
+      `@${uniqueEmailDomain}.test.nuvana.local`,
+    );
   });
 
   test("should search across company name, owner name, and owner email simultaneously", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: Companies where "tech" appears in different fields
+    const testId = Date.now();
+    const searchTerm = `techsearch${testId}`;
+
+    // GIVEN: Companies where the searchTerm appears in different fields
     const owner1 = await createUser(prismaClient, {
-      email: "admin@company.com",
-      name: "Tech Expert",
+      email: `admin_${testId}@test.nuvana.local`,
+      name: `${searchTerm} Expert`, // searchTerm in name
     });
     const owner2 = await createUser(prismaClient, {
-      email: "techguru@company.com",
+      email: `${searchTerm}guru@test.nuvana.local`, // searchTerm in email
       name: "Regular User",
     });
     const owner3 = await createUser(prismaClient, {
-      email: "admin@other.com",
+      email: `admin2_${testId}@test.nuvana.local`,
       name: "Other User",
     });
 
     const company1 = await createCompany(prismaClient, {
-      name: "Tech Solutions Inc",
+      name: `Test ${searchTerm} Solutions Inc`, // searchTerm in company name
       owner_user_id: owner1.user_id,
       status: "ACTIVE",
     });
     const company2 = await createCompany(prismaClient, {
-      name: "Business Corp",
+      name: `Test Business Corp ${testId}`, // owner1 also owns this - searchTerm in owner name
       owner_user_id: owner1.user_id,
       status: "ACTIVE",
     });
     const company3 = await createCompany(prismaClient, {
-      name: "Consulting LLC",
+      name: `Test Consulting LLC ${testId}`, // searchTerm in owner email
       owner_user_id: owner2.user_id,
       status: "ACTIVE",
     });
     const company4 = await createCompany(prismaClient, {
-      name: "Services Inc",
+      name: `Test Services Inc ${testId}`, // No searchTerm anywhere
       owner_user_id: owner3.user_id,
       status: "ACTIVE",
     });
 
-    // WHEN: Searching for "tech"
+    // WHEN: Searching for searchTerm
     const response = await superadminApiRequest.get(
-      "/api/companies?search=tech",
+      `/api/companies?search=${searchTerm}`,
     );
 
-    // THEN: All three companies with "tech" are returned (company name, owner name, owner email)
+    // THEN: All three companies with searchTerm are returned (company name, owner name, owner email)
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.data).toHaveLength(3);
     const companyIds = body.data.map((c: any) => c.company_id);
-    expect(companyIds).toContain(company1.company_id); // "Tech Solutions Inc"
-    expect(companyIds).toContain(company2.company_id); // Owner "Tech Expert"
-    expect(companyIds).toContain(company3.company_id); // Email "techguru@..."
+    expect(companyIds).toContain(company1.company_id); // company name
+    expect(companyIds).toContain(company2.company_id); // Owner name
+    expect(companyIds).toContain(company3.company_id); // Email
     expect(companyIds).not.toContain(company4.company_id);
   });
 });
@@ -248,13 +270,14 @@ test.describe("Company Search API - Minimum Length", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
+    const testId = Date.now();
     // GIVEN: A company that would match a single character
     const owner = await createUser(prismaClient, {
-      email: "owner@test.com",
+      email: `owner_${testId}@test.com`,
       name: "Owner",
     });
     await createCompany(prismaClient, {
-      name: "Acme Corp",
+      name: `Test Acme Corp ${testId}`,
       owner_user_id: owner.user_id,
       status: "ACTIVE",
     });
@@ -272,19 +295,24 @@ test.describe("Company Search API - Minimum Length", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
+    const testId = Date.now();
+    const uniquePrefix = `Zq${testId}`; // Very unique 2-char prefix
+
     // GIVEN: A company that matches 2 characters
     const owner = await createUser(prismaClient, {
-      email: "owner@test.com",
+      email: `owner_${testId}@test.com`,
       name: "Owner",
     });
     const company = await createCompany(prismaClient, {
-      name: "Acme Corp",
+      name: `${uniquePrefix} Corp`,
       owner_user_id: owner.user_id,
       status: "ACTIVE",
     });
 
     // WHEN: Searching with 2 characters
-    const response = await superadminApiRequest.get("/api/companies?search=Ac");
+    const response = await superadminApiRequest.get(
+      `/api/companies?search=Zq${testId}`,
+    );
 
     // THEN: Results are returned
     expect(response.status()).toBe(200);
@@ -297,13 +325,14 @@ test.describe("Company Search API - Minimum Length", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
+    const testId = Date.now();
     // GIVEN: A company
     const owner = await createUser(prismaClient, {
-      email: "owner@test.com",
+      email: `owner_${testId}@test.com`,
       name: "Owner",
     });
     await createCompany(prismaClient, {
-      name: "Acme Corp",
+      name: `Test Acme Corp ${testId}`,
       owner_user_id: owner.user_id,
       status: "ACTIVE",
     });
@@ -329,30 +358,33 @@ test.describe("Company Search API - Status Filtering", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
+    const testId = Date.now();
+    const uniqueName = `StatusFilter${testId}`;
+
     // GIVEN: Companies with different statuses
     const owner1 = await createUser(prismaClient, {
-      email: "owner1@test.com",
+      email: `owner1_${testId}@test.com`,
       name: "Owner One",
     });
     const owner2 = await createUser(prismaClient, {
-      email: "owner2@test.com",
+      email: `owner2_${testId}@test.com`,
       name: "Owner Two",
     });
 
     const activeCompany = await createCompany(prismaClient, {
-      name: "Acme Active",
+      name: `${uniqueName} Active`,
       owner_user_id: owner1.user_id,
       status: "ACTIVE",
     });
     const inactiveCompany = await createCompany(prismaClient, {
-      name: "Acme Inactive",
+      name: `${uniqueName} Inactive`,
       owner_user_id: owner2.user_id,
       status: "INACTIVE",
     });
 
     // WHEN: Searching with status=ACTIVE filter
     const response = await superadminApiRequest.get(
-      "/api/companies?search=acme&status=ACTIVE",
+      `/api/companies?search=${uniqueName}&status=ACTIVE`,
     );
 
     // THEN: Only ACTIVE company is returned
@@ -367,39 +399,42 @@ test.describe("Company Search API - Status Filtering", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
+    const testId = Date.now();
+    const uniqueName = `AllStatus${testId}`;
+
     // GIVEN: Companies with different statuses
     const owner1 = await createUser(prismaClient, {
-      email: "owner1@test.com",
+      email: `owner1_${testId}@test.com`,
       name: "Owner One",
     });
     const owner2 = await createUser(prismaClient, {
-      email: "owner2@test.com",
+      email: `owner2_${testId}@test.com`,
       name: "Owner Two",
     });
     const owner3 = await createUser(prismaClient, {
-      email: "owner3@test.com",
+      email: `owner3_${testId}@test.com`,
       name: "Owner Three",
     });
 
     await createCompany(prismaClient, {
-      name: "Beta Active",
+      name: `${uniqueName} Active`,
       owner_user_id: owner1.user_id,
       status: "ACTIVE",
     });
     await createCompany(prismaClient, {
-      name: "Beta Inactive",
+      name: `${uniqueName} Inactive`,
       owner_user_id: owner2.user_id,
       status: "INACTIVE",
     });
     await createCompany(prismaClient, {
-      name: "Beta Suspended",
+      name: `${uniqueName} Suspended`,
       owner_user_id: owner3.user_id,
       status: "SUSPENDED",
     });
 
     // WHEN: Searching without status filter
     const response = await superadminApiRequest.get(
-      "/api/companies?search=beta",
+      `/api/companies?search=${uniqueName}`,
     );
 
     // THEN: All companies are returned
@@ -422,13 +457,14 @@ test.describe("Company Search API - Security", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
+    const testId = Date.now();
     // GIVEN: A normal company
     const owner = await createUser(prismaClient, {
-      email: "owner@test.com",
+      email: `owner_${testId}@test.com`,
       name: "Owner",
     });
     await createCompany(prismaClient, {
-      name: "Test Company",
+      name: `Test Company ${testId}`,
       owner_user_id: owner.user_id,
       status: "ACTIVE",
     });
@@ -486,15 +522,18 @@ test.describe("Company Search API - Pagination", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
+    const testId = Date.now();
+    const uniqueName = `PaginationTest${testId}`;
+
     // GIVEN: 5 companies matching search
     const owner = await createUser(prismaClient, {
-      email: "owner@test.com",
+      email: `owner_${testId}@test.com`,
       name: "Owner",
     });
 
     for (let i = 1; i <= 5; i++) {
       await createCompany(prismaClient, {
-        name: `Search Company ${i}`,
+        name: `${uniqueName} Company ${i}`,
         owner_user_id: owner.user_id,
         status: "ACTIVE",
       });
@@ -502,7 +541,7 @@ test.describe("Company Search API - Pagination", () => {
 
     // WHEN: Requesting page 1 with limit 3
     const response1 = await superadminApiRequest.get(
-      "/api/companies?search=Search&page=1&limit=3",
+      `/api/companies?search=${uniqueName}&page=1&limit=3`,
     );
 
     // THEN: First page has 3 results
@@ -516,7 +555,7 @@ test.describe("Company Search API - Pagination", () => {
 
     // WHEN: Requesting page 2
     const response2 = await superadminApiRequest.get(
-      "/api/companies?search=Search&page=2&limit=3",
+      `/api/companies?search=${uniqueName}&page=2&limit=3`,
     );
 
     // THEN: Second page has remaining 2 results

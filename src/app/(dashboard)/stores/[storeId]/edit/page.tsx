@@ -1,13 +1,14 @@
 "use client";
 
+import { use } from "react";
 import { StoreForm } from "@/components/stores/StoreForm";
 import { useStore } from "@/lib/api/stores";
 import { useSearchParams } from "next/navigation";
 
 interface EditStorePageProps {
-  params: {
+  params: Promise<{
     storeId: string;
-  };
+  }>;
 }
 
 /**
@@ -15,9 +16,10 @@ interface EditStorePageProps {
  * Form for editing an existing store (Corporate Admin)
  */
 export default function EditStorePage({ params }: EditStorePageProps) {
+  const { storeId } = use(params);
   const searchParams = useSearchParams();
   const companyId = searchParams?.get("companyId");
-  const { data: store, isLoading } = useStore(params.storeId);
+  const { data: store, isLoading } = useStore(storeId);
 
   if (isLoading) {
     return (

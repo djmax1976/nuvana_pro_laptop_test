@@ -49,10 +49,10 @@ export function parseCsvFile(fileContent: string): ParseResult {
       const rowNumber = index + 2; // +2 because index is 0-based and we skip header row
 
       try {
-        // Validate required fields
-        if (!record.store_id || !record.shift_id || !record.cashier_id) {
+        // Validate required fields (cashier_id is optional per schema)
+        if (!record.store_id || !record.shift_id) {
           throw new Error(
-            "Missing required fields: store_id, shift_id, and cashier_id are required",
+            "Missing required fields: store_id and shift_id are required",
           );
         }
 
@@ -72,11 +72,11 @@ export function parseCsvFile(fileContent: string): ParseResult {
         }
 
         // Convert CSV record to TransactionPayload
-        // Expected columns: store_id, shift_id, cashier_id, timestamp, line_items (JSON), payments (JSON), subtotal, tax, discount
+        // Expected columns: store_id, shift_id, cashier_id (optional), timestamp, line_items (JSON), payments (JSON), subtotal, tax, discount
         const transaction: TransactionPayload = {
           store_id: record.store_id,
           shift_id: record.shift_id,
-          cashier_id: record.cashier_id,
+          cashier_id: record.cashier_id || undefined,
           pos_terminal_id: record.pos_terminal_id || undefined,
           timestamp: record.timestamp || new Date().toISOString(),
           subtotal,
@@ -146,15 +146,12 @@ export function parseJsonFile(fileContent: string): ParseResult {
       const rowNumber = index + 1;
 
       try {
-        // Validate required fields
+        // Validate required fields (cashier_id is optional per schema)
         if (!record.store_id) {
           throw new Error("store_id is required");
         }
         if (!record.shift_id) {
           throw new Error("shift_id is required");
-        }
-        if (!record.cashier_id) {
-          throw new Error("cashier_id is required");
         }
 
         // Validate and convert line_items to array
@@ -194,11 +191,11 @@ export function parseJsonFile(fileContent: string): ParseResult {
           );
         }
 
-        // Validate and convert to TransactionPayload
+        // Validate and convert to TransactionPayload (cashier_id is optional per schema)
         const transaction: TransactionPayload = {
           store_id: record.store_id,
           shift_id: record.shift_id,
-          cashier_id: record.cashier_id,
+          cashier_id: record.cashier_id || undefined,
           pos_terminal_id: record.pos_terminal_id || undefined,
           timestamp: record.timestamp || new Date().toISOString(),
           subtotal,

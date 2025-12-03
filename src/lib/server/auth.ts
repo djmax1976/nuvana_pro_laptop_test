@@ -55,11 +55,12 @@ interface AuthMeResponse {
  * Check if the current user has Super Admin permission (ADMIN_SYSTEM_CONFIG)
  * This function makes a server-side request to the backend API to verify permissions
  *
- * @returns Object with isAuthorized boolean and user info if authorized
+ * @returns Object with isAuthorized boolean, isAuthenticated boolean, and user info if authorized
  * @throws Error if authentication fails
  */
 export async function checkSuperAdminPermission(): Promise<{
   isAuthorized: boolean;
+  isAuthenticated: boolean;
   user: ServerUser | null;
 }> {
   try {
@@ -68,7 +69,7 @@ export async function checkSuperAdminPermission(): Promise<{
     const accessToken = cookieStore.get("access_token");
 
     if (!accessToken) {
-      return { isAuthorized: false, user: null };
+      return { isAuthorized: false, isAuthenticated: false, user: null };
     }
 
     // Make server-side request to backend to verify user and get permissions
@@ -96,7 +97,7 @@ export async function checkSuperAdminPermission(): Promise<{
         console.error(
           `Auth request timed out after ${AUTH_REQUEST_TIMEOUT_MS}ms`,
         );
-        return { isAuthorized: false, user: null };
+        return { isAuthorized: false, isAuthenticated: false, user: null };
       }
       // Re-throw other errors to be handled by outer catch
       throw error;
@@ -105,7 +106,8 @@ export async function checkSuperAdminPermission(): Promise<{
     }
 
     if (!response.ok) {
-      return { isAuthorized: false, user: null };
+      // User has a token but it's invalid or expired - treat as not authenticated
+      return { isAuthorized: false, isAuthenticated: false, user: null };
     }
 
     const data: AuthMeResponse = await response.json();
@@ -117,10 +119,11 @@ export async function checkSuperAdminPermission(): Promise<{
 
     return {
       isAuthorized: hasPermission,
+      isAuthenticated: true,
       user: hasPermission ? data.user : null,
     };
   } catch (error) {
     console.error("Error checking Super Admin permission:", error);
-    return { isAuthorized: false, user: null };
+    return { isAuthorized: false, isAuthenticated: false, user: null };
   }
 }

@@ -43,17 +43,59 @@ export type StoreData = {
 };
 
 /**
+ * Validates that email matches test markers for cleanup
+ */
+function validateTestEmail(email: string): void {
+  const testMarkers = [
+    "@test.nuvana.local",
+    "@test.com",
+    "test_",
+    "e2e-",
+    "e2e_",
+  ];
+  const hasMarker = testMarkers.some(
+    (marker) => email.endsWith(marker) || email.startsWith(marker),
+  );
+  if (!hasMarker && process.env.NODE_ENV !== "production") {
+    console.warn(
+      `⚠️  WARNING: Email "${email}" does not match test markers and may not be cleaned up automatically. Use @test.nuvana.local, @test.com, or prefix with test_/e2e-`,
+    );
+  }
+}
+
+/**
+ * Validates that name matches test markers for cleanup
+ */
+function validateTestName(name: string, entityType: "company" | "store"): void {
+  const testPrefixes = ["Test ", "E2E ", "test_", "e2e_"];
+  const hasPrefix = testPrefixes.some((prefix) => name.startsWith(prefix));
+  if (!hasPrefix && process.env.NODE_ENV !== "production") {
+    console.warn(
+      `⚠️  WARNING: ${entityType} name "${name}" does not start with test marker (Test /E2E /test_/e2e_) and may not be cleaned up automatically.`,
+    );
+  }
+}
+
+/**
  * Creates a User test data object
  * Email format: test_<random>@test.nuvana.local (identifiable for cleanup)
  */
-export const createUser = (overrides: Partial<UserData> = {}): UserData => ({
-  public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-  email: `test_${faker.string.alphanumeric(8).toLowerCase()}@test.nuvana.local`,
-  name: `Test ${faker.person.fullName()}`,
-  auth_provider_id: faker.string.uuid(),
-  status: "ACTIVE",
-  ...overrides,
-});
+export const createUser = (overrides: Partial<UserData> = {}): UserData => {
+  const email =
+    overrides.email ||
+    `test_${faker.string.alphanumeric(8).toLowerCase()}@test.nuvana.local`;
+  if (overrides.email) {
+    validateTestEmail(email);
+  }
+  return {
+    public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+    email,
+    name: `Test ${faker.person.fullName()}`,
+    auth_provider_id: faker.string.uuid(),
+    status: "ACTIVE",
+    ...overrides,
+  };
+};
 
 /**
  * Creates a Company test data object
@@ -62,28 +104,40 @@ export const createUser = (overrides: Partial<UserData> = {}): UserData => ({
  */
 export const createCompany = (
   overrides: Partial<CompanyData> & { owner_user_id: string },
-): CompanyData => ({
-  public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-  name: `Test ${faker.company.name()}`,
-  status: "ACTIVE",
-  ...overrides,
-});
+): CompanyData => {
+  const name = overrides.name || `Test ${faker.company.name()}`;
+  if (overrides.name) {
+    validateTestName(name, "company");
+  }
+  return {
+    public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+    name,
+    status: "ACTIVE",
+    ...overrides,
+  };
+};
 
 /**
  * Creates a Store test data object
  * Name format: Test <random> Store (identifiable for cleanup)
  */
-export const createStore = (overrides: Partial<StoreData> = {}): StoreData => ({
-  public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
-  company_id: overrides.company_id || faker.string.uuid(),
-  name: `Test ${faker.company.name()} Store`,
-  location_json: {
-    address: faker.location.streetAddress(),
-  },
-  timezone: "America/New_York",
-  status: "ACTIVE",
-  ...overrides,
-});
+export const createStore = (overrides: Partial<StoreData> = {}): StoreData => {
+  const name = overrides.name || `Test ${faker.company.name()} Store`;
+  if (overrides.name) {
+    validateTestName(name, "store");
+  }
+  return {
+    public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+    company_id: overrides.company_id || faker.string.uuid(),
+    name,
+    location_json: {
+      address: faker.location.streetAddress(),
+    },
+    timezone: "America/New_York",
+    status: "ACTIVE",
+    ...overrides,
+  };
+};
 
 /**
  * Creates multiple User test data objects

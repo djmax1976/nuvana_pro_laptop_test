@@ -1,5 +1,6 @@
 "use client";
 
+import { use } from "react";
 import { useStore, useDeleteStore } from "@/lib/api/stores";
 import { Button } from "@/components/ui/button";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -21,9 +22,9 @@ import {
 } from "@/components/ui/alert-dialog";
 
 interface StoreDetailPageProps {
-  params: {
+  params: Promise<{
     storeId: string;
-  };
+  }>;
 }
 
 /**
@@ -31,6 +32,7 @@ interface StoreDetailPageProps {
  * Displays store details and provides edit/delete actions
  */
 export default function StoreDetailPage({ params }: StoreDetailPageProps) {
+  const { storeId } = use(params);
   const router = useRouter();
   const searchParams = useSearchParams();
   const companyId = searchParams?.get("companyId") || "";
@@ -38,7 +40,7 @@ export default function StoreDetailPage({ params }: StoreDetailPageProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const deleteMutation = useDeleteStore();
 
-  const { data: store, isLoading, error } = useStore(params.storeId);
+  const { data: store, isLoading, error } = useStore(storeId);
 
   const handleDelete = async () => {
     if (!store) return;

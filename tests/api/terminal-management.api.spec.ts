@@ -1352,9 +1352,10 @@ test.describe("Terminal Management API", () => {
     });
 
     // WHEN: Attempting SQL injection in device_id
+    // Use unique device_id to avoid unique constraint violations in parallel tests
     const terminalData = {
       name: "SQL Test Terminal",
-      device_id: "' OR '1'='1",
+      device_id: `' OR '1'='1-${Date.now()}`,
     };
 
     const response = await superadminApiRequest.post(
@@ -1365,7 +1366,7 @@ test.describe("Terminal Management API", () => {
     // THEN: Terminal is created safely
     expect(response.status()).toBe(201);
     const createdTerminal = await response.json();
-    expect(createdTerminal.device_id).toBe("' OR '1'='1"); // Stored safely
+    expect(createdTerminal.device_id).toContain("' OR '1'='1"); // Stored safely (with unique suffix)
   });
 
   /**

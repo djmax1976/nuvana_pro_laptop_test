@@ -8,7 +8,7 @@ describe("ContactForm component", () => {
       target: { value: "John Doe" },
     });
     fireEvent.change(screen.getByLabelText(/Email/i), {
-      target: { value: "john.doe@example.com" },
+      target: { value: "john.doe@test.com" },
     });
     fireEvent.change(screen.getByLabelText(/Message/i), {
       target: { value: "This is a demo message" },

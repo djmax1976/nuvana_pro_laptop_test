@@ -1292,7 +1292,7 @@ test.describe("Transaction Import API - Security", () => {
     if (response.status() === 202) {
       const tables = await prismaClient.$queryRaw`
         SELECT table_name FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'Transaction'
+        WHERE table_schema = 'public' AND table_name = 'transactions'
       `;
       expect(
         Array.isArray(tables) && tables.length > 0,
@@ -1404,16 +1404,36 @@ test.describe("Transaction Import API - Security", () => {
       unit_price: 1.0,
     }));
 
-    // WHEN: Sending oversized payload
-    const response = await corporateAdminApiRequest.post(
-      "/api/transactions",
-      payload,
-    );
+    try {
+      // WHEN: Sending oversized payload
+      const response = await corporateAdminApiRequest.post(
+        "/api/transactions",
+        payload,
+      );
 
-    // THEN: Should return 400 (payload too large) or 413 (entity too large)
-    expect([400, 413, 404], "Should reject oversized payload").toContain(
-      response.status(),
-    );
+      // THEN: Should return 400 (payload too large) or 413 (entity too large)
+      expect([400, 413, 404], "Should reject oversized payload").toContain(
+        response.status(),
+      );
+    } catch (error: unknown) {
+      // EPIPE/ECONNRESET errors are expected when server closes connection for oversized payload
+      // The server correctly rejects the payload before the client finishes sending,
+      // which breaks the TCP pipe. This is valid and expected behavior for payload size limits.
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const isConnectionError =
+        errorMessage.includes("EPIPE") ||
+        errorMessage.includes("ECONNRESET") ||
+        errorMessage.includes("socket hang up") ||
+        errorMessage.includes("write EPIPE");
+
+      // If it's a connection error, the test passes - server correctly rejected the oversized payload
+      // If it's some other error, fail the test with details
+      expect(
+        isConnectionError,
+        `Expected connection error (EPIPE/ECONNRESET) for oversized payload rejection, but got: ${errorMessage}`,
+      ).toBe(true);
+    }
   });
 
   test("3.2-API-037: [P1] should not leak internal error details in response", async ({

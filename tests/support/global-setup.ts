@@ -14,6 +14,27 @@
  */
 
 import { PrismaClient } from "@prisma/client";
+import { execSync } from "child_process";
+import { join } from "path";
+
+/**
+ * Purge RabbitMQ queues to eliminate stale messages from previous test runs
+ * This prevents flaky tests caused by messages from previous runs being processed
+ *
+ * Uses the external purge-rabbitmq.js script for proper RabbitMQ handling
+ */
+function purgeRabbitMQQueues(): void {
+  try {
+    const scriptPath = join(__dirname, "purge-rabbitmq.js");
+    execSync(`node "${scriptPath}"`, {
+      stdio: "inherit",
+      env: process.env,
+    });
+  } catch (error) {
+    // Script handles its own error logging, just continue
+    console.log("   ○ RabbitMQ purge completed (check output above)\n");
+  }
+}
 
 // Test email patterns - ONLY users matching these will be deleted
 const TEST_EMAIL_PATTERNS = {
@@ -29,6 +50,9 @@ const TEST_NAME_PATTERNS = {
 async function globalSetup() {
   console.log("\n🧹 Global Setup: Cleaning TEST DATA before tests...\n");
   console.log("   ℹ️  Only data with test markers will be deleted\n");
+
+  // Purge RabbitMQ queues first to prevent stale messages from affecting tests
+  await purgeRabbitMQQueues();
 
   const prisma = new PrismaClient();
 

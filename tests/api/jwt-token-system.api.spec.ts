@@ -12,6 +12,31 @@ import { createUserWithRole } from "../support/helpers/user-with-role.helper";
 import { faker } from "@faker-js/faker";
 
 /**
+ * Safely normalizes error text from API response body.
+ * Prefers body.message if it's a string, otherwise uses body.error if it's a string,
+ * otherwise stringifies body.error (JSON.stringify) or uses String(body.error).
+ */
+function normalizeErrorText(body: any): string {
+  if (body === null || body === undefined) {
+    return "";
+  }
+  if (typeof body.message === "string") {
+    return body.message;
+  }
+  if (typeof body.error === "string") {
+    return body.error;
+  }
+  if (body.error !== undefined && body.error !== null) {
+    try {
+      return JSON.stringify(body.error);
+    } catch {
+      return String(body.error);
+    }
+  }
+  return String(body.message ?? body.error ?? "");
+}
+
+/**
  * JWT Token System API Tests
  *
  * These tests verify the JWT token generation and validation system:
@@ -375,7 +400,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     // AND: Error message indicates token expiration
     const body = await response.json();
     expect(body).toHaveProperty("error");
-    expect(body.error).toContain("expired");
+    expect(normalizeErrorText(body).toLowerCase()).toContain("expired");
   });
 
   test("[P0] 1.6-API-003-003: POST /api/auth/refresh should return 401 for invalid refresh token", async ({
@@ -401,7 +426,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     // AND: Error message indicates invalid token
     const body = await response.json();
     expect(body).toHaveProperty("error");
-    expect(body.error).toContain("token");
+    expect(normalizeErrorText(body).toLowerCase()).toContain("token");
   });
 
   test("[P0] 1.6-API-003-004: POST /api/auth/refresh should return 401 for missing refresh token cookie", async ({
@@ -417,7 +442,8 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     // AND: Error message indicates missing token
     const body = await response.json();
     expect(body).toHaveProperty("error");
-    expect(body.error).toContain("token");
+    // Error can be in either the error field (legacy) or message field (standard API format)
+    expect(normalizeErrorText(body).toLowerCase()).toContain("token");
   });
 
   test("[P0] 1.6-API-003-005: Refresh token should be rotated (old token invalidated, new token issued)", async ({
@@ -521,7 +547,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     // AND: Error message indicates invalid token
     const body = await response.json();
     expect(body).toHaveProperty("error");
-    expect(body.error).toContain("token");
+    expect(normalizeErrorText(body).toLowerCase()).toContain("token");
   });
 
   test("[P1] 1.6-API-003-007: POST /api/auth/refresh should preserve user context after token rotation", async ({
@@ -698,7 +724,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     expect(refreshResponse.status()).toBe(401);
     const body = await refreshResponse.json();
     expect(body).toHaveProperty("error");
-    expect(body.error).toContain("expired");
+    expect(normalizeErrorText(body).toLowerCase()).toContain("expired");
   });
 
   test("[P0] 1.6-API-004-003: API request should not retry infinitely if refresh fails", async ({

@@ -53,7 +53,7 @@ test.describe("Local Authentication API", () => {
 
     test("should return 401 for invalid email", async ({ apiRequest }) => {
       const response = await apiRequest.post("/api/auth/login", {
-        email: "nonexistent@example.com",
+        email: "nonexistent@test.com",
         password: "SomePassword123!",
       });
 
@@ -159,7 +159,7 @@ test.describe("Local Authentication API", () => {
 
     test("should return 400 for missing password", async ({ apiRequest }) => {
       const response = await apiRequest.post("/api/auth/login", {
-        email: "test@example.com",
+        email: "test@test.com",
       });
 
       expect(response.status()).toBe(400);
@@ -175,20 +175,20 @@ test.describe("Local Authentication API", () => {
     }) => {
       // Create user with lowercase email
       const { user, password } = await createUserWithRole(prismaClient, {
-        email: "testuser@example.com",
+        email: "testuser@test.com",
       });
 
       try {
-        // Login with uppercase email
+        // Login with uppercase email (same domain, different case)
         const response = await apiRequest.post("/api/auth/login", {
-          email: "TESTUSER@EXAMPLE.COM",
+          email: "TESTUSER@TEST.COM",
           password: password,
         });
 
         expect(response.status()).toBe(200);
 
         const body = await response.json();
-        expect(body.user.email).toBe("testuser@example.com");
+        expect(body.user.email).toBe("testuser@test.com");
       } finally {
         await prismaClient.userRole.deleteMany({
           where: { user_id: user.user_id },

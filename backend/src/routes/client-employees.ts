@@ -50,6 +50,29 @@ const listEmployeesQuerySchema = z.object({
 });
 
 /**
+ * Validation middleware for POST /api/client/employees
+ * Validates request body using Zod schema before authentication/authorization checks
+ * This ensures input validation errors (400) are returned before auth errors (403)
+ */
+async function validateCreateEmployeeBody(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const parseResult = createEmployeeSchema.safeParse(request.body);
+  if (!parseResult.success) {
+    reply.code(400);
+    reply.send({
+      success: false,
+      error: "Validation error",
+      message: parseResult.error.issues[0].message,
+    });
+    return;
+  }
+  // Attach validated data to request for use in handler
+  (request as any).validatedBody = parseResult.data;
+}
+
+/**
  * Helper to extract audit context from request
  */
 function getAuditContext(
@@ -100,6 +123,7 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
     "/api/client/employees",
     {
       preHandler: [
+        validateCreateEmployeeBody, // Validation runs BEFORE auth to ensure 400 for invalid input
         authMiddleware,
         permissionMiddleware(PERMISSIONS.CLIENT_EMPLOYEE_CREATE),
       ],
@@ -108,18 +132,9 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
       try {
         const user = (request as unknown as { user: UserIdentity }).user;
 
-        // Validate request body
-        const parseResult = createEmployeeSchema.safeParse(request.body);
-        if (!parseResult.success) {
-          reply.code(400);
-          return {
-            success: false,
-            error: "Validation error",
-            message: parseResult.error.issues[0].message,
-          };
-        }
-
-        const { email, name, store_id, role_id, password } = parseResult.data;
+        // Get validated body from middleware (already validated in preHandler)
+        const { email, name, store_id, role_id, password } = (request as any)
+          .validatedBody;
         const auditContext = getAuditContext(request, user);
 
         const employee = await clientEmployeeService.createEmployee(

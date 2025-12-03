@@ -250,6 +250,9 @@ export class RBACService {
         const ownerUserId =
           await clientRolePermissionService.getUserOwner(userId);
 
+        // Determine effective permission: client override > system default
+        let effectivePermission = hasSystemDefault;
+
         if (ownerUserId) {
           // Check for client override
           const clientOverride =
@@ -259,15 +262,15 @@ export class RBACService {
               ownerUserId,
             );
 
-          // Permission resolution: client override > system default
           // If client override exists, use it; otherwise use system default
-          const effectivePermission =
-            clientOverride !== null ? clientOverride : hasSystemDefault;
-
-          if (!effectivePermission) {
-            // Permission was revoked by client override, skip this role
-            continue;
+          if (clientOverride !== null) {
+            effectivePermission = clientOverride;
           }
+        }
+
+        // Skip this role if user doesn't have the permission
+        if (!effectivePermission) {
+          continue;
         }
 
         // Store role applies if storeId matches

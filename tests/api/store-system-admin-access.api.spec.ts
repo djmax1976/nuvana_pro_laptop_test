@@ -66,22 +66,22 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
   }) => {
     // GIVEN: Multiple companies with stores
     const company1 = await createCompany(prismaClient, {
-      name: "Company Alpha",
+      name: "Test Company Alpha",
       owner_user_id: superadminUser.user_id,
     });
     const company2 = await createCompany(prismaClient, {
-      name: "Company Beta",
+      name: "Test Company Beta",
       owner_user_id: superadminUser.user_id,
     });
 
     const store1 = await createStore(prismaClient, {
       company_id: company1.company_id,
-      name: "Store Alpha 1",
+      name: "Test Store Alpha 1",
       status: "ACTIVE",
     });
     const store2 = await createStore(prismaClient, {
       company_id: company2.company_id,
-      name: "Store Beta 1",
+      name: "Test Store Beta 1",
       status: "ACTIVE",
     });
 
@@ -110,9 +110,9 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
     );
 
     expect(store1Data.company).toBeDefined();
-    expect(store1Data.company.name).toBe("Company Alpha");
+    expect(store1Data.company.name).toBe("Test Company Alpha");
     expect(store2Data.company).toBeDefined();
-    expect(store2Data.company.name).toBe("Company Beta");
+    expect(store2Data.company.name).toBe("Test Company Beta");
 
     // AND: Response includes pagination metadata
     expect(body.meta).toBeDefined();
@@ -196,13 +196,13 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
   }) => {
     // GIVEN: A company that is NOT owned by the superadmin
     const differentCompany = await createCompany(prismaClient, {
-      name: "Different Company",
+      name: "Test Different Company",
       owner_user_id: superadminUser.user_id,
     });
 
     // WHEN: System admin creates store for different company
     const storeData = {
-      name: "Cross-Company Store",
+      name: "Test Cross-Company Store",
       timezone: "America/Los_Angeles",
       status: "ACTIVE",
     };
@@ -245,13 +245,13 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
     // Create a user to own this company
     const ownerUser = await createUser(prismaClient);
     const differentCompany = await createCompany(prismaClient, {
-      name: "Competitor Company",
+      name: "Test Competitor Company",
       owner_user_id: ownerUser.user_id,
     });
 
     // WHEN: Corporate admin attempts to create store for different company
     const storeData = {
-      name: "Unauthorized Store",
+      name: "Test Unauthorized Store",
       timezone: "America/New_York",
       status: "ACTIVE",
     };
@@ -276,7 +276,7 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
     const stores = await prismaClient.store.findMany({
       where: {
         company_id: differentCompany.company_id,
-        name: "Unauthorized Store",
+        name: "Test Unauthorized Store",
       },
     });
     expect(stores).toHaveLength(0);
@@ -426,30 +426,30 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
   }) => {
     // GIVEN: Multiple stores (at least 5)
     const company = await createCompany(prismaClient, {
-      name: "Pagination Test Company",
+      name: "Test Pagination Test Company",
       owner_user_id: superadminUser.user_id,
     });
 
     const stores = await Promise.all([
       createStore(prismaClient, {
         company_id: company.company_id,
-        name: "Store 1",
+        name: "Test Store 1",
       }),
       createStore(prismaClient, {
         company_id: company.company_id,
-        name: "Store 2",
+        name: "Test Store 2",
       }),
       createStore(prismaClient, {
         company_id: company.company_id,
-        name: "Store 3",
+        name: "Test Store 3",
       }),
       createStore(prismaClient, {
         company_id: company.company_id,
-        name: "Store 4",
+        name: "Test Store 4",
       }),
       createStore(prismaClient, {
         company_id: company.company_id,
-        name: "Store 5",
+        name: "Test Store 5",
       }),
     ]);
 
@@ -500,24 +500,24 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
   }) => {
     // GIVEN: Stores created in sequence
     const company = await createCompany(prismaClient, {
-      name: "Sorting Test Company",
+      name: "Test Sorting Test Company",
       owner_user_id: superadminUser.user_id,
     });
 
     const store1 = await createStore(prismaClient, {
       company_id: company.company_id,
-      name: "Oldest Store",
+      name: "Test Oldest Store",
     });
 
     // Database timestamps are sufficient for ordering - no hard wait needed
     const store2 = await createStore(prismaClient, {
       company_id: company.company_id,
-      name: "Middle Store",
+      name: "Test Middle Store",
     });
 
     const store3 = await createStore(prismaClient, {
       company_id: company.company_id,
-      name: "Newest Store",
+      name: "Test Newest Store",
     });
 
     // WHEN: Requesting stores
@@ -641,7 +641,7 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
     });
     const store = await createStore(prismaClient, {
       company_id: company.company_id,
-      name: "Original Name",
+      name: "Test Original Name",
       status: "ACTIVE",
     });
 
@@ -649,7 +649,7 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
     const response = await superadminApiRequest.put(
       `/api/stores/${store.store_id}`,
       {
-        name: "Updated Name",
+        name: "Test Updated Name",
         status: "INACTIVE",
       },
     );
@@ -660,14 +660,14 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
     const body = await response.json();
 
     // AND: Store is updated
-    expect(body.name).toBe("Updated Name");
+    expect(body.name).toBe("Test Updated Name");
     expect(body.status).toBe("INACTIVE");
 
     // AND: Verify in database
     const dbStore = await prismaClient.store.findUnique({
       where: { store_id: store.store_id },
     });
-    expect(dbStore?.name).toBe("Updated Name");
+    expect(dbStore?.name).toBe("Test Updated Name");
     expect(dbStore?.status).toBe("INACTIVE");
   });
 
@@ -690,7 +690,7 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
     });
     const store = await createStore(prismaClient, {
       company_id: company.company_id,
-      name: "Store to Delete",
+      name: "Test Store to Delete",
       status: "INACTIVE", // Must be INACTIVE to delete
     });
 

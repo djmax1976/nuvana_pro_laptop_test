@@ -396,12 +396,22 @@ export const test = base.extend<RBACFixture>({
     const dbUrl =
       process.env.DATABASE_URL ||
       "postgresql://postgres@localhost:5432/nuvana_dev";
-    const appUserUrl = dbUrl
+    let appUserUrl = dbUrl
       .replace("postgres:postgres@", "app_user:app_user_password@")
       .replace(
         /^postgresql:\/\/postgres@/,
         "postgresql://app_user:app_user_password@",
       );
+
+    // IMPORTANT: Force single connection pool to ensure SET session variables
+    // persist across all queries. Without this, Prisma's connection pooling
+    // may assign different connections to SET and subsequent queries,
+    // causing RLS context to be lost. This is critical for RLS tests.
+    if (appUserUrl.includes("?")) {
+      appUserUrl += "&connection_limit=1";
+    } else {
+      appUserUrl += "?connection_limit=1";
+    }
 
     const rlsPrisma = new PrismaClient({
       datasources: {
@@ -611,11 +621,52 @@ export const test = base.extend<RBACFixture>({
       }
 
       // 2. NOW delete shifts (after transactions are gone)
-      await bypassClient.shift.deleteMany({
-        where: {
-          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
-        },
-      });
+      // Use retry loop to handle race conditions with async worker processing
+      // The worker may create transactions after we query but before we delete
+      const MAX_RETRIES = 3;
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          // Re-query shifts to get current state
+          const currentShifts = await bypassClient.shift.findMany({
+            where: {
+              OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+            },
+            select: { shift_id: true },
+          });
+          const currentShiftIds = currentShifts.map((s) => s.shift_id);
+
+          if (currentShiftIds.length > 0) {
+            // Delete any transactions (and children) for these shifts
+            await bypassClient.transactionPayment.deleteMany({
+              where: { transaction: { shift_id: { in: currentShiftIds } } },
+            });
+            await bypassClient.transactionLineItem.deleteMany({
+              where: { transaction: { shift_id: { in: currentShiftIds } } },
+            });
+            await bypassClient.transaction.deleteMany({
+              where: { shift_id: { in: currentShiftIds } },
+            });
+          }
+
+          // Now delete the shifts
+          await bypassClient.shift.deleteMany({
+            where: {
+              OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+            },
+          });
+          break; // Success, exit retry loop
+        } catch (error) {
+          if (
+            attempt === MAX_RETRIES ||
+            !(error instanceof Error) ||
+            !error.message.includes("Foreign key constraint")
+          ) {
+            throw error; // Max retries reached or different error
+          }
+          // Brief delay before retry to let worker finish
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
 
       // 2. Get all stores for this company to delete their user roles
       const stores = await bypassClient.store.findMany({
@@ -641,14 +692,48 @@ export const test = base.extend<RBACFixture>({
         where: { user_id: user.user_id },
       });
 
+      // 3.6. Delete transactions for this user (FK cashier_id to users)
+      // Must delete child rows (transactionPayment, transactionLineItem) first to avoid FK constraint violations
+      await bypassClient.$transaction(async (tx) => {
+        // Find all transaction IDs for this cashier
+        const transactions = await tx.transaction.findMany({
+          where: { cashier_id: user.user_id },
+          select: { transaction_id: true },
+        });
+        const transactionIds = transactions.map((t) => t.transaction_id);
+
+        if (transactionIds.length > 0) {
+          // Delete child rows first
+          await tx.transactionPayment.deleteMany({
+            where: { transaction_id: { in: transactionIds } },
+          });
+          await tx.transactionLineItem.deleteMany({
+            where: { transaction_id: { in: transactionIds } },
+          });
+        }
+
+        // Now delete the transactions
+        await tx.transaction.deleteMany({
+          where: { cashier_id: user.user_id },
+        });
+      });
+
       // 4. Delete user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
-      // 5. Delete stores under company (required due to onDelete: Restrict)
+      // 5. Delete POS terminals for all stores (before deleting stores)
+      if (storeIds.length > 0) {
+        await bypassClient.pOSTerminal.deleteMany({
+          where: { store_id: { in: storeIds } },
+        });
+      }
+
+      // 6. Delete stores under company (required due to onDelete: Restrict)
       await bypassClient.store.deleteMany({
         where: { company_id: company.company_id },
       });
-      // 5. Delete company last
+
+      // 7. Delete company last
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });
@@ -781,17 +866,25 @@ export const test = base.extend<RBACFixture>({
         where: { user_id: user.user_id },
       });
 
-      // 5. Delete the store manager user
+      // 5. Delete POS terminals for the store (before deleting store)
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 6. Delete the store manager user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
+
+      // 7. Delete store
+      await bypassClient.store.delete({ where: { store_id: store.store_id } });
+
+      // 8. Delete company
+      await bypassClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+
+      // 9. Delete the owner user (created for company ownership)
+      await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
     });
-    // 4. Delete store
-    await prismaClient.store.delete({ where: { store_id: store.store_id } });
-    // 5. Delete company
-    await prismaClient.company.delete({
-      where: { company_id: company.company_id },
-    });
-    // 6. Delete the owner user (created for company ownership)
-    await prismaClient.user.delete({ where: { user_id: ownerUser.user_id } });
   },
 
   authenticatedShiftManager: async (
@@ -958,18 +1051,23 @@ export const test = base.extend<RBACFixture>({
         where: { user_id: user.user_id },
       });
 
-      // 4. Delete the shift manager user
+      // 4. Delete POS terminals for the store (before deleting store)
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 5. Delete the shift manager user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
-      // 5. Delete store
+      // 6. Delete store
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
 
-      // 6. Delete company
+      // 7. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });
 
-      // 7. Delete the owner user (created for company ownership)
+      // 8. Delete the owner user (created for company ownership)
       await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
     });
   },
@@ -1085,18 +1183,23 @@ export const test = base.extend<RBACFixture>({
         where: { user_id: user.user_id },
       });
 
-      // 4. Delete the authenticated user
+      // 4. Delete POS terminals for the store (before deleting store)
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 5. Delete the authenticated user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
-      // 5. Delete store
+      // 6. Delete store
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
 
-      // 6. Delete company
+      // 7. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });
 
-      // 7. Delete the owner user (created for company ownership)
+      // 8. Delete the owner user (created for company ownership)
       await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
     });
   },
@@ -1405,10 +1508,16 @@ export const test = base.extend<RBACFixture>({
 
     // Assign default STORE scope roles to the company via CompanyAllowedRole
     // This is required for client role permission management (Story 2.92)
-    const storeRoles = await prismaClient.role.findMany({
-      where: { scope: "STORE", deleted_at: null },
-    });
+    // IMPORTANT: Query MUST be inside withBypassClient to prevent race conditions
+    // in parallel test workers where roles could be deleted between query and insert
     await withBypassClient(async (bypassClient) => {
+      const storeRoles = await bypassClient.role.findMany({
+        where: {
+          scope: "STORE",
+          deleted_at: null,
+          is_system_role: true, // Only system roles (never deleted during tests)
+        },
+      });
       await bypassClient.companyAllowedRole.createMany({
         data: storeRoles.map((storeRole) => ({
           company_id: company.company_id,
@@ -1451,27 +1560,68 @@ export const test = base.extend<RBACFixture>({
 
     await use(clientUser);
 
-    // Cleanup
+    // Cleanup: Delete all related data in correct FK order using bypass client
     await withBypassClient(async (bypassClient) => {
-      // Delete user roles
+      // 1. Find shifts created by this user
+      const userShifts = await bypassClient.shift.findMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        // Delete transaction payments (child of transaction)
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transaction line items (child of transaction)
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transactions (child of shift)
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      // 2. Delete shifts for this user
+      await bypassClient.shift.deleteMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+      });
+
+      // 3. Delete user roles
       await bypassClient.userRole.deleteMany({
         where: { user_id: user.user_id },
       });
-      // Delete company allowed roles
+
+      // 4. Delete company allowed roles
       await bypassClient.companyAllowedRole.deleteMany({
         where: { company_id: company.company_id },
       });
-      // Delete client role permissions (if any were created during tests)
+
+      // 5. Delete client role permissions (if any were created during tests)
       await bypassClient.clientRolePermission.deleteMany({
         where: { owner_user_id: user.user_id },
       });
-      // Delete store
+
+      // 6. Delete POS terminals for the store
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 7. Delete store
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
-      // Delete company
+
+      // 8. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });
-      // Delete user
+
+      // 9. Delete user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
     });
   },
@@ -1566,22 +1716,71 @@ export const test = base.extend<RBACFixture>({
 
     await use(regularUser);
 
-    // Cleanup
+    // Cleanup: Delete all related data in correct FK order using bypass client
     await withBypassClient(async (bypassClient) => {
+      // 1. Find shifts created by this user
+      const userShifts = await bypassClient.shift.findMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        // Delete transaction payments (child of transaction)
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transaction line items (child of transaction)
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transactions (child of shift)
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      // 2. Delete shifts for this user
+      await bypassClient.shift.deleteMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+      });
+
+      // 3. Delete user roles
       await bypassClient.userRole.deleteMany({
         where: { user_id: user.user_id },
       });
+
+      // 4. Delete role permissions for the restricted role
       await bypassClient.rolePermission.deleteMany({
         where: { role_id: restrictedRole.role_id },
       });
+
+      // 5. Delete the restricted role
       await bypassClient.role.delete({
         where: { role_id: restrictedRole.role_id },
       });
+
+      // 6. Delete the regular user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
+
+      // 7. Delete POS terminals for the store
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 8. Delete store
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
+
+      // 9. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });
+
+      // 10. Delete owner user
       await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
     });
   },
@@ -1731,10 +1930,11 @@ export const test = base.extend<RBACFixture>({
   },
 
   superadminPage: async ({ page, superadminUser }, use) => {
-    // Login as superadmin
-    await page.goto(
-      `${process.env.FRONTEND_URL || "http://localhost:3000"}/login`,
-    );
+    // Setup: Use real authentication with JWT cookie
+    // This is proper E2E testing - no mocking of auth endpoints
+    // The cookie contains a valid JWT that the backend will verify
+
+    // Add authentication cookie (real JWT token)
     await page.context().addCookies([
       {
         name: "access_token",
@@ -1743,10 +1943,45 @@ export const test = base.extend<RBACFixture>({
         path: "/",
       },
     ]);
+
+    // Set localStorage auth_session directly to bypass API call during tests
+    // This ensures the AuthContext recognizes the user as authenticated
+    // The cookie is still set for API calls that need it
+    await page.addInitScript((userData) => {
+      localStorage.setItem(
+        "auth_session",
+        JSON.stringify({
+          user: {
+            id: userData.user_id,
+            email: userData.email,
+            name: userData.name,
+          },
+          authenticated: true,
+          isClientUser: false,
+        }),
+      );
+    }, superadminUser);
+
+    // Navigate to dashboard - AuthContext will use the localStorage session
+    // Use domcontentloaded instead of networkidle for better CI reliability
+    // networkidle can timeout in resource-constrained CI environments
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
+      { waitUntil: "domcontentloaded" },
     );
+
+    // Wait for the page to finish loading; this uses the load state rather than waiting for a specific dashboard element
+    // This is more reliable than networkidle in CI environments
+    await page.waitForLoadState("load");
+
     await use(page);
+
+    // Cleanup: Clear session state
+    await page.context().clearCookies();
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
   },
 
   cashierUser: async ({ prismaClient }, use) => {
@@ -1815,61 +2050,67 @@ export const test = base.extend<RBACFixture>({
 
     await use(cashierUser);
 
-    // Cleanup
+    // Cleanup: Delete all related data in correct FK order using bypass client
     await withBypassClient(async (bypassClient) => {
+      // 1. Find shifts created by this user (cashier_id or opened_by references user)
+      const userShifts = await bypassClient.shift.findMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        // Delete transaction payments (child of transaction)
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transaction line items (child of transaction)
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        // Delete transactions (child of shift)
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      // 2. Delete shifts for this user
+      await bypassClient.shift.deleteMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+      });
+
+      // 3. Delete POS terminals for the store (before deleting store)
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 4. Delete user roles
       await bypassClient.userRole.deleteMany({
         where: { user_id: user.user_id },
       });
+
+      // 5. Delete store (must delete after terminals)
       await bypassClient.store.delete({ where: { store_id: store.store_id } });
+
+      // 6. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
       });
+
+      // 7. Delete the user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
     });
   },
 
   cashierPage: async ({ page, cashierUser }, use) => {
-    // Setup: Set localStorage auth session (Header component reads from localStorage)
-    await page.addInitScript(
-      (userData: any) => {
-        localStorage.setItem(
-          "auth_session",
-          JSON.stringify({
-            id: userData.user_id,
-            email: userData.email,
-            name: userData.name,
-            user_metadata: {
-              email: userData.email,
-              full_name: userData.name,
-            },
-          }),
-        );
-      },
-      {
-        user_id: cashierUser.user_id,
-        email: cashierUser.email,
-        name: cashierUser.name,
-      },
-    );
+    // Setup: Use real authentication with JWT cookie
+    // This is proper E2E testing - no mocking of auth endpoints
 
-    // Intercept auth check endpoint
-    await page.route("**/api/auth/me*", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          user: {
-            id: cashierUser.user_id,
-            email: cashierUser.email,
-            name: cashierUser.name,
-            roles: cashierUser.roles,
-            permissions: cashierUser.permissions,
-          },
-        }),
-      });
-    });
-
-    // Add authentication cookie
+    // Add authentication cookie (real JWT token)
     await page.context().addCookies([
       {
         name: "access_token",
@@ -1879,10 +2120,31 @@ export const test = base.extend<RBACFixture>({
       },
     ]);
 
-    // Navigate to dashboard
+    // Set localStorage auth_session directly to bypass API call during tests
+    await page.addInitScript((userData) => {
+      localStorage.setItem(
+        "auth_session",
+        JSON.stringify({
+          user: {
+            id: userData.user_id,
+            email: userData.email,
+            name: userData.name,
+          },
+          authenticated: true,
+          isClientUser: true, // Cashier is a client user
+        }),
+      );
+    }, cashierUser);
+
+    // Navigate to dashboard - AuthContext will use the localStorage session
+    // Use domcontentloaded instead of networkidle for better CI reliability
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
+      { waitUntil: "domcontentloaded" },
     );
+
+    // Wait for the page to be ready
+    await page.waitForLoadState("load");
 
     await use(page);
 
@@ -1895,47 +2157,10 @@ export const test = base.extend<RBACFixture>({
   },
 
   storeManagerPage: async ({ page, storeManagerUser }, use) => {
-    // Setup: Set localStorage auth session (Header component reads from localStorage)
-    await page.addInitScript(
-      (userData: any) => {
-        localStorage.setItem(
-          "auth_session",
-          JSON.stringify({
-            id: userData.user_id,
-            email: userData.email,
-            name: userData.name,
-            user_metadata: {
-              email: userData.email,
-              full_name: userData.name,
-            },
-          }),
-        );
-      },
-      {
-        user_id: storeManagerUser.user_id,
-        email: storeManagerUser.email,
-        name: storeManagerUser.name,
-      },
-    );
+    // Setup: Use real authentication with JWT cookie
+    // This is proper E2E testing - no mocking of auth endpoints
 
-    // Intercept auth check endpoint
-    await page.route("**/api/auth/me*", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          user: {
-            id: storeManagerUser.user_id,
-            email: storeManagerUser.email,
-            name: storeManagerUser.name,
-            roles: storeManagerUser.roles,
-            permissions: storeManagerUser.permissions,
-          },
-        }),
-      });
-    });
-
-    // Add authentication cookie
+    // Add authentication cookie (real JWT token)
     await page.context().addCookies([
       {
         name: "access_token",
@@ -1945,10 +2170,31 @@ export const test = base.extend<RBACFixture>({
       },
     ]);
 
-    // Navigate to dashboard
+    // Set localStorage auth_session directly to bypass API call during tests
+    await page.addInitScript((userData) => {
+      localStorage.setItem(
+        "auth_session",
+        JSON.stringify({
+          user: {
+            id: userData.user_id,
+            email: userData.email,
+            name: userData.name,
+          },
+          authenticated: true,
+          isClientUser: true, // Store manager is a client user
+        }),
+      );
+    }, storeManagerUser);
+
+    // Navigate to dashboard - AuthContext will use the localStorage session
+    // Use domcontentloaded instead of networkidle for better CI reliability
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
+      { waitUntil: "domcontentloaded" },
     );
+
+    // Wait for the page to be ready
+    await page.waitForLoadState("load");
 
     await use(page);
 

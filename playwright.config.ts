@@ -18,8 +18,8 @@ export default defineConfig({
   // Parallel execution
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  retries: process.env.CI ? 1 : 0, // Reduced retries to 1 in CI
+  workers: process.env.CI ? 4 : undefined, // Run 4 workers in parallel in CI
 
   // Timeouts
   timeout: 120 * 1000, // Test timeout: 120s (increased for CI)

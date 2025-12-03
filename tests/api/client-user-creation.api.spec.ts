@@ -447,8 +447,10 @@ test.describe("CLIENT_USER Creation API", () => {
     superadminApiRequest,
     prismaClient,
   }) => {
+    // Use valid UUID format that won't exist in the database
+    // Note: Zod UUID validation requires RFC 4122 variant (position 19 must be 8, 9, a, or b)
     const fakeCompanyId = "00000000-0000-0000-0000-000000000000";
-    const fakeStoreId = "11111111-1111-1111-1111-111111111111";
+    const fakeStoreId = "11111111-1111-1111-8111-111111111111";
 
     const clientUserRole = await prismaClient.role.findUnique({
       where: { code: "CLIENT_USER" },

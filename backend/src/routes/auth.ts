@@ -64,11 +64,12 @@ export async function authRoutes(fastify: FastifyInstance) {
         }
 
         // Check if user has a password set
+        // Return generic message to not leak account existence
         if (!user.password_hash) {
           reply.code(401);
           return {
             error: "Unauthorized",
-            message: "Password not set for this account",
+            message: "Invalid email or password",
           };
         }
 
@@ -397,7 +398,8 @@ export async function authRoutes(fastify: FastifyInstance) {
         if (!refreshToken) {
           reply.code(401);
           return {
-            error: "Missing refresh token cookie",
+            error: "Unauthorized",
+            message: "Missing refresh token cookie",
           };
         }
 
@@ -449,18 +451,39 @@ export async function authRoutes(fastify: FastifyInstance) {
           },
         };
       } catch (error) {
-        fastify.log.error({ error }, "Refresh token error");
+        // Log full error details server-side for debugging
+        if (error instanceof Error) {
+          fastify.log.error(
+            { error: error.message, stack: error.stack },
+            "Refresh token error",
+          );
+        } else {
+          fastify.log.error({ error }, "Refresh token error");
+        }
 
         // Clear invalid cookies
         (reply as any).clearCookie("access_token", { path: "/" });
         (reply as any).clearCookie("refresh_token", { path: "/" });
 
+        // Determine specific error message based on error type
+        let errorMessage = "Refresh token failed";
+        if (error instanceof Error) {
+          if (error.message.includes("expired")) {
+            errorMessage = "Refresh token has expired";
+          } else if (
+            error.message.includes("Invalid") ||
+            error.message.includes("invalid")
+          ) {
+            errorMessage = "Invalid refresh token";
+          } else if (error.message.includes("revoked")) {
+            errorMessage = "Refresh token has been revoked";
+          }
+        }
+
         reply.code(401);
         return {
-          error:
-            error instanceof Error
-              ? error.message
-              : "Refresh token validation failed",
+          error: "Unauthorized",
+          message: errorMessage,
         };
       }
     },

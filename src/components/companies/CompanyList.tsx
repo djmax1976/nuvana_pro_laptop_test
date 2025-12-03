@@ -310,7 +310,7 @@ export function CompanyList() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-testid="company-list-container">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Companies</h1>
       </div>
@@ -327,7 +327,10 @@ export function CompanyList() {
       />
 
       {companies.length === 0 ? (
-        <div className="rounded-lg border p-8 text-center">
+        <div
+          className="rounded-lg border p-8 text-center"
+          data-testid="company-list-empty-state"
+        >
           <p className="text-sm text-muted-foreground">No companies found.</p>
         </div>
       ) : (
@@ -348,6 +351,7 @@ export function CompanyList() {
                   currentSortKey={sortKey}
                   currentSortDirection={sortDirection}
                   onSort={handleSort}
+                  data-testid="company-owner-column-header"
                 >
                   Owner
                 </SortableTableHead>
@@ -432,6 +436,8 @@ export function CompanyList() {
                         size="icon"
                         onClick={() => handleEditClick(company)}
                         disabled={actionInProgress === company.company_id}
+                        aria-label={`Edit ${company.name}`}
+                        data-testid={`edit-company-button-${company.company_id}`}
                       >
                         <Pencil className="h-4 w-4" />
                         <span className="sr-only">Edit</span>
@@ -442,6 +448,12 @@ export function CompanyList() {
                         size="icon"
                         onClick={() => handleStatusToggle(company)}
                         disabled={actionInProgress === company.company_id}
+                        aria-label={
+                          company.status === "ACTIVE"
+                            ? "Deactivate"
+                            : "Activate"
+                        }
+                        data-testid={`status-toggle-button-${company.company_id}`}
                         className={
                           company.status === "ACTIVE"
                             ? "text-green-600 hover:text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950"
@@ -468,6 +480,8 @@ export function CompanyList() {
                           actionInProgress === company.company_id ||
                           company.status === "ACTIVE"
                         }
+                        aria-label={`Delete ${company.name}`}
+                        data-testid={`delete-company-button-${company.company_id}`}
                         className="text-destructive hover:text-destructive hover:bg-destructive/10 disabled:opacity-40 disabled:cursor-not-allowed"
                         title={
                           company.status === "ACTIVE"

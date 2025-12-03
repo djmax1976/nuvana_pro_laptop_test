@@ -653,8 +653,13 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
       role_id: storeRole.role_id,
     });
 
-    // THEN: Validation error is returned
-    expect(response.status(), "Should reject invalid UUID with 400").toBe(400);
+    // THEN: Request is rejected with 400 Bad Request (input validation runs before auth)
+    // Input validation is performed before authentication/authorization checks to ensure
+    // invalid input format errors (400) are returned before authorization errors (403)
+    expect(
+      response.status(),
+      "Should reject invalid UUID with 400 (validation before auth)",
+    ).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body).toHaveProperty("error");
@@ -688,7 +693,7 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     const createResponse = await regularUserApiRequest.post(
       "/api/client/employees",
       {
-        email: "test@example.com",
+        email: "test@test.com",
         name: "Test",
         store_id: "00000000-0000-0000-0000-000000000000",
         role_id: "00000000-0000-0000-0000-000000000000",
@@ -721,7 +726,7 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     // GIVEN: I am NOT authenticated (no token)
     // WHEN: Attempting to access employee endpoints without authentication
     const createResponse = await apiRequest.post("/api/client/employees", {
-      email: "test@example.com",
+      email: "test@test.com",
       name: "Test",
       store_id: "00000000-0000-0000-0000-000000000000",
       role_id: "00000000-0000-0000-0000-000000000000",

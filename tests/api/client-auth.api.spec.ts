@@ -174,7 +174,7 @@ test.describe("2.9-API: Client Authentication - POST /api/auth/client-login", ()
   }) => {
     // GIVEN: No user exists with the email
     const loginRequest = createClientLoginRequest({
-      email: "nonexistent@example.com",
+      email: "nonexistent@test.com",
     });
 
     // WHEN: Attempting login with non-existent email
@@ -262,7 +262,7 @@ test.describe("2.9-API: Client Authentication - POST /api/auth/client-login", ()
     const responseMissingPassword = await apiRequest.post(
       "/api/auth/client-login",
       {
-        email: "test@example.com",
+        email: "test@test.com",
       },
     );
 
@@ -281,7 +281,7 @@ test.describe("2.9-API: Client Authentication - POST /api/auth/client-login", ()
     const passwordHash = await bcrypt.hash(password, 10);
 
     const clientUserData = createClientUser({
-      email: "clientuser@example.com",
+      email: "clientuser@test.com",
       password_hash: passwordHash,
     });
     const user = await prismaClient.user.create({
@@ -297,17 +297,17 @@ test.describe("2.9-API: Client Authentication - POST /api/auth/client-login", ()
     });
 
     try {
-      // WHEN: Login with uppercase email
+      // WHEN: Login with uppercase email (same domain, different case)
       const response = await apiRequest.post("/api/auth/client-login", {
-        email: "CLIENTUSER@EXAMPLE.COM",
+        email: "CLIENTUSER@TEST.COM",
         password: password,
       });
 
-      // THEN: Login succeeds (email normalized)
+      // THEN: Login succeeds (email normalized to lowercase)
       expect(response.status()).toBe(200);
 
       const body = await response.json();
-      expect(body.user.email).toBe("clientuser@example.com");
+      expect(body.user.email).toBe("clientuser@test.com");
     } finally {
       await prismaClient.user.delete({ where: { user_id: user.user_id } });
     }
@@ -426,7 +426,7 @@ test.describe("2.9-API: Client Dashboard - GET /api/client/dashboard", () => {
     // Create first client user who owns Company One
     const clientUser1Data = createClientUser({
       password_hash: passwordHash,
-      email: "client1@example.com",
+      email: "client1@test.com",
       is_client_user: true,
     });
     const clientUser1 = await prismaClient.user.create({
@@ -450,7 +450,7 @@ test.describe("2.9-API: Client Dashboard - GET /api/client/dashboard", () => {
     // Create second client user who owns Company Two
     const clientUser2Data = createClientUser({
       password_hash: passwordHash,
-      email: "client2@example.com",
+      email: "client2@test.com",
       is_client_user: true,
     });
     const clientUser2 = await prismaClient.user.create({
@@ -604,7 +604,7 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
 
     const userData = {
       name: "New Client Owner",
-      email: "newclientowner@example.com",
+      email: "newclientowner@test.com",
       password: "SecurePassword123!",
       roles: [
         {
@@ -670,7 +670,7 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
       return;
     }
 
-    // GIVEN: A company exists for the CLIENT_USER role assignment
+    // GIVEN: A company and store exist for the CLIENT_USER role assignment
     // Use factory functions directly to avoid helper function issues
     const companyOwnerData = createUserFactory();
     const companyOwner = await prismaClient.user.create({
@@ -684,15 +684,22 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
       data: companyData,
     });
 
+    // CLIENT_USER role requires both company_id and store_id
+    const storeData = createStoreFactory({ company_id: company.company_id });
+    const store = await prismaClient.store.create({
+      data: storeData,
+    });
+
     const userData = {
       name: "New Client User",
-      email: "newclientuser@example.com",
+      email: `newclientuser-${Date.now()}@test.com`,
       password: "SecurePassword123!",
       roles: [
         {
           role_id: clientUserRole.role_id,
-          scope_type: "COMPANY",
+          scope_type: "STORE",
           company_id: company.company_id,
+          store_id: store.store_id,
         },
       ],
     };
@@ -717,11 +724,14 @@ test.describe("2.9-API: User Creation with CLIENT_OWNER Role - POST /api/admin/u
       expect(createdUser).not.toBeNull();
       expect(createdUser?.is_client_user).toBe(true);
     } finally {
-      // Cleanup
+      // Cleanup - delete in order: user_roles, user, store, company, owner
       await prismaClient.userRole.deleteMany({
         where: { user_id: body.data.user_id },
       });
       await prismaClient.user.delete({ where: { user_id: body.data.user_id } });
+      await prismaClient.store.delete({
+        where: { store_id: store.store_id },
+      });
       await prismaClient.company.delete({
         where: { company_id: company.company_id },
       });
@@ -1280,7 +1290,7 @@ test.describe("2.9-API: Security - Account Enumeration Prevention", () => {
     try {
       // Scenario 1: Non-existent email
       const response1 = await apiRequest.post("/api/auth/client-login", {
-        email: "nonexistent-account@example.com",
+        email: "nonexistent-account@test.com",
         password: password,
       });
       expect(response1.status()).toBe(401);
@@ -1615,7 +1625,7 @@ test.describe("2.9-API: Edge Cases - Email Input", () => {
 
     // WHEN: Login with whitespace around email
     const response = await apiRequest.post("/api/auth/client-login", {
-      email: "  test@example.com  ",
+      email: "  test@test.com  ",
       password: "password123",
     });
 
@@ -1637,7 +1647,7 @@ test.describe("2.9-API: Edge Cases - Password Input", () => {
   }) => {
     // GIVEN: Password with only whitespace
     const response = await apiRequest.post("/api/auth/client-login", {
-      email: "test@example.com",
+      email: "test@test.com",
       password: "   ",
     });
 

@@ -1,334 +1,219 @@
-# Test Suite Documentation
+# Testing Strategy
 
-This directory contains the automated test suite for the Nuvana project backend API.
+This document outlines the testing strategy for Nuvana Pro, following industry best practices for the testing pyramid.
 
-## Test Structure
+## Testing Pyramid
 
 ```
-tests/
-├── e2e/                   # End-to-end tests (full user workflows)
-├── api/                   # API integration tests
-│   ├── backend-setup.api.spec.ts      # Backend infrastructure tests
-│   ├── database-setup/                # Database and Prisma tests (split by concern)
-│   │   ├── prisma-config.api.spec.ts      # Prisma Client configuration
-│   │   ├── schema-validation.api.spec.ts  # Schema validation tests
-│   │   ├── migrations.api.spec.ts        # Migration tests
-│   │   └── indexes.api.spec.ts            # Index validation tests
-│   ├── error-handling.api.spec.ts      # Error scenarios and negative paths
-│   ├── edge-cases.api.spec.ts         # Edge cases and boundary conditions
-│   └── redis-rabbitmq-configuration.api.spec.ts  # Redis and RabbitMQ integration tests
-├── support/
-│   ├── fixtures/          # Test fixtures (setup/teardown)
-│   │   ├── index.ts                  # Central export for all fixtures
-│   │   ├── backend.fixture.ts         # Backend API request fixtures
-│   │   └── database.fixture.ts        # Database and Prisma fixtures
-│   ├── factories/         # Data factories for test data
-│   │   ├── index.ts                  # Central export for all factories
-│   │   ├── database.factory.ts        # User, Company, Store factories
-│   │   ├── server.factory.ts          # Health check and error response factories
-│   │   ├── redis.factory.ts           # Redis connection factories
-│   │   └── rabbitmq.factory.ts        # RabbitMQ connection factories
-│   └── helpers/           # Pure utility functions
-│       ├── index.ts                  # Central export for all helpers
-│       └── server-helpers.ts          # Server validation helpers
+           /\
+          /  \       E2E Tests (5-10%)
+         /    \      Critical user journeys only
+        /------\
+       /        \    Integration Tests (20-30%)
+      /          \   API endpoints, middleware, auth
+     /------------\
+    /              \  Component/Unit Tests (60-70%)
+   /                \ UI components, utilities, business logic
+  /------------------\
 ```
+
+## Test Types
+
+### 1. Component Tests (`tests/component/`)
+
+**Purpose**: Test UI component behavior in isolation
+
+**Tools**: Vitest + React Testing Library
+
+**What to test**:
+- Component rendering
+- User interactions (clicks, inputs)
+- State changes
+- Callback invocations
+- Accessibility attributes
+
+**What NOT to test**:
+- Browser-specific behavior (use E2E for that)
+- Backend integration
+- Real authentication
+
+**Example tests**:
+- `Sidebar.test.tsx` - Navigation items, mobile collapse callback
+- `ThemeToggle.test.tsx` - Theme switching behavior
+
+**Running**:
+```bash
+npm run test:component
+```
+
+### 2. Integration Tests (`tests/api/`)
+
+**Purpose**: Test API endpoints with real database
+
+**Tools**: Playwright API testing + Prisma
+
+**What to test**:
+- API request/response structure
+- Authorization (RBAC)
+- Database operations
+- Business logic
+- Error handling
+
+**Example tests**:
+- Store CRUD operations
+- User management
+- Shift lifecycle
+- Transaction processing
+
+**Running**:
+```bash
+npm run test:api
+```
+
+### 3. E2E Tests (`tests/e2e/`)
+
+**Purpose**: Test critical user journeys end-to-end
+
+**Tools**: Playwright browser automation
+
+**What to test**:
+- Complete user workflows (login → action → verification)
+- Cross-page navigation
+- Real authentication flows
+- Data persistence across sessions
+
+**What NOT to test**:
+- Individual UI components (use component tests)
+- API responses (use integration tests)
+- Styling/visual regression (use visual testing tools)
+
+**Example tests**:
+- `client-dashboard-flow.spec.ts` - Login → Dashboard → Data visibility
+- `store-management.spec.ts` - Store CRUD with real login
+- `company-management.spec.ts` - Company management workflow
+
+**Running**:
+```bash
+npm run test:e2e
+```
+
+## Key Principles
+
+### 1. No Mocking Auth in E2E Tests
+
+E2E tests must use real authentication:
+- Use JWT cookies with valid tokens
+- Let `/api/auth/me` endpoint validate tokens
+- Never use `page.route()` to mock auth responses
+
+**Why**: Mocking auth defeats the purpose of E2E testing. You're not testing the real system.
+
+### 2. Test at the Right Level
+
+| Behavior | Test Type |
+|----------|-----------|
+| Button click toggles state | Component |
+| Sidebar navigation items | Component |
+| Dark mode toggle | Component |
+| API returns correct data | Integration |
+| Role-based access control | Integration |
+| Login → Dashboard → Action | E2E |
+| Data isolation between users | E2E |
+
+### 3. E2E Tests Should Be Rare and Valuable
+
+Each E2E test should:
+- Cover a critical user journey
+- Test integration that can't be tested at lower levels
+- Have clear business value
+- Be worth the maintenance cost
+
+### 4. Fixtures Create Real Data
+
+Test fixtures should:
+- Create real users with real password hashes
+- Create real JWT tokens (not mocks)
+- Use the actual authentication system
+- Clean up data after tests
+
+## Files Removed (and Why)
+
+The following E2E tests were removed because they were testing UI behavior that should be component tests:
+
+| Removed File | Reason | Replaced By |
+|--------------|--------|-------------|
+| `mobile-sidebar.spec.ts` | Tests sidebar toggle behavior | `Sidebar.test.tsx` |
+| `dark-mode-toggle.spec.ts` | Tests theme toggle | `ThemeToggle.test.tsx` |
+| `basic-ui-layout-and-navigation.spec.ts` | Tests nav items exist | `Sidebar.test.tsx` |
+| `mobile-alert-dialog.spec.ts` | Tests dialog rendering | Component test (todo) |
+| `admin-role-creation-authorization.spec.ts` | Mocked auth entirely | Integration test |
+| `admin-user-management.spec.ts` | Mocked auth entirely | Integration test |
+| `transaction-display-ui.spec.ts` | UI rendering only | Component test (todo) |
+| `cashier-shift-start.spec.ts` | Mocked auth, UI testing | Component test (todo) |
 
 ## Running Tests
 
-### Prerequisites
-
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-2. Ensure backend server is running or will be started automatically:
-   ```bash
-   cd backend && npm run dev
-   ```
-
-### Test Execution
-
 ```bash
-# Run E2E tests
-npm run test:e2e              # Run all end-to-end tests
-npm run test:e2e:ui           # Run E2E tests in UI mode
+# All tests
+npm test
 
-# Run API tests
-npm run test:api               # Run all API tests
-npm run test:api:p0            # Critical paths only (P0)
-npm run test:api:p1            # P0 + P1 tests (high priority)
-npm run test:api:p2            # P0 + P1 + P2 tests (medium priority)
+# Component tests only
+npm run test:component
 
-# Run specific file
-npm run test:api -- backend-setup.api.spec.ts
+# API/Integration tests only
+npm run test:api
 
-# Run in headed mode (with browser)
-npm run test:api -- --headed
+# E2E tests only
+npm run test:e2e
 
-# Debug specific test
-npm run test:api -- backend-setup.api.spec.ts --debug
-
-# Run with UI mode
-npm run test:api:ui            # Run API tests in UI mode
+# Watch mode (component tests)
+npm run test:component -- --watch
 ```
 
-## Priority Tags
+## Writing New Tests
 
-Tests are tagged with priority levels to enable selective execution:
+### When to Write a Component Test
 
-- **[P0]**: Critical paths, run every commit
-  - Health check endpoints
-  - Security headers
-  - Server startup
+- Testing a React component
+- Testing UI interactions
+- Testing rendering logic
+- Testing callback behavior
 
-- **[P1]**: High priority, run on PR to main
-  - CORS middleware
-  - Rate limiting
-  - API endpoint validation
+### When to Write an Integration Test
 
-- **[P2]**: Medium priority, run nightly
-  - Graceful shutdown
-  - Edge cases
+- Testing an API endpoint
+- Testing RBAC/permissions
+- Testing database operations
+- Testing business logic
 
-- **[P3]**: Low priority, run on-demand
-  - Nice-to-have validations
+### When to Write an E2E Test
 
-## Test Patterns
+- Testing a complete user journey
+- Testing cross-page workflows
+- Testing real authentication
+- Testing data isolation between users
 
-### Given-When-Then Format
+## Test File Naming
 
-All tests follow the Given-When-Then structure:
+- Component tests: `ComponentName.test.tsx`
+- Integration tests: `feature-name.api.spec.ts`
+- E2E tests: `feature-name.spec.ts`
 
-```typescript
-test('[P0] should return health status', async ({ apiRequest }) => {
-  // GIVEN: Backend server is running
-  // WHEN: Health check endpoint is called
-  const response = await apiRequest.get('/health');
+## Test Organization
 
-  // THEN: Response is 200 OK
-  expect(response.status()).toBe(200);
-});
 ```
-
-### Using Fixtures
-
-Tests use fixtures for consistent setup. Import from the central index:
-
-```typescript
-// Import from central index (recommended)
-import { test, expect } from './support/fixtures';
-
-// Or import specific fixture (if needed)
-import { test, expect } from './support/fixtures/backend.fixture';
-
-test('example', async ({ apiRequest, backendUrl }) => {
-  // apiRequest provides helper methods
-  const response = await apiRequest.get('/health');
-});
+tests/
+├── component/           # React component tests
+│   ├── Sidebar.test.tsx
+│   └── ThemeToggle.test.tsx
+├── api/                 # API integration tests
+│   ├── stores.api.spec.ts
+│   └── users.api.spec.ts
+├── e2e/                 # End-to-end tests
+│   ├── client-dashboard-flow.spec.ts
+│   └── store-management.spec.ts
+└── support/             # Test utilities and fixtures
+    ├── fixtures/
+    ├── factories/
+    └── test-utils.tsx
 ```
-
-### Using Factories
-
-Use factories for test data generation. Import from the central index:
-
-```typescript
-// Import from central index (recommended)
-import { createHealthCheckResponse, createUser } from './support/factories';
-
-// Or import specific factory (if needed)
-import { createHealthCheckResponse } from './support/factories/server.factory';
-
-const healthData = createHealthCheckResponse({ status: 'ok' });
-const userData = createUser({ email: 'test@example.com' });
-```
-
-### Using Helpers
-
-Import helper functions from the central index:
-
-```typescript
-import { validateHealthCheckResponse, validateCorsHeaders } from './support/helpers';
-
-const isValid = validateHealthCheckResponse(responseBody);
-```
-
-## Test Quality Standards
-
-All tests must follow these standards:
-
-- ✅ **Given-When-Then format**: Clear test structure
-- ✅ **Priority tags**: Every test has [P0], [P1], [P2], or [P3] tag
-- ✅ **One assertion per test**: Atomic tests
-- ✅ **No hard waits**: Use explicit waits (`waitForResponse`)
-- ✅ **Self-cleaning**: Fixtures handle cleanup automatically
-- ✅ **Deterministic**: No flaky patterns
-- ✅ **Fast**: Tests complete in under 1.5 minutes
-- ✅ **Lean**: Test files under 300 lines
-
-## Forbidden Patterns
-
-❌ **Hard waits**: `await page.waitForTimeout(2000)`
-❌ **Conditional flow**: `if (await element.isVisible()) { ... }`
-❌ **Try-catch for flow control**: Use for cleanup only
-❌ **Hardcoded test data**: Use factories instead
-❌ **Shared state between tests**: Each test is isolated
-
-## Common Patterns
-
-### Network-First Pattern
-
-Intercept routes BEFORE navigation to prevent race conditions:
-
-```typescript
-test('should load data', async ({ page }) => {
-  // CRITICAL: Intercept BEFORE navigate
-  await page.route('**/api/data', (route) =>
-    route.fulfill({ status: 200, body: JSON.stringify({ data: 'test' }) })
-  );
-
-  // NOW navigate
-  await page.goto('/dashboard');
-});
-```
-
-### API Testing Pattern
-
-```typescript
-test('[P1] POST /api/users should create user', async ({ apiRequest }) => {
-  // GIVEN: User data
-  const userData = createUser({ email: 'test@example.com' });
-
-  // WHEN: Creating user via API
-  const response = await apiRequest.post('/api/users', userData);
-
-  // THEN: User is created
-  expect(response.status()).toBe(201);
-  const body = await response.json();
-  expect(body).toHaveProperty('id');
-});
-```
-
-## Environment Variables
-
-Tests use the following environment variables:
-
-- `BACKEND_URL`: Backend server URL (default: `http://localhost:3001`)
-- `CI`: Set to `true` in CI environments (enables retries, disables video)
-
-## CI Integration
-
-Tests run automatically in CI with:
-
-- 2 retries on failure
-- HTML report generation
-- JUnit XML output for test reporting tools
-- Artifacts (traces, screenshots, videos) on failure
-
-## Troubleshooting
-
-### Tests fail with connection errors
-
-1. Ensure backend server is running: `cd backend && npm run dev`
-2. Check `BACKEND_URL` environment variable matches server port
-3. Verify firewall/network settings
-
-### Tests are flaky
-
-1. Check for hard waits (`waitForTimeout`) - replace with explicit waits
-2. Verify network-first pattern is used (intercept before navigate)
-3. Check for race conditions in parallel test execution
-
-### Tests timeout
-
-1. Increase timeout in `playwright.config.ts` if needed
-2. Check server response times
-3. Verify network conditions
-
-## Test Coverage
-
-### Current Coverage
-
-- **Backend Infrastructure**: Health checks, CORS, security headers, rate limiting
-- **Database Setup**: Prisma Client, schema validation, migrations, indexes
-- **Error Handling**: 404 responses, invalid methods, malformed requests
-- **Edge Cases**: Empty values, special characters, boundary conditions, concurrent requests
-
-### Test Files
-
-1. **backend-setup.api.spec.ts** (156 lines)
-   - Health check endpoint (P0)
-   - CORS middleware (P1)
-   - Security headers (P0)
-   - Rate limiting (P1)
-   - Server configuration (P0, P2)
-
-2. **database-setup/** (4 files, 421 lines total)
-   - **prisma-config.api.spec.ts** (70 lines) - Prisma Client configuration (P0)
-   - **schema-validation.api.spec.ts** (216 lines) - Schema validation (P0, P1)
-   - **migrations.api.spec.ts** (37 lines) - Migrations (P0, P1)
-   - **indexes.api.spec.ts** (98 lines) - Indexes (P1)
-
-3. **error-handling.api.spec.ts** (180 lines)
-   - 404 Not Found scenarios (P1)
-   - Invalid HTTP methods (P1)
-   - Malformed requests (P1)
-   - Request size limits (P2)
-   - CORS error scenarios (P1)
-   - Server error handling (P1)
-
-4. **edge-cases.api.spec.ts** (200 lines)
-   - Empty and null values (P2)
-   - Special characters (P2)
-   - Boundary values (P2)
-   - HTTP headers (P2)
-   - Concurrent requests (P2)
-   - Response format validation (P2)
-
-### Priority Breakdown
-
-- **P0 (Critical)**: 15 tests - Health checks, security, database connection
-- **P1 (High)**: 30 tests - Error handling, CORS, rate limiting, schema validation
-- **P2 (Medium)**: 18 tests - Edge cases, boundary conditions, concurrent requests
-
-**Total**: 63 tests across 4 test files (API: 63 tests)
-
-### Homepage Tests (NEW)
-
-7. **e2e/homepage.spec.ts** (8 tests, 145 lines)
-   - Homepage hero section display (P0)
-   - Pain points section visibility (P0)
-   - Scroll to contact form (P1)
-   - Contact form fields display (P1)
-   - Benefits section display (P1)
-   - Key statistics display (P2)
-   - Dashboard navigation (P1)
-   - Responsive layout (P2)
-
-8. **e2e/homepage-contact-form.spec.ts** (6 tests, 140 lines)
-   - Form submission with valid data (P0)
-   - Required field validation (P1)
-   - Email format validation (P1)
-   - Submit button loading state (P1)
-   - Form field clearing after submission (P2)
-   - Error message display (P1)
-
-9. **component/ContactForm.test.tsx** (7 tests, 95 lines)
-   - Form field rendering (P1)
-   - Form state updates (P1)
-   - Submit button enable/disable (P1)
-   - Loading state during submission (P1)
-   - Success message display (P1)
-   - Form field clearing (P1)
-   - Required field indicators (P2)
-
-**Updated Total**: 99 tests across 9 test files (API: 70 tests, E2E: 22 tests, Component: 7 tests)
-
-## Next Steps
-
-- Add more API endpoint tests as features are implemented
-- Expand factory coverage for different data types
-- Add unit tests for utility functions when created
-- Set up test coverage reporting
-- Integrate contact form backend API endpoint
-

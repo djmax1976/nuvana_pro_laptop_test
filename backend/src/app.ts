@@ -38,9 +38,54 @@ const PORT = parseInt(
 );
 const SERVER_START_TIME = Date.now();
 
+// SECURITY: Configure body size limits to prevent DoS attacks via oversized payloads
+//
+// Strategy: Use conservative default limit for JSON APIs, higher limit for upload routes
+// - Default bodyLimit: 1MB (sufficient for JSON payloads, protects against DoS)
+// - Upload routes: Higher limit set per-route to accommodate file uploads
+//
+// Configuration:
+// - MAX_UPLOAD_FILE_SIZE_MB: Maximum file size for uploads (default: 10MB)
+// - MULTIPART_OVERHEAD_MB: Overhead for multipart encoding (default: 2MB)
+// - DEFAULT_JSON_BODY_LIMIT_MB: Default limit for JSON endpoints (default: 1MB)
+//
+// Upload routes should set their own bodyLimit via route options:
+//   fastify.post('/upload', { bodyLimit: uploadBodyLimitBytes }, handler)
+
+// Read max upload file size (used for multipart fileSize limit and upload route bodyLimit)
+const maxFileSizeMB = parseInt(process.env.MAX_UPLOAD_FILE_SIZE_MB || "10", 10);
+
+// Read multipart overhead (boundaries, headers, field names, etc.)
+const multipartOverheadMB = parseInt(
+  process.env.MULTIPART_OVERHEAD_MB || "2",
+  10,
+);
+
+// Default body limit for JSON endpoints (1MB is industry standard for JSON APIs)
+const DEFAULT_JSON_BODY_LIMIT_MB = 1;
+const defaultJsonBodyLimitMB = parseInt(
+  process.env.DEFAULT_JSON_BODY_LIMIT_MB || String(DEFAULT_JSON_BODY_LIMIT_MB),
+  10,
+);
+
+// Calculate upload body limit (for routes that handle file uploads)
+const uploadBodyLimitMB = maxFileSizeMB + multipartOverheadMB;
+export const uploadBodyLimitBytes = uploadBodyLimitMB * 1024 * 1024;
+
+// Use conservative default for all routes (JSON APIs)
+const maxRequestBodySizeMB = defaultJsonBodyLimitMB;
+const maxRequestBodySizeBytes = maxRequestBodySizeMB * 1024 * 1024;
+
+// Log the configuration for debugging
+console.log(
+  `Body limit configuration: defaultJsonLimit=${defaultJsonBodyLimitMB}MB, uploadLimit=${uploadBodyLimitMB}MB (for upload routes)`,
+);
+
 // Create Fastify instance with ajv-formats for UUID validation
+
 const app = Fastify({
   logger: true,
+  bodyLimit: maxRequestBodySizeBytes,
   ajv: {
     customOptions: {
       removeAdditional: false,
@@ -88,6 +133,20 @@ app.setErrorHandler((error: any, _request, reply) => {
       error: {
         code: "INVALID_JSON_BODY",
         message: "Request body must be valid JSON",
+      },
+    });
+    return;
+  }
+
+  // Handle request body too large errors
+  // Fastify throws FST_ERR_CTP_BODY_TOO_LARGE when body exceeds bodyLimit
+  if (error.code === "FST_ERR_CTP_BODY_TOO_LARGE") {
+    app.log.warn({ error }, "Request body too large");
+    reply.status(413).send({
+      success: false,
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: `Request body exceeds maximum size of ${maxRequestBodySizeMB}MB`,
       },
     });
     return;
@@ -154,13 +213,13 @@ app.register(cookie, {
 // Register multipart form data parser (required for file uploads)
 // SECURITY: File upload configuration
 // - File size limit: Configurable via MAX_UPLOAD_FILE_SIZE_MB env var (default: 10MB)
+// - Note: bodyLimit (configured above) is automatically set to accommodate max upload size + overhead
 // - Route handlers MUST:
 //   1. Enforce file-type whitelists (check both MIME type and file signature/magic bytes)
 //   2. Use streaming (file.file or file.stream) - NEVER use toBuffer() for large files
 //   3. Validate content-type header matches actual file content (prevent MIME spoofing)
 //   4. Implement per-user upload quota checks before accepting uploads
 //   5. Reject any buffered-toBuffer() usage patterns for files > 1MB
-const maxFileSizeMB = parseInt(process.env.MAX_UPLOAD_FILE_SIZE_MB || "10", 10);
 const maxFileSizeBytes = maxFileSizeMB * 1024 * 1024;
 
 app.register(multipart, {

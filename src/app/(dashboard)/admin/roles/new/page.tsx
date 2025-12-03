@@ -10,13 +10,19 @@ import { CreateRoleForm } from "@/components/admin-roles/CreateRoleForm";
  * ADMIN_SYSTEM_CONFIG permission can access this page.
  * This prevents client-side bypass of authorization.
  *
- * If user is not authorized, they are redirected to the roles list page
- * with an error parameter indicating unauthorized access.
+ * If user is not authenticated, they are redirected to login.
+ * If user is authenticated but not authorized, they are redirected to the
+ * roles list page with an error parameter indicating unauthorized access.
  */
 export default async function CreateRolePage() {
   // Server-side authorization check
   // This runs on the server before any client-side code executes
-  const { isAuthorized } = await checkSuperAdminPermission();
+  const { isAuthorized, isAuthenticated } = await checkSuperAdminPermission();
+
+  if (!isAuthenticated) {
+    // Redirect unauthenticated users to login
+    redirect("/login");
+  }
 
   if (!isAuthorized) {
     // Redirect unauthorized users - prevents access to the page

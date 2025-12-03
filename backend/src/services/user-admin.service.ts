@@ -218,19 +218,8 @@ export class UserAdminService {
             );
           }
 
-          // Basic existence check (full validation happens in transaction)
-          const store = await prisma.store.findUnique({
-            where: { store_id: roleAssignment.store_id },
-            select: { company_id: true },
-          });
-
-          if (!store) {
-            throw new Error(
-              `Store with ID ${roleAssignment.store_id} not found`,
-            );
-          }
-
-          // Basic existence check (full validation happens in transaction)
+          // Basic existence checks (full validation happens in transaction)
+          // Check company first - if company doesn't exist, no point checking store
           const company = await prisma.company.findUnique({
             where: { company_id: roleAssignment.company_id },
             select: { company_id: true },
@@ -239,6 +228,17 @@ export class UserAdminService {
           if (!company) {
             throw new Error(
               `Company with ID ${roleAssignment.company_id} not found`,
+            );
+          }
+
+          const store = await prisma.store.findUnique({
+            where: { store_id: roleAssignment.store_id },
+            select: { company_id: true },
+          });
+
+          if (!store) {
+            throw new Error(
+              `Store with ID ${roleAssignment.store_id} not found`,
             );
           }
         }
