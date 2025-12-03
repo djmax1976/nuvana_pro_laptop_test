@@ -824,7 +824,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Semgrep OWASP
-        uses: returntocorp/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
+        uses: semgrep/semgrep-action@v1
         with:
           config: p/owasp-top-ten
       - name: npm audit (high severity)
