@@ -8,6 +8,7 @@ import {
   toStoreTime,
 } from "../utils/timezone.utils";
 import { addDays } from "date-fns";
+import { PERMISSIONS } from "../constants/permissions";
 
 /**
  * Client Dashboard Routes
@@ -35,13 +36,34 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
       const user = (request as any).user as UserIdentity;
 
       try {
-        // Verify user is a client user
+        // Verify user has access to client dashboard
+        // User must either have is_client_user flag OR CLIENT_DASHBOARD_ACCESS permission
+        // This allows STORE_MANAGER, SHIFT_MANAGER etc. to access their assigned stores
         const dbUser = await prisma.user.findUnique({
           where: { user_id: user.id },
           select: { is_client_user: true, name: true, email: true },
         });
 
-        if (!dbUser?.is_client_user) {
+        // Check if user has CLIENT_DASHBOARD_ACCESS permission via their roles
+        const hasClientDashboardPermission = await prisma.userRole.findFirst({
+          where: {
+            user_id: user.id,
+            role: {
+              role_permissions: {
+                some: {
+                  permission: {
+                    code: PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        if (
+          !dbUser ||
+          (!dbUser.is_client_user && !hasClientDashboardPermission)
+        ) {
           reply.code(403);
           return {
             error: "Access denied",
@@ -72,10 +94,11 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
 
         // Also get stores where user is assigned via user_roles (for store employees)
         // This allows STORE_MANAGER, CASHIER, etc. to see their assigned stores
+        // We get ALL role assignments (store-level or company-level) to capture both scenarios
         const userRoleAssignments = await prisma.userRole.findMany({
           where: {
             user_id: user.id,
-            store_id: { not: null },
+            OR: [{ store_id: { not: null } }, { company_id: { not: null } }],
           },
           select: {
             store_id: true,
@@ -118,34 +141,55 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
         // Combine owned and assigned companies
         const companies = [...ownedCompanies, ...assignedCompanies];
 
-        // Get stores: either from owned companies OR assigned via user_roles
+        // Get stores: either from owned companies, assigned companies, OR assigned via user_roles
         const ownedCompanyIds = ownedCompanies.map(
           (c: { company_id: string }) => c.company_id,
         );
 
-        const stores = await prisma.store.findMany({
-          where: {
-            OR: [
-              { company_id: { in: ownedCompanyIds } },
-              { store_id: { in: assignedStoreIds } },
-            ],
-          },
-          select: {
-            store_id: true,
-            name: true,
-            location_json: true,
-            timezone: true,
-            status: true,
-            company_id: true,
-            created_at: true,
-            company: {
-              select: {
-                name: true,
-              },
-            },
-          },
-          orderBy: { name: "asc" },
-        });
+        // Combine all company IDs where user should see stores
+        const allAccessibleCompanyIds = [
+          ...ownedCompanyIds,
+          ...assignedCompanyIds,
+        ];
+
+        // Build OR conditions for stores query
+        const storeOrConditions: Array<
+          { company_id: { in: string[] } } | { store_id: { in: string[] } }
+        > = [];
+
+        if (allAccessibleCompanyIds.length > 0) {
+          storeOrConditions.push({
+            company_id: { in: allAccessibleCompanyIds },
+          });
+        }
+        if (assignedStoreIds.length > 0) {
+          storeOrConditions.push({ store_id: { in: assignedStoreIds } });
+        }
+
+        // Query stores if user has any access, otherwise return empty array
+        const stores =
+          storeOrConditions.length > 0
+            ? await prisma.store.findMany({
+                where: {
+                  OR: storeOrConditions,
+                },
+                select: {
+                  store_id: true,
+                  name: true,
+                  location_json: true,
+                  timezone: true,
+                  status: true,
+                  company_id: true,
+                  created_at: true,
+                  company: {
+                    select: {
+                      name: true,
+                    },
+                  },
+                },
+                orderBy: { name: "asc" },
+              })
+            : [];
 
         // Deduplicate stores (in case user owns company AND is assigned to store)
         const uniqueStores = stores.filter(

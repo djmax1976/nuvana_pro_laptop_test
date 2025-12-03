@@ -151,7 +151,11 @@ test.describe("2.92-API: Client Role Permission Management", () => {
       "Permissions should be an array",
     ).toBe(true);
 
-    // AND: Only assignable permissions are included (no ADMIN_*, COMPANY_*, CLIENT_* except CLIENT_EMPLOYEE_*)
+    // AND: Only assignable permissions are included (no ADMIN_*, COMPANY_*)
+    // Assignable permissions include:
+    // - SHIFT_*, TRANSACTION_*, INVENTORY_*, LOTTERY_*, REPORT_*, STORE_READ/UPDATE
+    // - CLIENT_EMPLOYEE_* (for client employee management)
+    // - CASHIER_* (for cashier management - Story 4.9)
     const permissions = body.data.permissions;
     for (const perm of permissions) {
       expect(
@@ -169,6 +173,8 @@ test.describe("2.92-API: Client Role Permission Management", () => {
           `Permission ${perm.code} should be CLIENT_EMPLOYEE_* if CLIENT_*`,
         ).toBe(true);
       }
+      // CASHIER_* permissions are valid assignable permissions (Story 4.9)
+      // No additional validation needed - they are allowed
     }
   });
 
@@ -306,6 +312,111 @@ test.describe("2.92-API: Client Role Permission Management", () => {
       auditLog?.table_name,
       "Audit log should reference client_role_permissions table",
     ).toBe("client_role_permissions");
+  });
+
+  test("2.92-API-005a: [P1] PUT /api/client/roles/:roleId/permissions - should allow CASHIER_* permission assignments (Story 4.9)", async ({
+    clientUserApiRequest,
+    clientUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Client Owner
+    // AND: A STORE scope role exists
+    // AND: CASHIER_* permissions exist (added in Story 4.9)
+    const storeRole = await prismaClient.role.findFirst({
+      where: { scope: "STORE" },
+    });
+    if (!storeRole) {
+      throw new Error("No STORE scope role found in database");
+    }
+
+    // Get a CASHIER permission (CASHIER_READ is in CLIENT_ASSIGNABLE_PERMISSIONS)
+    const cashierPermission = await prismaClient.permission.findFirst({
+      where: { code: "CASHIER_READ" },
+    });
+    if (!cashierPermission) {
+      throw new Error("CASHIER_READ permission not found in database");
+    }
+
+    const updateRequest = createUpdateRolePermissionsRequest([
+      {
+        permission_id: cashierPermission.permission_id,
+        is_enabled: true,
+      },
+    ]);
+
+    // WHEN: Updating role permissions with CASHIER_READ
+    const response = await clientUserApiRequest.put(
+      `/api/client/roles/${storeRole.role_id}/permissions`,
+      updateRequest,
+    );
+
+    // THEN: Response is successful (CASHIER_* is assignable)
+    expect(
+      response.status(),
+      "Expected 200 OK status for CASHIER permission",
+    ).toBe(200);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+
+    // AND: Permission is saved to database
+    const clientRolePermission =
+      await prismaClient.clientRolePermission.findFirst({
+        where: {
+          owner_user_id: clientUser.user_id,
+          role_id: storeRole.role_id,
+          permission_id: cashierPermission.permission_id,
+        },
+      });
+    expect(
+      clientRolePermission,
+      "CASHIER_READ permission should be saved",
+    ).not.toBeNull();
+    expect(
+      clientRolePermission?.is_enabled,
+      "CASHIER_READ permission should be enabled",
+    ).toBe(true);
+  });
+
+  test("2.92-API-005b: [P1] GET /api/client/roles/:roleId/permissions - should include CASHIER_* in assignable permissions (Story 4.9)", async ({
+    clientUserApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Client Owner
+    // AND: A STORE scope role exists
+    const storeRole = await prismaClient.role.findFirst({
+      where: { scope: "STORE" },
+    });
+    if (!storeRole) {
+      throw new Error("No STORE scope role found in database");
+    }
+
+    // WHEN: Requesting permissions for the role
+    const response = await clientUserApiRequest.get(
+      `/api/client/roles/${storeRole.role_id}/permissions`,
+    );
+
+    // THEN: Response is successful
+    expect(response.status(), "Expected 200 OK status").toBe(200);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+
+    // AND: CASHIER_* permissions are included in the list (Story 4.9)
+    const permissionCodes = body.data.permissions.map(
+      (p: { code: string }) => p.code,
+    );
+    const expectedCashierPermissions = [
+      "CASHIER_CREATE",
+      "CASHIER_READ",
+      "CASHIER_UPDATE",
+      "CASHIER_DELETE",
+    ];
+
+    for (const cashierPerm of expectedCashierPermissions) {
+      expect(
+        permissionCodes.includes(cashierPerm),
+        `CASHIER permission ${cashierPerm} should be in assignable list`,
+      ).toBe(true);
+    }
   });
 
   test("2.92-API-006: [P0] PUT /api/client/roles/:roleId/permissions - should reject restricted permission assignments (AC #3)", async ({

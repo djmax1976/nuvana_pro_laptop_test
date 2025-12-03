@@ -6,29 +6,34 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 
 /**
- * Dashboard layout for authenticated admin pages
+ * Dashboard layout for authenticated SUPER_ADMIN users only
  * Uses DashboardLayout component with sidebar and header
  * Redirects to login if user is not authenticated
- * Redirects client users to their dedicated dashboard
+ * Redirects store-level users (CLIENT_USER, STORE_MANAGER, etc.) to /mystore
+ * Redirects CLIENT_OWNER users to /client-dashboard (their proper dashboard)
  */
 export default function DashboardRouteLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { isAuthenticated, isLoading, isClientUser } = useAuth();
+  const { isAuthenticated, isLoading, isStoreUser, userRole } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (!isLoading) {
       if (!isAuthenticated) {
         router.push("/login");
-      } else if (isClientUser) {
-        // Client users should not access admin dashboard - redirect to client dashboard
+      } else if (isStoreUser) {
+        // Store-level users (CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER)
+        // should use /mystore terminal dashboard, not the admin dashboard
+        router.push("/mystore");
+      } else if (userRole === "CLIENT_OWNER") {
+        // CLIENT_OWNER users should use /client-dashboard, not the admin dashboard
         router.push("/client-dashboard");
       }
     }
-  }, [isAuthenticated, isLoading, isClientUser, router]);
+  }, [isAuthenticated, isLoading, isStoreUser, userRole, router]);
 
   // Show loading state while checking auth
   if (isLoading) {
@@ -39,8 +44,8 @@ export default function DashboardRouteLayout({
     );
   }
 
-  // Don't render dashboard if not authenticated or if client user
-  if (!isAuthenticated || isClientUser) {
+  // Don't render dashboard if not authenticated, store-level user, or CLIENT_OWNER
+  if (!isAuthenticated || isStoreUser || userRole === "CLIENT_OWNER") {
     return null;
   }
 

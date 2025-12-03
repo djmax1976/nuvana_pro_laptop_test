@@ -11,26 +11,33 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 /**
  * Inner layout component that uses client auth context
+ * Only CLIENT_OWNER role users can access /client-dashboard
  */
 function ClientDashboardLayoutInner({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { isAuthenticated, isLoading, isClientUser } = useClientAuth();
+  const { isAuthenticated, isLoading, userRole, isStoreUser } = useClientAuth();
   const router = useRouter();
+
+  // CLIENT_OWNER is the only role that can access /client-dashboard
+  const isClientOwner = userRole === "CLIENT_OWNER";
 
   useEffect(() => {
     if (!isLoading) {
       if (!isAuthenticated) {
         // Not authenticated - redirect to unified login
         router.push("/login");
-      } else if (!isClientUser) {
-        // Authenticated but not a client user - redirect to main app
-        router.push("/");
+      } else if (isStoreUser) {
+        // Store-level users should go to /mystore
+        router.push("/mystore");
+      } else if (!isClientOwner) {
+        // Authenticated but not CLIENT_OWNER - redirect to appropriate dashboard
+        router.push("/dashboard");
       }
     }
-  }, [isAuthenticated, isLoading, isClientUser, router]);
+  }, [isAuthenticated, isLoading, isClientOwner, isStoreUser, router]);
 
   // Show loading state while checking auth
   if (isLoading) {
@@ -44,8 +51,8 @@ function ClientDashboardLayoutInner({
     );
   }
 
-  // Don't render dashboard if not authenticated or not a client user
-  if (!isAuthenticated || !isClientUser) {
+  // Don't render dashboard if not authenticated or not CLIENT_OWNER
+  if (!isAuthenticated || !isClientOwner) {
     return null;
   }
 
@@ -55,11 +62,11 @@ function ClientDashboardLayoutInner({
 /**
  * Client Dashboard route layout
  * Protects all routes under (client-dashboard) from unauthorized access
- * Only allows users who are authenticated and are client users
- * Redirects non-client users to the appropriate dashboard
+ * Only allows users who are authenticated with CLIENT_OWNER role
+ * Redirects store-level users to /mystore, non-client users to /dashboard
  *
  * @requirements
- * - AC #3: Redirect if not authenticated as client
+ * - AC #3: Redirect if not authenticated as CLIENT_OWNER
  * - Route protection with proper loading states
  */
 export default function ClientDashboardRouteLayout({

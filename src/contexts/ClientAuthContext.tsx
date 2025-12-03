@@ -11,13 +11,15 @@ import {
 import { useRouter } from "next/navigation";
 
 /**
- * Client user interface with is_client_user flag
+ * Client user interface with is_client_user flag and user_role
  */
 interface ClientUser {
   id: string;
   email: string;
   name: string;
   is_client_user: boolean;
+  user_role?: string;
+  roles?: string[];
 }
 
 /**
@@ -29,6 +31,8 @@ interface ClientAuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   isClientUser: boolean;
+  isStoreUser: boolean; // True if user should access /mystore (store-level roles)
+  userRole: string | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -139,10 +143,25 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
           if (response.ok) {
             const validatedData = await response.json();
 
-            // Check if user has client permissions
-            // Users with CLIENT_DASHBOARD_ACCESS permission, OR
-            // Users with CLIENT_USER/CLIENT_OWNER roles, OR
-            // Users with store-level roles (STORE_MANAGER, SHIFT_MANAGER, CASHIER)
+            // Store-level roles that should access /mystore
+            const storeRoles = [
+              "CLIENT_USER",
+              "STORE_MANAGER",
+              "SHIFT_MANAGER",
+              "CASHIER",
+            ];
+
+            // Check if user has store-level access (for /mystore dashboard)
+            // Only store-level roles should access /mystore
+            const isStoreUser = validatedData.user.roles?.some((r: string) =>
+              storeRoles.includes(r),
+            );
+
+            // Check if user is CLIENT_OWNER (for /client-dashboard)
+            const isClientOwner =
+              validatedData.user.roles?.includes("CLIENT_OWNER");
+
+            // Check if user has any client access (including CLIENT_OWNER)
             const hasClientAccess =
               validatedData.user.permissions?.includes(
                 "CLIENT_DASHBOARD_ACCESS",
@@ -156,8 +175,10 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
                   r === "CASHIER",
               );
 
-            if (!hasClientAccess) {
-              // User doesn't have client access - clear session
+            // Allow both store-level users and CLIENT_OWNER to be authenticated
+            // The layouts will handle routing to the correct dashboard
+            if (!isStoreUser && !isClientOwner) {
+              // User doesn't have client access at all - clear session
               try {
                 localStorage.removeItem(STORAGE_KEY);
                 localStorage.removeItem("client_auth_session");
@@ -170,11 +191,28 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
               return;
             }
 
+            // Determine user_role for routing
+            let userRole: string | undefined;
+            const roles = validatedData.user.roles || [];
+            if (roles.includes("CLIENT_OWNER")) {
+              userRole = "CLIENT_OWNER";
+            } else if (roles.includes("CLIENT_USER")) {
+              userRole = "CLIENT_USER";
+            } else if (roles.includes("STORE_MANAGER")) {
+              userRole = "STORE_MANAGER";
+            } else if (roles.includes("SHIFT_MANAGER")) {
+              userRole = "SHIFT_MANAGER";
+            } else if (roles.includes("CASHIER")) {
+              userRole = "CASHIER";
+            }
+
             const userData: ClientUser = {
               id: validatedData.user.id,
               email: validatedData.user.email,
               name: validatedData.user.name || validatedData.user.email,
-              is_client_user: true,
+              is_client_user: hasClientAccess,
+              user_role: userRole,
+              roles: roles,
             };
 
             // Store permissions from validated data
@@ -189,7 +227,9 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
                 JSON.stringify({
                   user: userData,
                   authenticated: true,
-                  isClientUser: true,
+                  isClientUser: hasClientAccess,
+                  isStoreUser: isStoreUser,
+                  userRole: userRole,
                 }),
               );
             } catch (storageError) {
@@ -576,6 +616,15 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
     }
   }, [backendUrl, setUser]);
 
+  // Determine if user is a store-level user (should access /mystore)
+  const storeRoles = [
+    "CLIENT_USER",
+    "STORE_MANAGER",
+    "SHIFT_MANAGER",
+    "CASHIER",
+  ];
+  const isStoreUser = user?.roles?.some((r) => storeRoles.includes(r)) ?? false;
+
   return (
     <ClientAuthContext.Provider
       value={{
@@ -584,6 +633,8 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         isClientUser: user?.is_client_user ?? false,
+        isStoreUser,
+        userRole: user?.user_role ?? null,
         login,
         logout,
         refreshUser,

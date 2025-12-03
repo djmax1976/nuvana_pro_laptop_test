@@ -11,13 +11,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 /**
  * Inner layout component that uses client auth context
+ * Only allows store-level users (CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER)
+ * CLIENT_OWNER users should be redirected to /client-dashboard
  */
 function MyStoreDashboardLayoutInner({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { isAuthenticated, isLoading, isClientUser } = useClientAuth();
+  const { isAuthenticated, isLoading, isStoreUser, userRole } = useClientAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -25,12 +27,17 @@ function MyStoreDashboardLayoutInner({
       if (!isAuthenticated) {
         // Not authenticated - redirect to unified login
         router.push("/login");
-      } else if (!isClientUser) {
-        // Authenticated but not a client user - redirect to main app
-        router.push("/");
+      } else if (!isStoreUser) {
+        // Authenticated but not a store-level user
+        // CLIENT_OWNER goes to /client-dashboard, others to /dashboard
+        if (userRole === "CLIENT_OWNER") {
+          router.push("/client-dashboard");
+        } else {
+          router.push("/dashboard");
+        }
       }
     }
-  }, [isAuthenticated, isLoading, isClientUser, router]);
+  }, [isAuthenticated, isLoading, isStoreUser, userRole, router]);
 
   // Show loading state while checking auth
   if (isLoading) {
@@ -44,8 +51,8 @@ function MyStoreDashboardLayoutInner({
     );
   }
 
-  // Don't render dashboard if not authenticated or not a client user
-  if (!isAuthenticated || !isClientUser) {
+  // Don't render dashboard if not authenticated or not a store-level user
+  if (!isAuthenticated || !isStoreUser) {
     return null;
   }
 
@@ -55,11 +62,13 @@ function MyStoreDashboardLayoutInner({
 /**
  * MyStore Terminal Dashboard route layout
  * Protects all routes under (mystore) from unauthorized access
- * Only allows users who are authenticated and are client users
- * Redirects non-client users to the appropriate dashboard
+ * Only allows users who are authenticated and have store-level roles
+ * (CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER)
+ * Redirects CLIENT_OWNER to /client-dashboard
  *
  * @requirements
- * - AC #1: Redirect CLIENT_USER to /mystore dashboard
+ * - AC #1: Redirect store-level users to /mystore dashboard
+ * - AC #2: Redirect CLIENT_OWNER to /client-dashboard (not /mystore)
  * - Route protection with proper loading states
  */
 export default function MyStoreDashboardRouteLayout({

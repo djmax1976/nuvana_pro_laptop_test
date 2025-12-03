@@ -40,8 +40,19 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         throw new Error(data.message || "Login failed");
       }
 
-      // Determine if this is a client user for routing
+      // Get user role and client user flag for routing
+      const userRole = data.user?.user_role;
       const isClientUser = data.user?.is_client_user === true;
+
+      // Determine if user should go to mystore (terminal dashboard)
+      // Only store-level roles go to /mystore: CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER
+      // CLIENT_OWNER goes to /dashboard (client owner dashboard)
+      const isStoreUser = [
+        "CLIENT_USER",
+        "STORE_MANAGER",
+        "SHIFT_MANAGER",
+        "CASHIER",
+      ].includes(userRole);
 
       // Store basic user info for UI (not for auth - that's in httpOnly cookies)
       // Always use single source of truth: "auth_session" with role information
@@ -54,6 +65,8 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
           user: data.user,
           authenticated: true,
           isClientUser: isClientUser,
+          isStoreUser: isStoreUser,
+          userRole: userRole,
         }),
       );
 
@@ -61,9 +74,17 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
       if (onSuccess) {
         onSuccess();
       } else {
-        // Role-based redirect: client users go to /mystore terminal dashboard, others to admin dashboard
-        // Story 4.9: CLIENT_USER with store-level access should be redirected to /mystore
-        window.location.href = isClientUser ? "/mystore" : "/dashboard";
+        // Role-based redirect:
+        // - Store-level users (CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER) go to /mystore
+        // - CLIENT_OWNER goes to /client-dashboard (client owner dashboard)
+        // - Admin users (SUPER_ADMIN) go to /dashboard (admin dashboard)
+        if (isStoreUser) {
+          window.location.href = "/mystore";
+        } else if (userRole === "CLIENT_OWNER") {
+          window.location.href = "/client-dashboard";
+        } else {
+          window.location.href = "/dashboard";
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");

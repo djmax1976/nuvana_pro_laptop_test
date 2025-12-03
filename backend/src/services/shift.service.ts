@@ -1548,9 +1548,9 @@ export class ShiftService {
         },
         cashier: {
           select: {
-            user_id: true,
+            cashier_id: true,
             name: true,
-            email: true,
+            employee_id: true,
           },
         },
       },
@@ -1709,7 +1709,7 @@ export class ShiftService {
         cashier_id: shift.cashier_id,
         cashier_name: shift.cashier
           ? {
-              user_id: shift.cashier.user_id,
+              cashier_id: shift.cashier.cashier_id,
               name: shift.cashier.name,
             }
           : null,

@@ -29,7 +29,6 @@ model User {
   audit_logs              AuditLog[]
   owned_companies         Company[]              @relation("CompanyOwner")
   shifts_opened           Shift[]                @relation("ShiftOpener")
-  shifts_cashier          Shift[]                @relation("ShiftCashier")
   shifts_approved         Shift[]                @relation("ShiftApprover")
   transactions            Transaction[]          @relation("TransactionCashier")
   assigned_roles          UserRole[]             @relation("UserRoleAssigner")
@@ -39,6 +38,8 @@ model User {
   roles_deleted           Role[]                 @relation("RoleDeleter")
   company_roles_assigned  CompanyAllowedRole[]   @relation("CompanyAllowedRoleAssigner")
   bulk_import_jobs        BulkImportJob[]        @relation("BulkImportJobUser")
+  cashiers_created        Cashier[]              @relation("CashierCreatedBy")
+  cashiers_updated        Cashier[]              @relation("CashierUpdatedBy")
 
   @@index([email])
   @@index([status])
@@ -80,6 +81,7 @@ model Store {
   public_id     String        @unique @db.VarChar(30)
   pos_terminals POSTerminal[]
   shifts        Shift[]
+  cashiers      Cashier[]
   company       Company       @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
   transactions  Transaction[]
   user_roles    UserRole[]
@@ -88,6 +90,34 @@ model Store {
   @@index([status])
   @@index([public_id])
   @@map("stores")
+}
+
+model Cashier {
+  cashier_id       String    @id @default(uuid()) @db.Uuid
+  store_id         String    @db.Uuid
+  employee_id      String    @db.VarChar(4) // 4-digit zero-padded, unique per store
+  name             String    @db.VarChar(255)
+  pin_hash         String    @db.VarChar(255) // bcrypt hashed
+  is_active        Boolean   @default(true)
+  hired_on         DateTime  @db.Date
+  termination_date DateTime? @db.Date
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  disabled_at      DateTime? @db.Timestamptz(6)
+  created_by       String    @db.Uuid
+  updated_by       String?   @db.Uuid
+
+  store    Store    @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  creator  User     @relation("CashierCreatedBy", fields: [created_by], references: [user_id])
+  updater  User?    @relation("CashierUpdatedBy", fields: [updated_by], references: [user_id])
+  shifts   Shift[]
+
+  @@unique([store_id, employee_id])
+  @@unique([store_id, pin_hash])
+  @@index([store_id])
+  @@index([employee_id])
+  @@index([is_active])
+  @@map("cashiers")
 }
 
 model Role {
@@ -288,7 +318,7 @@ model Shift {
   external_data     Json?
   synced_at         DateTime?   @db.Timestamptz(6)
   opener          User          @relation("ShiftOpener", fields: [opened_by], references: [user_id])
-  cashier         User          @relation("ShiftCashier", fields: [cashier_id], references: [user_id])
+  cashier         Cashier       @relation(fields: [cashier_id], references: [cashier_id])
   approver        User?         @relation("ShiftApprover", fields: [approved_by], references: [user_id])
   pos_terminal    POSTerminal?  @relation(fields: [pos_terminal_id], references: [pos_terminal_id])
   store           Store         @relation(fields: [store_id], references: [store_id], onDelete: Cascade)

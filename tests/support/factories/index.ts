@@ -165,3 +165,10 @@ export {
   createTerminals,
   type TerminalData,
 } from "./terminal.factory";
+
+// Cashier factories (Story 4.91)
+export {
+  createCashierRequest,
+  createCashierRequests,
+  type CreateCashierRequest,
+} from "./cashier.factory";

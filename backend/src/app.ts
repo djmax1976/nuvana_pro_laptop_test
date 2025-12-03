@@ -26,6 +26,7 @@ import { adminUserRoutes } from "./routes/admin-users";
 import { clientDashboardRoutes } from "./routes/client-dashboard";
 import { clientEmployeeRoutes } from "./routes/client-employees";
 import { clientRoleRoutes } from "./routes/client-roles";
+import { cashierRoutes } from "./routes/cashiers";
 import { adminRolesRoutes } from "./routes/admin-roles";
 import { rlsPlugin } from "./middleware/rls.middleware";
 
@@ -316,6 +317,9 @@ app.register(clientEmployeeRoutes);
 
 // Register client role permission management routes
 app.register(clientRoleRoutes);
+
+// Register cashier management routes
+app.register(cashierRoutes);
 
 // Root endpoint - API information and status
 app.get("/", async () => {

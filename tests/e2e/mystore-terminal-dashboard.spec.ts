@@ -377,3 +377,122 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     await expect(page.getByText(/terminal authentication/i)).toBeVisible();
   });
 });
+
+/**
+ * Test suite to verify CLIENT_OWNER users are NOT redirected to /mystore
+ * CLIENT_OWNER should go to /client-dashboard, not /mystore (terminal dashboard)
+ */
+test.describe("4.9-E2E: CLIENT_OWNER Access Control", () => {
+  let prisma: PrismaClient;
+  let clientOwner: any;
+  let company: any;
+  const password = "TestPassword123!";
+
+  test.beforeAll(async () => {
+    prisma = new PrismaClient();
+    const passwordHash = await bcrypt.hash(password, 10);
+    const userId = uuidv4();
+    const companyId = uuidv4();
+
+    // Create CLIENT_OWNER user
+    clientOwner = await prisma.user.create({
+      data: {
+        user_id: userId,
+        email: `e2e-client-owner-${Date.now()}@test.com`,
+        name: "E2E Client Owner",
+        status: "ACTIVE",
+        password_hash: passwordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
+    });
+
+    company = await prisma.company.create({
+      data: {
+        company_id: companyId,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: "E2E Client Owner Company",
+        address: "123 Owner Street",
+        status: "ACTIVE",
+        owner_user_id: clientOwner.user_id,
+      },
+    });
+
+    // Assign CLIENT_OWNER role (not CLIENT_USER)
+    const clientOwnerRole = await prisma.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
+    });
+    if (clientOwnerRole) {
+      await prisma.userRole.create({
+        data: {
+          user_id: clientOwner.user_id,
+          role_id: clientOwnerRole.role_id,
+          company_id: company.company_id,
+        },
+      });
+    }
+  });
+
+  test.afterAll(async () => {
+    if (company) {
+      await prisma.company
+        .delete({ where: { company_id: company.company_id } })
+        .catch(() => {});
+    }
+    if (clientOwner) {
+      await prisma.userRole
+        .deleteMany({ where: { user_id: clientOwner.user_id } })
+        .catch(() => {});
+      await prisma.user
+        .delete({ where: { user_id: clientOwner.user_id } })
+        .catch(() => {});
+    }
+    await prisma.$disconnect();
+  });
+
+  test("[P0] 4.9-E2E-009: CLIENT_OWNER should be redirected to /client-dashboard after login, NOT /mystore", async ({
+    page,
+  }) => {
+    // GIVEN: CLIENT_OWNER logs in
+    await page.goto("/login");
+    await page.fill(
+      'input[name="email"], input[type="email"]',
+      clientOwner.email,
+    );
+    await page.fill('input[name="password"], input[type="password"]', password);
+
+    // WHEN: User submits login form
+    await page.click('button[type="submit"]');
+
+    // Wait for navigation to complete
+    await page.waitForURL(/.*client-dashboard.*/, { timeout: 15000 });
+
+    // THEN: User should be redirected to /client-dashboard (NOT /mystore or /dashboard)
+    expect(page.url()).toContain("/client-dashboard");
+    expect(page.url()).not.toContain("/mystore");
+  });
+
+  test("[P0] 4.9-E2E-010: CLIENT_OWNER should be redirected away from /mystore if accessed directly", async ({
+    page,
+  }) => {
+    // GIVEN: CLIENT_OWNER logs in first
+    await page.goto("/login");
+    await page.fill(
+      'input[name="email"], input[type="email"]',
+      clientOwner.email,
+    );
+    await page.fill('input[name="password"], input[type="password"]', password);
+    await page.click('button[type="submit"]');
+    await page.waitForURL(/.*client-dashboard.*/, { timeout: 15000 });
+
+    // WHEN: CLIENT_OWNER tries to access /mystore directly
+    await page.goto("/mystore");
+
+    // Wait for redirect to occur
+    await page.waitForURL(/.*client-dashboard.*/, { timeout: 15000 });
+
+    // THEN: User should be redirected to /client-dashboard (NOT /mystore)
+    expect(page.url()).toContain("/client-dashboard");
+    expect(page.url()).not.toContain("/mystore");
+  });
+});

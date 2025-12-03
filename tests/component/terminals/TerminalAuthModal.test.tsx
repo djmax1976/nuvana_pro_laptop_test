@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 
 describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
   const mockTerminalId = "550e8400-e29b-41d4-a716-446655440011";
+  const mockStoreId = "550e8400-e29b-41d4-a716-446655440022";
   const mockTerminalName = "Terminal 1";
   const mockOnOpenChange = vi.fn();
   const mockOnSubmit = vi.fn();
@@ -24,6 +25,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -45,6 +47,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -67,6 +70,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -95,6 +99,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -119,6 +124,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -142,6 +148,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -176,6 +183,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -196,6 +204,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -236,6 +245,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     const { rerender } = renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -264,6 +274,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     rerender(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -282,6 +293,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}

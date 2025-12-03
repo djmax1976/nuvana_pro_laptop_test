@@ -111,6 +111,15 @@ export async function authRoutes(fastify: FastifyInstance) {
           maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
         });
 
+        // Fetch user roles to determine routing
+        const userRoles = await prisma.userRole.findMany({
+          where: { user_id: user.user_id },
+          include: { role: { select: { code: true, scope: true } } },
+        });
+
+        // Extract role codes for routing logic
+        const roleCodes = userRoles.map((ur) => ur.role.code);
+
         // Determine if user should access client dashboard
         // A user is a client user if:
         // 1. They have is_client_user = true in database, OR
@@ -118,28 +127,40 @@ export async function authRoutes(fastify: FastifyInstance) {
         // This ensures employees created before the is_client_user fix still work
         let isClientUser = user.is_client_user;
 
-        if (!isClientUser) {
-          // Check if user has any COMPANY or STORE scope roles
-          const userRoles = await prisma.userRole.findMany({
+        const hasClientRole = userRoles.some(
+          (ur) => ur.role.scope === "COMPANY" || ur.role.scope === "STORE",
+        );
+
+        if (!isClientUser && hasClientRole) {
+          isClientUser = true;
+          // Update the database to fix the is_client_user flag for future logins
+          await prisma.user.update({
             where: { user_id: user.user_id },
-            include: { role: { select: { scope: true } } },
+            data: { is_client_user: true },
           });
-
-          const hasClientRole = userRoles.some(
-            (ur) => ur.role.scope === "COMPANY" || ur.role.scope === "STORE",
-          );
-
-          if (hasClientRole) {
-            isClientUser = true;
-            // Update the database to fix the is_client_user flag for future logins
-            await prisma.user.update({
-              where: { user_id: user.user_id },
-              data: { is_client_user: true },
-            });
-          }
         }
 
-        // Return success response with user data (including is_client_user for routing)
+        // Determine primary user role for routing:
+        // - CLIENT_USER goes to /mystore (terminal dashboard)
+        // - CLIENT_OWNER goes to /dashboard (client owner dashboard)
+        // - STORE_MANAGER, SHIFT_MANAGER, CASHIER go to /mystore
+        // Priority: CLIENT_OWNER > CLIENT_USER > STORE_MANAGER > SHIFT_MANAGER > CASHIER
+        let userRole: string | null = null;
+        if (roleCodes.includes("CLIENT_OWNER")) {
+          userRole = "CLIENT_OWNER";
+        } else if (roleCodes.includes("CLIENT_USER")) {
+          userRole = "CLIENT_USER";
+        } else if (roleCodes.includes("STORE_MANAGER")) {
+          userRole = "STORE_MANAGER";
+        } else if (roleCodes.includes("SHIFT_MANAGER")) {
+          userRole = "SHIFT_MANAGER";
+        } else if (roleCodes.includes("CASHIER")) {
+          userRole = "CASHIER";
+        } else if (roleCodes.includes("SUPER_ADMIN")) {
+          userRole = "SUPER_ADMIN";
+        }
+
+        // Return success response with user data (including user_role for routing)
         reply.code(200);
         return {
           message: "Login successful",
@@ -148,6 +169,8 @@ export async function authRoutes(fastify: FastifyInstance) {
             email: user.email,
             name: user.name,
             is_client_user: isClientUser,
+            user_role: userRole,
+            roles: roleCodes,
           },
         };
       } catch (error) {

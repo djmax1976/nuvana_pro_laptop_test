@@ -1815,3 +1815,526 @@ test.describe("2.9-API: Edge Cases - User Status", () => {
     }
   });
 });
+
+// ============================================================================
+// CLIENT DASHBOARD ACCESS VIA PERMISSION (Not just is_client_user flag)
+// Story: 4.91 - Fixes for store dropdown in cashier management
+// ============================================================================
+
+test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
+  test("2.9-API-039: [P0] should allow STORE_MANAGER access to dashboard via CLIENT_DASHBOARD_ACCESS permission", async ({
+    request,
+    prismaClient,
+    backendUrl,
+  }) => {
+    // GIVEN: A user with STORE_MANAGER role (has CLIENT_DASHBOARD_ACCESS permission)
+    // but is_client_user = false
+    const password = "StoreManager123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Create company owner first
+    const ownerData = createUserFactory();
+    const owner = await prismaClient.user.create({ data: ownerData });
+
+    // Create company
+    const companyData = createCompanyFactory({ owner_user_id: owner.user_id });
+    const company = await prismaClient.company.create({ data: companyData });
+
+    // Create store
+    const storeData = createStoreFactory({ company_id: company.company_id });
+    const store = await prismaClient.store.create({ data: storeData });
+
+    // Create store manager user (NOT a client user, but has STORE_MANAGER role)
+    const storeManagerData = createUserFactory({
+      email: `storemanager-${Date.now()}@test.com`,
+      password_hash: passwordHash,
+    });
+    const storeManager = await prismaClient.user.create({
+      data: {
+        ...storeManagerData,
+        is_client_user: false, // Explicitly NOT a client user
+      },
+    });
+
+    // Get STORE_MANAGER role
+    const storeManagerRole = await prismaClient.role.findUnique({
+      where: { code: "STORE_MANAGER" },
+    });
+
+    if (!storeManagerRole) {
+      // Clean up and skip if role not seeded
+      await prismaClient.user.delete({
+        where: { user_id: storeManager.user_id },
+      });
+      await prismaClient.store.delete({ where: { store_id: store.store_id } });
+      await prismaClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await prismaClient.user.delete({ where: { user_id: owner.user_id } });
+      console.log("STORE_MANAGER role not seeded, skipping test");
+      return;
+    }
+
+    // Assign STORE_MANAGER role to user with company scope
+    await prismaClient.userRole.create({
+      data: {
+        user_id: storeManager.user_id,
+        role_id: storeManagerRole.role_id,
+        company_id: company.company_id,
+      },
+    });
+
+    // Create token with CLIENT_DASHBOARD_ACCESS permission
+    const token = createJWTAccessToken({
+      user_id: storeManager.user_id,
+      email: storeManager.email,
+      roles: ["STORE_MANAGER"],
+      permissions: ["CLIENT_DASHBOARD_ACCESS", "STORE_READ"],
+    });
+
+    try {
+      // WHEN: Store manager requests dashboard data
+      const response = await request.get(`${backendUrl}/api/client/dashboard`, {
+        headers: {
+          Cookie: `access_token=${token}`,
+        },
+      });
+
+      // THEN: Response is successful (access granted via permission, not is_client_user flag)
+      expect(response.status()).toBe(200);
+
+      const body = await response.json();
+
+      // AND: User info is returned
+      expect(body.user).toBeDefined();
+      expect(body.user.id).toBe(storeManager.user_id);
+
+      // AND: Assigned company's stores are returned
+      expect(body.stores).toBeDefined();
+      expect(Array.isArray(body.stores)).toBe(true);
+      expect(body.stores.length).toBeGreaterThanOrEqual(1);
+
+      // AND: The assigned store is in the list
+      const storeIds = body.stores.map((s: any) => s.store_id);
+      expect(storeIds).toContain(store.store_id);
+    } finally {
+      // Cleanup in proper order
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: storeManager.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: storeManager.user_id },
+      });
+      await prismaClient.store.delete({ where: { store_id: store.store_id } });
+      await prismaClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await prismaClient.user.delete({ where: { user_id: owner.user_id } });
+    }
+  });
+
+  test("2.9-API-040: [P0] should return stores from company-level role assignment", async ({
+    request,
+    prismaClient,
+    backendUrl,
+  }) => {
+    // GIVEN: A user with company-level role assignment (company_id set, store_id null)
+    const password = "Manager123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Create company owner
+    const ownerData = createUserFactory();
+    const owner = await prismaClient.user.create({ data: ownerData });
+
+    // Create company
+    const companyData = createCompanyFactory({ owner_user_id: owner.user_id });
+    const company = await prismaClient.company.create({ data: companyData });
+
+    // Create multiple stores in the company
+    const store1Data = createStoreFactory({
+      company_id: company.company_id,
+      name: "Store Alpha",
+    });
+    const store1 = await prismaClient.store.create({ data: store1Data });
+
+    const store2Data = createStoreFactory({
+      company_id: company.company_id,
+      name: "Store Beta",
+    });
+    const store2 = await prismaClient.store.create({ data: store2Data });
+
+    // Create manager user
+    const managerData = createUserFactory({
+      email: `manager-company-level-${Date.now()}@test.com`,
+      password_hash: passwordHash,
+    });
+    const manager = await prismaClient.user.create({
+      data: {
+        ...managerData,
+        is_client_user: false,
+      },
+    });
+
+    // Get STORE_MANAGER role
+    const storeManagerRole = await prismaClient.role.findUnique({
+      where: { code: "STORE_MANAGER" },
+    });
+
+    if (!storeManagerRole) {
+      // Cleanup and skip
+      await prismaClient.user.delete({ where: { user_id: manager.user_id } });
+      await prismaClient.store.delete({ where: { store_id: store1.store_id } });
+      await prismaClient.store.delete({ where: { store_id: store2.store_id } });
+      await prismaClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await prismaClient.user.delete({ where: { user_id: owner.user_id } });
+      console.log("STORE_MANAGER role not seeded, skipping test");
+      return;
+    }
+
+    // Assign role at COMPANY level (store_id is null)
+    await prismaClient.userRole.create({
+      data: {
+        user_id: manager.user_id,
+        role_id: storeManagerRole.role_id,
+        company_id: company.company_id,
+        // store_id is null - Company-level assignment
+      },
+    });
+
+    const token = createJWTAccessToken({
+      user_id: manager.user_id,
+      email: manager.email,
+      roles: ["STORE_MANAGER"],
+      permissions: ["CLIENT_DASHBOARD_ACCESS", "STORE_READ"],
+    });
+
+    try {
+      // WHEN: Manager requests dashboard data
+      const response = await request.get(`${backendUrl}/api/client/dashboard`, {
+        headers: {
+          Cookie: `access_token=${token}`,
+        },
+      });
+
+      // THEN: Response is successful
+      expect(response.status()).toBe(200);
+
+      const body = await response.json();
+
+      // AND: ALL stores from the assigned company are returned
+      expect(body.stores).toBeDefined();
+      expect(body.stores.length).toBe(2);
+
+      const storeNames = body.stores.map((s: any) => s.name);
+      expect(storeNames).toContain("Store Alpha");
+      expect(storeNames).toContain("Store Beta");
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: manager.user_id },
+      });
+      await prismaClient.user.delete({ where: { user_id: manager.user_id } });
+      await prismaClient.store.delete({ where: { store_id: store1.store_id } });
+      await prismaClient.store.delete({ where: { store_id: store2.store_id } });
+      await prismaClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await prismaClient.user.delete({ where: { user_id: owner.user_id } });
+    }
+  });
+
+  test("2.9-API-041: [P0] should return only assigned store for store-level role assignment", async ({
+    request,
+    prismaClient,
+    backendUrl,
+  }) => {
+    // GIVEN: A user with store-level role assignment (both company_id and store_id set)
+    const password = "ShiftManager123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Create company owner
+    const ownerData = createUserFactory();
+    const owner = await prismaClient.user.create({ data: ownerData });
+
+    // Create company
+    const companyData = createCompanyFactory({ owner_user_id: owner.user_id });
+    const company = await prismaClient.company.create({ data: companyData });
+
+    // Create multiple stores
+    const store1Data = createStoreFactory({
+      company_id: company.company_id,
+      name: "Assigned Store",
+    });
+    const store1 = await prismaClient.store.create({ data: store1Data });
+
+    const store2Data = createStoreFactory({
+      company_id: company.company_id,
+      name: "Other Store",
+    });
+    const store2 = await prismaClient.store.create({ data: store2Data });
+
+    // Create shift manager user
+    const shiftManagerData = createUserFactory({
+      email: `shiftmanager-store-level-${Date.now()}@test.com`,
+      password_hash: passwordHash,
+    });
+    const shiftManager = await prismaClient.user.create({
+      data: {
+        ...shiftManagerData,
+        is_client_user: false,
+      },
+    });
+
+    // Get SHIFT_MANAGER role
+    const shiftManagerRole = await prismaClient.role.findUnique({
+      where: { code: "SHIFT_MANAGER" },
+    });
+
+    if (!shiftManagerRole) {
+      // Cleanup and skip
+      await prismaClient.user.delete({
+        where: { user_id: shiftManager.user_id },
+      });
+      await prismaClient.store.delete({ where: { store_id: store1.store_id } });
+      await prismaClient.store.delete({ where: { store_id: store2.store_id } });
+      await prismaClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await prismaClient.user.delete({ where: { user_id: owner.user_id } });
+      console.log("SHIFT_MANAGER role not seeded, skipping test");
+      return;
+    }
+
+    // Assign role at STORE level only (store_id set, company_id NULL)
+    // This tests that users with ONLY store-level access get just that store
+    await prismaClient.userRole.create({
+      data: {
+        user_id: shiftManager.user_id,
+        role_id: shiftManagerRole.role_id,
+        company_id: null, // No company-level access
+        store_id: store1.store_id, // Only assigned to store1
+      },
+    });
+
+    const token = createJWTAccessToken({
+      user_id: shiftManager.user_id,
+      email: shiftManager.email,
+      roles: ["SHIFT_MANAGER"],
+      permissions: ["CLIENT_DASHBOARD_ACCESS", "STORE_READ", "SHIFT_READ"],
+    });
+
+    try {
+      // WHEN: Shift manager requests dashboard data
+      const response = await request.get(`${backendUrl}/api/client/dashboard`, {
+        headers: {
+          Cookie: `access_token=${token}`,
+        },
+      });
+
+      // THEN: Response is successful
+      expect(response.status()).toBe(200);
+
+      const body = await response.json();
+
+      // AND: Only the assigned store is returned
+      expect(body.stores).toBeDefined();
+      expect(body.stores.length).toBe(1);
+      expect(body.stores[0].store_id).toBe(store1.store_id);
+      expect(body.stores[0].name).toBe("Assigned Store");
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: shiftManager.user_id },
+      });
+      await prismaClient.user.delete({
+        where: { user_id: shiftManager.user_id },
+      });
+      await prismaClient.store.delete({ where: { store_id: store1.store_id } });
+      await prismaClient.store.delete({ where: { store_id: store2.store_id } });
+      await prismaClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await prismaClient.user.delete({ where: { user_id: owner.user_id } });
+    }
+  });
+
+  test("2.9-API-042: [P0] should return 403 for user without CLIENT_DASHBOARD_ACCESS permission and not is_client_user", async ({
+    request,
+    prismaClient,
+    backendUrl,
+  }) => {
+    // GIVEN: A user without CLIENT_DASHBOARD_ACCESS permission and is_client_user = false
+    const password = "RegularUser123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const userData = createUserFactory({
+      email: `regular-user-${Date.now()}@test.com`,
+      password_hash: passwordHash,
+    });
+    const user = await prismaClient.user.create({
+      data: {
+        ...userData,
+        is_client_user: false,
+      },
+    });
+
+    // Create token WITHOUT CLIENT_DASHBOARD_ACCESS permission
+    const token = createJWTAccessToken({
+      user_id: user.user_id,
+      email: user.email,
+      roles: [],
+      permissions: [], // No permissions
+    });
+
+    try {
+      // WHEN: User requests dashboard data
+      const response = await request.get(`${backendUrl}/api/client/dashboard`, {
+        headers: {
+          Cookie: `access_token=${token}`,
+        },
+      });
+
+      // THEN: 403 Forbidden is returned
+      expect(response.status()).toBe(403);
+
+      const body = await response.json();
+      expect(body.error).toBe("Access denied");
+    } finally {
+      await prismaClient.user.delete({ where: { user_id: user.user_id } });
+    }
+  });
+
+  test("2.9-API-043: [P1] should return empty stores array when user has no store/company assignments", async ({
+    request,
+    prismaClient,
+    backendUrl,
+  }) => {
+    // GIVEN: A user with CLIENT_DASHBOARD_ACCESS but no company/store assignments
+    const password = "NoStores123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const userData = createUserFactory({
+      email: `no-stores-user-${Date.now()}@test.com`,
+      password_hash: passwordHash,
+    });
+    const user = await prismaClient.user.create({
+      data: {
+        ...userData,
+        is_client_user: true, // Has is_client_user flag
+      },
+    });
+
+    // Note: User owns no companies and has no role assignments
+
+    const token = createJWTAccessToken({
+      user_id: user.user_id,
+      email: user.email,
+      roles: ["CLIENT_USER"],
+      permissions: ["CLIENT_DASHBOARD_ACCESS"],
+    });
+
+    try {
+      // WHEN: User requests dashboard data
+      const response = await request.get(`${backendUrl}/api/client/dashboard`, {
+        headers: {
+          Cookie: `access_token=${token}`,
+        },
+      });
+
+      // THEN: Response is successful but with empty stores
+      expect(response.status()).toBe(200);
+
+      const body = await response.json();
+      expect(body.stores).toBeDefined();
+      expect(body.stores).toEqual([]);
+      expect(body.companies).toEqual([]);
+    } finally {
+      await prismaClient.user.delete({ where: { user_id: user.user_id } });
+    }
+  });
+
+  test("2.9-API-044: [P1] should combine owned and assigned stores without duplicates", async ({
+    request,
+    prismaClient,
+    backendUrl,
+  }) => {
+    // GIVEN: A user who owns a company AND is assigned to a store in that company
+    const password = "Owner123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Create client owner user
+    const ownerData = createUserFactory({
+      email: `owner-assigned-${Date.now()}@test.com`,
+      password_hash: passwordHash,
+    });
+    const owner = await prismaClient.user.create({
+      data: {
+        ...ownerData,
+        is_client_user: true,
+      },
+    });
+
+    // Create company owned by the user
+    const companyData = createCompanyFactory({ owner_user_id: owner.user_id });
+    const company = await prismaClient.company.create({ data: companyData });
+
+    // Create store
+    const storeData = createStoreFactory({
+      company_id: company.company_id,
+      name: "Owned Store",
+    });
+    const store = await prismaClient.store.create({ data: storeData });
+
+    // Get CLIENT_OWNER role
+    const clientOwnerRole = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
+    });
+
+    if (clientOwnerRole) {
+      // Also assign a role to the same store (creating potential duplicate)
+      await prismaClient.userRole.create({
+        data: {
+          user_id: owner.user_id,
+          role_id: clientOwnerRole.role_id,
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      });
+    }
+
+    const token = createJWTAccessToken({
+      user_id: owner.user_id,
+      email: owner.email,
+      roles: ["CLIENT_OWNER"],
+      permissions: ["CLIENT_DASHBOARD_ACCESS"],
+    });
+
+    try {
+      // WHEN: Owner requests dashboard data
+      const response = await request.get(`${backendUrl}/api/client/dashboard`, {
+        headers: {
+          Cookie: `access_token=${token}`,
+        },
+      });
+
+      // THEN: Response is successful
+      expect(response.status()).toBe(200);
+
+      const body = await response.json();
+
+      // AND: Store appears only once (no duplicates)
+      expect(body.stores).toBeDefined();
+      expect(body.stores.length).toBe(1);
+      expect(body.stores[0].store_id).toBe(store.store_id);
+    } finally {
+      await prismaClient.userRole.deleteMany({
+        where: { user_id: owner.user_id },
+      });
+      await prismaClient.store.delete({ where: { store_id: store.store_id } });
+      await prismaClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await prismaClient.user.delete({ where: { user_id: owner.user_id } });
+    }
+  });
+});

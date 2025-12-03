@@ -1528,16 +1528,61 @@ export const test = base.extend<RBACFixture>({
       });
     });
 
-    // Client Owner permissions - explicit list following least privilege principle
-    // Does NOT include ADMIN_SYSTEM_CONFIG which is Super Admin only
+    // Client Owner permissions - CLIENT_OWNER has ALL company and store scope permissions
+    // Does NOT include ADMIN_* which is Super Admin only
+    // Must match the permissions defined in rbac.seed.ts for CLIENT_OWNER role
     const clientPermissions = [
+      // Company Management
+      "COMPANY_CREATE",
+      "COMPANY_READ",
+      "COMPANY_UPDATE",
+      "COMPANY_DELETE",
+      // Store Management
+      "STORE_CREATE",
+      "STORE_READ",
+      "STORE_UPDATE",
+      "STORE_DELETE",
+      // User Management
+      "USER_CREATE",
+      "USER_READ",
+      "USER_UPDATE",
+      "USER_DELETE",
+      // Shift Operations
+      "SHIFT_OPEN",
+      "SHIFT_CLOSE",
+      "SHIFT_READ",
+      "SHIFT_RECONCILE",
+      "SHIFT_REPORT_VIEW",
+      // Transaction Management
+      "TRANSACTION_CREATE",
+      "TRANSACTION_READ",
+      "TRANSACTION_IMPORT",
+      // Inventory Management
+      "INVENTORY_READ",
+      "INVENTORY_ADJUST",
+      "INVENTORY_ORDER",
+      // Lottery Management
+      "LOTTERY_PACK_RECEIVE",
+      "LOTTERY_SHIFT_RECONCILE",
+      "LOTTERY_REPORT",
+      // Reports
+      "REPORT_SHIFT",
+      "REPORT_DAILY",
+      "REPORT_ANALYTICS",
+      "REPORT_EXPORT",
+      // Client Dashboard Access
       "CLIENT_DASHBOARD_ACCESS",
+      // Client Employee Management
       "CLIENT_EMPLOYEE_CREATE",
       "CLIENT_EMPLOYEE_READ",
       "CLIENT_EMPLOYEE_DELETE",
+      // Cashier Management
+      "CASHIER_CREATE",
+      "CASHIER_READ",
+      "CASHIER_UPDATE",
+      "CASHIER_DELETE",
+      // Client Role Management
       "CLIENT_ROLE_MANAGE",
-      "STORE_READ",
-      "STORE_UPDATE",
     ];
 
     const token = createJWTAccessToken({

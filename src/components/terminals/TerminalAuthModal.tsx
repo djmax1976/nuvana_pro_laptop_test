@@ -44,6 +44,8 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
+import { useCashiers, useAuthenticateCashier } from "@/lib/api/cashiers";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 /**
  * Form validation schema for terminal authentication
@@ -67,20 +69,11 @@ type TerminalAuthFormValues = z.infer<typeof terminalAuthFormSchema>;
 interface TerminalAuthModalProps {
   terminalId: string;
   terminalName: string;
+  storeId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit?: (values: TerminalAuthFormValues) => void | Promise<void>;
 }
-
-/**
- * Static cashier name options (placeholders for now)
- * Actual authentication will be implemented in a future story
- */
-const CASHIER_NAME_OPTIONS = [
-  { value: "John Doe", label: "John Doe" },
-  { value: "Jane Smith", label: "Jane Smith" },
-  { value: "Mike Johnson", label: "Mike Johnson" },
-] as const;
 
 /**
  * TerminalAuthModal component
@@ -93,8 +86,9 @@ const CASHIER_NAME_OPTIONS = [
  * - XSS: React automatically escapes output, no manual sanitization needed for text inputs
  */
 export function TerminalAuthModal({
-  terminalId,
+  terminalId: _terminalId,
   terminalName,
+  storeId,
   open,
   onOpenChange,
   onSubmit,
@@ -110,29 +104,50 @@ export function TerminalAuthModal({
     },
   });
 
-  const isSubmitting = form.formState.isSubmitting;
+  // Fetch cashiers for the store
+  const {
+    data: cashiers = [],
+    isLoading: isLoadingCashiers,
+    error: cashiersError,
+  } = useCashiers(storeId, { is_active: true }, { enabled: open });
 
-  // Reset form when dialog opens/closes
+  // Authenticate cashier mutation
+  const authenticateMutation = useAuthenticateCashier();
+
+  const isSubmitting =
+    form.formState.isSubmitting || authenticateMutation.isPending;
+
+  // Reset form when dialog opens
   useEffect(() => {
     if (open) {
       form.reset({
         cashier_name: "",
         pin_number: "",
       });
+      authenticateMutation.reset();
     }
-  }, [open, form]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const handleSubmit = async (values: TerminalAuthFormValues) => {
     if (onSubmit) {
       await onSubmit(values);
-    } else {
-      // Placeholder: actual authentication will be implemented in future story
-      console.log("Terminal authentication:", {
-        terminalId,
-        terminalName,
-        ...values,
+      return;
+    }
+
+    try {
+      // Authenticate cashier
+      await authenticateMutation.mutateAsync({
+        storeId,
+        identifier: { name: values.cashier_name },
+        pin: values.pin_number,
       });
+
+      // Success - close modal
       onOpenChange(false);
+    } catch (error) {
+      // Error is handled by mutation state
+      console.error("Authentication failed:", error);
     }
   };
 
@@ -159,6 +174,24 @@ export function TerminalAuthModal({
             onSubmit={form.handleSubmit(handleSubmit)}
             className="space-y-4"
           >
+            {cashiersError && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  Failed to load cashiers. Please try again.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {authenticateMutation.isError && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  {authenticateMutation.error instanceof Error
+                    ? authenticateMutation.error.message
+                    : "Authentication failed. Please check your credentials."}
+                </AlertDescription>
+              </Alert>
+            )}
+
             <FormField
               control={form.control}
               name="cashier_name"
@@ -168,17 +201,26 @@ export function TerminalAuthModal({
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isLoadingCashiers}
                   >
                     <FormControl>
                       <SelectTrigger data-testid="cashier-name-select">
-                        <SelectValue placeholder="Select cashier name" />
+                        <SelectValue
+                          placeholder={
+                            isLoadingCashiers
+                              ? "Loading cashiers..."
+                              : "Select cashier name"
+                          }
+                        />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CASHIER_NAME_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
+                      {cashiers.map((cashier) => (
+                        <SelectItem
+                          key={cashier.cashier_id}
+                          value={cashier.name}
+                        >
+                          {cashier.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
