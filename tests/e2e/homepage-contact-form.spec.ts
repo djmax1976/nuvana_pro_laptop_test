@@ -88,9 +88,7 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     );
   });
 
-  // TODO: This test is flaky due to cross-origin request timing issues
-  // The form posts to backend (localhost:3001) which can't be reliably intercepted
-  test.skip("[P1] should disable submit button while form is submitting", async ({
+  test("[P1] should disable submit button while form is submitting", async ({
     page,
   }) => {
     // GIVEN: User is on homepage contact form with valid data
@@ -106,18 +104,11 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page.locator('textarea[name="message"]').fill("Test message");
 
-    // Set up route interception that delays the response
-    let resolveRoute: (() => void) | undefined;
-    const routeDelay = new Promise<void>((resolve) => {
-      resolveRoute = resolve;
-    });
-
-    // Route pattern should match both relative and absolute URLs
-    // Use a more specific pattern to ensure it matches
+    // Set up route interception BEFORE clicking submit
+    // Use full URL pattern to intercept cross-origin request to backend
     await page.route("**/api/contact", async (route) => {
-      // Delay fulfillment to allow checking button state
-      // This holds the request until we manually resolve
-      await routeDelay;
+      // Add delay to allow checking button state during submission
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -128,34 +119,19 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     const submitButton = page.getByRole("button", { name: /Send Message/i });
     await expect(submitButton).toBeEnabled();
 
-    // WHEN: User submits form
-    await submitButton.click();
+    // WHEN: User submits form - click and immediately check for loading state
+    const clickPromise = submitButton.click();
 
-    // Wait for the request to be intercepted AND check button state in parallel
-    // The route handler will hold the request until we resolve it
-    const requestPromise = page.waitForRequest(
-      (request) => request.url().includes("/api/contact"),
-      { timeout: 5000 },
-    );
+    // THEN: Button should show "Sending..." text while request is in flight
+    // Use a short timeout since we need to catch the transient state
+    const sendingButton = page.getByRole("button", { name: /Sending/i });
+    await expect(sendingButton).toBeVisible({ timeout: 3000 });
+    await expect(sendingButton).toBeDisabled();
 
-    // THEN: Submit button should be disabled and show "Sending..." while request is pending
-    // Check button state in parallel with waiting for request interception
-    await Promise.all([
-      requestPromise,
-      expect(submitButton).toBeDisabled({ timeout: 3000 }),
-      expect(page.getByText(/Sending/i)).toBeVisible({ timeout: 3000 }),
-    ]);
+    // Wait for click action and response to complete
+    await clickPromise;
 
-    // Fulfill the route to complete the submission
-    resolveRoute?.();
-
-    // Wait for the response to complete
-    await page.waitForResponse(
-      (response) => response.url().includes("/api/contact"),
-      { timeout: 5000 },
-    );
-
-    // THEN: Success message should appear
+    // THEN: Success message should appear after submission completes
     await expect(
       page.getByText(/Thank you! We'll be in touch soon/i),
     ).toBeVisible({ timeout: 5000 });
