@@ -571,7 +571,8 @@ export function useDeleteStore() {
 }
 
 /**
- * Terminal with active shift status
+ * Terminal with active shift status and connection configuration
+ * Story 4.82: Terminal Connection Configuration UI
  */
 export interface TerminalWithStatus {
   pos_terminal_id: string;
@@ -582,6 +583,19 @@ export interface TerminalWithStatus {
   has_active_shift: boolean;
   created_at: string;
   updated_at: string;
+  // Connection fields (Story 4.82)
+  connection_type?: "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL";
+  connection_config?: Record<string, unknown> | null;
+  vendor_type?:
+    | "GENERIC"
+    | "SQUARE"
+    | "CLOVER"
+    | "TOAST"
+    | "LIGHTSPEED"
+    | "CUSTOM";
+  terminal_status?: "ACTIVE" | "INACTIVE" | "PENDING" | "ERROR";
+  last_sync_at?: string | null;
+  sync_status?: "NEVER" | "SUCCESS" | "FAILED" | "IN_PROGRESS";
 }
 
 /**
@@ -637,18 +651,38 @@ export interface Terminal {
 
 /**
  * Create terminal input
+ * Story 4.82: Terminal Connection Configuration UI
  */
 export interface CreateTerminalInput {
   name: string;
   device_id?: string;
+  connection_type?: "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL";
+  connection_config?: Record<string, unknown> | null;
+  vendor_type?:
+    | "GENERIC"
+    | "SQUARE"
+    | "CLOVER"
+    | "TOAST"
+    | "LIGHTSPEED"
+    | "CUSTOM";
 }
 
 /**
  * Update terminal input
+ * Story 4.82: Terminal Connection Configuration UI
  */
 export interface UpdateTerminalInput {
   name?: string;
   device_id?: string;
+  connection_type?: "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL";
+  connection_config?: Record<string, unknown> | null;
+  vendor_type?:
+    | "GENERIC"
+    | "SQUARE"
+    | "CLOVER"
+    | "TOAST"
+    | "LIGHTSPEED"
+    | "CUSTOM";
 }
 
 /**
