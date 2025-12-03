@@ -300,14 +300,14 @@ export class ShiftService {
 
   /**
    * Validate that cashier exists and is active
-   * @param cashierId - Cashier UUID
+   * @param cashierId - Cashier UUID (references cashiers table, not users table)
    * @throws ShiftServiceError if cashier not found or inactive
    */
   async validateCashier(cashierId: string): Promise<void> {
     try {
-      const cashier = await prisma.user.findUnique({
-        where: { user_id: cashierId },
-        select: { user_id: true, status: true },
+      const cashier = await prisma.cashier.findUnique({
+        where: { cashier_id: cashierId },
+        select: { cashier_id: true, is_active: true, disabled_at: true },
       });
 
       if (!cashier) {
@@ -317,7 +317,8 @@ export class ShiftService {
         );
       }
 
-      if (cashier.status !== "ACTIVE") {
+      // Check if cashier is active (is_active=true AND not soft-deleted via disabled_at)
+      if (!cashier.is_active || cashier.disabled_at !== null) {
         throw new ShiftServiceError(
           ShiftErrorCode.CASHIER_NOT_FOUND,
           `Cashier with ID ${cashierId} is not active`,

@@ -8,6 +8,7 @@
  */
 
 import { faker } from "@faker-js/faker";
+import bcrypt from "bcrypt";
 
 /**
  * Cashier creation request structure
@@ -53,3 +54,76 @@ export const createCashierRequests = (
   store_id: string,
 ): CreateCashierRequest[] =>
   Array.from({ length: count }, () => createCashierRequest({ store_id }));
+
+/**
+ * Cashier database entity structure (for Prisma direct insertion)
+ */
+export type CashierData = {
+  cashier_id?: string;
+  store_id: string;
+  employee_id: string;
+  name: string;
+  pin_hash: string;
+  sha256_pin_fingerprint?: string | null;
+  is_active?: boolean;
+  hired_on: Date;
+  termination_date?: Date | null;
+  disabled_at?: Date | null;
+  created_by: string;
+  updated_by?: string | null;
+};
+
+/**
+ * Creates a Cashier test data object for Prisma database operations
+ * Requires store_id and created_by to be provided
+ *
+ * @param overrides - Fields to override default values
+ * @returns CashierData object for Prisma.cashier.create()
+ *
+ * @example
+ * const cashier = await prisma.cashier.create({
+ *   data: createCashier({
+ *     store_id: testStore.store_id,
+ *     created_by: testUser.user_id,
+ *   }),
+ * });
+ */
+export const createCashier = (
+  overrides: Partial<CashierData> & { store_id: string; created_by: string },
+): CashierData => {
+  const pin = faker.string.numeric(4);
+  const pinHash = bcrypt.hashSync(pin, 10);
+
+  // Extract required fields before spreading to avoid TS2783
+  const { store_id, created_by, ...rest } = overrides;
+
+  return {
+    store_id,
+    employee_id: faker.string.numeric(4).padStart(4, "0"),
+    name: `Test Cashier ${faker.person.fullName()}`,
+    pin_hash: pinHash,
+    sha256_pin_fingerprint: null,
+    is_active: true,
+    hired_on: faker.date.past({ years: 1 }),
+    termination_date: null,
+    disabled_at: null,
+    created_by,
+    updated_by: null,
+    ...rest,
+  };
+};
+
+/**
+ * Creates multiple Cashier test data objects
+ * Requires store_id and created_by to be provided
+ */
+export const createCashiers = (
+  count: number,
+  overrides: Partial<CashierData> & { store_id: string; created_by: string },
+): CashierData[] =>
+  Array.from({ length: count }, (_, i) =>
+    createCashier({
+      ...overrides,
+      employee_id: String(i + 1).padStart(4, "0"),
+    }),
+  );

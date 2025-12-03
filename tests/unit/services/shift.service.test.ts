@@ -23,6 +23,7 @@ import {
   createCompany,
   createStore,
   createShift,
+  createCashier,
   createTransaction,
   createTransactionLineItem,
   createTransactionPayment,
@@ -57,6 +58,7 @@ const shiftService = new ShiftService();
 let testOwnerUser: any;
 let testShiftManagerUser: any;
 let testCashierUser: any;
+let testCashier: any; // Actual Cashier entity (not User)
 let testCompany: any;
 let testStore: any;
 let testTerminal: any;
@@ -67,6 +69,7 @@ const createdUserIds: string[] = [];
 const createdCompanyIds: string[] = [];
 const createdStoreIds: string[] = [];
 const createdTerminalIds: string[] = [];
+const createdCashierIds: string[] = [];
 const createdShiftIds: string[] = [];
 
 const mockAuditContext: AuditContext = {
@@ -143,6 +146,17 @@ beforeAll(async () => {
   });
   createdTerminalIds.push(testTerminal.pos_terminal_id);
 
+  // Create test cashier (Cashier entity, not User)
+  testCashier = await prisma.cashier.create({
+    data: createCashier({
+      store_id: testStore.store_id,
+      created_by: testOwnerUser.user_id,
+      employee_id: "0001",
+      name: "Shift Service Test Cashier",
+    }),
+  });
+  createdCashierIds.push(testCashier.cashier_id);
+
   // Create or find a STORE scope role for testing
   testStoreRole = await prisma.role.upsert({
     where: { code: "TEST_STORE_MANAGER" },
@@ -203,6 +217,15 @@ afterAll(async () => {
     }
   }
 
+  // Cleanup cashiers
+  for (const cashierId of createdCashierIds) {
+    try {
+      await prisma.cashier.delete({ where: { cashier_id: cashierId } });
+    } catch (e) {
+      // Ignore
+    }
+  }
+
   // Cleanup stores
   for (const storeId of createdStoreIds) {
     try {
@@ -249,7 +272,7 @@ describe("ShiftService - openShift", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: isolatedTerminal.pos_terminal_id,
         opening_cash: 150.75,
       };
@@ -264,7 +287,7 @@ describe("ShiftService - openShift", () => {
       expect(shift).toBeDefined();
       expect(shift.status).toBe(ShiftStatus.OPEN);
       expect(shift.store_id).toBe(testStore.store_id);
-      expect(shift.cashier_id).toBe(testCashierUser.user_id);
+      expect(shift.cashier_id).toBe(testCashier.cashier_id);
       expect(shift.pos_terminal_id).toBe(isolatedTerminal.pos_terminal_id);
       expect(shift.opened_by).toBe(testShiftManagerUser.user_id);
       expect(Number(shift.opening_cash)).toBe(150.75);
@@ -288,7 +311,7 @@ describe("ShiftService - openShift", () => {
       const openingCash = 250.5;
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: isolatedTerminal.pos_terminal_id,
         opening_cash: openingCash,
       };
@@ -318,7 +341,7 @@ describe("ShiftService - openShift", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: isolatedTerminal.pos_terminal_id,
         opening_cash: 100.0,
       };
@@ -331,7 +354,7 @@ describe("ShiftService - openShift", () => {
 
       // THEN: Shift should be linked correctly
       expect(shift.store_id).toBe(testStore.store_id);
-      expect(shift.cashier_id).toBe(testCashierUser.user_id);
+      expect(shift.cashier_id).toBe(testCashier.cashier_id);
       expect(shift.pos_terminal_id).toBe(isolatedTerminal.pos_terminal_id);
       expect(shift.opened_by).toBe(testShiftManagerUser.user_id);
 
@@ -351,7 +374,7 @@ describe("ShiftService - openShift", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: isolatedTerminal.pos_terminal_id,
         opening_cash: 100.0,
       };
@@ -390,7 +413,7 @@ describe("ShiftService - openShift", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           status: ShiftStatus.OPEN,
@@ -400,7 +423,7 @@ describe("ShiftService - openShift", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 200.0,
       };
@@ -430,7 +453,7 @@ describe("ShiftService - openShift", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           status: ShiftStatus.ACTIVE,
@@ -440,7 +463,7 @@ describe("ShiftService - openShift", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 200.0,
       };
@@ -467,7 +490,7 @@ describe("ShiftService - openShift", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           status: ShiftStatus.CLOSING,
@@ -477,7 +500,7 @@ describe("ShiftService - openShift", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 200.0,
       };
@@ -504,7 +527,7 @@ describe("ShiftService - openShift", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           status: ShiftStatus.RECONCILING,
@@ -514,7 +537,7 @@ describe("ShiftService - openShift", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 200.0,
       };
@@ -550,7 +573,7 @@ describe("ShiftService - openShift", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: isolatedTerminal.pos_terminal_id,
           opening_cash: 100.0,
           status: ShiftStatus.CLOSED,
@@ -561,7 +584,7 @@ describe("ShiftService - openShift", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: isolatedTerminal.pos_terminal_id,
         opening_cash: 200.0,
       };
@@ -585,7 +608,7 @@ describe("ShiftService - openShift", () => {
       // GIVEN: Request data with negative opening_cash
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: -50.0,
       };
@@ -611,7 +634,7 @@ describe("ShiftService - openShift", () => {
       const nonExistentStoreId = "00000000-0000-0000-0000-000000000000";
       const openShiftData = {
         store_id: nonExistentStoreId,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 100.0,
       };
@@ -659,20 +682,21 @@ describe("ShiftService - openShift", () => {
     });
 
     it("4.2-UNIT-013: should reject request when cashier is inactive", async () => {
-      // GIVEN: An inactive cashier user
-      const inactiveCashier = await prisma.user.create({
-        data: createUser({
-          email: `inactive-cashier-${Date.now()}@test.com`,
+      // GIVEN: An inactive cashier (Cashier entity with is_active=false)
+      const inactiveCashier = await prisma.cashier.create({
+        data: createCashier({
+          store_id: testStore.store_id,
+          created_by: testOwnerUser.user_id,
+          employee_id: "9999",
           name: "Inactive Cashier",
-          password_hash: await bcrypt.hash("TestPassword123!", 10),
-          status: "INACTIVE",
+          is_active: false,
         }),
       });
-      createdUserIds.push(inactiveCashier.user_id);
+      createdCashierIds.push(inactiveCashier.cashier_id);
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: inactiveCashier.user_id,
+        cashier_id: inactiveCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 100.0,
       };
@@ -698,7 +722,7 @@ describe("ShiftService - openShift", () => {
       const nonExistentTerminalId = "00000000-0000-0000-0000-000000000000";
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: nonExistentTerminalId,
         opening_cash: 100.0,
       };
@@ -740,7 +764,7 @@ describe("ShiftService - openShift", () => {
 
       const openShiftData = {
         store_id: testStore.store_id, // Different store
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: otherTerminal.pos_terminal_id, // Terminal from other store
         opening_cash: 100.0,
       };
@@ -776,7 +800,7 @@ describe("ShiftService - openShift", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: deletedTerminal.pos_terminal_id,
         opening_cash: 100.0,
       };
@@ -811,7 +835,7 @@ describe("ShiftService - openShift", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: activeTerminal.pos_terminal_id,
         opening_cash: 100.0,
       };
@@ -843,7 +867,7 @@ describe("ShiftService - openShift", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: pastDeletedTerminal.pos_terminal_id,
         opening_cash: 100.0,
       };
@@ -895,7 +919,7 @@ describe("ShiftService - checkActiveShift", () => {
       data: {
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 100.0,
         status: ShiftStatus.OPEN,
@@ -930,7 +954,7 @@ describe("ShiftService - checkActiveShift", () => {
       data: {
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: isolatedTerminal.pos_terminal_id,
         opening_cash: 100.0,
         status: ShiftStatus.CLOSED,
@@ -964,7 +988,7 @@ describe("ShiftService - Security & Edge Cases", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: isolatedTerminal.pos_terminal_id,
         opening_cash: 0.0,
       };
@@ -997,7 +1021,7 @@ describe("ShiftService - Security & Edge Cases", () => {
       const largeCash = 99999999.99;
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: isolatedTerminal.pos_terminal_id,
         opening_cash: largeCash,
       };
@@ -1030,7 +1054,7 @@ describe("ShiftService - Security & Edge Cases", () => {
       const preciseCash = 123.45;
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: isolatedTerminal.pos_terminal_id,
         opening_cash: preciseCash,
       };
@@ -1054,7 +1078,7 @@ describe("ShiftService - Security & Edge Cases", () => {
       // but we test service layer behavior if NaN somehow reaches it
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: NaN,
       };
@@ -1074,7 +1098,7 @@ describe("ShiftService - Security & Edge Cases", () => {
       // Note: In practice, Zod validation would catch this before service layer
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: Infinity,
       };
@@ -1095,7 +1119,7 @@ describe("ShiftService - Security & Edge Cases", () => {
       // This test documents service behavior if empty string somehow reaches it
       const openShiftData = {
         store_id: "",
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 100.0,
       };
@@ -1129,7 +1153,7 @@ describe("ShiftService - Security & Edge Cases", () => {
       // Note: Zod validation would catch this before service layer
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: "",
         opening_cash: 100.0,
       };
@@ -1156,7 +1180,7 @@ describe("ShiftService - Security & Edge Cases", () => {
 
       const openShiftData = {
         store_id: testStore.store_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: isolatedTerminal.pos_terminal_id,
         opening_cash: 250.75,
       };
@@ -1173,7 +1197,7 @@ describe("ShiftService - Security & Edge Cases", () => {
       expect(shift.shift_id.length, "shift_id should be UUID format").toBe(36);
       expect(shift.store_id, "store_id should match").toBe(testStore.store_id);
       expect(shift.cashier_id, "cashier_id should match").toBe(
-        testCashierUser.user_id,
+        testCashier.cashier_id,
       );
       expect(shift.pos_terminal_id, "pos_terminal_id should match").toBe(
         isolatedTerminal.pos_terminal_id,
@@ -1223,7 +1247,7 @@ describe("ShiftService - initiateClosing", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 150.75,
           status: ShiftStatus.OPEN,
@@ -1261,7 +1285,7 @@ describe("ShiftService - initiateClosing", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 200.0,
           status: ShiftStatus.ACTIVE,
@@ -1292,7 +1316,7 @@ describe("ShiftService - initiateClosing", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           status: ShiftStatus.OPEN,
@@ -1301,6 +1325,7 @@ describe("ShiftService - initiateClosing", () => {
       createdShiftIds.push(shift.shift_id);
 
       // AND: Cash transactions totaling 50.0
+      // Note: Transaction.cashier_id references users table, not cashiers table
       const transaction1 = await prisma.transaction.create({
         data: {
           store_id: testStore.store_id,
@@ -1365,7 +1390,7 @@ describe("ShiftService - initiateClosing", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           status: ShiftStatus.OPEN,
@@ -1391,7 +1416,7 @@ describe("ShiftService - initiateClosing", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           status: ShiftStatus.OPEN,
@@ -1455,7 +1480,7 @@ describe("ShiftService - initiateClosing", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           status: ShiftStatus.CLOSING,
@@ -1488,7 +1513,7 @@ describe("ShiftService - initiateClosing", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           status: ShiftStatus.CLOSED,
@@ -1522,7 +1547,7 @@ describe("ShiftService - initiateClosing", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           status: ShiftStatus.NOT_STARTED,
@@ -1562,7 +1587,7 @@ describe("ShiftService - calculateExpectedCash", () => {
       data: {
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 100.0,
         status: ShiftStatus.OPEN,
@@ -1571,6 +1596,7 @@ describe("ShiftService - calculateExpectedCash", () => {
     createdShiftIds.push(shift.shift_id);
 
     // AND: Multiple cash transactions
+    // Note: Transaction.cashier_id references users table, not cashiers table
     const transaction1 = await prisma.transaction.create({
       data: {
         store_id: testStore.store_id,
@@ -1631,7 +1657,7 @@ describe("ShiftService - calculateExpectedCash", () => {
       data: {
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 100.0,
         status: ShiftStatus.OPEN,
@@ -1674,7 +1700,7 @@ describe("ShiftService - calculateExpectedCash", () => {
       data: {
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 100.0,
         status: ShiftStatus.OPEN,
@@ -1683,6 +1709,7 @@ describe("ShiftService - calculateExpectedCash", () => {
     createdShiftIds.push(shift.shift_id);
 
     // AND: Transactions with cash and non-cash payments
+    // Note: Transaction.cashier_id references users table, not cashiers table
     const transaction1 = await prisma.transaction.create({
       data: {
         store_id: testStore.store_id,
@@ -1745,7 +1772,7 @@ describe("ShiftService - validateShiftCanClose", () => {
       data: {
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 100.0,
         status: ShiftStatus.OPEN,
@@ -1769,7 +1796,7 @@ describe("ShiftService - validateShiftCanClose", () => {
       data: {
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 100.0,
         status: ShiftStatus.ACTIVE,
@@ -1793,7 +1820,7 @@ describe("ShiftService - validateShiftCanClose", () => {
       data: {
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 100.0,
         status: ShiftStatus.CLOSING,
@@ -1829,7 +1856,7 @@ describe("ShiftService - validateShiftCanClose", () => {
       data: {
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 100.0,
         status: ShiftStatus.CLOSED,
@@ -1866,7 +1893,7 @@ describe("ShiftService - validateShiftCanClose", () => {
       data: {
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: 100.0,
         status: ShiftStatus.NOT_STARTED,
@@ -1950,7 +1977,7 @@ describe("Shift Service - Cash Reconciliation (Story 4.4)", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: new Prisma.Decimal(100.0),
         expected_cash: new Prisma.Decimal(150.0),
@@ -2040,7 +2067,7 @@ describe("Shift Service - Cash Reconciliation (Story 4.4)", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: new Prisma.Decimal(500.0),
         expected_cash: new Prisma.Decimal(1000.0),
@@ -2142,7 +2169,7 @@ describe("Shift Service - Cash Reconciliation (Story 4.4)", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: new Prisma.Decimal(100.0),
         status: ShiftStatus.OPEN,
@@ -2250,7 +2277,7 @@ describe("Shift Service - Variance Approval (Story 4.5)", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: new Prisma.Decimal(100.0),
         expected_cash: new Prisma.Decimal(150.0),
@@ -2336,7 +2363,7 @@ describe("Shift Service - Variance Approval (Story 4.5)", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
         store_id: testStore.store_id,
         opened_by: testShiftManagerUser.user_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         opening_cash: new Prisma.Decimal(100.0),
         expected_cash: new Prisma.Decimal(150.0),
@@ -2530,7 +2557,7 @@ describe("ShiftService - Security & Input Validation", () => {
       for (const maliciousStoreId of maliciousStoreIds) {
         const openShiftData = {
           store_id: maliciousStoreId,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
         };
@@ -2605,7 +2632,7 @@ describe("ShiftService - Security & Input Validation", () => {
       for (const maliciousTerminalId of maliciousTerminalIds) {
         const openShiftData = {
           store_id: testStore.store_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: maliciousTerminalId,
           opening_cash: 100.0,
         };
@@ -2672,7 +2699,7 @@ describe("ShiftService - Security & Input Validation", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           expected_cash: 150.0,
@@ -2714,7 +2741,7 @@ describe("ShiftService - Security & Input Validation", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           expected_cash: 150.0,
@@ -2756,7 +2783,7 @@ describe("ShiftService - Security & Input Validation", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           expected_cash: 150.0,
@@ -2792,7 +2819,7 @@ describe("ShiftService - Security & Input Validation", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           expected_cash: 150.0,
@@ -2841,7 +2868,7 @@ describe("ShiftService - Security & Input Validation", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           expected_cash: 150.0,
@@ -2881,7 +2908,7 @@ describe("ShiftService - Security & Input Validation", () => {
         data: {
           store_id: testStore.store_id,
           opened_by: testShiftManagerUser.user_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           opening_cash: 100.0,
           expected_cash: 150.0,
@@ -3007,7 +3034,7 @@ describe("ShiftService - generateShiftReport", () => {
           ...createShift({
             store_id: testStore.store_id,
             opened_by: testShiftManagerUser.user_id,
-            cashier_id: testCashierUser.user_id,
+            cashier_id: testCashier.cashier_id,
             pos_terminal_id: isolatedTerminal.pos_terminal_id,
             opening_cash: new Prisma.Decimal(100.0),
             closing_cash: new Prisma.Decimal(250.0),
@@ -3022,6 +3049,7 @@ describe("ShiftService - generateShiftReport", () => {
       createdShiftIds.push(shift.shift_id);
 
       // Create transactions for the shift
+      // Note: Transaction.cashier_id references users table, not cashiers table
       const transaction1 = await prisma.transaction.create({
         data: {
           ...createTransaction({
@@ -3140,7 +3168,7 @@ describe("ShiftService - generateShiftReport", () => {
           ...createShift({
             store_id: testStore.store_id,
             opened_by: testShiftManagerUser.user_id,
-            cashier_id: testCashierUser.user_id,
+            cashier_id: testCashier.cashier_id,
             pos_terminal_id: isolatedTerminal.pos_terminal_id,
             opening_cash: new Prisma.Decimal(100.0),
             closing_cash: new Prisma.Decimal(250.0),
@@ -3190,7 +3218,7 @@ describe("ShiftService - generateShiftReport", () => {
           ...createShift({
             store_id: testStore.store_id,
             opened_by: testShiftManagerUser.user_id,
-            cashier_id: testCashierUser.user_id,
+            cashier_id: testCashier.cashier_id,
             pos_terminal_id: isolatedTerminal.pos_terminal_id,
             opening_cash: new Prisma.Decimal(100.0),
             status: "OPEN",

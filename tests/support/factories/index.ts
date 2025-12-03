@@ -168,7 +168,10 @@ export {
 
 // Cashier factories (Story 4.91)
 export {
+  createCashier,
+  createCashiers,
   createCashierRequest,
   createCashierRequests,
+  type CashierData,
   type CreateCashierRequest,
 } from "./cashier.factory";
