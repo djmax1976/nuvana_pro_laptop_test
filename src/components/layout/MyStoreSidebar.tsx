@@ -1,0 +1,173 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { useClientAuth } from "@/contexts/ClientAuthContext";
+import { useClientDashboard } from "@/lib/api/client-dashboard";
+import { useStoreTerminals, TerminalWithStatus } from "@/lib/api/stores";
+import { Clock, Loader2, AlertCircle } from "lucide-react";
+import { TerminalAuthModal } from "@/components/terminals/TerminalAuthModal";
+
+interface MyStoreSidebarProps {
+  className?: string;
+  onNavigate?: () => void;
+}
+
+/**
+ * MyStore Terminal Dashboard Sidebar component
+ * Minimal sidebar showing only terminal links and Clock In/Out link
+ * Excludes: Shifts, Inventory, Lottery, Employees, Reports, AI Assistant
+ *
+ * @requirements
+ * - AC #2: Sidebar shows only terminal links for associated store and Clock In/Out link
+ * - AC #5: Shows terminals for stores user has access to (RLS filtering at API level)
+ */
+export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
+  const pathname = usePathname();
+  const { user } = useClientAuth();
+  const { data: dashboardData, isLoading: dashboardLoading } =
+    useClientDashboard();
+
+  // State for terminal authentication modal
+  const [selectedTerminal, setSelectedTerminal] =
+    useState<TerminalWithStatus | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Get first store ID from user's accessible stores
+  const firstStoreId =
+    dashboardData?.stores.find((s) => s.status === "ACTIVE")?.store_id ||
+    dashboardData?.stores[0]?.store_id ||
+    undefined;
+
+  // Fetch terminals for the first store
+  const {
+    data: terminals,
+    isLoading: terminalsLoading,
+    isError: terminalsError,
+  } = useStoreTerminals(firstStoreId, {
+    enabled: !!firstStoreId && !dashboardLoading,
+  });
+
+  // Determine if Clock In/Out link is active
+  const isClockInOutActive = pathname === "/mystore/clock-in-out";
+
+  // Handle terminal click - open authentication modal
+  const handleTerminalClick = (terminal: TerminalWithStatus) => {
+    setSelectedTerminal(terminal);
+    setIsModalOpen(true);
+    onNavigate?.();
+  };
+
+  // Handle modal close
+  const handleModalClose = (open: boolean) => {
+    setIsModalOpen(open);
+    if (!open) {
+      setSelectedTerminal(null);
+    }
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex h-full w-64 flex-col border-r bg-background",
+        className,
+      )}
+      data-testid="mystore-sidebar"
+    >
+      <div className="flex h-16 items-center border-b px-6">
+        <h2 className="text-heading-3 font-bold text-foreground">My Store</h2>
+      </div>
+      <nav className="flex-1 space-y-1 px-3 py-4">
+        {/* Clock In/Out Link */}
+        <Link
+          href="/mystore/clock-in-out"
+          data-testid="clock-in-out-link"
+          onClick={() => onNavigate?.()}
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+            isClockInOutActive
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+          )}
+        >
+          <Clock className="h-5 w-5" />
+          <span>Clock In/Out</span>
+        </Link>
+
+        {/* Terminal Links Section */}
+        <div className="mt-4 space-y-1">
+          {dashboardLoading || terminalsLoading ? (
+            <div
+              className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground"
+              data-testid="terminals-loading"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Loading terminals...</span>
+            </div>
+          ) : terminalsError ? (
+            <div
+              className="flex items-center gap-2 px-3 py-2 text-sm text-destructive"
+              data-testid="terminals-error"
+            >
+              <AlertCircle className="h-4 w-4" />
+              <span>Failed to load terminals</span>
+            </div>
+          ) : !terminals || terminals.length === 0 ? (
+            <div
+              className="px-3 py-2 text-sm text-muted-foreground"
+              data-testid="terminals-empty"
+            >
+              No terminals available
+            </div>
+          ) : (
+            terminals.map((terminal) => {
+              // Generate terminal link testid
+              const terminalTestId = `terminal-link-${terminal.pos_terminal_id}`;
+              return (
+                <button
+                  key={terminal.pos_terminal_id}
+                  data-testid={terminalTestId}
+                  onClick={() => handleTerminalClick(terminal)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors",
+                    "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                  )}
+                >
+                  <span className="flex-1 truncate">{terminal.name}</span>
+                  {terminal.terminal_status && (
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-xs",
+                        terminal.terminal_status === "ACTIVE"
+                          ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                          : terminal.terminal_status === "INACTIVE"
+                            ? "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200"
+                            : terminal.terminal_status === "ERROR"
+                              ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                              : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+                      )}
+                    >
+                      {terminal.terminal_status}
+                    </span>
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+      </nav>
+
+      {/* Terminal Authentication Modal */}
+      {selectedTerminal && (
+        <TerminalAuthModal
+          terminalId={selectedTerminal.pos_terminal_id}
+          terminalName={selectedTerminal.name}
+          open={isModalOpen}
+          onOpenChange={handleModalClose}
+        />
+      )}
+    </div>
+  );
+}

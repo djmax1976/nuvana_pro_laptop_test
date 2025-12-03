@@ -61,10 +61,9 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
       if (onSuccess) {
         onSuccess();
       } else {
-        // Role-based redirect: client users go to client dashboard, others to admin dashboard
-        window.location.href = isClientUser
-          ? "/client-dashboard"
-          : "/dashboard";
+        // Role-based redirect: client users go to /mystore terminal dashboard, others to admin dashboard
+        // Story 4.9: CLIENT_USER with store-level access should be redirected to /mystore
+        window.location.href = isClientUser ? "/mystore" : "/dashboard";
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");

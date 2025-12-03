@@ -47,6 +47,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { ConnectionConfigForm } from "@/components/stores/ConnectionConfigForm";
 
 /**
  * Validate IANA timezone format (safer implementation to avoid ReDoS)
@@ -313,6 +314,88 @@ export function StoreForm({ companyId, store, onSuccess }: StoreFormProps) {
 }
 
 /**
+ * Format connection type for display
+ * Story 4.82: Terminal Connection Configuration UI
+ */
+function formatConnectionType(
+  connectionType: TerminalWithStatus["connection_type"],
+): string {
+  if (!connectionType) return "Manual";
+  switch (connectionType) {
+    case "NETWORK":
+      return "Network";
+    case "API":
+      return "API";
+    case "WEBHOOK":
+      return "Webhook";
+    case "FILE":
+      return "File";
+    case "MANUAL":
+      return "Manual";
+    default:
+      return "Manual";
+  }
+}
+
+/**
+ * Get badge variant for terminal status
+ * Story 4.82: Terminal Connection Configuration UI
+ * ACTIVE: green, PENDING: yellow, ERROR: red, INACTIVE: gray
+ */
+function getTerminalStatusBadgeVariant(
+  status: TerminalWithStatus["terminal_status"],
+): "default" | "secondary" | "destructive" | "outline" {
+  switch (status) {
+    case "ACTIVE":
+      return "default";
+    case "PENDING":
+      return "secondary";
+    case "ERROR":
+      return "destructive";
+    case "INACTIVE":
+      return "outline";
+    default:
+      return "outline";
+  }
+}
+
+/**
+ * Format sync status for display
+ * Story 4.82: Terminal Connection Configuration UI
+ */
+function formatSyncStatus(
+  syncStatus: TerminalWithStatus["sync_status"],
+  lastSyncAt: TerminalWithStatus["last_sync_at"],
+): string {
+  if (syncStatus === "NEVER") {
+    return "Never synced";
+  }
+  if (lastSyncAt) {
+    try {
+      const syncDate = new Date(lastSyncAt);
+      const now = new Date();
+      const diffMs = now.getTime() - syncDate.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) {
+        return "Last sync: Just now";
+      } else if (diffMins < 60) {
+        return `Last sync: ${diffMins} minute${diffMins > 1 ? "s" : ""} ago`;
+      } else if (diffHours < 24) {
+        return `Last sync: ${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+      } else {
+        return `Last sync: ${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
+      }
+    } catch {
+      return "Last sync: Unknown";
+    }
+  }
+  return "Last sync: Unknown";
+}
+
+/**
  * Terminal Management Section Component
  * Allows adding, editing, and deleting terminals for a store
  */
@@ -323,6 +406,12 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
     useState<TerminalWithStatus | null>(null);
   const [terminalName, setTerminalName] = useState("");
   const [terminalDeviceId, setTerminalDeviceId] = useState("");
+  const [connectionType, setConnectionType] =
+    useState<TerminalWithStatus["connection_type"]>("MANUAL");
+  const [vendorType, setVendorType] =
+    useState<TerminalWithStatus["vendor_type"]>("GENERIC");
+  const [connectionConfig, setConnectionConfig] =
+    useState<TerminalWithStatus["connection_config"]>(null);
 
   const { data: terminals, isLoading } = useStoreTerminals(storeId);
   const createMutation = useCreateTerminal();
@@ -345,6 +434,12 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
         data: {
           name: terminalName.trim(),
           device_id: terminalDeviceId.trim() || undefined,
+          connection_type: connectionType,
+          vendor_type: vendorType,
+          connection_config:
+            connectionType && connectionType !== "MANUAL"
+              ? connectionConfig
+              : undefined,
         },
       });
       toast({
@@ -354,6 +449,9 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
       setIsCreateDialogOpen(false);
       setTerminalName("");
       setTerminalDeviceId("");
+      setConnectionType("MANUAL");
+      setVendorType("GENERIC");
+      setConnectionConfig(null);
     } catch (error) {
       toast({
         title: "Error",
@@ -384,6 +482,12 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
         data: {
           name: terminalName.trim(),
           device_id: terminalDeviceId.trim() || undefined,
+          connection_type: connectionType,
+          vendor_type: vendorType,
+          connection_config:
+            connectionType && connectionType !== "MANUAL"
+              ? connectionConfig
+              : undefined,
         },
       });
       toast({
@@ -439,12 +543,18 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
     setEditingTerminal(terminal);
     setTerminalName(terminal.name);
     setTerminalDeviceId(terminal.device_id || "");
+    setConnectionType(terminal.connection_type || "MANUAL");
+    setVendorType(terminal.vendor_type || "GENERIC");
+    setConnectionConfig(terminal.connection_config || null);
   };
 
   const closeEditDialog = () => {
     setEditingTerminal(null);
     setTerminalName("");
     setTerminalDeviceId("");
+    setConnectionType("MANUAL");
+    setVendorType("GENERIC");
+    setConnectionConfig(null);
   };
 
   return (
@@ -487,15 +597,48 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{terminal.name}</span>
+                      {terminal.connection_type && (
+                        <Badge variant="secondary">
+                          {formatConnectionType(terminal.connection_type)}
+                        </Badge>
+                      )}
+                      {terminal.terminal_status && (
+                        <Badge
+                          variant={getTerminalStatusBadgeVariant(
+                            terminal.terminal_status,
+                          )}
+                          className={
+                            terminal.terminal_status === "ACTIVE"
+                              ? "bg-green-500 hover:bg-green-600"
+                              : terminal.terminal_status === "PENDING"
+                                ? "bg-yellow-500 hover:bg-yellow-600"
+                                : terminal.terminal_status === "ERROR"
+                                  ? undefined // destructive variant is already red
+                                  : undefined // outline variant is already gray
+                          }
+                        >
+                          {terminal.terminal_status}
+                        </Badge>
+                      )}
                       {terminal.has_active_shift && (
                         <Badge variant="outline">Active Shift</Badge>
                       )}
                     </div>
-                    {terminal.device_id && (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Device ID: {terminal.device_id}
-                      </p>
-                    )}
+                    <div className="flex flex-col gap-1 mt-1">
+                      {terminal.device_id && (
+                        <p className="text-sm text-muted-foreground">
+                          Device ID: {terminal.device_id}
+                        </p>
+                      )}
+                      {(terminal.sync_status || terminal.last_sync_at) && (
+                        <p className="text-sm text-muted-foreground">
+                          {formatSyncStatus(
+                            terminal.sync_status,
+                            terminal.last_sync_at,
+                          )}
+                        </p>
+                      )}
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <Button
@@ -536,7 +679,19 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
       </Card>
 
       {/* Create Terminal Dialog */}
-      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+      <Dialog
+        open={isCreateDialogOpen}
+        onOpenChange={(open) => {
+          setIsCreateDialogOpen(open);
+          if (!open) {
+            setTerminalName("");
+            setTerminalDeviceId("");
+            setConnectionType("MANUAL");
+            setVendorType("GENERIC");
+            setConnectionConfig(null);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Terminal</DialogTitle>
@@ -546,14 +701,11 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label
-                htmlFor="create-terminal-name"
-                className="text-sm font-medium"
-              >
+              <label htmlFor="terminal-name" className="text-sm font-medium">
                 Terminal Name
               </label>
               <Input
-                id="create-terminal-name"
+                id="terminal-name"
                 value={terminalName}
                 onChange={(e) => setTerminalName(e.target.value)}
                 placeholder="e.g., Terminal 1"
@@ -562,19 +714,79 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
             </div>
             <div>
               <label
-                htmlFor="create-terminal-device-id"
+                htmlFor="terminal-device-id"
                 className="text-sm font-medium"
               >
                 Device ID (Optional)
               </label>
               <Input
-                id="create-terminal-device-id"
+                id="terminal-device-id"
                 value={terminalDeviceId}
                 onChange={(e) => setTerminalDeviceId(e.target.value)}
                 placeholder="e.g., DEV-001"
                 className="mt-1"
               />
             </div>
+            <div>
+              <label htmlFor="connection-type" className="text-sm font-medium">
+                Connection Type
+              </label>
+              <Select
+                value={connectionType || "MANUAL"}
+                onValueChange={(value) =>
+                  setConnectionType(
+                    value as TerminalWithStatus["connection_type"],
+                  )
+                }
+              >
+                <SelectTrigger className="mt-1" id="connection-type">
+                  <SelectValue placeholder="Select connection type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NETWORK">Network</SelectItem>
+                  <SelectItem value="API">API</SelectItem>
+                  <SelectItem value="WEBHOOK">Webhook</SelectItem>
+                  <SelectItem value="FILE">File</SelectItem>
+                  <SelectItem value="MANUAL">Manual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label htmlFor="vendor-type" className="text-sm font-medium">
+                POS Vendor
+              </label>
+              <Select
+                value={vendorType || "GENERIC"}
+                onValueChange={(value) =>
+                  setVendorType(value as TerminalWithStatus["vendor_type"])
+                }
+              >
+                <SelectTrigger className="mt-1" id="vendor-type">
+                  <SelectValue placeholder="Select POS vendor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="GENERIC">Generic</SelectItem>
+                  <SelectItem value="SQUARE">Square</SelectItem>
+                  <SelectItem value="CLOVER">Clover</SelectItem>
+                  <SelectItem value="TOAST">Toast</SelectItem>
+                  <SelectItem value="LIGHTSPEED">Lightspeed</SelectItem>
+                  <SelectItem value="CUSTOM">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {connectionType && connectionType !== "MANUAL" && (
+              <div className="pt-2 border-t">
+                <label className="text-sm font-medium mb-2 block">
+                  Connection Configuration
+                </label>
+                <ConnectionConfigForm
+                  connectionType={connectionType}
+                  connectionConfig={connectionConfig}
+                  onConfigChange={setConnectionConfig}
+                  storeId={storeId}
+                />
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
@@ -582,6 +794,9 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
                   setIsCreateDialogOpen(false);
                   setTerminalName("");
                   setTerminalDeviceId("");
+                  setConnectionType("MANUAL");
+                  setVendorType("GENERIC");
+                  setConnectionConfig(null);
                 }}
               >
                 Cancel
@@ -638,6 +853,70 @@ function TerminalManagementSection({ storeId }: { storeId: string }) {
                 className="mt-1"
               />
             </div>
+            <div>
+              <label
+                htmlFor="edit-connection-type"
+                className="text-sm font-medium"
+              >
+                Connection Type
+              </label>
+              <Select
+                value={connectionType || "MANUAL"}
+                onValueChange={(value) =>
+                  setConnectionType(
+                    value as TerminalWithStatus["connection_type"],
+                  )
+                }
+              >
+                <SelectTrigger className="mt-1" id="edit-connection-type">
+                  <SelectValue placeholder="Select connection type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NETWORK">Network</SelectItem>
+                  <SelectItem value="API">API</SelectItem>
+                  <SelectItem value="WEBHOOK">Webhook</SelectItem>
+                  <SelectItem value="FILE">File</SelectItem>
+                  <SelectItem value="MANUAL">Manual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label htmlFor="edit-vendor-type" className="text-sm font-medium">
+                POS Vendor
+              </label>
+              <Select
+                value={vendorType || "GENERIC"}
+                onValueChange={(value) =>
+                  setVendorType(value as TerminalWithStatus["vendor_type"])
+                }
+              >
+                <SelectTrigger className="mt-1" id="edit-vendor-type">
+                  <SelectValue placeholder="Select POS vendor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="GENERIC">Generic</SelectItem>
+                  <SelectItem value="SQUARE">Square</SelectItem>
+                  <SelectItem value="CLOVER">Clover</SelectItem>
+                  <SelectItem value="TOAST">Toast</SelectItem>
+                  <SelectItem value="LIGHTSPEED">Lightspeed</SelectItem>
+                  <SelectItem value="CUSTOM">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {connectionType && connectionType !== "MANUAL" && (
+              <div className="pt-2 border-t">
+                <label className="text-sm font-medium mb-2 block">
+                  Connection Configuration
+                </label>
+                <ConnectionConfigForm
+                  connectionType={connectionType}
+                  connectionConfig={connectionConfig}
+                  onConfigChange={setConnectionConfig}
+                  storeId={storeId}
+                  terminalId={editingTerminal?.pos_terminal_id}
+                />
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={closeEditDialog}>
                 Cancel
