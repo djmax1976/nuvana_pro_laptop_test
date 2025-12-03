@@ -8,6 +8,7 @@
 
 "use client";
 
+import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -42,6 +43,20 @@ export function ConnectionConfigForm({
   storeId,
   terminalId,
 }: ConnectionConfigFormProps) {
+  const [validationErrors, setValidationErrors] = useState<
+    Record<string, string>
+  >({});
+  const [localValues, setLocalValues] = useState<
+    Record<string, string | number>
+  >({});
+
+  // Handle MANUAL type - call onConfigChange with null
+  useEffect(() => {
+    if (!connectionType || connectionType === "MANUAL") {
+      onConfigChange(null);
+    }
+  }, [connectionType, onConfigChange]);
+
   // Handle MANUAL type - no config needed
   if (!connectionType || connectionType === "MANUAL") {
     return null;
@@ -75,10 +90,127 @@ export function ConnectionConfigForm({
       : "";
   };
 
+  // Update local value and validate (for immediate feedback)
+  const updateLocalValue = (key: ConfigKey, value: string | number) => {
+    setLocalValues((prev) => ({ ...prev, [key]: value }));
+
+    // Validate immediately for port and baseUrl
+    if (key === "port") {
+      const portValue = String(value).trim();
+      if (portValue !== "") {
+        const portNum = parseInt(portValue, 10);
+        if (isNaN(portNum) || portNum <= 0) {
+          setValidationErrors((prev) => ({
+            ...prev,
+            port: "port must be a positive integer",
+          }));
+        } else {
+          setValidationErrors((prev) => {
+            const newErrors = { ...prev };
+            delete newErrors.port;
+            return newErrors;
+          });
+        }
+      }
+    }
+
+    if (key === "baseUrl") {
+      const urlValue = String(value).trim();
+      if (urlValue !== "") {
+        try {
+          new URL(urlValue);
+          setValidationErrors((prev) => {
+            const newErrors = { ...prev };
+            delete newErrors.baseUrl;
+            return newErrors;
+          });
+        } catch {
+          setValidationErrors((prev) => ({
+            ...prev,
+            baseUrl: "baseUrl must be a valid URL",
+          }));
+        }
+      }
+    }
+  };
+
+  // Validate and update config (called on blur)
   const updateConfig = (key: ConfigKey, value: string | number) => {
     if (!ALLOWED_CONFIG_KEYS.includes(key)) {
       return;
     }
+
+    // Validate port
+    if (key === "port") {
+      const portValue = String(value).trim();
+      if (portValue === "") {
+        // Clear error if empty
+        setValidationErrors((prev) => {
+          const newErrors = { ...prev };
+          // eslint-disable-next-line security/detect-object-injection
+          delete newErrors[key];
+          return newErrors;
+        });
+      } else {
+        const portNum = parseInt(portValue, 10);
+        if (isNaN(portNum) || portNum <= 0) {
+          setValidationErrors((prev) => ({
+            ...prev,
+            port: "port must be a positive integer",
+          }));
+          return;
+        }
+        // Clear error if valid
+        setValidationErrors((prev) => {
+          const newErrors = { ...prev };
+          // eslint-disable-next-line security/detect-object-injection
+          delete newErrors[key];
+          return newErrors;
+        });
+      }
+    }
+
+    // Validate baseUrl
+    if (key === "baseUrl") {
+      const urlValue = String(value).trim();
+      if (urlValue === "") {
+        // Clear error if empty
+        setValidationErrors((prev) => {
+          const newErrors = { ...prev };
+          // eslint-disable-next-line security/detect-object-injection
+          delete newErrors[key];
+          return newErrors;
+        });
+      } else {
+        try {
+          new URL(urlValue);
+          // Clear error if valid
+          setValidationErrors((prev) => {
+            const newErrors = { ...prev };
+            // eslint-disable-next-line security/detect-object-injection
+            delete newErrors[key];
+            return newErrors;
+          });
+        } catch {
+          setValidationErrors((prev) => ({
+            ...prev,
+            baseUrl: "baseUrl must be a valid URL",
+          }));
+          return;
+        }
+      }
+    }
+
+    // Clear validation error for other fields
+    if (key !== "port" && key !== "baseUrl") {
+      setValidationErrors((prev) => {
+        const newErrors = { ...prev };
+        // eslint-disable-next-line security/detect-object-injection
+        delete newErrors[key];
+        return newErrors;
+      });
+    }
+
     const currentConfig =
       connectionConfig && typeof connectionConfig === "object"
         ? { ...(connectionConfig as Record<string, unknown>) }
@@ -99,10 +231,15 @@ export function ConnectionConfigForm({
           <Input
             id="network-host"
             type="text"
-            value={getConfigValue("host")}
-            onChange={(e) => updateConfig("host", e.target.value)}
+            value={
+              // eslint-disable-next-line security/detect-object-injection
+              localValues.host ?? getConfigValue("host")
+            }
+            onChange={(e) => updateLocalValue("host", e.target.value)}
+            onBlur={(e) => updateConfig("host", e.target.value)}
             placeholder="e.g., 192.168.1.100"
             className="mt-1"
+            required
           />
         </div>
         <div>
@@ -112,8 +249,17 @@ export function ConnectionConfigForm({
           <Input
             id="network-port"
             type="number"
-            value={getConfigValue("port")}
+            value={
+              // eslint-disable-next-line security/detect-object-injection
+              localValues.port ?? getConfigValue("port")
+            }
             onChange={(e) =>
+              updateLocalValue(
+                "port",
+                e.target.value ? parseInt(e.target.value, 10) : "",
+              )
+            }
+            onBlur={(e) =>
               updateConfig(
                 "port",
                 e.target.value ? parseInt(e.target.value, 10) : "",
@@ -122,6 +268,9 @@ export function ConnectionConfigForm({
             placeholder="e.g., 8080"
             className="mt-1"
           />
+          {validationErrors.port && (
+            <p className="text-xs text-red-500 mt-1">{validationErrors.port}</p>
+          )}
         </div>
         <div>
           <label htmlFor="network-protocol" className="text-sm font-medium">
@@ -155,11 +304,20 @@ export function ConnectionConfigForm({
           <Input
             id="api-base-url"
             type="url"
-            value={getConfigValue("baseUrl")}
-            onChange={(e) => updateConfig("baseUrl", e.target.value)}
+            value={
+              // eslint-disable-next-line security/detect-object-injection
+              localValues.baseUrl ?? getConfigValue("baseUrl")
+            }
+            onChange={(e) => updateLocalValue("baseUrl", e.target.value)}
+            onBlur={(e) => updateConfig("baseUrl", e.target.value)}
             placeholder="e.g., https://api.example.com"
             className="mt-1"
           />
+          {validationErrors.baseUrl && (
+            <p className="text-xs text-red-500 mt-1">
+              {validationErrors.baseUrl}
+            </p>
+          )}
         </div>
         <div>
           <label htmlFor="api-key" className="text-sm font-medium">
@@ -168,8 +326,12 @@ export function ConnectionConfigForm({
           <Input
             id="api-key"
             type="password"
-            value={getConfigValue("apiKey")}
-            onChange={(e) => updateConfig("apiKey", e.target.value)}
+            value={
+              // eslint-disable-next-line security/detect-object-injection
+              localValues.apiKey ?? getConfigValue("apiKey")
+            }
+            onChange={(e) => updateLocalValue("apiKey", e.target.value)}
+            onBlur={(e) => updateConfig("apiKey", e.target.value)}
             placeholder="Enter API key"
             className="mt-1"
           />
@@ -212,8 +374,12 @@ export function ConnectionConfigForm({
           <Input
             id="webhook-secret"
             type="password"
-            value={getConfigValue("secret")}
-            onChange={(e) => updateConfig("secret", e.target.value)}
+            value={
+              // eslint-disable-next-line security/detect-object-injection
+              localValues.secret ?? getConfigValue("secret")
+            }
+            onChange={(e) => updateLocalValue("secret", e.target.value)}
+            onBlur={(e) => updateConfig("secret", e.target.value)}
             placeholder="Enter webhook secret"
             className="mt-1"
           />
@@ -233,8 +399,12 @@ export function ConnectionConfigForm({
           <Input
             id="file-import-path"
             type="text"
-            value={getConfigValue("importPath")}
-            onChange={(e) => updateConfig("importPath", e.target.value)}
+            value={
+              // eslint-disable-next-line security/detect-object-injection
+              localValues.importPath ?? getConfigValue("importPath")
+            }
+            onChange={(e) => updateLocalValue("importPath", e.target.value)}
+            onBlur={(e) => updateConfig("importPath", e.target.value)}
             placeholder="e.g., /path/to/import/files"
             className="mt-1"
           />
