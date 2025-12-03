@@ -24,7 +24,9 @@ import {
 
 /**
  * Helper function to perform login and wait for navigation.
- * Uses Promise.all pattern to avoid race conditions between click and navigation.
+ *
+ * Note: As of Story 4.9, client users are redirected to /mystore after login,
+ * so this function waits for /mystore, then navigates to /client-dashboard.
  */
 async function loginAndWaitForDashboard(
   page: Page,
@@ -35,11 +37,16 @@ async function loginAndWaitForDashboard(
   await page.fill('input[name="email"], input[type="email"]', email);
   await page.fill('input[name="password"], input[type="password"]', password);
 
-  // Wait for navigation to complete after form submission
-  await Promise.all([
-    page.waitForURL(/.*client-dashboard.*/, { timeout: 15000 }),
-    page.click('button[type="submit"]'),
-  ]);
+  // Click submit and wait for navigation to complete
+  // Client users are now redirected to /mystore after login (Story 4.9)
+  await page.click('button[type="submit"]');
+
+  // Wait for redirect to /mystore (may take a moment for auth to complete)
+  await page.waitForURL(/.*mystore.*/, { timeout: 20000 });
+
+  // Navigate to client-dashboard for testing dashboard features
+  await page.goto("/client-dashboard");
+  await page.waitForURL(/.*client-dashboard.*/, { timeout: 15000 });
 }
 
 /**

@@ -277,9 +277,9 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
 
     // THEN: Form fields should be visible
     await expect(page.getByTestId("cashier-name-select")).toBeVisible();
-    await expect(page.getByText(/cashier name/i)).toBeVisible();
+    await expect(page.getByLabel(/cashier name/i)).toBeVisible();
     await expect(page.getByTestId("pin-number-input")).toBeVisible();
-    await expect(page.getByText(/pin number/i)).toBeVisible();
+    await expect(page.getByLabel(/pin number/i)).toBeVisible();
 
     // THEN: Cancel and Submit buttons should be visible
     await expect(page.getByTestId("terminal-auth-cancel-button")).toBeVisible();
@@ -336,9 +336,9 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     await expect(page.getByText("Terminal 1")).toBeVisible();
     await expect(page.getByText("Terminal 2")).toBeVisible();
 
-    // THEN: Terminal status badges should be visible
-    await expect(page.getByText("ACTIVE")).toBeVisible();
-    await expect(page.getByText("INACTIVE")).toBeVisible();
+    // THEN: Terminal status badges should be visible (use .first() since there may be multiple badges)
+    await expect(page.getByText("ACTIVE").first()).toBeVisible();
+    await expect(page.getByText("INACTIVE").first()).toBeVisible();
   });
 
   test("[P2] 4.9-E2E-008: Complete user journey: login → redirect to /mystore → view terminals → click terminal → see auth modal", async ({

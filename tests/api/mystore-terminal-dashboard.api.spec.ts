@@ -237,7 +237,8 @@ test.describe("4.9-API: MyStore Terminal Dashboard API", () => {
         expect(errorBody).toHaveProperty("error");
         expect(errorBody.error).toHaveProperty("code");
         expect(errorBody.error).toHaveProperty("message");
-        expect(errorBody.error.code).toBe("UNAUTHORIZED");
+        // 403 returns PERMISSION_DENIED for authorization failures (user doesn't have access to this store)
+        expect(errorBody.error.code).toBe("PERMISSION_DENIED");
       } else if (response.status() === 404) {
         const errorBody = await response.json();
         expect(errorBody).toHaveProperty("success");
@@ -272,15 +273,11 @@ test.describe("4.9-API: MyStore Terminal Dashboard API", () => {
       expect(response.status()).toBe(401);
 
       const errorBody = await response.json();
-      expect(errorBody).toHaveProperty(
-        "success",
-        "Error response should have success field",
-      );
-      expect(errorBody).toHaveProperty(
-        "error",
-        "Error response should have error object",
-      );
-      expect(errorBody.error.code).toBe("UNAUTHORIZED");
+      // Verify error response structure
+      expect(errorBody).toHaveProperty("success", false);
+      expect(errorBody).toHaveProperty("error");
+      expect(errorBody.error).toHaveProperty("code", "UNAUTHORIZED");
+      expect(errorBody.error).toHaveProperty("message");
     });
 
     test("4.9-API-006: [P0] Should reject request with invalid token", async ({
@@ -311,15 +308,11 @@ test.describe("4.9-API: MyStore Terminal Dashboard API", () => {
       expect(response.status()).toBe(401);
 
       const errorBody = await response.json();
-      expect(errorBody).toHaveProperty(
-        "success",
-        "Error response should have success field",
-      );
-      expect(errorBody).toHaveProperty(
-        "error",
-        "Error response should have error object",
-      );
-      expect(errorBody.error.code).toBe("UNAUTHORIZED");
+      // Verify error response structure
+      expect(errorBody).toHaveProperty("success", false);
+      expect(errorBody).toHaveProperty("error");
+      expect(errorBody.error).toHaveProperty("code", "UNAUTHORIZED");
+      expect(errorBody.error).toHaveProperty("message");
     });
 
     test("4.9-API-007: [P0] Should reject request with expired token", async ({
@@ -396,15 +389,11 @@ test.describe("4.9-API: MyStore Terminal Dashboard API", () => {
       expect(response.status()).toBe(401);
 
       const errorBody = await response.json();
-      expect(errorBody).toHaveProperty(
-        "success",
-        "Error response should have success field",
-      );
-      expect(errorBody).toHaveProperty(
-        "error",
-        "Error response should have error object",
-      );
-      expect(errorBody.error.code).toBe("UNAUTHORIZED");
+      // Verify error response structure
+      expect(errorBody).toHaveProperty("success", false);
+      expect(errorBody).toHaveProperty("error");
+      expect(errorBody.error).toHaveProperty("code", "UNAUTHORIZED");
+      expect(errorBody.error).toHaveProperty("message");
     });
   });
 

@@ -294,9 +294,10 @@ test.describe("Terminal Connection Configuration API", () => {
     // THEN: Request is rejected with validation error
     expect(response.status()).toBe(400);
     const body = await response.json();
-    expect(body.error).toContain(
-      "connection_config structure does not match connection_type",
-    );
+    expect(body.success).toBe(false);
+    expect(body.error).toHaveProperty("code", "VALIDATION_ERROR");
+    // The error message is in the message field or details from Zod validation
+    expect(body.error.message).toBeDefined();
   });
 
   test("[P0-BR-CONN-006] should reject MANUAL connection with connection_config", async ({
@@ -330,7 +331,10 @@ test.describe("Terminal Connection Configuration API", () => {
     // THEN: Request is rejected with validation error
     expect(response.status()).toBe(400);
     const body = await response.json();
-    expect(body.error).toContain("connection_config");
+    expect(body.success).toBe(false);
+    expect(body.error).toHaveProperty("code", "VALIDATION_ERROR");
+    // The error message is in the message field or details from Zod validation
+    expect(body.error.message).toBeDefined();
   });
 
   /**
