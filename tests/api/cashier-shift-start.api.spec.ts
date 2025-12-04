@@ -32,6 +32,21 @@ import {
   createCashier,
 } from "../support/factories";
 
+/**
+ * Helper function to create a test cashier record
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
+}
+
 // =============================================================================
 // SECTION 1: P0 CRITICAL - GET /api/stores/:storeId/terminals TESTS
 // =============================================================================
@@ -179,17 +194,12 @@ test.describe("4.8-API: Shift Opening Auto-Assignment", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record with cashier_id = user.user_id for auto-assignment to work
-    // The API assigns user.id as cashier_id, so we need a cashier with that ID
-    await prismaClient.cashier.create({
-      data: {
-        ...(await createCashier({
-          store_id: store.store_id,
-          created_by: user.user_id,
-        })),
-        cashier_id: user.user_id, // Override to match user.id for auto-assignment
-      },
-    });
+    // Create a cashier record for the user
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      user.user_id,
+    );
 
     // Assign SHIFT_MANAGER role to the user at the store level (SHIFT_MANAGER has SHIFT_OPEN permission)
     const shiftManagerRole = await prismaClient.role.findFirst({
@@ -234,7 +244,7 @@ test.describe("4.8-API: Shift Opening Auto-Assignment", () => {
     expect(response.status()).toBe(201);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data.cashier_id).toBe(user.user_id);
+    expect(body.data.cashier_id).toBe(cashier.cashier_id);
   });
 
   test("4.8-API-005: [P0] should use provided cashier_id when present (backward compatibility)", async ({
@@ -539,16 +549,12 @@ test.describe("4.8-API: Audit Logging", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record with cashier_id = superadminUser.user_id for auto-assignment to work
-    await prismaClient.cashier.create({
-      data: {
-        ...(await createCashier({
-          store_id: store.store_id,
-          created_by: superadminUser.user_id,
-        })),
-        cashier_id: superadminUser.user_id, // Override to match user.id for auto-assignment
-      },
-    });
+    // Create a cashier record for the superadmin user
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      superadminUser.user_id,
+    );
 
     // WHEN: User opens shift without providing cashier_id (self-service)
     const response = await authenticatedApiRequest.post("/api/shifts/open", {
@@ -587,7 +593,7 @@ test.describe("4.8-API: Audit Logging", () => {
     > | null;
     expect(newValues).toBeDefined();
     expect(newValues).toMatchObject({
-      cashier_id: superadminUser.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
     });
     // opening_cash may be stored as number or string depending on Prisma serialization
@@ -807,16 +813,12 @@ test.describe("4.8-API: Security Tests", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record with cashier_id = superadminUser.user_id for auto-assignment to work
-    await prismaClient.cashier.create({
-      data: {
-        ...(await createCashier({
-          store_id: store.store_id,
-          created_by: superadminUser.user_id,
-        })),
-        cashier_id: superadminUser.user_id,
-      },
-    });
+    // Create a cashier record for the superadmin user
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      superadminUser.user_id,
+    );
 
     // WHEN: Opening shift with opening_cash = 1000
     const response = await authenticatedApiRequest.post("/api/shifts/open", {
@@ -876,23 +878,19 @@ test.describe("4.8-API: Security Tests", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record with cashier_id = superadminUser.user_id for auto-assignment
-    await prismaClient.cashier.create({
-      data: {
-        ...(await createCashier({
-          store_id: store.store_id,
-          created_by: superadminUser.user_id,
-        })),
-        cashier_id: superadminUser.user_id,
-      },
-    });
+    // Create a cashier record for the superadmin user
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      superadminUser.user_id,
+    );
 
     // Create active shift using the cashier
     await prismaClient.shift.create({
       data: createShift({
         store_id: store.store_id,
         opened_by: superadminUser.user_id,
-        cashier_id: superadminUser.user_id, // Use the cashier with same ID as superadminUser
+        cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal.pos_terminal_id,
         status: "OPEN",
       }),
@@ -932,16 +930,12 @@ test.describe("4.8-API: Security Tests", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record with cashier_id = user.user_id for auto-assignment to work
-    await prismaClient.cashier.create({
-      data: {
-        ...(await createCashier({
-          store_id: store.store_id,
-          created_by: user.user_id,
-        })),
-        cashier_id: user.user_id,
-      },
-    });
+    // Create a cashier record for the user
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      user.user_id,
+    );
 
     // Assign SHIFT_MANAGER role (has SHIFT_OPEN permission) at the store level
     const shiftManagerRole = await prismaClient.role.findFirst({
@@ -985,7 +979,7 @@ test.describe("4.8-API: Security Tests", () => {
     expect(response.status()).toBe(201);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data.cashier_id).toBe(user.user_id);
+    expect(body.data.cashier_id).toBe(cashier.cashier_id);
   });
 });
 
@@ -1010,16 +1004,12 @@ test.describe("4.8-API: Edge Cases", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record with cashier_id = superadminUser.user_id for auto-assignment to work
-    await prismaClient.cashier.create({
-      data: {
-        ...(await createCashier({
-          store_id: store.store_id,
-          created_by: superadminUser.user_id,
-        })),
-        cashier_id: superadminUser.user_id,
-      },
-    });
+    // Create a cashier record for the superadmin user
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      superadminUser.user_id,
+    );
 
     // WHEN: Opening shift with opening_cash = 0
     const response = await authenticatedApiRequest.post("/api/shifts/open", {
@@ -1051,16 +1041,12 @@ test.describe("4.8-API: Edge Cases", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record with cashier_id = superadminUser.user_id for auto-assignment to work
-    await prismaClient.cashier.create({
-      data: {
-        ...(await createCashier({
-          store_id: store.store_id,
-          created_by: superadminUser.user_id,
-        })),
-        cashier_id: superadminUser.user_id,
-      },
-    });
+    // Create a cashier record for the superadmin user
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      superadminUser.user_id,
+    );
 
     // WHEN: Opening shift with decimal opening_cash
     const response = await authenticatedApiRequest.post("/api/shifts/open", {
@@ -1134,16 +1120,12 @@ test.describe("4.8-API: Edge Cases", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record with cashier_id = superadminUser.user_id for auto-assignment to work
-    await prismaClient.cashier.create({
-      data: {
-        ...(await createCashier({
-          store_id: store.store_id,
-          created_by: superadminUser.user_id,
-        })),
-        cashier_id: superadminUser.user_id,
-      },
-    });
+    // Create a cashier record for the superadmin user
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      superadminUser.user_id,
+    );
 
     // WHEN: Opening shift
     const response = await authenticatedApiRequest.post("/api/shifts/open", {
@@ -1163,7 +1145,7 @@ test.describe("4.8-API: Edge Cases", () => {
     expect(typeof body.data.opening_cash).toBe("number");
     expect(body.data.opening_cash).toBeGreaterThanOrEqual(0);
     // authenticatedApiRequest uses superadminUser's token, cashier_id is auto-assigned
-    expect(body.data.cashier_id).toBe(superadminUser.user_id);
+    expect(body.data.cashier_id).toBe(cashier.cashier_id);
     expect(body.data.shift_id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );

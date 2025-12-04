@@ -75,9 +75,20 @@ export interface ClientDashboardResponse {
 /**
  * API error response
  */
-export interface ApiError {
-  error: string;
-  message: string;
+interface ApiError {
+  success: false;
+  error: {
+    code: string;
+    message: string;
+  };
+}
+
+/**
+ * API success response
+ */
+interface ApiSuccessResponse<T> {
+  success: true;
+  data: T;
 }
 
 /**
@@ -106,16 +117,20 @@ async function apiRequest<T>(
 
   if (!response.ok) {
     const errorData: ApiError = await response.json().catch(() => ({
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
+      success: false,
+      error: {
+        code: "UNKNOWN_ERROR",
+        message: `HTTP ${response.status}: ${response.statusText}`,
+      },
     }));
 
     throw new Error(
-      errorData.message || errorData.error || "API request failed",
+      errorData.error?.message || errorData.error?.code || "API request failed",
     );
   }
 
-  return response.json();
+  const result: ApiSuccessResponse<T> = await response.json();
+  return result.data;
 }
 
 /**

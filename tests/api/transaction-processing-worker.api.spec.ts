@@ -4,6 +4,7 @@ import {
   createCompany,
   createStore,
   createUser,
+  createCashier,
 } from "../support/factories";
 import {
   generatePublicId,
@@ -59,12 +60,28 @@ interface TestStoreAndShift {
 }
 
 /**
+ * Creates a Cashier entity for testing shifts
+ * IMPORTANT: shifts.cashier_id is a FK to cashiers table, NOT users table
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
+}
+
+/**
  * Creates a store and open shift for testing transactions
  */
 async function createTestStoreAndShift(
   prismaClient: any,
   companyId: string,
-  cashierId: string,
+  createdByUserId: string,
   storeName?: string,
 ): Promise<TestStoreAndShift> {
   const store = await prismaClient.store.create({
@@ -76,11 +93,18 @@ async function createTestStoreAndShift(
     }),
   });
 
+  // Create a proper Cashier entity (not User) for cashier_id FK
+  const cashier = await createTestCashier(
+    prismaClient,
+    store.store_id,
+    createdByUserId,
+  );
+
   const shift = await prismaClient.shift.create({
     data: {
       store_id: store.store_id,
-      opened_by: cashierId,
-      cashier_id: cashierId,
+      opened_by: createdByUserId,
+      cashier_id: cashier.cashier_id,
       opening_cash: 100.0,
       status: "OPEN",
     },
@@ -424,11 +448,18 @@ test.describe("Transaction Processing Worker - Validation", () => {
       corporateAdminUser.user_id,
     );
 
+    // Create a Cashier for the closed shift
+    const closedShiftCashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      corporateAdminUser.user_id,
+    );
+
     const closedShift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
         opened_by: corporateAdminUser.user_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: closedShiftCashier.cashier_id,
         opening_cash: 100.0,
         status: "CLOSED",
         closing_cash: 500.0,

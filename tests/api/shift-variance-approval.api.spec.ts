@@ -4,6 +4,7 @@ import {
   createCompany,
   createStore,
   createShift,
+  createCashier,
 } from "../support/factories";
 import { Prisma } from "@prisma/client";
 
@@ -35,6 +36,21 @@ import { Prisma } from "@prisma/client";
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
+
+/**
+ * Creates a test cashier for shift tests
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
+}
 
 /**
  * Creates a POS terminal for testing
@@ -131,7 +147,12 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
       const user = authenticatedUser.user;
       const store = authenticatedUser.store;
 
-      // Create shift in VARIANCE_REVIEW status
+      // Create cashier and terminal for shift
+      const cashier = await createTestCashier(
+        authenticatedUser.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedUser.prisma,
         store.store_id,
@@ -140,7 +161,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
         authenticatedUser.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
       );
 
@@ -174,6 +195,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -182,7 +208,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -231,6 +257,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -238,7 +269,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
       const shiftData = createShift({
         store_id: store.store_id,
         opened_by: user.user_id,
-        cashier_id: user.user_id,
+        cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal.pos_terminal_id,
         status: "CLOSING",
       });
@@ -274,6 +305,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -282,7 +318,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
       );
 
@@ -349,6 +385,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
         data: createStore({ company_id: otherCompany.company_id }),
       });
 
+      const otherCashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        otherStore.store_id,
+        otherOwner.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         otherStore.store_id,
@@ -357,7 +398,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
         authenticatedShiftManager.prisma,
         otherStore.store_id,
         otherOwner.user_id,
-        otherOwner.user_id,
+        otherCashier.cashier_id,
         terminal.pos_terminal_id,
       );
 
@@ -391,6 +432,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -399,7 +445,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
       );
 
@@ -449,6 +495,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -457,7 +508,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -626,6 +677,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -634,7 +690,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
       );
 
@@ -757,6 +813,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
         data: createStore({ company_id: otherCompany.company_id }),
       });
 
+      const otherCashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        otherStore.store_id,
+        otherOwner.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         otherStore.store_id,
@@ -765,7 +826,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
         authenticatedShiftManager.prisma,
         otherStore.store_id,
         otherOwner.user_id,
-        otherOwner.user_id,
+        otherCashier.cashier_id,
         terminal.pos_terminal_id,
       );
 
@@ -802,6 +863,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -810,7 +876,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile - Variance Approval", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
       );
 

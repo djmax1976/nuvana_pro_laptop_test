@@ -4,6 +4,7 @@ import {
   createCompany,
   createStore,
   createShift,
+  createCashier,
 } from "../support/factories";
 import { Prisma } from "@prisma/client";
 
@@ -37,6 +38,21 @@ import { Prisma } from "@prisma/client";
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
+
+/**
+ * Creates a test cashier for testing
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
+}
 
 /**
  * Creates a POS terminal for testing
@@ -128,7 +144,12 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const company = authenticatedUser.company;
       const store = authenticatedUser.store;
 
-      // Create shift
+      // Create cashier and shift
+      const cashier = await createTestCashier(
+        authenticatedUser.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedUser.prisma,
         store.store_id,
@@ -137,7 +158,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedUser.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -173,6 +194,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -181,7 +207,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -222,6 +248,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -230,7 +261,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -272,6 +303,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -280,7 +316,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         500.0,
         1000.0,
@@ -318,6 +354,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -326,7 +367,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -364,6 +405,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -371,7 +417,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const shiftData = createShift({
         store_id: store.store_id,
         opened_by: user.user_id,
-        cashier_id: user.user_id,
+        cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal.pos_terminal_id,
         opening_cash: new Prisma.Decimal(100.0),
         status: "OPEN",
@@ -433,6 +479,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -441,7 +492,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -478,6 +529,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -486,7 +542,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -530,6 +586,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const otherStore = await authenticatedShiftManager.prisma.store.create({
         data: createStore({ company_id: otherCompany.company_id }),
       });
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        otherStore.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         otherStore.store_id,
@@ -538,7 +599,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         otherStore.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -574,6 +635,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -582,7 +648,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -630,6 +696,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -638,7 +709,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -681,6 +752,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -689,7 +765,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -729,6 +805,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -737,7 +818,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -806,6 +887,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -814,7 +900,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -899,6 +985,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -907,7 +998,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -944,6 +1035,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -952,7 +1048,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -986,6 +1082,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -994,7 +1095,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -1028,6 +1129,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -1036,7 +1142,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,
@@ -1071,6 +1177,11 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       const user = authenticatedShiftManager.user;
       const store = authenticatedShiftManager.store;
 
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
       const terminal = await createPOSTerminal(
         authenticatedShiftManager.prisma,
         store.store_id,
@@ -1079,7 +1190,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         authenticatedShiftManager.prisma,
         store.store_id,
         user.user_id,
-        user.user_id,
+        cashier.cashier_id,
         terminal.pos_terminal_id,
         100.0,
         150.0,

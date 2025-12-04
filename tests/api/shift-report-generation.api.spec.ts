@@ -8,6 +8,7 @@ import {
   createTransactionLineItem,
   createTransactionPayment,
   createExpiredJWTAccessToken,
+  createCashier,
 } from "../support/factories";
 import { Prisma } from "@prisma/client";
 
@@ -71,6 +72,21 @@ async function createPOSTerminal(
     store_id: terminal.store_id,
     name: terminal.name,
   };
+}
+
+/**
+ * Creates a test Cashier for testing shifts
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
 }
 
 /**
@@ -323,15 +339,17 @@ test.describe("4.6-API: Shift Report - Authorization", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const terminal = await createPOSTerminal(prismaClient, store.store_id);
     const shift = await createClosedShiftWithTransactions(
       prismaClient,
       store.store_id,
       owner.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
     );
 
@@ -359,11 +377,13 @@ test.describe("4.6-API: Shift Report - Authorization", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.store.delete({ where: { store_id: store.store_id } });
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 });
@@ -380,9 +400,11 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
   }) => {
     // GIVEN: Authenticated user with SHIFT_REPORT_VIEW permission
     // AND: A CLOSED shift with transactions exists
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -391,7 +413,7 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
       100.0,
       250.0,
@@ -544,7 +566,9 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.6-API-005: [P0] should include correct sales totals in report summary", async ({
@@ -553,9 +577,11 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift with known transaction totals
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -564,7 +590,7 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
       100.0,
       250.0,
@@ -598,7 +624,9 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.6-API-006: [P0] should include payment method breakdown in report", async ({
@@ -607,9 +635,11 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift with multiple payment methods
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -618,7 +648,7 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
     );
 
@@ -664,7 +694,9 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 });
 
@@ -763,9 +795,11 @@ test.describe("4.6-API: Shift Report - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: An OPEN shift (not CLOSED)
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -775,7 +809,7 @@ test.describe("4.6-API: Shift Report - Validation", () => {
         ...createShift({
           store_id: storeManagerUser.store_id,
           opened_by: storeManagerUser.user_id,
-          cashier_id: cashier.user_id,
+          cashier_id: cashier.cashier_id,
           pos_terminal_id: terminal.pos_terminal_id,
           status: "OPEN",
         }),
@@ -807,7 +841,9 @@ test.describe("4.6-API: Shift Report - Validation", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 });
 
@@ -822,9 +858,11 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift with transactions
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -833,7 +871,7 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
     );
 
@@ -862,7 +900,9 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.6-API-009a: [P1] should return error for invalid export format", async ({
@@ -871,9 +911,11 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift with transactions
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -882,7 +924,7 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
     );
 
@@ -908,7 +950,9 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.6-API-009b: [P1] should default to PDF when format parameter is missing", async ({
@@ -917,9 +961,11 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift with transactions
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -928,7 +974,7 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
     );
 
@@ -953,7 +999,9 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 });
 
@@ -1036,9 +1084,11 @@ test.describe("4.6-API: Shift Report - Security", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift with transactions
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -1047,7 +1097,7 @@ test.describe("4.6-API: Shift Report - Security", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
     );
 
@@ -1080,7 +1130,9 @@ test.describe("4.6-API: Shift Report - Security", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 });
 
@@ -1104,15 +1156,17 @@ test.describe("4.6-API: Shift Report - RLS Policies", () => {
     const otherStore = await prismaClient.store.create({
       data: createStore({ company_id: otherCompany.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      otherStore.store_id,
+      otherOwner.user_id,
+    );
     const terminal = await createPOSTerminal(prismaClient, otherStore.store_id);
     const shift = await createClosedShiftWithTransactions(
       prismaClient,
       otherStore.store_id,
       otherOwner.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
     );
 
@@ -1140,13 +1194,15 @@ test.describe("4.6-API: Shift Report - RLS Policies", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.store.delete({
       where: { store_id: otherStore.store_id },
     });
     await prismaClient.company.delete({
       where: { company_id: otherCompany.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
     await prismaClient.user.delete({ where: { user_id: otherOwner.user_id } });
   });
 });

@@ -6,6 +6,7 @@ import {
   createCompany,
   createStore,
   createUser,
+  createCashier,
 } from "../support/factories";
 import {
   generatePublicId,
@@ -47,13 +48,29 @@ interface TestStoreAndShift {
 }
 
 /**
+ * Creates a cashier for testing transactions
+ * Reduces code duplication across tests
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
+}
+
+/**
  * Creates a store and open shift for testing transactions
  * Reduces code duplication across tests
  */
 async function createTestStoreAndShift(
   prismaClient: any,
   companyId: string,
-  cashierId: string,
+  createdByUserId: string,
   storeName?: string,
 ): Promise<TestStoreAndShift> {
   const store = await prismaClient.store.create({
@@ -65,11 +82,17 @@ async function createTestStoreAndShift(
     }),
   });
 
+  const cashier = await createTestCashier(
+    prismaClient,
+    store.store_id,
+    createdByUserId,
+  );
+
   const shift = await prismaClient.shift.create({
     data: {
       store_id: store.store_id,
-      opened_by: cashierId,
-      cashier_id: cashierId,
+      opened_by: createdByUserId,
+      cashier_id: cashier.cashier_id,
       opening_cash: 100.0,
       status: "OPEN",
     },
@@ -98,7 +121,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
     const transactionData = createTransaction({
       store_id: store.store_id,
       shift_id: shift.shift_id,
-      cashier_id: corporateAdminUser.user_id,
+      cashier_id: shift.cashier_id,
     });
 
     const transaction = await prismaClient.transaction.create({
@@ -130,7 +153,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
     expect(
       transaction.cashier_id,
       "Transaction should be linked to correct cashier",
-    ).toBe(corporateAdminUser.user_id);
+    ).toBe(shift.cashier_id);
     expect(transaction.subtotal, "Subtotal should be defined").toBeDefined();
     expect(transaction.tax, "Tax should be defined").toBeDefined();
     expect(transaction.discount, "Discount should be defined").toBeDefined();
@@ -161,7 +184,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 100.0,
         tax: 8.0,
         discount: 0,
@@ -224,7 +247,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 100.0,
         tax: 8.0,
         discount: 0,
@@ -270,6 +293,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
     // GIVEN: A non-existent store ID
     const nonExistentStoreId = "00000000-0000-0000-0000-000000000000";
     const nonExistentShiftId = "00000000-0000-0000-0000-000000000001";
+    const nonExistentCashierId = "00000000-0000-0000-0000-000000000002";
 
     // WHEN: Trying to create transaction with invalid store_id
     // THEN: Should throw foreign key constraint error
@@ -279,7 +303,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
           store_id: nonExistentStoreId,
           shift_id: nonExistentShiftId,
-          cashier_id: corporateAdminUser.user_id,
+          cashier_id: nonExistentCashierId,
           subtotal: 100.0,
           tax: 8.0,
           discount: 0,
@@ -305,7 +329,7 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 100.0,
         tax: 8.0,
         discount: 0,
@@ -378,7 +402,7 @@ test.describe("Transaction Data Models - Query Operations", () => {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
           store_id: store.store_id,
           shift_id: shift.shift_id,
-          cashier_id: corporateAdminUser.user_id,
+          cashier_id: shift.cashier_id,
           subtotal: 100.0 * (i + 1),
           tax: 8.0 * (i + 1),
           discount: 0,
@@ -416,12 +440,17 @@ test.describe("Transaction Data Models - Query Operations", () => {
       corporateAdminUser.user_id,
     );
 
-    // Create second shift
+    // Create second shift with its own cashier
+    const cashier2 = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      corporateAdminUser.user_id,
+    );
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
         opened_by: corporateAdminUser.user_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: cashier2.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -433,7 +462,7 @@ test.describe("Transaction Data Models - Query Operations", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift1.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift1.cashier_id,
         subtotal: 100.0,
         tax: 8.0,
         discount: 0,
@@ -446,7 +475,7 @@ test.describe("Transaction Data Models - Query Operations", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift2.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift2.cashier_id,
         subtotal: 200.0,
         tax: 16.0,
         discount: 0,
@@ -490,7 +519,7 @@ test.describe("Transaction Data Models - Query Operations", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         timestamp: now,
         subtotal: 100.0,
         tax: 8.0,
@@ -533,7 +562,7 @@ test.describe("Transaction Data Models - Query Operations", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 100.0,
         tax: 8.0,
         discount: 0,
@@ -615,7 +644,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal,
         tax,
         discount,
@@ -646,7 +675,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 150.0,
         tax: 12.0,
         discount: 0,
@@ -710,7 +739,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: -50.0,
         tax: -4.0,
         discount: 0,
@@ -749,7 +778,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 100.0,
         tax: 8.0,
         discount: 0,
@@ -806,7 +835,7 @@ test.describe("Transaction Data Models - Business Logic", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 47.5,
         tax: 3.8,
         discount: 0,
@@ -871,7 +900,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 0,
         tax: 0,
         discount: 0,
@@ -903,7 +932,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: largeAmount,
         tax: 0,
         discount: 0,
@@ -935,7 +964,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 99.99,
         tax: 8.25,
         discount: 5.5,
@@ -974,7 +1003,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 0,
         tax: 0,
         discount: 0,
@@ -1014,7 +1043,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: -50.0,
         tax: -4.0,
         discount: 0,
@@ -1061,7 +1090,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 100000.0,
         tax: 8000.0,
         discount: 0,
@@ -1099,7 +1128,7 @@ test.describe("Transaction Data Models - Edge Cases", () => {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
           store_id: invalidUuid,
           shift_id: invalidUuid,
-          cashier_id: corporateAdminUser.user_id,
+          cashier_id: invalidUuid,
           subtotal: 100.0,
           tax: 8.0,
           discount: 0,
@@ -1152,11 +1181,17 @@ test.describe("Transaction Data Models - Security", () => {
       },
     });
 
+    const otherCashier = await createTestCashier(
+      prismaClient,
+      otherStore.store_id,
+      otherUser.user_id,
+    );
+
     const otherShift = await prismaClient.shift.create({
       data: {
         store_id: otherStore.store_id,
         opened_by: otherUser.user_id,
-        cashier_id: otherUser.user_id,
+        cashier_id: otherCashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -1167,7 +1202,7 @@ test.describe("Transaction Data Models - Security", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: otherStore.store_id,
         shift_id: otherShift.shift_id,
-        cashier_id: otherUser.user_id,
+        cashier_id: otherCashier.cashier_id,
         subtotal: 100.0,
         tax: 8.0,
         discount: 0,
@@ -1229,15 +1264,28 @@ test.describe("Transaction Data Models - Security", () => {
       },
     });
 
+    const unauthorizedCashier = await createTestCashier(
+      prismaClient,
+      unauthorizedStore.store_id,
+      otherUser.user_id,
+    );
+
     const unauthorizedShift = await prismaClient.shift.create({
       data: {
         store_id: unauthorizedStore.store_id,
         opened_by: otherUser.user_id,
-        cashier_id: otherUser.user_id,
+        cashier_id: unauthorizedCashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
     });
+
+    // Create a cashier for corporateAdminUser in the unauthorized store (for testing cross-company access)
+    const crossCompanyCashier = await createTestCashier(
+      prismaClient,
+      unauthorizedStore.store_id,
+      corporateAdminUser.user_id,
+    );
 
     // WHEN: Current user creates transaction in unauthorized store
     // Note: This test validates data isolation - in real app, API would enforce this
@@ -1246,7 +1294,7 @@ test.describe("Transaction Data Models - Security", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: unauthorizedStore.store_id,
         shift_id: unauthorizedShift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: crossCompanyCashier.cashier_id,
         subtotal: 100.0,
         tax: 8.0,
         discount: 0,
@@ -1281,7 +1329,7 @@ test.describe("Transaction Data Models - Security", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 100.0,
         tax: 8.0,
         discount: 0,
@@ -1332,7 +1380,7 @@ test.describe("Transaction Data Models - Security", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 100.0,
         tax: 8.0,
         discount: 0,
@@ -1374,7 +1422,7 @@ test.describe("Transaction Data Models - Security", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: shift.cashier_id,
         subtotal: 100.0,
         tax: 8.0,
         discount: 0,
@@ -1414,11 +1462,18 @@ test.describe("Transaction Data Models - Shift Rules", () => {
       corporateAdminUser.user_id,
     );
 
+    // Create a cashier for the closed shift
+    const closedShiftCashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      corporateAdminUser.user_id,
+    );
+
     const closedShift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
         opened_by: corporateAdminUser.user_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: closedShiftCashier.cashier_id,
         opening_cash: 100.0,
         status: "CLOSED",
         closing_cash: 500.0,
@@ -1433,7 +1488,7 @@ test.describe("Transaction Data Models - Shift Rules", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store.store_id,
         shift_id: closedShift.shift_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: closedShift.cashier_id,
         subtotal: 100.0,
         tax: 8.0,
         discount: 0,
@@ -1466,13 +1521,20 @@ test.describe("Transaction Data Models - Shift Rules", () => {
       }),
     });
 
+    // Create a cashier for the shift
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      corporateAdminUser.user_id,
+    );
+
     // WHEN: Creating shift without opening amount (if schema allows)
     // Note: This tests if the field is optional in schema
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
         opened_by: corporateAdminUser.user_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 0, // Zero instead of null if required
         status: "OPEN",
       },

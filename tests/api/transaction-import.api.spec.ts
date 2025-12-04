@@ -4,6 +4,7 @@ import {
   createCompany,
   createStore,
   createUser,
+  createCashier,
 } from "../support/factories";
 import {
   generatePublicId,
@@ -40,6 +41,21 @@ interface TestStoreAndShift {
     cashier_id: string;
     status: string;
   };
+}
+
+/**
+ * Creates a cashier for testing
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
 }
 
 /**
@@ -132,11 +148,30 @@ test.describe("Transaction Import API - Authentication", () => {
     // GIVEN: A user without TRANSACTION_CREATE permission
     // storeManagerUser has: STORE_READ, SHIFT_OPEN, SHIFT_CLOSE, INVENTORY_READ
     // storeManagerUser does NOT have: TRANSACTION_CREATE
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: storeManagerUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      storeManagerUser.company_id,
+      store.store_id,
       storeManagerUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -186,12 +221,30 @@ test.describe("Transaction Import API - Authentication", () => {
       },
     });
 
-    const { store: unauthorizedStore, shift: unauthorizedShift } =
-      await createTestStoreAndShift(
-        prismaClient,
-        otherCompany.company_id,
-        otherUser.user_id,
-      );
+    const unauthorizedStore = await prismaClient.store.create({
+      data: createStore({
+        company_id: otherCompany.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const otherCashier = await createTestCashier(
+      prismaClient,
+      unauthorizedStore.store_id,
+      otherUser.user_id,
+    );
+
+    const unauthorizedShift = await prismaClient.shift.create({
+      data: {
+        store_id: unauthorizedStore.store_id,
+        opened_by: otherCashier.cashier_id,
+        cashier_id: otherCashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: unauthorizedStore.store_id,
@@ -224,11 +277,30 @@ test.describe("Transaction Import API - Core Functionality", () => {
     prismaClient,
   }) => {
     // GIVEN: A valid transaction payload
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -261,11 +333,30 @@ test.describe("Transaction Import API - Core Functionality", () => {
     prismaClient,
   }) => {
     // GIVEN: A valid transaction payload
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -294,11 +385,14 @@ test.describe("Transaction Import API - Core Functionality", () => {
     prismaClient,
   }) => {
     // GIVEN: A valid store but non-existent shift_id
-    const { store } = await createTestStoreAndShift(
-      prismaClient,
-      corporateAdminUser.company_id,
-      corporateAdminUser.user_id,
-    );
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
 
     const nonExistentShiftId = "00000000-0000-0000-0000-000000000000";
     const payload = createTransactionPayload({
@@ -326,17 +420,26 @@ test.describe("Transaction Import API - Core Functionality", () => {
     prismaClient,
   }) => {
     // GIVEN: A closed shift
-    const { store } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
 
     const closedShift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: corporateAdminUser.user_id,
-        cashier_id: corporateAdminUser.user_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "CLOSED",
         closing_cash: 500.0,
@@ -368,11 +471,30 @@ test.describe("Transaction Import API - Core Functionality", () => {
     prismaClient,
   }) => {
     // GIVEN: A valid transaction payload
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -400,11 +522,30 @@ test.describe("Transaction Import API - Core Functionality", () => {
   }) => {
     // GIVEN: RabbitMQ is unavailable (simulated by bad config or network)
     // Note: This test requires mocking RabbitMQ to simulate failure
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -442,11 +583,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with empty line_items
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -473,11 +633,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with single line item
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -514,11 +693,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with 100+ line items
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -555,11 +753,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with zero quantity line item
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -593,11 +810,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with negative quantity
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -631,11 +867,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with zero unit_price
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -672,11 +927,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with negative unit_price
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -714,11 +988,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with empty payments
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -745,11 +1038,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with multiple payment methods
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -782,11 +1094,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload where payment exactly matches total
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -816,11 +1147,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload where payment exceeds total (customer gives more cash)
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -850,11 +1200,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with zero payment amount
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -881,11 +1250,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with negative payment amount
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -916,11 +1304,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with all zeros
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -953,11 +1360,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with negative subtotal
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -986,11 +1412,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with very large amounts
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -1028,11 +1473,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with precise decimals
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -1070,11 +1534,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload where discount > subtotal
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -1140,11 +1623,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with invalid payment method
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -1178,11 +1680,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload where payments don't cover total
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -1219,11 +1740,30 @@ test.describe("Transaction Import API - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with malformed UUID
-    const { shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: "not-a-valid-uuid",
@@ -1255,11 +1795,30 @@ test.describe("Transaction Import API - Security", () => {
     prismaClient,
   }) => {
     // GIVEN: A payload with SQL injection attempts
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -1307,11 +1866,30 @@ test.describe("Transaction Import API - Security", () => {
     prismaClient,
   }) => {
     // GIVEN: An expired JWT token (simulated by malformed exp claim)
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -1341,11 +1919,30 @@ test.describe("Transaction Import API - Security", () => {
     prismaClient,
   }) => {
     // GIVEN: Various malformed JWT tokens
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,
@@ -1385,11 +1982,30 @@ test.describe("Transaction Import API - Security", () => {
     prismaClient,
   }) => {
     // GIVEN: An extremely large payload
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await prismaClient.store.create({
+      data: createStore({
+        company_id: corporateAdminUser.company_id,
+        name: `Test Store ${Date.now()}`,
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      }),
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      corporateAdminUser.company_id,
+      store.store_id,
       corporateAdminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const payload = createTransactionPayload({
       store_id: store.store_id,

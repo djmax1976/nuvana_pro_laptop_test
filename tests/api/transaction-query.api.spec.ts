@@ -16,6 +16,7 @@ import {
   createCompany,
   createClientUser,
   createUser,
+  createCashier,
 } from "../support/factories";
 import { faker } from "@faker-js/faker";
 import { PrismaClient } from "@prisma/client";
@@ -35,6 +36,22 @@ async function createCompanyWithOwner(
     data: createCompany({ owner_user_id: owner.user_id, ...overrides }),
   });
   return { owner, company };
+}
+
+/**
+ * Helper function to create a test cashier
+ * Creates a cashier entity with proper cashier_id
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
 }
 
 /**
@@ -79,14 +96,16 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -99,7 +118,7 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
         data: createTransaction({
           store_id: store.store_id,
           shift_id: shift.shift_id,
-          cashier_id: cashier.user_id,
+          cashier_id: cashier.cashier_id,
         }),
       });
       transactions.push(transaction);
@@ -132,11 +151,13 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
       where: { store_id: store.store_id },
     });
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.store.delete({ where: { store_id: store.store_id } });
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 
@@ -156,14 +177,21 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     const storeB = await prismaClient.store.create({
       data: createStore({ company_id: companyB.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashierA = await createTestCashier(
+      prismaClient,
+      storeA.store_id,
+      ownerA.user_id,
+    );
+    const cashierB = await createTestCashier(
+      prismaClient,
+      storeB.store_id,
+      ownerB.user_id,
+    );
     const shiftA = await prismaClient.shift.create({
       data: {
         store_id: storeA.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: ownerA.user_id,
+        cashier_id: cashierA.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -171,8 +199,8 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     const shiftB = await prismaClient.shift.create({
       data: {
         store_id: storeB.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: ownerB.user_id,
+        cashier_id: cashierB.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -183,14 +211,14 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
       data: createTransaction({
         store_id: storeA.store_id,
         shift_id: shiftA.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashierA.cashier_id,
       }),
     });
     await prismaClient.transaction.create({
       data: createTransaction({
         store_id: storeB.store_id,
         shift_id: shiftB.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashierB.cashier_id,
       }),
     });
 
@@ -221,13 +249,17 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     await prismaClient.shift.deleteMany({
       where: { shift_id: { in: [shiftA.shift_id, shiftB.shift_id] } },
     });
+    await prismaClient.cashier.deleteMany({
+      where: {
+        cashier_id: { in: [cashierA.cashier_id, cashierB.cashier_id] },
+      },
+    });
     await prismaClient.store.deleteMany({
       where: { store_id: { in: [storeA.store_id, storeB.store_id] } },
     });
     await prismaClient.company.deleteMany({
       where: { company_id: { in: [companyA.company_id, companyB.company_id] } },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
     await prismaClient.user.delete({ where: { user_id: ownerA.user_id } });
     await prismaClient.user.delete({ where: { user_id: ownerB.user_id } });
   });
@@ -241,14 +273,16 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -260,7 +294,7 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
         data: createTransaction({
           store_id: store.store_id,
           shift_id: shift.shift_id,
-          cashier_id: cashier.user_id,
+          cashier_id: cashier.cashier_id,
         }),
       });
     }
@@ -291,7 +325,9 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 
@@ -304,14 +340,16 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -323,7 +361,7 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
         data: createTransaction({
           store_id: store.store_id,
           shift_id: shift.shift_id,
-          cashier_id: cashier.user_id,
+          cashier_id: cashier.cashier_id,
         }),
       });
     }
@@ -351,7 +389,9 @@ test.describe("3.4-API: Transaction Query by Store ID", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 });
@@ -370,14 +410,16 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -390,7 +432,7 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
         data: createTransaction({
           store_id: store.store_id,
           shift_id: shift.shift_id,
-          cashier_id: cashier.user_id,
+          cashier_id: cashier.cashier_id,
         }),
       });
       transactions.push(transaction);
@@ -426,7 +468,9 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 
@@ -439,14 +483,16 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -455,7 +501,7 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         total: 100.0,
       }),
     });
@@ -472,7 +518,7 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
     expect(tx.transaction_id, "Should include transaction_id").toBeDefined();
     expect(tx.timestamp, "Should include timestamp").toBeDefined();
     expect(tx.total, "Should include total").toBe(100.0);
-    expect(tx.cashier_id, "Should include cashier_id").toBe(cashier.user_id);
+    expect(tx.cashier_id, "Should include cashier_id").toBe(cashier.cashier_id);
 
     // Cleanup
     await prismaClient.transaction.delete({
@@ -483,7 +529,9 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 
@@ -500,14 +548,21 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
     const storeB = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashierA = await createTestCashier(
+      prismaClient,
+      storeA.store_id,
+      owner.user_id,
+    );
+    const cashierB = await createTestCashier(
+      prismaClient,
+      storeB.store_id,
+      owner.user_id,
+    );
     const shiftA = await prismaClient.shift.create({
       data: {
         store_id: storeA.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashierA.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -515,8 +570,8 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
     const shiftB = await prismaClient.shift.create({
       data: {
         store_id: storeB.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashierB.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -527,14 +582,14 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
       data: createTransaction({
         store_id: storeA.store_id,
         shift_id: shiftA.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashierA.cashier_id,
       }),
     });
     await prismaClient.transaction.create({
       data: createTransaction({
         store_id: storeB.store_id,
         shift_id: shiftB.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashierB.cashier_id,
       }),
     });
 
@@ -564,13 +619,17 @@ test.describe("3.4-API: Transaction Query by Shift ID", () => {
     await prismaClient.shift.deleteMany({
       where: { shift_id: { in: [shiftA.shift_id, shiftB.shift_id] } },
     });
+    await prismaClient.cashier.deleteMany({
+      where: {
+        cashier_id: { in: [cashierA.cashier_id, cashierB.cashier_id] },
+      },
+    });
     await prismaClient.store.deleteMany({
       where: { store_id: { in: [storeA.store_id, storeB.store_id] } },
     });
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 });
@@ -589,14 +648,16 @@ test.describe("3.4-API: Transaction Query by Date Range", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -611,7 +672,7 @@ test.describe("3.4-API: Transaction Query by Date Range", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         timestamp: yesterday,
       }),
     });
@@ -621,7 +682,7 @@ test.describe("3.4-API: Transaction Query by Date Range", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         timestamp: now,
       }),
     });
@@ -631,7 +692,7 @@ test.describe("3.4-API: Transaction Query by Date Range", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         timestamp: tomorrow,
       }),
     });
@@ -667,7 +728,9 @@ test.describe("3.4-API: Transaction Query by Date Range", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 
@@ -718,14 +781,16 @@ test.describe("3.4-API: Transaction Query by Date Range", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -740,7 +805,7 @@ test.describe("3.4-API: Transaction Query by Date Range", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         timestamp: twoHoursAgo,
       }),
     });
@@ -748,7 +813,7 @@ test.describe("3.4-API: Transaction Query by Date Range", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         timestamp: now,
       }),
     });
@@ -756,7 +821,7 @@ test.describe("3.4-API: Transaction Query by Date Range", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         timestamp: oneHourAgo,
       }),
     });
@@ -789,7 +854,9 @@ test.describe("3.4-API: Transaction Query by Date Range", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 });
@@ -808,14 +875,16 @@ test.describe("3.4-API: Transaction Query with Line Items", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -824,7 +893,7 @@ test.describe("3.4-API: Transaction Query with Line Items", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
       }),
     });
 
@@ -879,7 +948,9 @@ test.describe("3.4-API: Transaction Query with Line Items", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 
@@ -892,14 +963,16 @@ test.describe("3.4-API: Transaction Query with Line Items", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -908,7 +981,7 @@ test.describe("3.4-API: Transaction Query with Line Items", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
       }),
     });
     const productId = faker.string.uuid();
@@ -952,7 +1025,9 @@ test.describe("3.4-API: Transaction Query with Line Items", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 });
@@ -971,14 +1046,16 @@ test.describe("3.4-API: Transaction Query with Payments", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -987,7 +1064,7 @@ test.describe("3.4-API: Transaction Query with Payments", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         total: 100.0,
       }),
     });
@@ -1034,7 +1111,9 @@ test.describe("3.4-API: Transaction Query with Payments", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 
@@ -1047,14 +1126,16 @@ test.describe("3.4-API: Transaction Query with Payments", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -1063,7 +1144,7 @@ test.describe("3.4-API: Transaction Query with Payments", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         total: 100.0,
       }),
     });
@@ -1101,7 +1182,9 @@ test.describe("3.4-API: Transaction Query with Payments", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 });
@@ -1120,14 +1203,16 @@ test.describe("3.4-API: Transaction Query with Combined Filters", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift1 = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -1135,8 +1220,8 @@ test.describe("3.4-API: Transaction Query with Combined Filters", () => {
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -1150,7 +1235,7 @@ test.describe("3.4-API: Transaction Query with Combined Filters", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift1.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         timestamp: now,
       }),
     });
@@ -1160,7 +1245,7 @@ test.describe("3.4-API: Transaction Query with Combined Filters", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift2.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         timestamp: oneHourAgo,
       }),
     });
@@ -1196,7 +1281,9 @@ test.describe("3.4-API: Transaction Query with Combined Filters", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 
@@ -1209,14 +1296,16 @@ test.describe("3.4-API: Transaction Query with Combined Filters", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -1232,7 +1321,7 @@ test.describe("3.4-API: Transaction Query with Combined Filters", () => {
         data: createTransaction({
           store_id: store.store_id,
           shift_id: shift.shift_id,
-          cashier_id: cashier.user_id,
+          cashier_id: cashier.cashier_id,
           timestamp: now,
         }),
       });
@@ -1262,7 +1351,9 @@ test.describe("3.4-API: Transaction Query with Combined Filters", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 });
@@ -1281,14 +1372,16 @@ test.describe("3.4-API: Store-Specific Transaction Query", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -1300,7 +1393,7 @@ test.describe("3.4-API: Store-Specific Transaction Query", () => {
         data: createTransaction({
           store_id: store.store_id,
           shift_id: shift.shift_id,
-          cashier_id: cashier.user_id,
+          cashier_id: cashier.cashier_id,
         }),
       });
     }
@@ -1332,7 +1425,9 @@ test.describe("3.4-API: Store-Specific Transaction Query", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 });
@@ -1403,14 +1498,16 @@ test.describe("3.4-API: Query Performance", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -1422,7 +1519,7 @@ test.describe("3.4-API: Query Performance", () => {
         data: createTransaction({
           store_id: store.store_id,
           shift_id: shift.shift_id,
-          cashier_id: cashier.user_id,
+          cashier_id: cashier.cashier_id,
         }),
       });
     }
@@ -1450,7 +1547,9 @@ test.describe("3.4-API: Query Performance", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 });
@@ -1596,14 +1695,16 @@ test.describe("3.4-API: Security - Authorization & RLS Enforcement", () => {
     const storeB = await prismaClient.store.create({
       data: createStore({ company_id: companyB.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeB.store_id,
+      ownerB.user_id,
+    );
     const shiftB = await prismaClient.shift.create({
       data: {
         store_id: storeB.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: ownerB.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -1612,7 +1713,7 @@ test.describe("3.4-API: Security - Authorization & RLS Enforcement", () => {
       data: createTransaction({
         store_id: storeB.store_id,
         shift_id: shiftB.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
       }),
     });
 
@@ -1639,7 +1740,9 @@ test.describe("3.4-API: Security - Authorization & RLS Enforcement", () => {
     await prismaClient.company.delete({
       where: { company_id: companyB.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: ownerB.user_id } });
   });
 
@@ -1686,14 +1789,16 @@ test.describe("3.4-API: Security - Data Leakage Prevention", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createClientUser(),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.user_id,
-        cashier_id: cashier.user_id,
+        opened_by: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -1702,7 +1807,7 @@ test.describe("3.4-API: Security - Data Leakage Prevention", () => {
       data: createTransaction({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
       }),
     });
 
@@ -1742,7 +1847,9 @@ test.describe("3.4-API: Security - Data Leakage Prevention", () => {
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 });

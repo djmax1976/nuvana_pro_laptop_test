@@ -18,6 +18,7 @@ import {
   createTransaction as createTransactionFactory,
   type TransactionData,
 } from "../factories/transaction.factory";
+import { createCashier as createCashierFactory } from "../factories/cashier.factory";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
@@ -197,8 +198,49 @@ export async function createStore(
 }
 
 /**
+ * Create a cashier in the database
+ * If prisma is not provided, creates a new PrismaClient instance
+ *
+ * @param overrides - Requires store_id and created_by (user_id of creator)
+ * @param prisma - Optional PrismaClient instance
+ * @returns Created cashier with cashier_id
+ */
+export async function createCashier(
+  overrides: {
+    store_id: string;
+    created_by: string;
+    name?: string;
+    employee_id?: string;
+  },
+  prisma?: PrismaClient,
+): Promise<{
+  cashier_id: string;
+  store_id: string;
+  employee_id: string;
+  name: string;
+  [key: string]: any;
+}> {
+  const prismaClient = prisma || new PrismaClient();
+
+  const cashierData = await createCashierFactory({
+    store_id: overrides.store_id,
+    created_by: overrides.created_by,
+    name: overrides.name,
+    employee_id: overrides.employee_id,
+  });
+
+  const result = await prismaClient.cashier.create({ data: cashierData });
+
+  if (!prisma) await prismaClient.$disconnect();
+  return result;
+}
+
+/**
  * Create a shift in the database
  * If prisma is not provided, creates a new PrismaClient instance
+ *
+ * IMPORTANT: cashier_id must reference the cashiers table (not users table).
+ * If cashier_id is not provided, this function will create a real Cashier entity.
  */
 export async function createShift(
   overrides: {
@@ -221,18 +263,23 @@ export async function createShift(
 }> {
   const prismaClient = prisma || new PrismaClient();
 
-  // Create a cashier user if not provided
-  let cashierId = overrides.cashier_id;
-  if (!cashierId) {
-    const cashier = await createUser(prismaClient, {});
-    cashierId = cashier.user_id;
-  }
-
-  // Create an opener user if not provided
+  // Create an opener user if not provided (this is a User, required for opened_by)
   let openedById = overrides.opened_by;
   if (!openedById) {
     const opener = await createUser(prismaClient, {});
     openedById = opener.user_id;
+  }
+
+  // Create a Cashier entity if not provided
+  // IMPORTANT: shifts.cashier_id is a FK to cashiers table, NOT users table
+  let cashierId = overrides.cashier_id;
+  if (!cashierId) {
+    const cashierData = await createCashierFactory({
+      store_id: overrides.store_id,
+      created_by: openedById,
+    });
+    const cashier = await prismaClient.cashier.create({ data: cashierData });
+    cashierId = cashier.cashier_id;
   }
 
   const result = await prismaClient.shift.create({

@@ -1330,7 +1330,7 @@ describe("ShiftService - initiateClosing", () => {
         data: {
           store_id: testStore.store_id,
           shift_id: shift.shift_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           subtotal: new Prisma.Decimal(25.0),
           tax: new Prisma.Decimal(0),
@@ -1344,7 +1344,7 @@ describe("ShiftService - initiateClosing", () => {
         data: {
           store_id: testStore.store_id,
           shift_id: shift.shift_id,
-          cashier_id: testCashierUser.user_id,
+          cashier_id: testCashier.cashier_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           subtotal: new Prisma.Decimal(25.0),
           tax: new Prisma.Decimal(0),
@@ -1601,7 +1601,7 @@ describe("ShiftService - calculateExpectedCash", () => {
       data: {
         store_id: testStore.store_id,
         shift_id: shift.shift_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         subtotal: new Prisma.Decimal(30.0),
         tax: new Prisma.Decimal(0),
@@ -1615,7 +1615,7 @@ describe("ShiftService - calculateExpectedCash", () => {
       data: {
         store_id: testStore.store_id,
         shift_id: shift.shift_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         subtotal: new Prisma.Decimal(20.0),
         tax: new Prisma.Decimal(0),
@@ -1714,7 +1714,7 @@ describe("ShiftService - calculateExpectedCash", () => {
       data: {
         store_id: testStore.store_id,
         shift_id: shift.shift_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         subtotal: new Prisma.Decimal(50.0),
         tax: new Prisma.Decimal(0),
@@ -1728,7 +1728,7 @@ describe("ShiftService - calculateExpectedCash", () => {
       data: {
         store_id: testStore.store_id,
         shift_id: shift.shift_id,
-        cashier_id: testCashierUser.user_id,
+        cashier_id: testCashier.cashier_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         subtotal: new Prisma.Decimal(30.0),
         tax: new Prisma.Decimal(0),
@@ -3055,7 +3055,7 @@ describe("ShiftService - generateShiftReport", () => {
           ...createTransaction({
             store_id: testStore.store_id,
             shift_id: shift.shift_id,
-            cashier_id: testCashierUser.user_id,
+            cashier_id: testCashier.cashier_id,
             pos_terminal_id: isolatedTerminal.pos_terminal_id,
             total: 50.0,
           }),
@@ -3085,7 +3085,7 @@ describe("ShiftService - generateShiftReport", () => {
           ...createTransaction({
             store_id: testStore.store_id,
             shift_id: shift.shift_id,
-            cashier_id: testCashierUser.user_id,
+            cashier_id: testCashier.cashier_id,
             pos_terminal_id: isolatedTerminal.pos_terminal_id,
             total: 100.0,
           }),

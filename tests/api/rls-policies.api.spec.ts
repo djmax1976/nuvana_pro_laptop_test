@@ -5,6 +5,7 @@ import {
   createCompany,
   createStore,
 } from "../support/factories/database.factory";
+import { createCashier } from "../support/factories";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
@@ -111,6 +112,22 @@ async function createTestStores(
     }
   }
   return stores;
+}
+
+/**
+ * Helper: Create test cashier
+ * Creates a Cashier entity (not a User) to be used in shifts
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
 }
 
 test.describe("RLS Policies - Company-Level Isolation", () => {
@@ -372,12 +389,24 @@ test.describe("RLS Policies - Store-Level Isolation", () => {
     );
     const [store1, store2] = stores;
 
+    // Create cashiers for both stores
+    const cashier1 = await createTestCashier(
+      prismaClient,
+      store1.store_id,
+      storeManagerUser.user_id,
+    );
+    const cashier2 = await createTestCashier(
+      prismaClient,
+      store2.store_id,
+      storeManagerUser.user_id,
+    );
+
     // Create shifts for both stores
     const shift1 = await prismaClient.shift.create({
       data: {
         store_id: store1.store_id,
         opened_by: storeManagerUser.user_id,
-        cashier_id: storeManagerUser.user_id,
+        cashier_id: cashier1.cashier_id,
         opened_at: new Date(),
         opening_cash: 1000,
       },
@@ -386,7 +415,7 @@ test.describe("RLS Policies - Store-Level Isolation", () => {
       data: {
         store_id: store2.store_id,
         opened_by: storeManagerUser.user_id,
-        cashier_id: storeManagerUser.user_id,
+        cashier_id: cashier2.cashier_id,
         opened_at: new Date(),
         opening_cash: 1000,
       },
@@ -415,6 +444,9 @@ test.describe("RLS Policies - Store-Level Isolation", () => {
     await prismaClient.shift.deleteMany({
       where: { shift_id: { in: [shift1.shift_id, shift2.shift_id] } },
     });
+    await prismaClient.cashier.deleteMany({
+      where: { cashier_id: { in: [cashier1.cashier_id, cashier2.cashier_id] } },
+    });
     await prismaClient.store.deleteMany({
       where: { store_id: { in: stores.map((s) => s.store_id) } },
     });
@@ -442,11 +474,18 @@ test.describe("RLS Policies - Store-Level Isolation", () => {
     );
     const [store1, store2] = stores;
 
+    // Create cashier for store 2
+    const cashier2 = await createTestCashier(
+      prismaClient,
+      store2.store_id,
+      storeManagerUser.user_id,
+    );
+
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store2.store_id,
         opened_by: storeManagerUser.user_id,
-        cashier_id: storeManagerUser.user_id,
+        cashier_id: cashier2.cashier_id,
         opened_at: new Date(),
         opening_cash: 1000,
       },
@@ -473,6 +512,9 @@ test.describe("RLS Policies - Store-Level Isolation", () => {
     // Cleanup
     await prismaClient.shift.deleteMany({
       where: { shift_id: shift2.shift_id },
+    });
+    await prismaClient.cashier.deleteMany({
+      where: { cashier_id: cashier2.cashier_id },
     });
     await prismaClient.store.deleteMany({
       where: { store_id: { in: stores.map((s) => s.store_id) } },
@@ -503,12 +545,24 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     );
     const [store1, store2] = stores;
 
+    // Create cashiers for both stores
+    const cashier1 = await createTestCashier(
+      prismaClient,
+      store1.store_id,
+      storeManagerUser.user_id,
+    );
+    const cashier2 = await createTestCashier(
+      prismaClient,
+      store2.store_id,
+      storeManagerUser.user_id,
+    );
+
     // Create shifts for both stores
     const shift1 = await prismaClient.shift.create({
       data: {
         store_id: store1.store_id,
         opened_by: storeManagerUser.user_id,
-        cashier_id: storeManagerUser.user_id,
+        cashier_id: cashier1.cashier_id,
         opened_at: new Date(),
         opening_cash: 1000,
       },
@@ -517,7 +571,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
       data: {
         store_id: store2.store_id,
         opened_by: storeManagerUser.user_id,
-        cashier_id: storeManagerUser.user_id,
+        cashier_id: cashier2.cashier_id,
         opened_at: new Date(),
         opening_cash: 1000,
       },
@@ -529,7 +583,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store1.store_id,
         shift_id: shift1.shift_id,
-        cashier_id: storeManagerUser.user_id,
+        cashier_id: cashier1.cashier_id,
         subtotal: 100,
         tax: 8,
         total: 108,
@@ -540,7 +594,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store2.store_id,
         shift_id: shift2.shift_id,
-        cashier_id: storeManagerUser.user_id,
+        cashier_id: cashier2.cashier_id,
         subtotal: 200,
         tax: 16,
         total: 216,
@@ -581,6 +635,9 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     await prismaClient.shift.deleteMany({
       where: { shift_id: { in: [shift1.shift_id, shift2.shift_id] } },
     });
+    await prismaClient.cashier.deleteMany({
+      where: { cashier_id: { in: [cashier1.cashier_id, cashier2.cashier_id] } },
+    });
     await prismaClient.store.deleteMany({
       where: { store_id: { in: stores.map((s) => s.store_id) } },
     });
@@ -608,11 +665,18 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     );
     const [store1, store2] = stores;
 
+    // Create cashier for store 2
+    const cashier2 = await createTestCashier(
+      prismaClient,
+      store2.store_id,
+      storeManagerUser.user_id,
+    );
+
     const shift2 = await prismaClient.shift.create({
       data: {
         store_id: store2.store_id,
         opened_by: storeManagerUser.user_id,
-        cashier_id: storeManagerUser.user_id,
+        cashier_id: cashier2.cashier_id,
         opened_at: new Date(),
         opening_cash: 1000,
       },
@@ -623,7 +687,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store2.store_id,
         shift_id: shift2.shift_id,
-        cashier_id: storeManagerUser.user_id,
+        cashier_id: cashier2.cashier_id,
         subtotal: 200,
         tax: 16,
         total: 216,
@@ -654,6 +718,9 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     await prismaClient.shift.deleteMany({
       where: { shift_id: shift2.shift_id },
     });
+    await prismaClient.cashier.deleteMany({
+      where: { cashier_id: cashier2.cashier_id },
+    });
     await prismaClient.store.deleteMany({
       where: { store_id: { in: stores.map((s) => s.store_id) } },
     });
@@ -675,15 +742,23 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
       1,
     );
 
-    // Create shifts and transactions for each store
+    // Create cashiers, shifts and transactions for each store
+    const cashiers = [];
     const shifts = [];
     const transactions = [];
     for (const store of stores) {
+      const cashier = await createTestCashier(
+        prismaClient,
+        store.store_id,
+        storeManagerUser.user_id,
+      );
+      cashiers.push(cashier);
+
       const shift = await prismaClient.shift.create({
         data: {
           store_id: store.store_id,
           opened_by: storeManagerUser.user_id,
-          cashier_id: storeManagerUser.user_id,
+          cashier_id: cashier.cashier_id,
           opened_at: new Date(),
           opening_cash: 1000,
         },
@@ -695,7 +770,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
           store_id: store.store_id,
           shift_id: shift.shift_id,
-          cashier_id: storeManagerUser.user_id,
+          cashier_id: cashier.cashier_id,
           subtotal: 100,
           tax: 8,
           total: 108,
@@ -730,6 +805,9 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     await prismaClient.shift.deleteMany({
       where: { shift_id: { in: shifts.map((s) => s.shift_id) } },
     });
+    await prismaClient.cashier.deleteMany({
+      where: { cashier_id: { in: cashiers.map((c) => c.cashier_id) } },
+    });
     await prismaClient.store.deleteMany({
       where: { store_id: { in: stores.map((s) => s.store_id) } },
     });
@@ -759,15 +837,23 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
       1,
     );
 
-    // Create shifts and transactions
+    // Create cashiers, shifts and transactions for Company A
+    const cashiersA = [];
     const shiftsA = [];
     const transactionsA = [];
     for (const store of storesA) {
+      const cashier = await createTestCashier(
+        prismaClient,
+        store.store_id,
+        storeManagerUser.user_id,
+      );
+      cashiersA.push(cashier);
+
       const shift = await prismaClient.shift.create({
         data: {
           store_id: store.store_id,
           opened_by: storeManagerUser.user_id,
-          cashier_id: storeManagerUser.user_id,
+          cashier_id: cashier.cashier_id,
           opened_at: new Date(),
           opening_cash: 1000,
         },
@@ -779,7 +865,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
           store_id: store.store_id,
           shift_id: shift.shift_id,
-          cashier_id: storeManagerUser.user_id,
+          cashier_id: cashier.cashier_id,
           subtotal: 100,
           tax: 8,
           total: 108,
@@ -788,11 +874,18 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
       transactionsA.push(transaction);
     }
 
+    // Create cashier, shift and transaction for Company B
+    const cashierB = await createTestCashier(
+      prismaClient,
+      storesB[0].store_id,
+      storeManagerUser.user_id,
+    );
+
     const shiftB = await prismaClient.shift.create({
       data: {
         store_id: storesB[0].store_id,
         opened_by: storeManagerUser.user_id,
-        cashier_id: storeManagerUser.user_id,
+        cashier_id: cashierB.cashier_id,
         opened_at: new Date(),
         opening_cash: 1000,
       },
@@ -802,7 +895,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: storesB[0].store_id,
         shift_id: shiftB.shift_id,
-        cashier_id: storeManagerUser.user_id,
+        cashier_id: cashierB.cashier_id,
         subtotal: 200,
         tax: 16,
         total: 216,
@@ -842,6 +935,13 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     await prismaClient.shift.deleteMany({
       where: {
         shift_id: { in: [...shiftsA.map((s) => s.shift_id), shiftB.shift_id] },
+      },
+    });
+    await prismaClient.cashier.deleteMany({
+      where: {
+        cashier_id: {
+          in: [...cashiersA.map((c) => c.cashier_id), cashierB.cashier_id],
+        },
       },
     });
     await prismaClient.store.deleteMany({

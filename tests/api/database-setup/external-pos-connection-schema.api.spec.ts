@@ -1,6 +1,7 @@
 import { test, expect } from "../../support/fixtures";
 import { createStore, createCompany, createUser } from "../../support/helpers";
 import { createTerminal } from "../../support/factories/terminal.factory";
+import { createCashier } from "../../support/factories";
 import { Prisma } from "@prisma/client";
 
 /**
@@ -148,11 +149,17 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
       company_id: company.company_id,
     });
 
+    const cashierData = await createCashier({
+      store_id: store.store_id,
+      created_by: owner.user_id,
+    });
+    const cashier = await prismaClient.cashier.create({ data: cashierData });
+
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
         opened_by: owner.user_id,
-        cashier_id: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100,
         external_shift_id: "EXT-12345",
         external_data: { source: "external_pos", raw: "data" },
@@ -182,11 +189,17 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
       company_id: company.company_id,
     });
 
+    const cashierData = await createCashier({
+      store_id: store.store_id,
+      created_by: owner.user_id,
+    });
+    const cashier = await prismaClient.cashier.create({ data: cashierData });
+
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
         opened_by: owner.user_id,
-        cashier_id: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100,
         external_shift_id: null,
         external_data: Prisma.JsonNull,
@@ -220,12 +233,18 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
       company_id: company.company_id,
     });
 
+    const cashierData = await createCashier({
+      store_id: store.store_id,
+      created_by: owner.user_id,
+    });
+    const cashier = await prismaClient.cashier.create({ data: cashierData });
+
     // WHEN: Creating shift with SQL injection in external_shift_id
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
         opened_by: owner.user_id,
-        cashier_id: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100,
         external_shift_id: "'; DROP TABLE shifts; --",
       },
@@ -292,12 +311,18 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
       company_id: company.company_id,
     });
 
+    const cashierData = await createCashier({
+      store_id: store.store_id,
+      created_by: owner.user_id,
+    });
+    const cashier = await prismaClient.cashier.create({ data: cashierData });
+
     // WHEN: Creating shift with potentially malicious JSON
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
         opened_by: owner.user_id,
-        cashier_id: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100,
         external_data: {
           source: "external_pos",
@@ -498,6 +523,12 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
       company_id: company.company_id,
     });
 
+    const cashierData = await createCashier({
+      store_id: store.store_id,
+      created_by: owner.user_id,
+    });
+    const cashier = await prismaClient.cashier.create({ data: cashierData });
+
     // WHEN: Creating shift with complex nested external_data
     const complexData = {
       source: "external_pos",
@@ -520,7 +551,7 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
       data: {
         store_id: store.store_id,
         opened_by: owner.user_id,
-        cashier_id: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100,
         external_data: complexData,
       },
@@ -574,13 +605,19 @@ test.describe("4.81-API: External POS Connection Schema Migration", () => {
       company_id: company.company_id,
     });
 
+    const cashierData = await createCashier({
+      store_id: store.store_id,
+      created_by: owner.user_id,
+    });
+    const cashier = await prismaClient.cashier.create({ data: cashierData });
+
     // WHEN: Creating shift with synced_at
     const syncDate = new Date("2025-01-27T12:00:00Z");
     const shift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
         opened_by: owner.user_id,
-        cashier_id: owner.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: 100,
         synced_at: syncDate,
       },

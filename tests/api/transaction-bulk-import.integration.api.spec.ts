@@ -26,7 +26,7 @@
  */
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createTransactionPayload } from "../support/factories";
+import { createTransactionPayload, createCashier } from "../support/factories";
 import { createCompany, createStore, createUser } from "../support/helpers";
 import { PrismaClient } from "@prisma/client";
 
@@ -37,6 +37,21 @@ const bulkImportEnabled = process.env.BULK_IMPORT_TESTS === "true";
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
+
+/**
+ * Creates a test cashier for transaction testing
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
+}
 
 interface TestStoreAndShift {
   store: { store_id: string; company_id: string; name: string };
@@ -182,18 +197,35 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
   }) => {
     // GIVEN: I am authenticated as System Admin with valid store and shift
     const company = await createCompany(prismaClient);
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await createStore(prismaClient, {
+      company_id: company.company_id,
+      name: `Test Store ${Date.now()}`,
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      company.company_id,
+      store.store_id,
       superadminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     // Create CSV with 3 valid transactions
     const transactions = Array.from({ length: 3 }, () =>
       createTransactionPayload({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: superadminUser.user_id,
+        cashier_id: cashier.cashier_id,
       }),
     );
     const csvContent = createCSVContent(transactions);
@@ -263,18 +295,35 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
   }) => {
     // GIVEN: I am authenticated as System Admin with valid store and shift
     const company = await createCompany(prismaClient);
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await createStore(prismaClient, {
+      company_id: company.company_id,
+      name: `Test Store ${Date.now()}`,
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      company.company_id,
+      store.store_id,
       superadminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     // Create CSV with 10 valid transactions
     const transactions = Array.from({ length: 10 }, () =>
       createTransactionPayload({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: superadminUser.user_id,
+        cashier_id: cashier.cashier_id,
       }),
     );
     const csvContent = createCSVContent(transactions);
@@ -331,17 +380,34 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
   }) => {
     // GIVEN: I am authenticated as System Admin with valid store and shift
     const company = await createCompany(prismaClient);
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await createStore(prismaClient, {
+      company_id: company.company_id,
+      name: `Test Store ${Date.now()}`,
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      company.company_id,
+      store.store_id,
       superadminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     // Create CSV with mix of valid and invalid transactions
     const validTransaction = createTransactionPayload({
       store_id: store.store_id,
       shift_id: shift.shift_id,
-      cashier_id: superadminUser.user_id,
+      cashier_id: cashier.cashier_id,
     });
 
     const invalidTransaction = {
@@ -423,16 +489,33 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
   }) => {
     // GIVEN: I am authenticated as System Admin with valid store and shift
     const company = await createCompany(prismaClient);
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await createStore(prismaClient, {
+      company_id: company.company_id,
+      name: `Test Store ${Date.now()}`,
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      company.company_id,
+      store.store_id,
       superadminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     const transaction = createTransactionPayload({
       store_id: store.store_id,
       shift_id: shift.shift_id,
-      cashier_id: superadminUser.user_id,
+      cashier_id: cashier.cashier_id,
     });
     const csvContent = createCSVContent([transaction]);
 
@@ -509,18 +592,35 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
   }) => {
     // GIVEN: I am authenticated as System Admin with valid store and shift
     const company = await createCompany(prismaClient);
-    const { store, shift } = await createTestStoreAndShift(
+    const store = await createStore(prismaClient, {
+      company_id: company.company_id,
+      name: `Test Store ${Date.now()}`,
+      timezone: "America/New_York",
+      status: "ACTIVE",
+    });
+
+    const cashier = await createTestCashier(
       prismaClient,
-      company.company_id,
+      store.store_id,
       superadminUser.user_id,
     );
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: store.store_id,
+        opened_by: cashier.cashier_id,
+        cashier_id: cashier.cashier_id,
+        opening_cash: 100.0,
+        status: "OPEN",
+      },
+    });
 
     // Create CSV with 5 valid transactions
     const transactions = Array.from({ length: 5 }, () =>
       createTransactionPayload({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: superadminUser.user_id,
+        cashier_id: cashier.cashier_id,
       }),
     );
     const csvContent = createCSVContent(transactions);

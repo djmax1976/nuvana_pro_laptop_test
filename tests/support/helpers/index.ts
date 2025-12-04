@@ -17,6 +17,7 @@ export {
   createUser,
   createCompany,
   createStore,
+  createCashier,
   createShift,
   createTransaction,
   getNextExpectedEmployeeId,

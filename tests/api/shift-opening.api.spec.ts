@@ -4,6 +4,7 @@ import {
   createCompany,
   createStore,
   createShift,
+  createCashier,
 } from "../support/factories";
 import { Prisma } from "@prisma/client";
 
@@ -60,6 +61,22 @@ async function createPOSTerminal(
     store_id: terminal.store_id,
     name: terminal.name,
   };
+}
+
+/**
+ * Creates a Cashier entity for testing shifts
+ * IMPORTANT: shifts.cashier_id is a FK to cashiers table, NOT users table
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
 }
 
 // =============================================================================
@@ -134,14 +151,16 @@ test.describe("4.2-API: Shift Opening - Authentication", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const terminal = await createPOSTerminal(prismaClient, store.store_id);
 
     const requestData = {
       store_id: store.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 100.0,
     };
@@ -165,7 +184,9 @@ test.describe("4.2-API: Shift Opening - Authentication", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.store.delete({ where: { store_id: store.store_id } });
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
@@ -186,9 +207,11 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
   }) => {
     // GIVEN: Authenticated user with SHIFT_OPEN permission
     // AND: Valid store, cashier, POS terminal, and opening cash amount
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -196,7 +219,7 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 150.75,
     };
@@ -222,7 +245,7 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
       storeManagerUser.store_id,
     );
     expect(body.data.cashier_id, "cashier_id should match").toBe(
-      cashier.user_id,
+      cashier.cashier_id,
     );
     expect(body.data.pos_terminal_id, "pos_terminal_id should match").toBe(
       terminal.pos_terminal_id,
@@ -239,7 +262,9 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-005: [P0] should record opening cash amount correctly", async ({
@@ -249,9 +274,11 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
   }) => {
     // GIVEN: Authenticated user with SHIFT_OPEN permission
     // AND: Opening cash amount of 250.50
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -260,7 +287,7 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
     const openingCash = 250.5;
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: openingCash,
     };
@@ -283,7 +310,9 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-006: [P0] should link shift to store, POS terminal, and cashier", async ({
@@ -293,9 +322,11 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
   }) => {
     // GIVEN: Authenticated user with SHIFT_OPEN permission
     // AND: Store, cashier, and POS terminal
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -303,7 +334,7 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 100.0,
     };
@@ -329,7 +360,7 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
     });
 
     expect(shift?.store_id).toBe(storeManagerUser.store_id);
-    expect(shift?.cashier_id).toBe(cashier.user_id);
+    expect(shift?.cashier_id).toBe(cashier.cashier_id);
     expect(shift?.pos_terminal_id).toBe(terminal.pos_terminal_id);
     expect(shift?.opened_by).toBe(storeManagerUser.user_id);
 
@@ -340,7 +371,9 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-007: [P0] should create audit log entry when shift is opened", async ({
@@ -349,9 +382,11 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
     prismaClient,
   }) => {
     // GIVEN: Authenticated user with SHIFT_OPEN permission
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -359,7 +394,7 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 100.0,
     };
@@ -395,7 +430,9 @@ test.describe("4.2-API: Shift Opening - Valid Data (AC-1)", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 });
 
@@ -410,9 +447,11 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
     prismaClient,
   }) => {
     // GIVEN: An active shift already exists for the POS terminal
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -423,7 +462,7 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
       data: {
         store_id: storeManagerUser.store_id,
         opened_by: storeManagerUser.user_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal.pos_terminal_id,
         opening_cash: 100.0,
         status: "OPEN",
@@ -432,7 +471,7 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 200.0,
     };
@@ -465,7 +504,9 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-009: [P0] should reject request when shift with ACTIVE status exists", async ({
@@ -474,9 +515,11 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
     prismaClient,
   }) => {
     // GIVEN: A shift with ACTIVE status exists for the terminal
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -486,7 +529,7 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
       data: {
         store_id: storeManagerUser.store_id,
         opened_by: storeManagerUser.user_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal.pos_terminal_id,
         opening_cash: 100.0,
         status: "ACTIVE",
@@ -495,7 +538,7 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 200.0,
     };
@@ -519,7 +562,9 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-010: [P0] should reject request when shift with CLOSING status exists", async ({
@@ -528,9 +573,11 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
     prismaClient,
   }) => {
     // GIVEN: A shift with CLOSING status exists for the terminal
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -540,7 +587,7 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
       data: {
         store_id: storeManagerUser.store_id,
         opened_by: storeManagerUser.user_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal.pos_terminal_id,
         opening_cash: 100.0,
         status: "CLOSING",
@@ -549,7 +596,7 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 200.0,
     };
@@ -573,7 +620,9 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-011: [P0] should reject request when shift with RECONCILING status exists", async ({
@@ -582,9 +631,11 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
     prismaClient,
   }) => {
     // GIVEN: A shift with RECONCILING status exists for the terminal
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -594,7 +645,7 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
       data: {
         store_id: storeManagerUser.store_id,
         opened_by: storeManagerUser.user_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal.pos_terminal_id,
         opening_cash: 100.0,
         status: "RECONCILING",
@@ -603,7 +654,7 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 200.0,
     };
@@ -627,7 +678,9 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-012: [P0] should allow opening shift when only CLOSED shift exists", async ({
@@ -636,9 +689,11 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift exists for the terminal (should not conflict)
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -648,7 +703,7 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
       data: {
         store_id: storeManagerUser.store_id,
         opened_by: storeManagerUser.user_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal.pos_terminal_id,
         opening_cash: 100.0,
         status: "CLOSED",
@@ -658,7 +713,7 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 200.0,
     };
@@ -685,7 +740,9 @@ test.describe("4.2-API: Shift Opening - Active Shift Conflict (AC-2)", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 });
 
@@ -700,9 +757,11 @@ test.describe("4.2-API: Shift Opening - Response Format (AC-3)", () => {
     prismaClient,
   }) => {
     // GIVEN: Authenticated user with SHIFT_OPEN permission
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -710,7 +769,7 @@ test.describe("4.2-API: Shift Opening - Response Format (AC-3)", () => {
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 175.25,
     };
@@ -731,7 +790,7 @@ test.describe("4.2-API: Shift Opening - Response Format (AC-3)", () => {
     expect(body.data).toHaveProperty("shift_id");
     expect(body.data).toHaveProperty("store_id", storeManagerUser.store_id);
     expect(body.data).toHaveProperty("opened_by", storeManagerUser.user_id);
-    expect(body.data).toHaveProperty("cashier_id", cashier.user_id);
+    expect(body.data).toHaveProperty("cashier_id", cashier.cashier_id);
     expect(body.data).toHaveProperty(
       "pos_terminal_id",
       terminal.pos_terminal_id,
@@ -751,7 +810,9 @@ test.describe("4.2-API: Shift Opening - Response Format (AC-3)", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 });
 
@@ -788,9 +849,11 @@ test.describe("4.2-API: Shift Opening - Validation Errors", () => {
     prismaClient,
   }) => {
     // GIVEN: Request data with negative opening_cash
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -798,7 +861,7 @@ test.describe("4.2-API: Shift Opening - Validation Errors", () => {
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: -50.0,
     };
@@ -822,7 +885,9 @@ test.describe("4.2-API: Shift Opening - Validation Errors", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-016: [P0] should return error when cashier_id does not exist", async ({
@@ -868,14 +933,16 @@ test.describe("4.2-API: Shift Opening - Validation Errors", () => {
     prismaClient,
   }) => {
     // GIVEN: Request data with non-existent pos_terminal_id
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const nonExistentTerminalId = "00000000-0000-0000-0000-000000000000";
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: nonExistentTerminalId,
       opening_cash: 100.0,
     };
@@ -893,7 +960,9 @@ test.describe("4.2-API: Shift Opening - Validation Errors", () => {
     expect(body.error.code).toBe("TERMINAL_NOT_FOUND");
 
     // Cleanup
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-018: [P0] should return error when store_id is not accessible to user", async ({
@@ -914,14 +983,16 @@ test.describe("4.2-API: Shift Opening - Validation Errors", () => {
     const otherStore = await prismaClient.store.create({
       data: createStore({ company_id: otherCompany.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      otherStore.store_id,
+      otherOwner.user_id,
+    );
     const terminal = await createPOSTerminal(prismaClient, otherStore.store_id);
 
     const requestData = {
       store_id: otherStore.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 100.0,
     };
@@ -944,7 +1015,9 @@ test.describe("4.2-API: Shift Opening - Validation Errors", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.store.delete({
       where: { store_id: otherStore.store_id },
     });
@@ -966,9 +1039,11 @@ test.describe("4.2-API: Shift Opening - Security Tests", () => {
     prismaClient,
   }) => {
     // GIVEN: Malicious SQL injection attempt in store_id
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -977,7 +1052,7 @@ test.describe("4.2-API: Shift Opening - Security Tests", () => {
     const maliciousStoreId = "'; DROP TABLE shifts; --";
     const requestData = {
       store_id: maliciousStoreId,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 100.0,
     };
@@ -1004,7 +1079,9 @@ test.describe("4.2-API: Shift Opening - Security Tests", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-020: [P0] should prevent SQL injection in cashier_id field", async ({
@@ -1055,14 +1132,16 @@ test.describe("4.2-API: Shift Opening - Security Tests", () => {
     prismaClient,
   }) => {
     // GIVEN: Malicious SQL injection attempt in pos_terminal_id
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
 
     const maliciousTerminalId = "1'; DELETE FROM shifts; --";
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: maliciousTerminalId,
       opening_cash: 100.0,
     };
@@ -1085,7 +1164,9 @@ test.describe("4.2-API: Shift Opening - Security Tests", () => {
     ).toBe(true);
 
     // Cleanup
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-022: [P0] should return 401 when JWT token is expired", async ({
@@ -1124,9 +1205,11 @@ test.describe("4.2-API: Shift Opening - Security Tests", () => {
     prismaClient,
   }) => {
     // GIVEN: Request with non-existent store_id
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -1135,7 +1218,7 @@ test.describe("4.2-API: Shift Opening - Security Tests", () => {
     const nonExistentStoreId = "00000000-0000-0000-0000-000000000000";
     const requestData = {
       store_id: nonExistentStoreId,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 100.0,
     };
@@ -1165,7 +1248,9 @@ test.describe("4.2-API: Shift Opening - Security Tests", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-024: [P0] should prevent privilege escalation attempts", async ({
@@ -1183,14 +1268,16 @@ test.describe("4.2-API: Shift Opening - Security Tests", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const terminal = await createPOSTerminal(prismaClient, store.store_id);
 
     const requestData = {
       store_id: store.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 100.0,
     };
@@ -1216,7 +1303,9 @@ test.describe("4.2-API: Shift Opening - Security Tests", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.store.delete({ where: { store_id: store.store_id } });
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
@@ -1322,13 +1411,15 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     prismaClient,
   }) => {
     // GIVEN: Request with invalid UUID format for pos_terminal_id
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: "not-a-valid-uuid",
       opening_cash: 100.0,
     };
@@ -1346,7 +1437,9 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
 
     // Cleanup
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-029: [P0] should accept zero for opening_cash", async ({
@@ -1355,9 +1448,11 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     prismaClient,
   }) => {
     // GIVEN: Request with zero opening_cash (valid boundary value)
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -1365,7 +1460,7 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
 
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 0.0,
     };
@@ -1390,7 +1485,9 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-030: [P0] should accept very large opening_cash value", async ({
@@ -1399,9 +1496,11 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     prismaClient,
   }) => {
     // GIVEN: Request with very large opening_cash value
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -1411,7 +1510,7 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     const largeCash = 99999999.99;
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: largeCash,
     };
@@ -1439,7 +1538,9 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-031: [P0] should accept decimal precision for opening_cash", async ({
@@ -1448,9 +1549,11 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     prismaClient,
   }) => {
     // GIVEN: Request with precise decimal opening_cash
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -1459,7 +1562,7 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     const preciseCash = 123.45;
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: preciseCash,
     };
@@ -1488,7 +1591,9 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-032: [P0] should reject string 'NaN' for opening_cash", async ({
@@ -1499,9 +1604,11 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     // GIVEN: Request with string 'NaN' for opening_cash
     // Note: JSON.stringify(NaN) = "null", and null might be coerced to 0
     // So we test with a string that cannot be parsed as a number
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -1510,7 +1617,7 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     // Test with string "NaN" which should fail Zod validation
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: "NaN" as any, // String that cannot be parsed as number
     };
@@ -1531,7 +1638,9 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.2-API-033: [P0] should reject Infinity for opening_cash", async ({
@@ -1540,9 +1649,11 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     prismaClient,
   }) => {
     // GIVEN: Request with Infinity for opening_cash (JSON serializes as null)
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -1552,7 +1663,7 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     // that exceeds reasonable bounds instead
     const requestData = {
       store_id: storeManagerUser.store_id,
-      cashier_id: cashier.user_id,
+      cashier_id: cashier.cashier_id,
       pos_terminal_id: terminal.pos_terminal_id,
       opening_cash: 1e20, // Very large number that exceeds DB precision
     };
@@ -1581,6 +1692,8 @@ test.describe("4.2-API: Shift Opening - Edge Cases & Boundaries", () => {
     await prismaClient.pOSTerminal.delete({
       where: { pos_terminal_id: terminal.pos_terminal_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 });

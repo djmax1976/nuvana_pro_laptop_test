@@ -11,6 +11,7 @@ import {
   createCompany,
   createClientUser,
   createUser,
+  createCashier,
 } from "../support/factories";
 import { PrismaClient } from "@prisma/client";
 import { createShift as createShiftHelper } from "../support/helpers/database-helpers";
@@ -33,6 +34,21 @@ async function createCompanyWithStore(
     data: createStore({ company_id: company.company_id }),
   });
   return { owner, company, store };
+}
+
+/**
+ * Helper function to create a test cashier
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
 }
 
 /**
@@ -141,15 +157,21 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     // CRITICAL: Assign storeManagerUser to this store so they can see shifts via RLS
     await assignStoreManagerToStore(storeManagerUser, company, store);
 
-    const cashier = await prismaClient.user.create({
+    const cashierUser = await prismaClient.user.create({
       data: createClientUser(),
     });
+
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
 
     await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
-        opened_by: cashier.user_id,
+        cashier_id: cashier.cashier_id,
+        opened_by: cashierUser.user_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
@@ -204,15 +226,21 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     // CRITICAL: Assign storeManagerUser to this store so they can see shifts via RLS
     await assignStoreManagerToStore(storeManagerUser, company, store);
 
-    const cashier = await prismaClient.user.create({
+    const cashierUser = await prismaClient.user.create({
       data: createClientUser({ name: "Test Cashier" }),
     });
+
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
 
     await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
-        opened_by: cashier.user_id,
+        cashier_id: cashier.cashier_id,
+        opened_by: cashierUser.user_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
@@ -277,15 +305,21 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     // CRITICAL: Assign storeManagerUser to this store so they can see shifts via RLS
     await assignStoreManagerToStore(storeManagerUser, company, store);
 
-    const cashier = await prismaClient.user.create({
+    const cashierUser = await prismaClient.user.create({
       data: createClientUser(),
     });
+
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
 
     const openShift = await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
-        opened_by: cashier.user_id,
+        cashier_id: cashier.cashier_id,
+        opened_by: cashierUser.user_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
@@ -295,8 +329,8 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     const closedShift = await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
-        opened_by: cashier.user_id,
+        cashier_id: cashier.cashier_id,
+        opened_by: cashierUser.user_id,
         status: "CLOSED",
         opening_cash: 200.0,
         closed_at: new Date(),
@@ -385,15 +419,21 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     // GIVEN: A store exists with an OPEN shift
     const { owner, company, store } =
       await createCompanyWithStore(prismaClient);
-    const cashier = await prismaClient.user.create({
+    const cashierUser = await prismaClient.user.create({
       data: createClientUser(),
     });
+
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
 
     const shift = await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
-        opened_by: cashier.user_id,
+        cashier_id: cashier.cashier_id,
+        opened_by: cashierUser.user_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
@@ -460,18 +500,30 @@ test.describe("4.7-E2E: Shift Management UI", () => {
       store: store2,
     } = await createCompanyWithStore(prismaClient);
 
-    const cashier1 = await prismaClient.user.create({
+    const cashierUser1 = await prismaClient.user.create({
       data: createClientUser(),
     });
-    const cashier2 = await prismaClient.user.create({
+    const cashierUser2 = await prismaClient.user.create({
       data: createClientUser(),
     });
+
+    const cashier1 = await createTestCashier(
+      prismaClient,
+      store1.store_id,
+      owner1.user_id,
+    );
+
+    const cashier2 = await createTestCashier(
+      prismaClient,
+      store2.store_id,
+      owner2.user_id,
+    );
 
     const shift1 = await createShiftHelper(
       {
         store_id: store1.store_id,
-        cashier_id: cashier1.user_id,
-        opened_by: cashier1.user_id,
+        cashier_id: cashier1.cashier_id,
+        opened_by: cashierUser1.user_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
@@ -481,8 +533,8 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     const shift2 = await createShiftHelper(
       {
         store_id: store2.store_id,
-        cashier_id: cashier2.user_id,
-        opened_by: cashier2.user_id,
+        cashier_id: cashier2.cashier_id,
+        opened_by: cashierUser2.user_id,
         status: "OPEN",
         opening_cash: 200.0,
       },
@@ -563,15 +615,21 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     // GIVEN: A store exists with a shift
     const { owner, company, store } =
       await createCompanyWithStore(prismaClient);
-    const cashier = await prismaClient.user.create({
+    const cashierUser = await prismaClient.user.create({
       data: createClientUser(),
     });
+
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
 
     const shift = await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
-        opened_by: cashier.user_id,
+        cashier_id: cashier.cashier_id,
+        opened_by: cashierUser.user_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
@@ -602,15 +660,21 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     // CRITICAL: Assign storeManagerUser to this store so they can see shifts via RLS
     await assignStoreManagerToStore(storeManagerUser, company, store);
 
-    const cashier = await prismaClient.user.create({
+    const cashierUser = await prismaClient.user.create({
       data: createClientUser({ name: "<script>alert('xss')</script>Cashier" }),
     });
+
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
 
     await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
-        opened_by: cashier.user_id,
+        cashier_id: cashier.cashier_id,
+        opened_by: cashierUser.user_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
@@ -707,15 +771,21 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     // CRITICAL: Assign storeManagerUser to this store so they can see shifts via RLS
     await assignStoreManagerToStore(storeManagerUser, company, store);
 
-    const cashier = await prismaClient.user.create({
+    const cashierUser = await prismaClient.user.create({
       data: createClientUser(),
     });
+
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
 
     await createShiftHelper(
       {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
-        opened_by: cashier.user_id,
+        cashier_id: cashier.cashier_id,
+        opened_by: cashierUser.user_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
