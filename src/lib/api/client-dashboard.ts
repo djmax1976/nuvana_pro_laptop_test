@@ -115,12 +115,16 @@ async function apiRequest<T>(
     headers,
   });
 
+  // Capture status before consuming response
+  const status = response.status;
+  const statusText = response.statusText;
+
   if (!response.ok) {
     const errorData: ApiError = await response.json().catch(() => ({
       success: false,
       error: {
         code: "UNKNOWN_ERROR",
-        message: `HTTP ${response.status}: ${response.statusText}`,
+        message: `HTTP ${status}: ${statusText}`,
       },
     }));
 
@@ -129,7 +133,25 @@ async function apiRequest<T>(
     );
   }
 
-  const result: ApiSuccessResponse<T> = await response.json();
+  const result = await response.json();
+
+  // Runtime validation of response payload
+  if (
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    result.success !== true ||
+    !("data" in result) ||
+    result.data === undefined
+  ) {
+    const payloadPreview = JSON.stringify(result, null, 2);
+    throw new Error(
+      `Invalid API response format: Expected { success: true, data: T } but received unexpected payload. ` +
+        `HTTP Status: ${status} ${statusText}. ` +
+        `Payload: ${payloadPreview}`,
+    );
+  }
+
   return result.data;
 }
 

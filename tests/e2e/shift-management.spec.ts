@@ -40,7 +40,7 @@ async function createCompanyWithStore(
  * Helper function to create a test cashier
  */
 async function createTestCashier(
-  prismaClient: any,
+  prismaClient: PrismaClient,
   storeId: string,
   createdByUserId: string,
 ): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
