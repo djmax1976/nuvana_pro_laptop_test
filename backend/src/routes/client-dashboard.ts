@@ -334,58 +334,61 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
         // Format response to match ClientDashboardResponse interface
         reply.code(200);
         return {
-          user: {
-            id: user.id,
-            email: dbUser.email,
-            name: dbUser.name || "",
-          },
-          companies: companies.map(
-            (c: {
-              company_id: string;
-              name: string;
-              address: string | null;
-              status: string;
-              created_at: Date;
-              _count: { stores: number };
-            }) => ({
-              company_id: c.company_id,
-              name: c.name,
-              address: c.address,
-              status: c.status,
-              created_at: c.created_at.toISOString(),
-              store_count: c._count.stores,
-            }),
-          ),
-          stores: uniqueStores.map(
-            (s: {
-              store_id: string;
-              company_id: string;
-              company: { name: string };
-              name: string;
-              location_json: unknown;
-              timezone: string;
-              status: string;
-              created_at: Date;
-            }) => ({
-              store_id: s.store_id,
-              company_id: s.company_id,
-              company_name: s.company.name,
-              name: s.name,
-              location_json: s.location_json as {
-                address?: string;
-                gps?: { lat: number; lng: number };
-              } | null,
-              timezone: s.timezone,
-              status: s.status,
-              created_at: s.created_at.toISOString(),
-            }),
-          ),
-          stats: {
-            total_companies: companies.length,
-            total_stores: uniqueStores.length,
-            active_stores: activeStores,
-            total_employees: employeeCount,
-            today_transactions: todayTransactionCount,
+          success: true,
+          data: {
+            user: {
+              id: user.id,
+              email: dbUser.email,
+              name: dbUser.name || "",
+            },
+            companies: companies.map(
+              (c: {
+                company_id: string;
+                name: string;
+                address: string | null;
+                status: string;
+                created_at: Date;
+                _count: { stores: number };
+              }) => ({
+                company_id: c.company_id,
+                name: c.name,
+                address: c.address,
+                status: c.status,
+                created_at: c.created_at.toISOString(),
+                store_count: c._count.stores,
+              }),
+            ),
+            stores: uniqueStores.map(
+              (s: {
+                store_id: string;
+                company_id: string;
+                company: { name: string };
+                name: string;
+                location_json: unknown;
+                timezone: string;
+                status: string;
+                created_at: Date;
+              }) => ({
+                store_id: s.store_id,
+                company_id: s.company_id,
+                company_name: s.company.name,
+                name: s.name,
+                location_json: s.location_json as {
+                  address?: string;
+                  gps?: { lat: number; lng: number };
+                } | null,
+                timezone: s.timezone,
+                status: s.status,
+                created_at: s.created_at.toISOString(),
+              }),
+            ),
+            stats: {
+              total_companies: companies.length,
+              total_stores: uniqueStores.length,
+              active_stores: activeStores,
+              total_employees: employeeCount,
+              today_transactions: todayTransactionCount,
+            },
           },
         };
       } catch (error) {

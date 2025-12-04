@@ -141,7 +141,6 @@ test.describe("Local Authentication API", () => {
         expect(response.status()).toBe(401);
 
         const body = await response.json();
-        expect(body.error).toBe("Unauthorized");
         // API returns generic message for security (don't leak account existence)
         expect(body.success).toBe(false);
         expect(body.error).toBeDefined();

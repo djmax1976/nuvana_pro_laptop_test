@@ -126,8 +126,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         fastify.log.error({ error }, "Error fetching users");
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to fetch users",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch users",
+          },
         };
       }
     },
@@ -154,8 +157,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         if (!body.email) {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: "Email is required",
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Email is required",
+            },
           };
         }
 
@@ -164,8 +170,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         if (!emailRegex.test(body.email)) {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: "Invalid email format",
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid email format",
+            },
           };
         }
 
@@ -174,8 +183,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         if (body.status && !validStatuses.includes(body.status)) {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: "Status must be one of: ACTIVE, INACTIVE, SUSPENDED",
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Status must be one of: ACTIVE, INACTIVE, SUSPENDED",
+            },
           };
         }
 
@@ -212,15 +224,21 @@ export async function userRoutes(fastify: FastifyInstance) {
         if (error.code === "P2002") {
           reply.code(409);
           return {
-            error: "Conflict",
-            message: "A user with this email already exists",
+            success: false,
+            error: {
+              code: "CONFLICT",
+              message: "A user with this email already exists",
+            },
           };
         }
 
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to create user",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to create user",
+          },
         };
       }
     },
@@ -244,8 +262,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         if (!uuidRegex.test(params.id)) {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: "Invalid user ID format",
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid user ID format",
+            },
           };
         }
 
@@ -267,8 +288,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         if (!user) {
           reply.code(404);
           return {
-            error: "User not found",
-            message: "User with the specified ID does not exist",
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "User with the specified ID does not exist",
+            },
           };
         }
 
@@ -280,8 +304,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         fastify.log.error({ error }, "Error fetching user");
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to fetch user",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch user",
+          },
         };
       }
     },
@@ -306,8 +333,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         if (!uuidRegex.test(params.id)) {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: "Invalid user ID format",
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid user ID format",
+            },
           };
         }
 
@@ -315,8 +345,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         if (params.id === currentUser.id) {
           reply.code(403);
           return {
-            error: "Forbidden",
-            message: "Cannot delete your own user account",
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message: "Cannot delete your own user account",
+            },
           };
         }
 
@@ -328,8 +361,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         if (!user) {
           reply.code(404);
           return {
-            error: "User not found",
-            message: "User with the specified ID does not exist",
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "User with the specified ID does not exist",
+            },
           };
         }
 
@@ -346,8 +382,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         fastify.log.error({ error }, "Error deleting user");
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to delete user",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to delete user",
+          },
         };
       }
     },
