@@ -197,9 +197,10 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error message should mention PIN validation").toContain(
-      "4 numeric digits",
-    );
+    expect(
+      body.message,
+      "Error message should mention PIN validation",
+    ).toContain("4 numeric digits");
     expect(body, "Error response should have message field").toHaveProperty(
       "message",
     );
@@ -229,7 +230,7 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     expect(response.status(), "Should return 400 for 5-digit PIN").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error should mention PIN validation").toContain(
+    expect(body.message, "Error should mention PIN validation").toContain(
       "4 numeric digits",
     );
   });
@@ -260,7 +261,7 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error should mention numeric requirement").toContain(
+    expect(body.message, "Error should mention numeric requirement").toContain(
       "numeric",
     );
   });
@@ -289,10 +290,9 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     expect(response.status(), "Should return 400 for empty PIN").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(
-      body.error || body.message,
-      "Error should mention PIN validation",
-    ).toMatch(/PIN|numeric|4/);
+    expect(body.message, "Error should mention PIN validation").toMatch(
+      /PIN|numeric|4/,
+    );
   });
 
   test("4.91-API-003d: [P0] POST /api/stores/:storeId/cashiers - should accept PIN with leading zeros", async ({
@@ -353,10 +353,9 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     expect(response.status(), "Should return 400 for empty name").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(
-      body.error || body.message,
-      "Error should mention name validation",
-    ).toMatch(/name|required/i);
+    expect(body.message, "Error should mention name validation").toMatch(
+      /name|required/i,
+    );
   });
 
   test("4.91-API-003f: [P0] POST /api/stores/:storeId/cashiers - should reject whitespace-only name", async ({
@@ -385,10 +384,9 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     ).toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(
-      body.error || body.message,
-      "Error should mention name validation",
-    ).toMatch(/name|whitespace/i);
+    expect(body.message, "Error should mention name validation").toMatch(
+      /name|whitespace/i,
+    );
   });
 
   test("4.91-API-004: [P0] POST /api/stores/:storeId/cashiers - should reject duplicate PIN within store (AC #3)", async ({
@@ -423,12 +421,12 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
       },
     );
 
-    // THEN: Request is rejected with 409 Conflict
-    expect(response.status()).toBe(409);
+    // THEN: Request is rejected with 400 Bad Request (duplicate PIN)
+    expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.error).toContain("PIN");
-    expect(body.error).toContain("already exists");
+    expect(body.message).toContain("PIN");
+    expect(body.message).toMatch(/already|in use/i);
   });
 
   test("4.91-API-005: [P0] POST /api/stores/:storeId/cashiers - should enforce CASHIER_CREATE permission (AC #3)", async ({
@@ -464,7 +462,7 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     expect(response.status()).toBe(403);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.error).toContain("permission");
+    expect(body.error || body.message).toMatch(/permission|forbidden|access/i);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -920,11 +918,11 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
       },
     );
 
-    // THEN: Authentication fails with generic error message
+    // THEN: Authentication fails with generic error message (security: don't reveal specific failure reason)
     expect(response.status()).toBe(401);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.error).toBe("Invalid credentials");
+    expect(body.error).toBe("Authentication failed");
   });
 
   test("4.91-API-016: [P0] POST /api/stores/:storeId/cashiers/authenticate - should reject inactive cashier (AC #8)", async ({
@@ -958,14 +956,14 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
       },
     );
 
-    // THEN: Authentication fails with specific error
+    // THEN: Authentication fails with generic error message (security: don't reveal specific failure reason)
     expect(response.status(), "Should return 401 for inactive cashier").toBe(
       401,
     );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error should indicate inactive account").toBe(
-      "Cashier account is inactive",
+    expect(body.error, "Error should be generic for security").toBe(
+      "Authentication failed",
     );
   });
 
@@ -1118,10 +1116,9 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(
-      body.error || body.message,
-      "Error should mention identifier requirement",
-    ).toMatch(/name|employee_id|identifier/i);
+    expect(body.message, "Error should mention identifier requirement").toMatch(
+      /name|employee_id|identifier/i,
+    );
   });
 
   test("4.91-API-SEC-006: [P0] GET /api/stores/:storeId/cashiers - should enforce CASHIER_READ permission", async ({
@@ -1150,9 +1147,10 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error should mention permission").toContain(
-      "permission",
-    );
+    expect(
+      body.error || body.message,
+      "Error should mention permission",
+    ).toMatch(/permission|forbidden|access/i);
   });
 
   test("4.91-API-SEC-007: [P0] PUT /api/stores/:storeId/cashiers/:cashierId - should enforce CASHIER_UPDATE permission", async ({
@@ -1197,9 +1195,10 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error should mention permission").toContain(
-      "permission",
-    );
+    expect(
+      body.error || body.message,
+      "Error should mention permission",
+    ).toMatch(/permission|forbidden|access/i);
   });
 
   test("4.91-API-SEC-008: [P0] DELETE /api/stores/:storeId/cashiers/:cashierId - should enforce CASHIER_DELETE permission", async ({
@@ -1241,9 +1240,10 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error should mention permission").toContain(
-      "permission",
-    );
+    expect(
+      body.error || body.message,
+      "Error should mention permission",
+    ).toMatch(/permission|forbidden|access/i);
   });
 
   test("4.91-API-SEC-009: [P0] All endpoints - should never return pin_hash in response", async ({

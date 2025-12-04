@@ -512,7 +512,14 @@ export const test = base.extend<RBACFixture>({
         where: { user_id: user.user_id },
       });
 
-      // 5. Delete the user
+      // 5. Delete cashiers created by this user (FK constraint: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
+      // 6. Delete the user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
     });
   },
