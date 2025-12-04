@@ -129,7 +129,8 @@ model Cashier {
   @@unique([store_id, pin_hash])
   @@unique([store_id, sha256_pin_fingerprint])
   @@index([store_id])
-  @@index([employee_id])
+  // Note: No single-column index on employee_id - all queries filter by store_id too
+  // The composite unique index (store_id, employee_id) handles these efficiently
   @@index([is_active])
   @@index([disabled_at])
   @@index([created_by])

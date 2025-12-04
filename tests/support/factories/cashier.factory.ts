@@ -77,25 +77,30 @@ export type CashierData = {
  * Creates a Cashier test data object for Prisma database operations
  * Requires store_id and created_by to be provided
  *
- * @param overrides - Fields to override default values
- * @returns CashierData object for Prisma.cashier.create()
+ * @param overrides - Fields to override default values, including optional pin (defaults to "0000")
+ * @returns Promise<CashierData> object for Prisma.cashier.create()
  *
  * @example
  * const cashier = await prisma.cashier.create({
- *   data: createCashier({
+ *   data: await createCashier({
  *     store_id: testStore.store_id,
  *     created_by: testUser.user_id,
+ *     pin: "1234", // Optional: defaults to "0000"
  *   }),
  * });
  */
-export const createCashier = (
-  overrides: Partial<CashierData> & { store_id: string; created_by: string },
-): CashierData => {
-  const pin = faker.string.numeric(4);
-  const pinHash = bcrypt.hashSync(pin, 10);
+export const createCashier = async (
+  overrides: Partial<CashierData> & {
+    store_id: string;
+    created_by: string;
+    pin?: string;
+  },
+): Promise<CashierData> => {
+  const pin = overrides.pin ?? "0000";
+  const pinHash = await bcrypt.hash(pin, 10);
 
   // Extract required fields before spreading to avoid TS2783
-  const { store_id, created_by, ...rest } = overrides;
+  const { store_id, created_by, pin: _pin, ...rest } = overrides;
 
   return {
     store_id,
@@ -116,14 +121,33 @@ export const createCashier = (
 /**
  * Creates multiple Cashier test data objects
  * Requires store_id and created_by to be provided
+ *
+ * @param count - Number of cashiers to create
+ * @param overrides - Fields to override default values, including optional pin (defaults to "0000")
+ * @returns Promise<CashierData[]> array of cashier data objects
+ *
+ * @example
+ * const cashiers = await Promise.all(
+ *   (await createCashiers(5, {
+ *     store_id: testStore.store_id,
+ *     created_by: testUser.user_id,
+ *     pin: "1234", // Optional: defaults to "0000"
+ *   })).map(data => prisma.cashier.create({ data }))
+ * );
  */
-export const createCashiers = (
+export const createCashiers = async (
   count: number,
-  overrides: Partial<CashierData> & { store_id: string; created_by: string },
-): CashierData[] =>
-  Array.from({ length: count }, (_, i) =>
-    createCashier({
-      ...overrides,
-      employee_id: String(i + 1).padStart(4, "0"),
-    }),
+  overrides: Partial<CashierData> & {
+    store_id: string;
+    created_by: string;
+    pin?: string;
+  },
+): Promise<CashierData[]> =>
+  Promise.all(
+    Array.from({ length: count }, (_, i) =>
+      createCashier({
+        ...overrides,
+        employee_id: String(i + 1).padStart(4, "0"),
+      }),
+    ),
   );

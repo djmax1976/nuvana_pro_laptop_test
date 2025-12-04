@@ -95,8 +95,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             detectedUserRole = "SHIFT_MANAGER";
           } else if (roles.includes("CASHIER")) {
             detectedUserRole = "CASHIER";
-          } else if (roles.includes("SUPER_ADMIN")) {
-            detectedUserRole = "SUPER_ADMIN";
+          } else if (roles.includes("SUPERADMIN")) {
+            detectedUserRole = "SUPERADMIN";
           }
 
           // Check if user is a store-level user
@@ -301,8 +301,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           detectedUserRole = "SHIFT_MANAGER";
         } else if (roles.includes("CASHIER")) {
           detectedUserRole = "CASHIER";
-        } else if (roles.includes("SUPER_ADMIN")) {
-          detectedUserRole = "SUPER_ADMIN";
+        } else if (roles.includes("SUPERADMIN")) {
+          detectedUserRole = "SUPERADMIN";
         }
 
         const detectedIsStoreUser = roles.some((r: string) =>

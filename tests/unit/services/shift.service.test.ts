@@ -148,7 +148,7 @@ beforeAll(async () => {
 
   // Create test cashier (Cashier entity, not User)
   testCashier = await prisma.cashier.create({
-    data: createCashier({
+    data: await createCashier({
       store_id: testStore.store_id,
       created_by: testOwnerUser.user_id,
       employee_id: "0001",
@@ -684,7 +684,7 @@ describe("ShiftService - openShift", () => {
     it("4.2-UNIT-013: should reject request when cashier is inactive", async () => {
       // GIVEN: An inactive cashier (Cashier entity with is_active=false)
       const inactiveCashier = await prisma.cashier.create({
-        data: createCashier({
+        data: await createCashier({
           store_id: testStore.store_id,
           created_by: testOwnerUser.user_id,
           employee_id: "9999",

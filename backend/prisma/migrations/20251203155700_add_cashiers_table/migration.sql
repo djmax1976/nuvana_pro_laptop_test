@@ -28,8 +28,10 @@ CREATE UNIQUE INDEX "cashiers_store_id_pin_hash_key" ON "cashiers"("store_id", "
 -- CreateIndex: store_id for lookups
 CREATE INDEX "cashiers_store_id_idx" ON "cashiers"("store_id");
 
--- CreateIndex: employee_id for lookups
-CREATE INDEX "cashiers_employee_id_idx" ON "cashiers"("employee_id");
+-- Note: No single-column index on employee_id needed
+-- All queries that filter by employee_id also filter by store_id (see authenticateCashier)
+-- The composite unique index (store_id, employee_id) efficiently handles these queries
+-- A single-column index on employee_id would be low-selectivity and redundant
 
 -- CreateIndex: is_active for filtering
 CREATE INDEX "cashiers_is_active_idx" ON "cashiers"("is_active");
