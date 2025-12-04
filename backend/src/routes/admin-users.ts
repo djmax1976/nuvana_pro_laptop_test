@@ -71,13 +71,14 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         const parseResult = createUserSchema.safeParse(request.body);
         if (!parseResult.success) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
             error: {
               code: "VALIDATION_ERROR",
               message: parseResult.error.issues[0].message,
             },
-          };
+          });
+          return;
         }
 
         const {
@@ -113,10 +114,10 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         );
 
         reply.code(201);
-        return {
+        reply.send({
           success: true,
           data: createdUser,
-        };
+        });
       } catch (error: unknown) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
@@ -125,13 +126,14 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         // 409 Conflict for duplicate email
         if (message.includes("already exists")) {
           reply.code(409);
-          return {
+          reply.send({
             success: false,
             error: {
               code: "CONFLICT",
               message,
             },
-          };
+          });
+          return;
         }
 
         if (
@@ -145,23 +147,24 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           message.includes("inactive company")
         ) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
             error: {
               code: "VALIDATION_ERROR",
               message,
             },
-          };
+          });
+          return;
         }
 
         reply.code(500);
-        return {
+        reply.send({
           success: false,
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to create user",
           },
-        };
+        });
       }
     },
   );
@@ -184,11 +187,14 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         const parseResult = listUsersQuerySchema.safeParse(request.query);
         if (!parseResult.success) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Validation error",
-            message: parseResult.error.issues[0].message,
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
+          });
+          return;
         }
 
         const { page, limit, search, status } = parseResult.data;
@@ -201,7 +207,7 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         });
 
         reply.code(200);
-        return {
+        reply.send({
           success: true,
           data: result.data,
           meta: {
@@ -210,15 +216,17 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
             total: result.meta.total,
             totalPages: result.meta.totalPages,
           },
-        };
+        });
       } catch (error) {
         fastify.log.error({ error }, "Error fetching users");
         reply.code(500);
-        return {
+        reply.send({
           success: false,
-          error: "Internal server error",
-          message: "Failed to fetch users",
-        };
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch users",
+          },
+        });
       }
     },
   );
@@ -273,8 +281,10 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to fetch user",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch user",
+          },
         };
       }
     },
@@ -300,22 +310,28 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         // Validate UUID format
         if (!isValidUUID(userId)) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Invalid user ID",
-            message: "User ID must be a valid UUID",
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          });
+          return;
         }
 
         // Validate request body
         const parseResult = updateUserStatusSchema.safeParse(request.body);
         if (!parseResult.success) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Validation error",
-            message: parseResult.error.issues[0].message,
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
+          });
+          return;
         }
 
         const { status } = parseResult.data;
@@ -323,11 +339,14 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         // Prevent self-deactivation: users cannot deactivate their own account
         if (userId === user.id && status === "INACTIVE") {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Validation error",
-            message: "You cannot deactivate your own account",
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "You cannot deactivate your own account",
+            },
+          });
+          return;
         }
 
         const auditContext = getAuditContext(request, user);
@@ -339,10 +358,10 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         );
 
         reply.code(200);
-        return {
+        reply.send({
           success: true,
           data: updatedUser,
-        };
+        });
       } catch (error: unknown) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
@@ -350,28 +369,36 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
 
         if (message.includes("not found")) {
           reply.code(404);
-          return {
+          reply.send({
             success: false,
-            error: "Not found",
-            message: "User not found",
-          };
+            error: {
+              code: "NOT_FOUND",
+              message: "User not found",
+            },
+          });
+          return;
         }
 
         if (message.includes("Invalid status")) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Validation error",
-            message,
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
+          });
+          return;
         }
 
         reply.code(500);
-        return {
+        reply.send({
           success: false,
-          error: "Internal server error",
-          message: "Failed to update user status",
-        };
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update user status",
+          },
+        });
       }
     },
   );
@@ -396,22 +423,28 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         // Validate UUID format
         if (!isValidUUID(userId)) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Invalid user ID",
-            message: "User ID must be a valid UUID",
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          });
+          return;
         }
 
         // Validate request body - use strict schema for adding roles to existing users
         const parseResult = strictRoleAssignmentSchema.safeParse(request.body);
         if (!parseResult.success) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Validation error",
-            message: parseResult.error.issues[0].message,
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
+          });
+          return;
         }
 
         const roleAssignment = parseResult.data;
@@ -429,10 +462,10 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         );
 
         reply.code(201);
-        return {
+        reply.send({
           success: true,
           data: userRole,
-        };
+        });
       } catch (error: unknown) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
@@ -440,11 +473,14 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
 
         if (message.includes("not found")) {
           reply.code(404);
-          return {
+          reply.send({
             success: false,
-            error: "Not found",
-            message,
-          };
+            error: {
+              code: "NOT_FOUND",
+              message,
+            },
+          });
+          return;
         }
 
         if (
@@ -454,19 +490,24 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           message.includes("already has this role")
         ) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Validation error",
-            message,
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
+          });
+          return;
         }
 
         reply.code(500);
-        return {
+        reply.send({
           success: false,
-          error: "Internal server error",
-          message: "Failed to assign role",
-        };
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to assign role",
+          },
+        });
       }
     },
   );
@@ -494,20 +535,26 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         // Validate UUID formats
         if (!isValidUUID(userId)) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Invalid user ID",
-            message: "User ID must be a valid UUID",
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          });
+          return;
         }
 
         if (!isValidUUID(userRoleId)) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Invalid user role ID",
-            message: "User role ID must be a valid UUID",
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User role ID must be a valid UUID",
+            },
+          });
+          return;
         }
 
         const auditContext = getAuditContext(request, user);
@@ -516,21 +563,24 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         const userWithRoles = await userAdminService.getUserById(userId);
         if (userWithRoles.roles.length <= 1) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Validation error",
-            message:
-              "Cannot revoke the user's last role. Users must have at least one role.",
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message:
+                "Cannot revoke the user's last role. Users must have at least one role.",
+            },
+          });
+          return;
         }
 
         await userAdminService.revokeRole(userId, userRoleId, auditContext);
 
         reply.code(200);
-        return {
+        reply.send({
           success: true,
           message: "Role revoked successfully",
-        };
+        });
       } catch (error: unknown) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
@@ -538,28 +588,36 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
 
         if (message.includes("not found")) {
           reply.code(404);
-          return {
+          reply.send({
             success: false,
-            error: "Not found",
-            message,
-          };
+            error: {
+              code: "NOT_FOUND",
+              message,
+            },
+          });
+          return;
         }
 
         if (message.includes("does not belong")) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Validation error",
-            message,
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
+          });
+          return;
         }
 
         reply.code(500);
-        return {
+        reply.send({
           success: false,
-          error: "Internal server error",
-          message: "Failed to revoke role",
-        };
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to revoke role",
+          },
+        });
       }
     },
   );
@@ -584,21 +642,27 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         // Validate UUID format
         if (!isValidUUID(userId)) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Invalid user ID",
-            message: "User ID must be a valid UUID",
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          });
+          return;
         }
 
         // Prevent self-deletion
         if (userId === user.id) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Validation error",
-            message: "You cannot delete your own account",
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "You cannot delete your own account",
+            },
+          });
+          return;
         }
 
         const auditContext = getAuditContext(request, user);
@@ -609,11 +673,11 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
         );
 
         reply.code(200);
-        return {
+        reply.send({
           success: true,
           data: deletedUser,
           message: "User deleted successfully",
-        };
+        });
       } catch (error: unknown) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
@@ -621,20 +685,26 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
 
         if (message.includes("not found")) {
           reply.code(404);
-          return {
+          reply.send({
             success: false,
-            error: "Not found",
-            message: "User not found",
-          };
+            error: {
+              code: "NOT_FOUND",
+              message: "User not found",
+            },
+          });
+          return;
         }
 
         if (message.includes("ACTIVE user")) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Validation error",
-            message,
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
+          });
+          return;
         }
 
         if (
@@ -642,19 +712,24 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           message.includes("active store")
         ) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
-            error: "Validation error",
-            message,
-          };
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
+          });
+          return;
         }
 
         reply.code(500);
-        return {
+        reply.send({
           success: false,
-          error: "Internal server error",
-          message: "Failed to delete user",
-        };
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to delete user",
+          },
+        });
       }
     },
   );

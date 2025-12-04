@@ -144,11 +144,16 @@ async function apiRequest<T>(
     !("data" in result) ||
     result.data === undefined
   ) {
-    const payloadPreview = JSON.stringify(result, null, 2);
+    // Only include payload preview in development/test to prevent information leakage in production
+    // Truncate to 500 chars to prevent huge error messages
+    // In test environment, we need the payload for debugging test failures
+    const payloadPreview =
+      process.env.NODE_ENV !== "production"
+        ? ` Payload: ${JSON.stringify(result, null, 2).slice(0, 500)}`
+        : "";
     throw new Error(
-      `Invalid API response format: Expected { success: true, data: T } but received unexpected payload. ` +
-        `HTTP Status: ${status} ${statusText}. ` +
-        `Payload: ${payloadPreview}`,
+      `Invalid API response format: Expected { success: true, data: T }. ` +
+        `HTTP Status: ${status} ${statusText}.${payloadPreview}`,
     );
   }
 

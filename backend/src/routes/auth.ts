@@ -33,13 +33,14 @@ export async function authRoutes(fastify: FastifyInstance) {
         // Validate input
         if (!email || !password) {
           reply.code(400);
-          return {
+          reply.send({
             success: false,
             error: {
               code: "VALIDATION_ERROR",
               message: "Email and password are required",
             },
-          };
+          });
+          return;
         }
 
         // Find user by email
@@ -49,38 +50,41 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         if (!user) {
           reply.code(401);
-          return {
+          reply.send({
             success: false,
             error: {
               code: "UNAUTHORIZED",
               message: "Invalid email or password",
             },
-          };
+          });
+          return;
         }
 
         // Check if user is active
         if (user.status !== "ACTIVE") {
           reply.code(401);
-          return {
+          reply.send({
             success: false,
             error: {
               code: "UNAUTHORIZED",
               message: "Account is inactive",
             },
-          };
+          });
+          return;
         }
 
         // Check if user has a password set
         // Return generic message to not leak account existence
         if (!user.password_hash) {
           reply.code(401);
-          return {
+          reply.send({
             success: false,
             error: {
               code: "UNAUTHORIZED",
               message: "Invalid email or password",
             },
-          };
+          });
+          return;
         }
 
         // Verify password
@@ -91,13 +95,14 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         if (!isValidPassword) {
           reply.code(401);
-          return {
+          reply.send({
             success: false,
             error: {
               code: "UNAUTHORIZED",
               message: "Invalid email or password",
             },
-          };
+          });
+          return;
         }
 
         // Generate JWT tokens with RBAC
@@ -187,27 +192,31 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         // Return success response with user data (including user_role for routing)
         reply.code(200);
-        return {
-          message: "Login successful",
-          user: {
-            id: user.user_id,
-            email: user.email,
-            name: user.name,
-            is_client_user: isClientUser,
-            user_role: userRole,
-            roles: roleCodes,
+        reply.send({
+          success: true,
+          data: {
+            message: "Login successful",
+            user: {
+              id: user.user_id,
+              email: user.email,
+              name: user.name,
+              is_client_user: isClientUser,
+              user_role: userRole,
+              roles: roleCodes,
+            },
           },
-        };
+        });
+        return;
       } catch (error) {
         fastify.log.error({ error }, "Login error");
         reply.code(500);
-        return {
+        reply.send({
           success: false,
           error: {
             code: "INTERNAL_ERROR",
             message: "An error occurred during login",
           },
-        };
+        });
       }
     },
   );

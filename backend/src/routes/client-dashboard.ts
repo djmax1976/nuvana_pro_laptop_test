@@ -65,13 +65,14 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
           (!dbUser.is_client_user && !hasClientDashboardPermission)
         ) {
           reply.code(403);
-          return {
+          reply.send({
             success: false,
             error: {
               code: "PERMISSION_DENIED",
               message: "This endpoint is for client users only",
             },
-          };
+          });
+          return;
         }
 
         // Get companies owned by this user with store counts
@@ -333,7 +334,7 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
 
         // Format response to match ClientDashboardResponse interface
         reply.code(200);
-        return {
+        reply.send({
           success: true,
           data: {
             user: {
@@ -390,17 +391,17 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
               today_transactions: todayTransactionCount,
             },
           },
-        };
+        });
       } catch (error) {
         fastify.log.error({ error }, "Client dashboard error");
         reply.code(500);
-        return {
+        reply.send({
           success: false,
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to load dashboard data",
           },
-        };
+        });
       }
     },
   );

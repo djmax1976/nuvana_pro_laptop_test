@@ -72,8 +72,10 @@ async function validateCreateCashierBody(
     reply.code(400);
     reply.send({
       success: false,
-      error: "Validation error",
-      message: parseResult.error.issues[0].message,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: parseResult.error.issues[0].message,
+      },
     });
     return;
   }
@@ -92,8 +94,10 @@ async function validateUpdateCashierBody(
     reply.code(400);
     reply.send({
       success: false,
-      error: "Validation error",
-      message: parseResult.error.issues[0].message,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: parseResult.error.issues[0].message,
+      },
     });
     return;
   }
@@ -112,8 +116,10 @@ async function validateAuthenticateCashierBody(
     reply.code(400);
     reply.send({
       success: false,
-      error: "Validation error",
-      message: parseResult.error.issues[0].message,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: parseResult.error.issues[0].message,
+      },
     });
     return;
   }
