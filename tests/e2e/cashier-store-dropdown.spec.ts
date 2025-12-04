@@ -4,23 +4,105 @@
  */
 
 import { test, expect } from "@playwright/test";
+import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcrypt";
+import { v4 as uuidv4 } from "uuid";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
+import { cleanupTestData } from "../support/cleanup-helper";
+import { createStore, createCompany } from "../support/factories";
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
-// Validate required environment variables for E2E tests
-const TEST_EMAIL = process.env.TEST_EMAIL;
-const TEST_PASSWORD = process.env.TEST_PASSWORD;
+const prisma = new PrismaClient();
+const TEST_PASSWORD = "TestPassword123!";
 
-if (!TEST_EMAIL || !TEST_PASSWORD) {
-  throw new Error(
-    "Missing required environment variables for E2E tests. " +
-      "Please set TEST_EMAIL and TEST_PASSWORD in your environment or .env.local file. " +
-      "These credentials should be for a test client user with access to stores and cashiers. " +
-      "Never commit real credentials to version control.",
-  );
-}
+let testUser: any;
+let testCompany: any;
+let testStore: any;
+let testEmail: string;
 
 test.describe("Cashier Store Dropdown", () => {
+  test.beforeAll(async () => {
+    // Clean up any existing test data
+    const existingUsers = await prisma.user.findMany({
+      where: { email: { startsWith: "cashier-e2e-" } },
+      select: { user_id: true },
+    });
+
+    for (const user of existingUsers) {
+      await prisma.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+    }
+
+    await prisma.user.deleteMany({
+      where: { email: { startsWith: "cashier-e2e-" } },
+    });
+
+    // Create test client user
+    testEmail = `cashier-e2e-${Date.now()}@test.com`;
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10);
+
+    testUser = await prisma.user.create({
+      data: {
+        user_id: uuidv4(),
+        email: testEmail,
+        name: "Cashier E2E Test Client",
+        status: "ACTIVE",
+        password_hash: passwordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
+    });
+
+    // Create test company owned by the user
+    testCompany = await prisma.company.create({
+      data: createCompany({
+        name: "E2E Test Company for Cashiers",
+        status: "ACTIVE",
+        owner_user_id: testUser.user_id,
+      }),
+    });
+
+    // Create test store
+    testStore = await prisma.store.create({
+      data: createStore({
+        company_id: testCompany.company_id,
+        name: "Kanta Food Products Store",
+        status: "ACTIVE",
+      }),
+    });
+
+    // Assign CLIENT_USER role to the user for the company
+    const clientUserRole = await prisma.role.findUnique({
+      where: { code: "CLIENT_USER" },
+    });
+
+    if (clientUserRole) {
+      await prisma.userRole.create({
+        data: {
+          user_id: testUser.user_id,
+          role_id: clientUserRole.role_id,
+          company_id: testCompany.company_id,
+        },
+      });
+    }
+  });
+
+  test.afterAll(async () => {
+    // Cleanup test data
+    await cleanupTestData(prisma, {
+      stores: testStore ? [testStore.store_id] : [],
+      companies: testCompany ? [testCompany.company_id] : [],
+      users: testUser ? [testUser.user_id] : [],
+    });
+
+    await prisma.$disconnect();
+  });
+
   test("should show store in dropdown when adding cashier", async ({
     page,
   }) => {
@@ -66,7 +148,7 @@ test.describe("Cashier Store Dropdown", () => {
       )
       .first();
     await emailInput.waitFor({ state: "visible", timeout: 10000 });
-    await emailInput.fill(TEST_EMAIL);
+    await emailInput.fill(testEmail);
 
     // Find and fill password field
     const passwordInput = page
@@ -227,7 +309,7 @@ test.describe("Cashier Store Dropdown", () => {
       )
       .first();
     await emailInput.waitFor({ state: "visible", timeout: 10000 });
-    await emailInput.fill(TEST_EMAIL);
+    await emailInput.fill(testEmail);
 
     const passwordInput = page
       .locator('input[type="password"], input[name="password"]')
@@ -262,7 +344,7 @@ test.describe("Cashier Store Dropdown", () => {
     const storeDropdown = page.locator('[data-testid="cashier-store"]');
     const storeText = await storeDropdown.textContent();
     console.log("Store dropdown shows:", storeText);
-    expect(storeText).toContain("Kanta Food Products Store");
+    expect(storeText).toContain(testStore.name);
 
     // Wait for the hidden select to have the value set (ensures form state is ready)
     await page.waitForFunction(
