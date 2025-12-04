@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +18,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const router = useRouter();
 
   // Define explicit set of allowed roles
   const ALLOWED_ROLES = [
@@ -25,7 +27,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
     "STORE_MANAGER",
     "SHIFT_MANAGER",
     "CASHIER",
-    "SUPER_ADMIN",
+    "SUPERADMIN",
   ] as const;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -92,7 +94,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
 
         // Redirect to login page (safe fallback)
         setTimeout(() => {
-          window.location.href = "/login";
+          router.push("/login");
         }, 2000);
 
         setError("Invalid user role. Redirecting to login...");
@@ -135,11 +137,11 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         // - CLIENT_OWNER goes to /client-dashboard (client owner dashboard)
         // - Admin users (SUPER_ADMIN) go to /dashboard (admin dashboard)
         if (isStoreUser) {
-          window.location.href = "/mystore";
+          router.push("/mystore");
         } else if (userRole === "CLIENT_OWNER") {
-          window.location.href = "/client-dashboard";
+          router.push("/client-dashboard");
         } else {
-          window.location.href = "/dashboard";
+          router.push("/dashboard");
         }
       }
     } catch (err) {
