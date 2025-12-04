@@ -462,7 +462,9 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     expect(response.status()).toBe(403);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.error || body.message).toMatch(/permission|forbidden|access/i);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("PERMISSION_DENIED");
+    expect(body.error.message).toMatch(/permission|forbidden|access/i);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -922,7 +924,9 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     expect(response.status()).toBe(401);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.error).toBe("Authentication failed");
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("AUTHENTICATION_FAILED");
+    expect(body.error.message).toBe("Authentication failed");
   });
 
   test("4.91-API-016: [P0] POST /api/stores/:storeId/cashiers/authenticate - should reject inactive cashier (AC #8)", async ({
@@ -962,7 +966,11 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error should be generic for security").toBe(
+    expect(body.error, "Error object should be present").toBeDefined();
+    expect(body.error.code, "Error code should be AUTHENTICATION_FAILED").toBe(
+      "AUTHENTICATION_FAILED",
+    );
+    expect(body.error.message, "Error should be generic for security").toBe(
       "Authentication failed",
     );
   });
@@ -1147,10 +1155,13 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(
-      body.error || body.message,
-      "Error should mention permission",
-    ).toMatch(/permission|forbidden|access/i);
+    expect(body.error, "Error object should be present").toBeDefined();
+    expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
+      "PERMISSION_DENIED",
+    );
+    expect(body.error.message, "Error should mention permission").toMatch(
+      /permission|forbidden|access/i,
+    );
   });
 
   test("4.91-API-SEC-007: [P0] PUT /api/stores/:storeId/cashiers/:cashierId - should enforce CASHIER_UPDATE permission", async ({
@@ -1195,10 +1206,13 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(
-      body.error || body.message,
-      "Error should mention permission",
-    ).toMatch(/permission|forbidden|access/i);
+    expect(body.error, "Error object should be present").toBeDefined();
+    expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
+      "PERMISSION_DENIED",
+    );
+    expect(body.error.message, "Error should mention permission").toMatch(
+      /permission|forbidden|access/i,
+    );
   });
 
   test("4.91-API-SEC-008: [P0] DELETE /api/stores/:storeId/cashiers/:cashierId - should enforce CASHIER_DELETE permission", async ({
@@ -1240,10 +1254,13 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(
-      body.error || body.message,
-      "Error should mention permission",
-    ).toMatch(/permission|forbidden|access/i);
+    expect(body.error, "Error object should be present").toBeDefined();
+    expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
+      "PERMISSION_DENIED",
+    );
+    expect(body.error.message, "Error should mention permission").toMatch(
+      /permission|forbidden|access/i,
+    );
   });
 
   test("4.91-API-SEC-009: [P0] All endpoints - should never return pin_hash in response", async ({

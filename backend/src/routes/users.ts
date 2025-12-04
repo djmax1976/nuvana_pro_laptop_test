@@ -39,8 +39,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         if (!userDetails) {
           reply.code(404);
           return {
-            error: "User not found",
-            message: "User profile not found in database",
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "User profile not found in database",
+            },
           };
         }
 
@@ -52,8 +55,11 @@ export async function userRoutes(fastify: FastifyInstance) {
         fastify.log.error({ error }, "Error fetching user profile");
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to fetch user profile",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch user profile",
+          },
         };
       }
     },

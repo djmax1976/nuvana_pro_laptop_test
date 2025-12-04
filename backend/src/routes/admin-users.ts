@@ -73,8 +73,10 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: parseResult.error.issues[0].message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
           };
         }
 
@@ -125,8 +127,10 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           reply.code(409);
           return {
             success: false,
-            error: "Conflict",
-            message,
+            error: {
+              code: "CONFLICT",
+              message,
+            },
           };
         }
 
@@ -143,16 +147,20 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to create user",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to create user",
+          },
         };
       }
     },

@@ -34,8 +34,11 @@ export async function authRoutes(fastify: FastifyInstance) {
         if (!email || !password) {
           reply.code(400);
           return {
-            error: "Bad Request",
-            message: "Email and password are required",
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Email and password are required",
+            },
           };
         }
 
@@ -47,8 +50,11 @@ export async function authRoutes(fastify: FastifyInstance) {
         if (!user) {
           reply.code(401);
           return {
-            error: "Unauthorized",
-            message: "Invalid email or password",
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid email or password",
+            },
           };
         }
 
@@ -56,8 +62,11 @@ export async function authRoutes(fastify: FastifyInstance) {
         if (user.status !== "ACTIVE") {
           reply.code(401);
           return {
-            error: "Unauthorized",
-            message: "Account is inactive",
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Account is inactive",
+            },
           };
         }
 
@@ -66,8 +75,11 @@ export async function authRoutes(fastify: FastifyInstance) {
         if (!user.password_hash) {
           reply.code(401);
           return {
-            error: "Unauthorized",
-            message: "Invalid email or password",
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid email or password",
+            },
           };
         }
 
@@ -80,8 +92,11 @@ export async function authRoutes(fastify: FastifyInstance) {
         if (!isValidPassword) {
           reply.code(401);
           return {
-            error: "Unauthorized",
-            message: "Invalid email or password",
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid email or password",
+            },
           };
         }
 
@@ -187,8 +202,11 @@ export async function authRoutes(fastify: FastifyInstance) {
         fastify.log.error({ error }, "Login error");
         reply.code(500);
         return {
-          error: "Internal Server Error",
-          message: "An error occurred during login",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "An error occurred during login",
+          },
         };
       }
     },

@@ -66,8 +66,11 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
         ) {
           reply.code(403);
           return {
-            error: "Access denied",
-            message: "This endpoint is for client users only",
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: "This endpoint is for client users only",
+            },
           };
         }
 
@@ -389,8 +392,11 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
         fastify.log.error({ error }, "Client dashboard error");
         reply.code(500);
         return {
-          error: "Internal Server Error",
-          message: "Failed to load dashboard data",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to load dashboard data",
+          },
         };
       }
     },

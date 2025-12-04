@@ -31,16 +31,22 @@ export async function contactRoutes(fastify: FastifyInstance) {
         if (!name || name.trim() === "") {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: "Name is required and cannot be empty",
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Name is required and cannot be empty",
+            },
           };
         }
 
         if (!email || email.trim() === "") {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: "Email is required and cannot be empty",
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Email is required and cannot be empty",
+            },
           };
         }
 
@@ -49,16 +55,22 @@ export async function contactRoutes(fastify: FastifyInstance) {
         if (!emailRegex.test(email)) {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: "Email format is invalid",
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Email format is invalid",
+            },
           };
         }
 
         if (!message || message.trim() === "") {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: "Message is required and cannot be empty",
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Message is required and cannot be empty",
+            },
           };
         }
 
@@ -92,8 +104,11 @@ export async function contactRoutes(fastify: FastifyInstance) {
         fastify.log.error({ error }, "Error processing contact form");
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Something went wrong. Please try again.",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Something went wrong. Please try again.",
+          },
         };
       }
     },

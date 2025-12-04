@@ -256,8 +256,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         fastify.log.error({ error }, "Error retrieving all stores");
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to retrieve stores",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to retrieve stores",
+          },
         };
       }
     },
@@ -557,8 +560,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to create store",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to create store",
+          },
         };
       }
     },
@@ -717,8 +723,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to retrieve stores",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to retrieve stores",
+          },
         };
       }
     },
@@ -903,8 +912,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to retrieve store",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to retrieve store",
+          },
         };
       }
     },
@@ -1061,8 +1073,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (!oldStore) {
           reply.code(404);
           return {
-            error: "Not found",
-            message: "Store not found",
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
           };
         }
 
@@ -1218,8 +1233,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to update store",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update store",
+          },
         };
       }
     },
@@ -1494,8 +1512,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (!oldStore) {
           reply.code(404);
           return {
-            error: "Not found",
-            message: "Store not found",
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
           };
         }
 
@@ -1766,8 +1787,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to update store configuration",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update store configuration",
+          },
         };
       }
     },
@@ -1875,8 +1899,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (!oldStore) {
           reply.code(404);
           return {
-            error: "Not found",
-            message: "Store not found",
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
           };
         }
 
@@ -1980,14 +2007,20 @@ export async function storeRoutes(fastify: FastifyInstance) {
         if (error.message.includes("ACTIVE store")) {
           reply.code(400);
           return {
-            error: "Bad Request",
-            message: error.message,
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: error.message,
+            },
           };
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to delete store",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to delete store",
+          },
         };
       }
     },
@@ -2151,8 +2184,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to retrieve store terminals",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to retrieve store terminals",
+          },
         };
       }
     },
@@ -2414,8 +2450,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to create terminal",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to create terminal",
+          },
         };
       }
     },
@@ -2675,8 +2714,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to update terminal",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update terminal",
+          },
         };
       }
     },
@@ -2824,8 +2866,11 @@ export async function storeRoutes(fastify: FastifyInstance) {
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to delete terminal",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to delete terminal",
+          },
         };
       }
     },

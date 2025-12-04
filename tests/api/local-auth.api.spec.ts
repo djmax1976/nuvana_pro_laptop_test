@@ -60,8 +60,10 @@ test.describe("Local Authentication API", () => {
       expect(response.status()).toBe(401);
 
       const body = await response.json();
-      expect(body.error).toBe("Unauthorized");
-      expect(body.message).toBe("Invalid email or password");
+      expect(body.success).toBe(false);
+      expect(body.error).toBeDefined();
+      expect(body.error.code).toBe("UNAUTHORIZED");
+      expect(body.error.message).toBe("Invalid email or password");
     });
 
     test("should return 401 for invalid password", async ({
@@ -110,8 +112,10 @@ test.describe("Local Authentication API", () => {
         expect(response.status()).toBe(401);
 
         const body = await response.json();
-        expect(body.error).toBe("Unauthorized");
-        expect(body.message).toBe("Account is inactive");
+        expect(body.success).toBe(false);
+        expect(body.error).toBeDefined();
+        expect(body.error.code).toBe("UNAUTHORIZED");
+        expect(body.error.message).toBe("Account is inactive");
       } finally {
         await prismaClient.userRole.deleteMany({
           where: { user_id: user.user_id },
@@ -139,7 +143,10 @@ test.describe("Local Authentication API", () => {
         const body = await response.json();
         expect(body.error).toBe("Unauthorized");
         // API returns generic message for security (don't leak account existence)
-        expect(body.message).toBe("Invalid email or password");
+        expect(body.success).toBe(false);
+        expect(body.error).toBeDefined();
+        expect(body.error.code).toBe("UNAUTHORIZED");
+        expect(body.error.message).toBe("Invalid email or password");
       } finally {
         await prismaClient.user.delete({ where: { user_id: user.user_id } });
       }
@@ -153,8 +160,10 @@ test.describe("Local Authentication API", () => {
       expect(response.status()).toBe(400);
 
       const body = await response.json();
-      expect(body.error).toBe("Bad Request");
-      expect(body.message).toBe("Email and password are required");
+      expect(body.success).toBe(false);
+      expect(body.error).toBeDefined();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+      expect(body.error.message).toBe("Email and password are required");
     });
 
     test("should return 400 for missing password", async ({ apiRequest }) => {
@@ -165,8 +174,10 @@ test.describe("Local Authentication API", () => {
       expect(response.status()).toBe(400);
 
       const body = await response.json();
-      expect(body.error).toBe("Bad Request");
-      expect(body.message).toBe("Email and password are required");
+      expect(body.success).toBe(false);
+      expect(body.error).toBeDefined();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+      expect(body.error.message).toBe("Email and password are required");
     });
 
     test("should normalize email to lowercase", async ({

@@ -97,8 +97,10 @@ export async function clientRoleRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "INTERNAL_ERROR",
-          message: "Failed to fetch roles. Please try again later.",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch roles. Please try again later.",
+          },
         };
       }
     },
@@ -130,8 +132,10 @@ export async function clientRoleRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "VALIDATION_ERROR",
-            message: "Invalid role ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid role ID format",
+            },
           };
         }
 
@@ -154,8 +158,10 @@ export async function clientRoleRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "NOT_FOUND",
-            message: "Role not found",
+            error: {
+              code: "NOT_FOUND",
+              message: "Role not found",
+            },
           };
         }
 
@@ -163,16 +169,21 @@ export async function clientRoleRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "INVALID_SCOPE",
-            message: message,
+            error: {
+              code: "INVALID_SCOPE",
+              message: message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "INTERNAL_ERROR",
-          message: "Failed to fetch role permissions. Please try again later.",
+          error: {
+            code: "INTERNAL_ERROR",
+            message:
+              "Failed to fetch role permissions. Please try again later.",
+          },
         };
       }
     },
@@ -205,8 +216,10 @@ export async function clientRoleRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "VALIDATION_ERROR",
-            message: "Invalid role ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid role ID format",
+            },
           };
         }
 
@@ -216,8 +229,10 @@ export async function clientRoleRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "VALIDATION_ERROR",
-            message: parseResult.error.issues[0].message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
           };
         }
 
@@ -247,10 +262,12 @@ export async function clientRoleRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "NOT_FOUND",
-            message: message.includes("Permission")
-              ? "One or more permissions not found"
-              : "Role not found",
+            error: {
+              code: "NOT_FOUND",
+              message: message.includes("Permission")
+                ? "One or more permissions not found"
+                : "Role not found",
+            },
           };
         }
 
@@ -258,8 +275,10 @@ export async function clientRoleRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "INVALID_SCOPE",
-            message: message,
+            error: {
+              code: "INVALID_SCOPE",
+              message: message,
+            },
           };
         }
 
@@ -267,16 +286,21 @@ export async function clientRoleRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "RESTRICTED_PERMISSION",
-            message: message,
+            error: {
+              code: "RESTRICTED_PERMISSION",
+              message: message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "INTERNAL_ERROR",
-          message: "Failed to update role permissions. Please try again later.",
+          error: {
+            code: "INTERNAL_ERROR",
+            message:
+              "Failed to update role permissions. Please try again later.",
+          },
         };
       }
     },
@@ -309,8 +333,10 @@ export async function clientRoleRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "VALIDATION_ERROR",
-            message: "Invalid role ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid role ID format",
+            },
           };
         }
 
@@ -337,8 +363,10 @@ export async function clientRoleRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "NOT_FOUND",
-            message: "Role not found",
+            error: {
+              code: "NOT_FOUND",
+              message: "Role not found",
+            },
           };
         }
 
@@ -346,16 +374,21 @@ export async function clientRoleRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "INVALID_SCOPE",
-            message: message,
+            error: {
+              code: "INVALID_SCOPE",
+              message: message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "INTERNAL_ERROR",
-          message: "Failed to reset role permissions. Please try again later.",
+          error: {
+            code: "INTERNAL_ERROR",
+            message:
+              "Failed to reset role permissions. Please try again later.",
+          },
         };
       }
     },

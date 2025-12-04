@@ -209,16 +209,20 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to create cashier",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to create cashier",
+          },
         };
       }
     },
@@ -270,8 +274,10 @@ export async function cashierRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to list cashiers",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to list cashiers",
+          },
         };
       }
     },
@@ -311,8 +317,10 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message: "Cashier not found",
+            error: {
+              code: "NOT_FOUND",
+              message: "Cashier not found",
+            },
           };
         }
 
@@ -382,8 +390,10 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message,
+            error: {
+              code: "NOT_FOUND",
+              message: message || "Cashier not found",
+            },
           };
         }
 
@@ -395,16 +405,20 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to update cashier",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update cashier",
+          },
         };
       }
     },
@@ -447,16 +461,20 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message,
+            error: {
+              code: "NOT_FOUND",
+              message: message || "Cashier not found",
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to delete cashier",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to delete cashier",
+          },
         };
       }
     },
@@ -506,16 +524,20 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message,
+            error: {
+              code: "NOT_FOUND",
+              message: message || "Cashier not found",
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to restore cashier",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to restore cashier",
+          },
         };
       }
     },
@@ -588,16 +610,20 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           reply.code(401);
           return {
             success: false,
-            error: "Authentication failed",
-            message: "Authentication failed",
+            error: {
+              code: "AUTHENTICATION_FAILED",
+              message: "Authentication failed",
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to authenticate cashier",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to authenticate cashier",
+          },
         };
       }
     },
