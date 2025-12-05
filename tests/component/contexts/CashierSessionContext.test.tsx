@@ -379,13 +379,13 @@ describe("4.92-COMPONENT: CashierSessionContext", () => {
       });
 
       // WHEN: Getting session token
-      let token: string | null;
+      let token: string | null = null;
       act(() => {
         token = result.current.getSessionToken();
       });
 
       // THEN: Returns null and clears session
-      expect(token!).toBeNull();
+      expect(token).toBeNull();
       expect(result.current.session).toBeNull();
     });
   });

@@ -322,15 +322,25 @@ export async function endCashierSessionByToken(
  *
  * @param sessionId - Session ID
  * @param shiftId - Shift ID to link
+ * @returns true if successful, false if session not found or update failed
  */
 export async function linkSessionToShift(
   sessionId: string,
   shiftId: string,
-): Promise<void> {
-  await prisma.cashierSession.update({
-    where: { session_id: sessionId },
-    data: { shift_id: shiftId },
-  });
+): Promise<boolean> {
+  try {
+    await prisma.cashierSession.update({
+      where: { session_id: sessionId },
+      data: { shift_id: shiftId },
+    });
+    return true;
+  } catch (error) {
+    console.error(
+      `Failed to link session ${sessionId} to shift ${shiftId}:`,
+      error,
+    );
+    return false;
+  }
 }
 
 /**
