@@ -1,0 +1,3422 @@
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  afterEach,
+  beforeEach,
+} from "vitest";
+import { PrismaClient, Prisma, ShiftStatus } from "@prisma/client";
+import {
+  ShiftService,
+  ShiftServiceError,
+  ShiftErrorCode,
+  type AuditContext,
+} from "../../../backend/src/services/shift.service";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../../backend/src/utils/public-id";
+import {
+  createUser,
+  createCompany,
+  createStore,
+  createShift,
+  createCashier,
+  createTransaction,
+  createTransactionLineItem,
+  createTransactionPayment,
+} from "../../support/factories";
+import bcrypt from "bcrypt";
+
+/**
+ * @test-level UNIT
+ * @justification Unit tests for ShiftService business logic, validation, error handling, and edge cases. Tests service layer in isolation without HTTP layer.
+ * @story 4-2-shift-opening-api
+ * @enhanced-by workflow-9 on 2025-11-29
+ *
+ * Unit Tests: Shift Service - Shift Opening
+ *
+ * Story 4.2: Shift Opening API
+ *
+ * CRITICAL TEST COVERAGE:
+ * - Shift opening with valid data
+ * - Active shift conflict detection (OPEN, ACTIVE, CLOSING, RECONCILING)
+ * - Store access validation (RLS check)
+ * - Cashier validation (exists and active)
+ * - Terminal validation (exists, belongs to store, active)
+ * - Opening cash validation (non-negative)
+ * - Audit log creation
+ * - Error handling and error codes
+ */
+
+const prisma = new PrismaClient();
+const shiftService = new ShiftService();
+
+// Shared test data
+let testOwnerUser: any;
+let testShiftManagerUser: any;
+let testCashierUser: any;
+let testCashier: any; // Actual Cashier entity (not User)
+let testCompany: any;
+let testStore: any;
+let testTerminal: any;
+let testStoreRole: any;
+let testUserRoleId: string;
+
+const createdUserIds: string[] = [];
+const createdCompanyIds: string[] = [];
+const createdStoreIds: string[] = [];
+const createdTerminalIds: string[] = [];
+const createdCashierIds: string[] = [];
+const createdShiftIds: string[] = [];
+
+const mockAuditContext: AuditContext = {
+  userId: "",
+  userEmail: "test-shift-manager@test.com",
+  userRoles: ["SHIFT_MANAGER"],
+  ipAddress: "127.0.0.1",
+  userAgent: "vitest",
+};
+
+// Global setup
+beforeAll(async () => {
+  // Create test owner user
+  const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+  testOwnerUser = await prisma.user.create({
+    data: createUser({
+      email: `shift-service-test-owner-${Date.now()}@test.com`,
+      name: "Shift Service Test Owner",
+      password_hash: hashedPassword,
+      status: "ACTIVE",
+    }),
+  });
+  createdUserIds.push(testOwnerUser.user_id);
+
+  // Create test shift manager user
+  testShiftManagerUser = await prisma.user.create({
+    data: createUser({
+      email: `shift-service-test-manager-${Date.now()}@test.com`,
+      name: "Shift Service Test Manager",
+      password_hash: hashedPassword,
+      status: "ACTIVE",
+    }),
+  });
+  createdUserIds.push(testShiftManagerUser.user_id);
+  mockAuditContext.userId = testShiftManagerUser.user_id;
+
+  // Create test cashier user
+  testCashierUser = await prisma.user.create({
+    data: createUser({
+      email: `shift-service-test-cashier-${Date.now()}@test.com`,
+      name: "Shift Service Test Cashier",
+      password_hash: hashedPassword,
+      status: "ACTIVE",
+    }),
+  });
+  createdUserIds.push(testCashierUser.user_id);
+
+  // Create test company
+  testCompany = await prisma.company.create({
+    data: createCompany({
+      name: `Shift Service Test Company ${Date.now()}`,
+      owner_user_id: testOwnerUser.user_id,
+      status: "ACTIVE",
+    }),
+  });
+  createdCompanyIds.push(testCompany.company_id);
+
+  // Create test store
+  testStore = await prisma.store.create({
+    data: createStore({
+      company_id: testCompany.company_id,
+      status: "ACTIVE",
+    }),
+  });
+  createdStoreIds.push(testStore.store_id);
+
+  // Create test POS terminal
+  testTerminal = await prisma.pOSTerminal.create({
+    data: {
+      store_id: testStore.store_id,
+      name: `Test Terminal ${Date.now()}`,
+      device_id: `device-${Date.now()}`,
+    },
+  });
+  createdTerminalIds.push(testTerminal.pos_terminal_id);
+
+  // Create test cashier (Cashier entity, not User)
+  testCashier = await prisma.cashier.create({
+    data: await createCashier({
+      store_id: testStore.store_id,
+      created_by: testOwnerUser.user_id,
+      employee_id: "0001",
+      name: "Shift Service Test Cashier",
+    }),
+  });
+  createdCashierIds.push(testCashier.cashier_id);
+
+  // Create or find a STORE scope role for testing
+  testStoreRole = await prisma.role.upsert({
+    where: { code: "TEST_STORE_MANAGER" },
+    update: {},
+    create: {
+      code: "TEST_STORE_MANAGER",
+      scope: "STORE",
+      description: "Test store manager role for unit tests",
+      is_system_role: false,
+    },
+  });
+
+  // Assign the role to testShiftManagerUser for the test store
+  const userRole = await prisma.userRole.create({
+    data: {
+      user_id: testShiftManagerUser.user_id,
+      role_id: testStoreRole.role_id,
+      company_id: testCompany.company_id,
+      store_id: testStore.store_id,
+      status: "ACTIVE",
+    },
+  });
+  testUserRoleId = userRole.user_role_id;
+});
+
+// Cleanup shifts after each test to prevent interference
+afterEach(async () => {
+  // Cleanup shifts created in this test
+  for (const shiftId of createdShiftIds) {
+    try {
+      await prisma.shift.delete({ where: { shift_id: shiftId } });
+    } catch (e) {
+      // Ignore
+    }
+  }
+  createdShiftIds.length = 0; // Clear the array
+});
+
+// Global cleanup
+afterAll(async () => {
+  // Final cleanup of any remaining shifts
+  for (const shiftId of createdShiftIds) {
+    try {
+      await prisma.shift.delete({ where: { shift_id: shiftId } });
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  // Cleanup terminals
+  for (const terminalId of createdTerminalIds) {
+    try {
+      await prisma.pOSTerminal.delete({
+        where: { pos_terminal_id: terminalId },
+      });
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  // Cleanup cashiers
+  for (const cashierId of createdCashierIds) {
+    try {
+      await prisma.cashier.delete({ where: { cashier_id: cashierId } });
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  // Cleanup stores
+  for (const storeId of createdStoreIds) {
+    try {
+      await prisma.store.delete({ where: { store_id: storeId } });
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  // Cleanup companies
+  for (const companyId of createdCompanyIds) {
+    try {
+      await prisma.company.delete({ where: { company_id: companyId } });
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  // Cleanup users
+  for (const userId of createdUserIds) {
+    try {
+      await prisma.userRole.deleteMany({ where: { user_id: userId } });
+      await prisma.user.delete({ where: { user_id: userId } });
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+  }
+
+  await prisma.$disconnect();
+});
+
+describe("ShiftService - openShift", () => {
+  describe("Valid shift opening (AC-1)", () => {
+    it("4.2-UNIT-001: should create shift with OPEN status when valid data provided", async () => {
+      // GIVEN: Valid shift opening data with isolated terminal
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Test 1 ${Date.now()}`,
+          device_id: `device-test1-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: isolatedTerminal.pos_terminal_id,
+        opening_cash: 150.75,
+      };
+
+      // WHEN: Opening a shift
+      const shift = await shiftService.openShift(
+        openShiftData,
+        mockAuditContext,
+      );
+
+      // THEN: Shift should be created with OPEN status
+      expect(shift).toBeDefined();
+      expect(shift.status).toBe(ShiftStatus.OPEN);
+      expect(shift.store_id).toBe(testStore.store_id);
+      expect(shift.cashier_id).toBe(testCashier.cashier_id);
+      expect(shift.pos_terminal_id).toBe(isolatedTerminal.pos_terminal_id);
+      expect(shift.opened_by).toBe(testShiftManagerUser.user_id);
+      expect(Number(shift.opening_cash)).toBe(150.75);
+      expect(shift.opened_at).toBeDefined();
+      expect(shift.closed_at).toBeNull();
+
+      createdShiftIds.push(shift.shift_id);
+    });
+
+    it("4.2-UNIT-002: should record opening cash amount correctly", async () => {
+      // GIVEN: Opening cash amount of 250.50 with isolated terminal
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Test 2 ${Date.now()}`,
+          device_id: `device-test2-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const openingCash = 250.5;
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: isolatedTerminal.pos_terminal_id,
+        opening_cash: openingCash,
+      };
+
+      // WHEN: Opening a shift
+      const shift = await shiftService.openShift(
+        openShiftData,
+        mockAuditContext,
+      );
+
+      // THEN: Opening cash should be recorded correctly
+      expect(Number(shift.opening_cash)).toBe(openingCash);
+
+      createdShiftIds.push(shift.shift_id);
+    });
+
+    it("4.2-UNIT-003: should link shift to store, POS terminal, and cashier", async () => {
+      // GIVEN: Valid shift opening data with isolated terminal
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Test 3 ${Date.now()}`,
+          device_id: `device-test3-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: isolatedTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Opening a shift
+      const shift = await shiftService.openShift(
+        openShiftData,
+        mockAuditContext,
+      );
+
+      // THEN: Shift should be linked correctly
+      expect(shift.store_id).toBe(testStore.store_id);
+      expect(shift.cashier_id).toBe(testCashier.cashier_id);
+      expect(shift.pos_terminal_id).toBe(isolatedTerminal.pos_terminal_id);
+      expect(shift.opened_by).toBe(testShiftManagerUser.user_id);
+
+      createdShiftIds.push(shift.shift_id);
+    });
+
+    it("4.2-UNIT-004: should create audit log entry when shift is opened", async () => {
+      // GIVEN: Valid shift opening data with isolated terminal
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Test 4 ${Date.now()}`,
+          device_id: `device-test4-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: isolatedTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Opening a shift
+      const shift = await shiftService.openShift(
+        openShiftData,
+        mockAuditContext,
+      );
+
+      // THEN: Audit log entry should be created
+      const auditLog = await prisma.auditLog.findFirst({
+        where: {
+          action: "SHIFT_OPENED",
+          user_id: testShiftManagerUser.user_id,
+          record_id: shift.shift_id,
+        },
+        orderBy: { timestamp: "desc" },
+      });
+
+      expect(auditLog).not.toBeNull();
+      expect(auditLog?.action).toBe("SHIFT_OPENED");
+      expect(auditLog?.user_id).toBe(testShiftManagerUser.user_id);
+      expect(auditLog?.table_name).toBe("shifts");
+      expect(auditLog?.record_id).toBe(shift.shift_id);
+      expect(auditLog?.new_values).toBeDefined();
+
+      createdShiftIds.push(shift.shift_id);
+    });
+  });
+
+  describe("Active shift conflict (AC-2)", () => {
+    it("4.2-UNIT-005: should reject request when active shift with OPEN status exists", async () => {
+      // GIVEN: An active shift with OPEN status exists
+      const existingShift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.OPEN,
+        },
+      });
+      createdShiftIds.push(existingShift.shift_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 200.0,
+      };
+
+      // WHEN: Attempting to open another shift
+      // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_ACTIVE code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.SHIFT_ALREADY_ACTIVE,
+        );
+        expect((error as ShiftServiceError).details?.existing_shift_id).toBe(
+          existingShift.shift_id,
+        );
+      }
+    });
+
+    it("4.2-UNIT-006: should reject request when active shift with ACTIVE status exists", async () => {
+      // GIVEN: An active shift with ACTIVE status exists
+      const existingShift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.ACTIVE,
+        },
+      });
+      createdShiftIds.push(existingShift.shift_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 200.0,
+      };
+
+      // WHEN: Attempting to open another shift
+      // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_ACTIVE code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.SHIFT_ALREADY_ACTIVE,
+        );
+      }
+    });
+
+    it("4.2-UNIT-007: should reject request when active shift with CLOSING status exists", async () => {
+      // GIVEN: An active shift with CLOSING status exists
+      const existingShift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.CLOSING,
+        },
+      });
+      createdShiftIds.push(existingShift.shift_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 200.0,
+      };
+
+      // WHEN: Attempting to open another shift
+      // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_ACTIVE code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.SHIFT_ALREADY_ACTIVE,
+        );
+      }
+    });
+
+    it("4.2-UNIT-008: should reject request when active shift with RECONCILING status exists", async () => {
+      // GIVEN: An active shift with RECONCILING status exists
+      const existingShift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.RECONCILING,
+        },
+      });
+      createdShiftIds.push(existingShift.shift_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 200.0,
+      };
+
+      // WHEN: Attempting to open another shift
+      // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_ACTIVE code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.SHIFT_ALREADY_ACTIVE,
+        );
+      }
+    });
+
+    it("4.2-UNIT-009: should allow opening shift when only CLOSED shift exists", async () => {
+      // GIVEN: A CLOSED shift exists (should not conflict) with isolated terminal
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Test Closed ${Date.now()}`,
+          device_id: `device-test-closed-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const closedShift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: isolatedTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.CLOSED,
+          closed_at: new Date(),
+        },
+      });
+      createdShiftIds.push(closedShift.shift_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: isolatedTerminal.pos_terminal_id,
+        opening_cash: 200.0,
+      };
+
+      // WHEN: Opening a new shift
+      const shift = await shiftService.openShift(
+        openShiftData,
+        mockAuditContext,
+      );
+
+      // THEN: Should succeed (CLOSED shift should not prevent new shift)
+      expect(shift).toBeDefined();
+      expect(shift.status).toBe(ShiftStatus.OPEN);
+
+      createdShiftIds.push(shift.shift_id);
+    });
+  });
+
+  describe("Validation errors", () => {
+    it("4.2-UNIT-010: should reject request when opening_cash is negative", async () => {
+      // GIVEN: Request data with negative opening_cash
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: -50.0,
+      };
+
+      // WHEN: Attempting to open shift with negative cash
+      // THEN: Should throw ShiftServiceError with INVALID_OPENING_CASH code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.INVALID_OPENING_CASH,
+        );
+      }
+    });
+
+    it("4.2-UNIT-011: should reject request when store does not exist", async () => {
+      // GIVEN: Request data with non-existent store_id
+      const nonExistentStoreId = "00000000-0000-0000-0000-000000000000";
+      const openShiftData = {
+        store_id: nonExistentStoreId,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Attempting to open shift with non-existent store
+      // THEN: Should throw ShiftServiceError with STORE_NOT_FOUND code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.STORE_NOT_FOUND,
+        );
+      }
+    });
+
+    it("4.2-UNIT-012: should reject request when cashier does not exist", async () => {
+      // GIVEN: Request data with non-existent cashier_id
+      const nonExistentCashierId = "00000000-0000-0000-0000-000000000000";
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: nonExistentCashierId,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Attempting to open shift with non-existent cashier
+      // THEN: Should throw ShiftServiceError with CASHIER_NOT_FOUND code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.CASHIER_NOT_FOUND,
+        );
+      }
+    });
+
+    it("4.2-UNIT-013: should reject request when cashier is inactive", async () => {
+      // GIVEN: An inactive cashier (Cashier entity with is_active=false)
+      const inactiveCashier = await prisma.cashier.create({
+        data: await createCashier({
+          store_id: testStore.store_id,
+          created_by: testOwnerUser.user_id,
+          employee_id: "9999",
+          name: "Inactive Cashier",
+          is_active: false,
+        }),
+      });
+      createdCashierIds.push(inactiveCashier.cashier_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: inactiveCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Attempting to open shift with inactive cashier
+      // THEN: Should throw ShiftServiceError with CASHIER_NOT_FOUND code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.CASHIER_NOT_FOUND,
+        );
+      }
+    });
+
+    it("4.2-UNIT-014: should reject request when terminal does not exist", async () => {
+      // GIVEN: Request data with non-existent pos_terminal_id
+      const nonExistentTerminalId = "00000000-0000-0000-0000-000000000000";
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: nonExistentTerminalId,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Attempting to open shift with non-existent terminal
+      // THEN: Should throw ShiftServiceError with TERMINAL_NOT_FOUND code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.TERMINAL_NOT_FOUND,
+        );
+      }
+    });
+
+    it("4.2-UNIT-015: should reject request when terminal belongs to different store", async () => {
+      // GIVEN: A terminal belonging to a different store
+      const otherStore = await prisma.store.create({
+        data: createStore({
+          company_id: testCompany.company_id,
+          status: "ACTIVE",
+        }),
+      });
+      createdStoreIds.push(otherStore.store_id);
+
+      const otherTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: otherStore.store_id,
+          name: `Other Terminal ${Date.now()}`,
+          device_id: `device-other-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(otherTerminal.pos_terminal_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id, // Different store
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: otherTerminal.pos_terminal_id, // Terminal from other store
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Attempting to open shift with terminal from different store
+      // THEN: Should throw ShiftServiceError with TERMINAL_NOT_FOUND code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.TERMINAL_NOT_FOUND,
+        );
+      }
+    });
+
+    it("4.2-UNIT-016: should reject request when terminal is soft-deleted", async () => {
+      // GIVEN: A soft-deleted terminal (deleted_at is not null)
+      // Note: POSTerminal uses soft-delete only - no status field exists
+      const deletedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Deleted Terminal ${Date.now()}`,
+          device_id: `device-deleted-${Date.now()}`,
+          deleted_at: new Date(), // Soft deleted terminal
+        },
+      });
+      createdTerminalIds.push(deletedTerminal.pos_terminal_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: deletedTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Attempting to open shift with soft-deleted terminal
+      // THEN: Should throw ShiftServiceError with TERMINAL_NOT_FOUND code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.TERMINAL_NOT_FOUND,
+        );
+      }
+    });
+
+    it("4.2-UNIT-016b: should allow shift opening when terminal is not deleted (deleted_at is null)", async () => {
+      // GIVEN: An active terminal (deleted_at is null)
+      const activeTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Active Terminal ${Date.now()}`,
+          device_id: `device-active-${Date.now()}`,
+          deleted_at: null, // Explicitly not deleted
+        },
+      });
+      createdTerminalIds.push(activeTerminal.pos_terminal_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: activeTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Opening shift with active terminal
+      const shift = await shiftService.openShift(
+        openShiftData,
+        mockAuditContext,
+      );
+
+      // THEN: Shift should be created successfully
+      expect(shift).toBeDefined();
+      expect(shift.pos_terminal_id).toBe(activeTerminal.pos_terminal_id);
+      expect(shift.status).toBe(ShiftStatus.OPEN);
+      createdShiftIds.push(shift.shift_id);
+    });
+
+    it("4.2-UNIT-016c: should reject request when terminal deleted_at is set to past date", async () => {
+      // GIVEN: A terminal soft-deleted in the past
+      const pastDeletedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Past Deleted Terminal ${Date.now()}`,
+          device_id: `device-past-deleted-${Date.now()}`,
+          deleted_at: new Date("2020-01-01"), // Deleted in the past
+        },
+      });
+      createdTerminalIds.push(pastDeletedTerminal.pos_terminal_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: pastDeletedTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Attempting to open shift with past-deleted terminal
+      // THEN: Should throw ShiftServiceError with TERMINAL_NOT_FOUND code
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.openShift(openShiftData, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.TERMINAL_NOT_FOUND,
+        );
+        expect((error as ShiftServiceError).message).toContain("deleted");
+      }
+    });
+  });
+});
+
+describe("ShiftService - checkActiveShift", () => {
+  it("4.2-UNIT-017: should return null when no active shift exists", async () => {
+    // GIVEN: A terminal with no active shifts
+    // Create a fresh terminal for this test to ensure isolation
+    const isolatedTerminal = await prisma.pOSTerminal.create({
+      data: {
+        store_id: testStore.store_id,
+        name: `Isolated Terminal ${Date.now()}`,
+        device_id: `device-isolated-${Date.now()}`,
+      },
+    });
+    createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+    // WHEN: Checking for active shift
+    const activeShift = await shiftService.checkActiveShift(
+      isolatedTerminal.pos_terminal_id,
+    );
+
+    // THEN: Should return null
+    expect(activeShift).toBeNull();
+  });
+
+  it("4.2-UNIT-018: should return active shift when OPEN shift exists", async () => {
+    // GIVEN: An active shift with OPEN status
+    const existingShift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.OPEN,
+      },
+    });
+    createdShiftIds.push(existingShift.shift_id);
+
+    // WHEN: Checking for active shift
+    const activeShift = await shiftService.checkActiveShift(
+      testTerminal.pos_terminal_id,
+    );
+
+    // THEN: Should return the active shift
+    expect(activeShift).not.toBeNull();
+    expect(activeShift?.shift_id).toBe(existingShift.shift_id);
+    expect(activeShift?.status).toBe(ShiftStatus.OPEN);
+  });
+
+  it("4.2-UNIT-019: should return null when only CLOSED shift exists", async () => {
+    // GIVEN: A terminal with only a CLOSED shift
+    // Create a fresh terminal for this test to ensure isolation
+    const isolatedTerminal = await prisma.pOSTerminal.create({
+      data: {
+        store_id: testStore.store_id,
+        name: `Isolated Terminal Closed ${Date.now()}`,
+        device_id: `device-isolated-closed-${Date.now()}`,
+      },
+    });
+    createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+    const closedShift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: isolatedTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.CLOSED,
+        closed_at: new Date(),
+      },
+    });
+    createdShiftIds.push(closedShift.shift_id);
+
+    // WHEN: Checking for active shift
+    const activeShift = await shiftService.checkActiveShift(
+      isolatedTerminal.pos_terminal_id,
+    );
+
+    // THEN: Should return null (CLOSED shift is not active)
+    expect(activeShift).toBeNull();
+  });
+});
+
+describe("ShiftService - Security & Edge Cases", () => {
+  describe("Opening cash edge cases", () => {
+    it("4.2-UNIT-020: should accept zero for opening_cash", async () => {
+      // GIVEN: Opening cash of zero (valid boundary value)
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Zero Cash ${Date.now()}`,
+          device_id: `device-zero-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: isolatedTerminal.pos_terminal_id,
+        opening_cash: 0.0,
+      };
+
+      // WHEN: Opening shift with zero cash
+      const shift = await shiftService.openShift(
+        openShiftData,
+        mockAuditContext,
+      );
+
+      // THEN: Should succeed (zero is valid)
+      expect(shift).toBeDefined();
+      expect(Number(shift.opening_cash)).toBe(0);
+
+      createdShiftIds.push(shift.shift_id);
+    });
+
+    it("4.2-UNIT-021: should accept very large opening_cash value", async () => {
+      // GIVEN: Very large opening cash value
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Large Cash ${Date.now()}`,
+          device_id: `device-large-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      // Use value within database precision (DECIMAL(10,2) = max 99,999,999.99)
+      const largeCash = 99999999.99;
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: isolatedTerminal.pos_terminal_id,
+        opening_cash: largeCash,
+      };
+
+      // WHEN: Opening shift with very large cash
+      const shift = await shiftService.openShift(
+        openShiftData,
+        mockAuditContext,
+      );
+
+      // THEN: Should succeed and preserve value
+      expect(shift).toBeDefined();
+      expect(Number(shift.opening_cash)).toBe(largeCash);
+
+      createdShiftIds.push(shift.shift_id);
+    });
+
+    it("4.2-UNIT-022: should accept precise decimal opening_cash", async () => {
+      // GIVEN: Precise decimal opening cash
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Decimal ${Date.now()}`,
+          device_id: `device-decimal-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      // Database stores DECIMAL(10,2) so precision is limited to 2 decimal places
+      const preciseCash = 123.45;
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: isolatedTerminal.pos_terminal_id,
+        opening_cash: preciseCash,
+      };
+
+      // WHEN: Opening shift with precise decimal
+      const shift = await shiftService.openShift(
+        openShiftData,
+        mockAuditContext,
+      );
+
+      // THEN: Should succeed and preserve precision (2 decimal places)
+      expect(shift).toBeDefined();
+      expect(Number(shift.opening_cash)).toBe(preciseCash);
+
+      createdShiftIds.push(shift.shift_id);
+    });
+
+    it("4.2-UNIT-023: should reject NaN for opening_cash", async () => {
+      // GIVEN: NaN for opening_cash
+      // Note: In practice, Zod validation would catch this before service layer
+      // but we test service layer behavior if NaN somehow reaches it
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: NaN,
+      };
+
+      // WHEN: Attempting to open shift with NaN
+      // THEN: Should throw error (either from service or validation)
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow();
+
+      // Note: NaN comparison (NaN < 0) is false, so service may not catch it
+      // This test documents the behavior - NaN should be caught by Zod validation
+    });
+
+    it("4.2-UNIT-024: should reject Infinity for opening_cash", async () => {
+      // GIVEN: Infinity for opening_cash
+      // Note: In practice, Zod validation would catch this before service layer
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: Infinity,
+      };
+
+      // WHEN: Attempting to open shift with Infinity
+      // THEN: Should throw error (Infinity >= 0 is true, but DB will reject)
+      // This will fail at database level due to precision overflow
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe("Input validation edge cases", () => {
+    it("4.2-UNIT-025: should reject empty string for store_id", async () => {
+      // GIVEN: Empty string for store_id
+      // Note: Zod validation would catch this before service layer
+      // This test documents service behavior if empty string somehow reaches it
+      const openShiftData = {
+        store_id: "",
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Attempting to open shift with empty store_id
+      // THEN: Should throw error (Zod validation or service error)
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow();
+    });
+
+    it("4.2-UNIT-026: should reject empty string for cashier_id", async () => {
+      // GIVEN: Empty string for cashier_id
+      // Note: Zod validation would catch this before service layer
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: "",
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Attempting to open shift with empty cashier_id
+      // THEN: Should throw error (Zod validation or service error)
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow();
+    });
+
+    it("4.2-UNIT-027: should reject empty string for pos_terminal_id", async () => {
+      // GIVEN: Empty string for pos_terminal_id
+      // Note: Zod validation would catch this before service layer
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: "",
+        opening_cash: 100.0,
+      };
+
+      // WHEN: Attempting to open shift with empty terminal_id
+      // THEN: Should throw error (Zod validation or service error)
+      await expect(
+        shiftService.openShift(openShiftData, mockAuditContext),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe("Enhanced assertions", () => {
+    it("4.2-UNIT-028: should create shift with all required fields populated", async () => {
+      // GIVEN: Valid shift opening data with isolated terminal
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Enhanced ${Date.now()}`,
+          device_id: `device-enhanced-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const openShiftData = {
+        store_id: testStore.store_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: isolatedTerminal.pos_terminal_id,
+        opening_cash: 250.75,
+      };
+
+      // WHEN: Opening a shift
+      const shift = await shiftService.openShift(
+        openShiftData,
+        mockAuditContext,
+      );
+
+      // THEN: All required fields should be populated and correct types
+      expect(shift, "Shift should be defined").toBeDefined();
+      expect(typeof shift.shift_id, "shift_id should be string").toBe("string");
+      expect(shift.shift_id.length, "shift_id should be UUID format").toBe(36);
+      expect(shift.store_id, "store_id should match").toBe(testStore.store_id);
+      expect(shift.cashier_id, "cashier_id should match").toBe(
+        testCashier.cashier_id,
+      );
+      expect(shift.pos_terminal_id, "pos_terminal_id should match").toBe(
+        isolatedTerminal.pos_terminal_id,
+      );
+      expect(shift.opened_by, "opened_by should match audit context").toBe(
+        mockAuditContext.userId,
+      );
+      expect(Number(shift.opening_cash), "opening_cash should match").toBe(
+        250.75,
+      );
+      expect(shift.status, "status should be OPEN").toBe(ShiftStatus.OPEN);
+      expect(shift.opened_at, "opened_at should be defined").toBeDefined();
+      expect(shift.opened_at instanceof Date, "opened_at should be Date").toBe(
+        true,
+      );
+      expect(shift.closed_at, "closed_at should be null").toBeNull();
+
+      createdShiftIds.push(shift.shift_id);
+    });
+  });
+});
+
+/**
+ * @test-level UNIT
+ * @justification Unit tests for ShiftService shift closing initiation business logic, validation, error handling, and edge cases. Tests service layer in isolation without HTTP layer.
+ * @story 4-3-shift-closing-initiation
+ *
+ * Unit Tests: Shift Service - Shift Closing Initiation
+ *
+ * Story 4.3: Shift Closing Initiation
+ *
+ * CRITICAL TEST COVERAGE:
+ * - Shift closing initiation with valid OPEN shift
+ * - Shift closing initiation with valid ACTIVE shift
+ * - Shift closing fails when shift is already CLOSING
+ * - Shift closing fails when shift is already CLOSED
+ * - Expected cash calculation (opening_cash + cash transactions)
+ * - Validation errors (invalid shift_id, invalid status)
+ * - Audit log creation
+ */
+
+describe("ShiftService - initiateClosing", () => {
+  describe("Valid shift closing initiation (AC-1)", () => {
+    it("4.3-UNIT-001: should change shift status to CLOSING when valid OPEN shift provided", async () => {
+      // GIVEN: A shift with OPEN status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 150.75,
+          status: ShiftStatus.OPEN,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Initiating shift closing
+      const result = await shiftService.initiateClosing(
+        shift.shift_id,
+        mockAuditContext,
+      );
+
+      // THEN: Should return shift closing result with CLOSING status
+      expect(result).toBeDefined();
+      expect(result.shift_id).toBe(shift.shift_id);
+      expect(result.status).toBe(ShiftStatus.CLOSING);
+      expect(result.expected_cash).toBeDefined();
+      expect(result.opening_cash).toBe(150.75);
+      expect(result.cash_transactions_total).toBeDefined();
+      expect(result.closing_initiated_at).toBeDefined();
+      expect(result.closing_initiated_by).toBe(testShiftManagerUser.user_id);
+      expect(result.calculated_at).toBeDefined();
+
+      // AND: Shift status should be updated to CLOSING in database
+      const updatedShift = await prisma.shift.findUnique({
+        where: { shift_id: shift.shift_id },
+      });
+      expect(updatedShift?.status).toBe(ShiftStatus.CLOSING);
+    });
+
+    it("4.3-UNIT-002: should change shift status to CLOSING when valid ACTIVE shift provided", async () => {
+      // GIVEN: A shift with ACTIVE status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 200.0,
+          status: ShiftStatus.ACTIVE,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Initiating shift closing
+      const result = await shiftService.initiateClosing(
+        shift.shift_id,
+        mockAuditContext,
+      );
+
+      // THEN: Should return shift closing result with CLOSING status
+      expect(result).toBeDefined();
+      expect(result.status).toBe(ShiftStatus.CLOSING);
+
+      // AND: Shift status should be updated to CLOSING in database
+      const updatedShift = await prisma.shift.findUnique({
+        where: { shift_id: shift.shift_id },
+      });
+      expect(updatedShift?.status).toBe(ShiftStatus.CLOSING);
+    });
+
+    it("4.3-UNIT-003: should calculate expected cash correctly (opening_cash + cash transactions)", async () => {
+      // GIVEN: A shift with OPEN status and opening_cash = 100.0
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.OPEN,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // AND: Cash transactions totaling 50.0
+      // Note: Transaction.cashier_id references users table, not cashiers table
+      const transaction1 = await prisma.transaction.create({
+        data: {
+          store_id: testStore.store_id,
+          shift_id: shift.shift_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          subtotal: new Prisma.Decimal(25.0),
+          tax: new Prisma.Decimal(0),
+          discount: new Prisma.Decimal(0),
+          total: new Prisma.Decimal(25.0),
+          public_id: `TXN-${Date.now()}-1`,
+        },
+      });
+
+      const transaction2 = await prisma.transaction.create({
+        data: {
+          store_id: testStore.store_id,
+          shift_id: shift.shift_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          subtotal: new Prisma.Decimal(25.0),
+          tax: new Prisma.Decimal(0),
+          discount: new Prisma.Decimal(0),
+          total: new Prisma.Decimal(25.0),
+          public_id: `TXN-${Date.now()}-2`,
+        },
+      });
+
+      // Create cash payments for transactions
+      await prisma.transactionPayment.create({
+        data: {
+          transaction_id: transaction1.transaction_id,
+          method: "cash",
+          amount: new Prisma.Decimal(25.0),
+        },
+      });
+
+      await prisma.transactionPayment.create({
+        data: {
+          transaction_id: transaction2.transaction_id,
+          method: "cash",
+          amount: new Prisma.Decimal(25.0),
+        },
+      });
+
+      // WHEN: Initiating shift closing
+      const result = await shiftService.initiateClosing(
+        shift.shift_id,
+        mockAuditContext,
+      );
+
+      // THEN: Expected cash should be opening_cash + cash transactions = 100.0 + 50.0 = 150.0
+      expect(result.expected_cash).toBe(150.0);
+      expect(result.opening_cash).toBe(100.0);
+      expect(result.cash_transactions_total).toBe(50.0);
+    });
+
+    it("4.3-UNIT-004: should calculate expected cash as opening_cash when no cash transactions exist", async () => {
+      // GIVEN: A shift with OPEN status and opening_cash = 100.0
+      // AND: No cash transactions
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.OPEN,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Initiating shift closing
+      const result = await shiftService.initiateClosing(
+        shift.shift_id,
+        mockAuditContext,
+      );
+
+      // THEN: Expected cash should equal opening_cash (100.0) when no transactions
+      expect(result.expected_cash).toBe(100.0);
+      expect(result.opening_cash).toBe(100.0);
+      expect(result.cash_transactions_total).toBe(0);
+    });
+
+    it("4.3-UNIT-005: should create audit log entry when shift closing is initiated", async () => {
+      // GIVEN: A shift with OPEN status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.OPEN,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Initiating shift closing
+      await shiftService.initiateClosing(shift.shift_id, mockAuditContext);
+
+      // THEN: Audit log entry should be created with action "SHIFT_CLOSING_INITIATED"
+      const auditLog = await prisma.auditLog.findFirst({
+        where: {
+          action: "SHIFT_CLOSING_INITIATED",
+          user_id: testShiftManagerUser.user_id,
+          record_id: shift.shift_id,
+        },
+        orderBy: { timestamp: "desc" },
+      });
+
+      expect(auditLog).not.toBeNull();
+      expect(auditLog?.action).toBe("SHIFT_CLOSING_INITIATED");
+      expect(auditLog?.user_id).toBe(testShiftManagerUser.user_id);
+      expect(auditLog?.table_name).toBe("shifts");
+      expect(auditLog?.record_id).toBe(shift.shift_id);
+      expect(auditLog?.new_values).toBeDefined();
+      expect((auditLog?.new_values as any).status).toBe(ShiftStatus.CLOSING);
+      expect((auditLog?.new_values as any).closing_initiated_by).toBe(
+        testShiftManagerUser.user_id,
+      );
+    });
+  });
+
+  describe("Validation errors (AC-1)", () => {
+    it("4.3-UNIT-006: should throw error when shift does not exist", async () => {
+      // GIVEN: A non-existent shift_id
+      const nonExistentShiftId = "00000000-0000-0000-0000-000000000000";
+
+      // WHEN: Attempting to close non-existent shift
+      // THEN: Should throw ShiftServiceError with SHIFT_NOT_FOUND code
+      await expect(
+        shiftService.initiateClosing(nonExistentShiftId, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.initiateClosing(
+          nonExistentShiftId,
+          mockAuditContext,
+        );
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.SHIFT_NOT_FOUND,
+        );
+      }
+    });
+
+    it("4.3-UNIT-007: should throw error when shift is already CLOSING", async () => {
+      // GIVEN: A shift that is already in CLOSING status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.CLOSING,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Attempting to close shift that is already CLOSING
+      // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_CLOSING code
+      await expect(
+        shiftService.initiateClosing(shift.shift_id, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.initiateClosing(shift.shift_id, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.SHIFT_ALREADY_CLOSING,
+        );
+        expect((error as ShiftServiceError).details?.current_status).toBe(
+          ShiftStatus.CLOSING,
+        );
+      }
+    });
+
+    it("4.3-UNIT-008: should throw error when shift is already CLOSED", async () => {
+      // GIVEN: A shift that is already in CLOSED status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.CLOSED,
+          closed_at: new Date(),
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Attempting to close shift that is already CLOSED
+      // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_CLOSED code
+      await expect(
+        shiftService.initiateClosing(shift.shift_id, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.initiateClosing(shift.shift_id, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.SHIFT_ALREADY_CLOSED,
+        );
+        expect((error as ShiftServiceError).details?.current_status).toBe(
+          ShiftStatus.CLOSED,
+        );
+      }
+    });
+
+    it("4.3-UNIT-009: should throw error when shift is not in OPEN or ACTIVE status", async () => {
+      // GIVEN: A shift with NOT_STARTED status (invalid for closing)
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          status: ShiftStatus.NOT_STARTED,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Attempting to close shift with invalid status
+      // THEN: Should throw ShiftServiceError with SHIFT_INVALID_STATUS code
+      await expect(
+        shiftService.initiateClosing(shift.shift_id, mockAuditContext),
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.initiateClosing(shift.shift_id, mockAuditContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShiftServiceError);
+        expect((error as ShiftServiceError).code).toBe(
+          ShiftErrorCode.SHIFT_INVALID_STATUS,
+        );
+        expect((error as ShiftServiceError).details?.current_status).toBe(
+          ShiftStatus.NOT_STARTED,
+        );
+        expect((error as ShiftServiceError).details?.allowed_statuses).toEqual([
+          ShiftStatus.OPEN,
+          ShiftStatus.ACTIVE,
+        ]);
+      }
+    });
+  });
+});
+
+describe("ShiftService - calculateExpectedCash", () => {
+  it("4.3-UNIT-010: should calculate expected cash correctly with multiple cash transactions", async () => {
+    // GIVEN: A shift with opening_cash = 100.0
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.OPEN,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // AND: Multiple cash transactions
+    // Note: Transaction.cashier_id references users table, not cashiers table
+    const transaction1 = await prisma.transaction.create({
+      data: {
+        store_id: testStore.store_id,
+        shift_id: shift.shift_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        subtotal: new Prisma.Decimal(30.0),
+        tax: new Prisma.Decimal(0),
+        discount: new Prisma.Decimal(0),
+        total: new Prisma.Decimal(30.0),
+        public_id: `TXN-CALC-${Date.now()}-1`,
+      },
+    });
+
+    const transaction2 = await prisma.transaction.create({
+      data: {
+        store_id: testStore.store_id,
+        shift_id: shift.shift_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        subtotal: new Prisma.Decimal(20.0),
+        tax: new Prisma.Decimal(0),
+        discount: new Prisma.Decimal(0),
+        total: new Prisma.Decimal(20.0),
+        public_id: `TXN-CALC-${Date.now()}-2`,
+      },
+    });
+
+    // Create cash payments
+    await prisma.transactionPayment.create({
+      data: {
+        transaction_id: transaction1.transaction_id,
+        method: "cash",
+        amount: new Prisma.Decimal(30.0),
+      },
+    });
+
+    await prisma.transactionPayment.create({
+      data: {
+        transaction_id: transaction2.transaction_id,
+        method: "CASH", // Test case-insensitive matching
+        amount: new Prisma.Decimal(20.0),
+      },
+    });
+
+    // WHEN: Calculating expected cash
+    const expectedCash = await shiftService.calculateExpectedCash(
+      shift.shift_id,
+    );
+
+    // THEN: Expected cash should be opening_cash + cash transactions = 100.0 + 50.0 = 150.0
+    expect(expectedCash).toBe(150.0);
+  });
+
+  it("4.3-UNIT-011: should return opening_cash when no cash transactions exist", async () => {
+    // GIVEN: A shift with opening_cash = 100.0 and no cash transactions
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.OPEN,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // WHEN: Calculating expected cash
+    const expectedCash = await shiftService.calculateExpectedCash(
+      shift.shift_id,
+    );
+
+    // THEN: Expected cash should equal opening_cash
+    expect(expectedCash).toBe(100.0);
+  });
+
+  it("4.3-UNIT-012: should throw error when shift does not exist", async () => {
+    // GIVEN: A non-existent shift_id
+    const nonExistentShiftId = "00000000-0000-0000-0000-000000000000";
+
+    // WHEN: Attempting to calculate expected cash for non-existent shift
+    // THEN: Should throw ShiftServiceError with SHIFT_NOT_FOUND code
+    await expect(
+      shiftService.calculateExpectedCash(nonExistentShiftId),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.calculateExpectedCash(nonExistentShiftId);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+      );
+    }
+  });
+
+  it("4.3-UNIT-013: should ignore non-cash payment methods when calculating expected cash", async () => {
+    // GIVEN: A shift with opening_cash = 100.0
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.OPEN,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // AND: Transactions with cash and non-cash payments
+    // Note: Transaction.cashier_id references users table, not cashiers table
+    const transaction1 = await prisma.transaction.create({
+      data: {
+        store_id: testStore.store_id,
+        shift_id: shift.shift_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        subtotal: new Prisma.Decimal(50.0),
+        tax: new Prisma.Decimal(0),
+        discount: new Prisma.Decimal(0),
+        total: new Prisma.Decimal(50.0),
+        public_id: `TXN-NONCASH-${Date.now()}-1`,
+      },
+    });
+
+    const transaction2 = await prisma.transaction.create({
+      data: {
+        store_id: testStore.store_id,
+        shift_id: shift.shift_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        subtotal: new Prisma.Decimal(30.0),
+        tax: new Prisma.Decimal(0),
+        discount: new Prisma.Decimal(0),
+        total: new Prisma.Decimal(30.0),
+        public_id: `TXN-NONCASH-${Date.now()}-2`,
+      },
+    });
+
+    // Create mixed payment methods
+    await prisma.transactionPayment.create({
+      data: {
+        transaction_id: transaction1.transaction_id,
+        method: "credit", // Non-cash payment
+        amount: new Prisma.Decimal(50.0),
+      },
+    });
+
+    await prisma.transactionPayment.create({
+      data: {
+        transaction_id: transaction2.transaction_id,
+        method: "cash", // Cash payment
+        amount: new Prisma.Decimal(30.0),
+      },
+    });
+
+    // WHEN: Calculating expected cash
+    const expectedCash = await shiftService.calculateExpectedCash(
+      shift.shift_id,
+    );
+
+    // THEN: Expected cash should only include cash payments = 100.0 + 30.0 = 130.0
+    expect(expectedCash).toBe(130.0);
+  });
+});
+
+describe("ShiftService - validateShiftCanClose", () => {
+  it("4.3-UNIT-014: should validate OPEN shift can be closed", async () => {
+    // GIVEN: A shift with OPEN status
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.OPEN,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // WHEN: Validating shift can be closed
+    // THEN: Should not throw error
+    await expect(
+      shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      ),
+    ).resolves.not.toThrow();
+  });
+
+  it("4.3-UNIT-015: should validate ACTIVE shift can be closed", async () => {
+    // GIVEN: A shift with ACTIVE status
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.ACTIVE,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // WHEN: Validating shift can be closed
+    // THEN: Should not throw error
+    await expect(
+      shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      ),
+    ).resolves.not.toThrow();
+  });
+
+  it("4.3-UNIT-016: should throw error when shift is CLOSING", async () => {
+    // GIVEN: A shift with CLOSING status
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.CLOSING,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // WHEN: Validating shift can be closed
+    // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_CLOSING code
+    await expect(
+      shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_ALREADY_CLOSING,
+      );
+    }
+  });
+
+  it("4.3-UNIT-017: should throw error when shift is CLOSED", async () => {
+    // GIVEN: A shift with CLOSED status
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.CLOSED,
+        closed_at: new Date(),
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // WHEN: Validating shift can be closed
+    // THEN: Should throw ShiftServiceError with SHIFT_ALREADY_CLOSED code
+    await expect(
+      shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_ALREADY_CLOSED,
+      );
+    }
+  });
+
+  it("4.3-UNIT-018: should throw error when shift has invalid status", async () => {
+    // GIVEN: A shift with NOT_STARTED status
+    const shift = await prisma.shift.create({
+      data: {
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: 100.0,
+        status: ShiftStatus.NOT_STARTED,
+      },
+    });
+    createdShiftIds.push(shift.shift_id);
+
+    // WHEN: Validating shift can be closed
+    // THEN: Should throw ShiftServiceError with SHIFT_INVALID_STATUS code
+    await expect(
+      shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.validateShiftCanClose(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_INVALID_STATUS,
+      );
+    }
+  });
+
+  it("4.3-UNIT-019: should throw error when shift does not exist", async () => {
+    // GIVEN: A non-existent shift_id
+    const nonExistentShiftId = "00000000-0000-0000-0000-000000000000";
+
+    // WHEN: Validating shift can be closed
+    // THEN: Should throw ShiftServiceError with SHIFT_NOT_FOUND code
+    await expect(
+      shiftService.validateShiftCanClose(
+        nonExistentShiftId,
+        testShiftManagerUser.user_id,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.validateShiftCanClose(
+        nonExistentShiftId,
+        testShiftManagerUser.user_id,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+      );
+    }
+  });
+});
+
+/**
+ * Unit Tests: Shift Service - Cash Reconciliation
+ *
+ * Story 4.4: Cash Reconciliation
+ *
+ * CRITICAL TEST COVERAGE:
+ * - Cash reconciliation with acceptable variance (status → RECONCILING)
+ * - Cash reconciliation with variance > $5 (status → VARIANCE_REVIEW)
+ * - Cash reconciliation with variance > 1% (status → VARIANCE_REVIEW)
+ * - Variance calculation accuracy (actual - expected)
+ * - Variance threshold evaluation ($5 absolute OR 1% relative)
+ * - Validation: shift must be in CLOSING status
+ * - variance_reason required when status is VARIANCE_REVIEW
+ * - variance_reason optional when status is RECONCILING
+ * - Audit log creation
+ * - Error handling and error codes
+ */
+describe("Shift Service - Cash Reconciliation (Story 4.4)", () => {
+  let testClosingShift: any;
+
+  beforeEach(async () => {
+    // Create a shift in CLOSING status for reconciliation tests
+    testClosingShift = await prisma.shift.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: new Prisma.Decimal(100.0),
+        expected_cash: new Prisma.Decimal(150.0),
+        status: ShiftStatus.CLOSING,
+        opened_at: new Date(),
+      },
+    });
+    createdShiftIds.push(testClosingShift.shift_id);
+  });
+
+  it("4.4-UNIT-001: should reconcile cash with acceptable variance (status → RECONCILING)", async () => {
+    // GIVEN: Shift in CLOSING status with expected_cash = 150.0
+    const closingCash = 152.0; // variance = $2, < $5 and < 1%
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Reconciling cash
+    const result = await shiftService.reconcileCash(
+      testClosingShift.shift_id,
+      closingCash,
+      undefined, // optional variance_reason
+      auditContext,
+    );
+
+    // THEN: Reconciliation succeeds with RECONCILING status
+    expect(result.shift_id).toBe(testClosingShift.shift_id);
+    expect(result.status).toBe(ShiftStatus.RECONCILING);
+    expect(result.closing_cash).toBe(closingCash);
+    expect(result.expected_cash).toBe(150.0);
+    expect(result.variance_amount).toBe(2.0);
+    expect(result.variance_percentage).toBeCloseTo(1.33, 2);
+    expect(result.reconciled_by).toBe(testShiftManagerUser.user_id);
+    expect(result.reconciled_at).toBeTruthy();
+
+    // Verify shift status updated in database
+    const updatedShift = await prisma.shift.findUnique({
+      where: { shift_id: testClosingShift.shift_id },
+    });
+    expect(updatedShift?.status).toBe(ShiftStatus.RECONCILING);
+    expect(updatedShift?.closing_cash).toEqual(new Prisma.Decimal(closingCash));
+    expect(updatedShift?.variance).toEqual(new Prisma.Decimal(2.0));
+  });
+
+  it("4.4-UNIT-002: should reconcile cash with variance > $5 (status → VARIANCE_REVIEW)", async () => {
+    // GIVEN: Shift in CLOSING status with expected_cash = 150.0
+    const closingCash = 156.0; // variance = $6, > $5
+    const varianceReason = "Extra cash from tips";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Reconciling cash with variance exceeding $5 threshold
+    const result = await shiftService.reconcileCash(
+      testClosingShift.shift_id,
+      closingCash,
+      varianceReason,
+      auditContext,
+    );
+
+    // THEN: Reconciliation succeeds with VARIANCE_REVIEW status
+    expect(result.status).toBe(ShiftStatus.VARIANCE_REVIEW);
+    expect(result.variance_amount).toBe(6.0);
+    expect(result.variance_percentage).toBeCloseTo(4.0, 2);
+    expect(result.variance_reason).toBe(varianceReason);
+
+    // Verify shift status updated in database
+    const updatedShift = await prisma.shift.findUnique({
+      where: { shift_id: testClosingShift.shift_id },
+    });
+    expect(updatedShift?.status).toBe(ShiftStatus.VARIANCE_REVIEW);
+    expect(updatedShift?.variance_reason).toBe(varianceReason);
+  });
+
+  it("4.4-UNIT-003: should reconcile cash with variance > 1% (status → VARIANCE_REVIEW)", async () => {
+    // GIVEN: Shift in CLOSING status with expected_cash = 1000.0
+    const highValueShift = await prisma.shift.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: new Prisma.Decimal(500.0),
+        expected_cash: new Prisma.Decimal(1000.0),
+        status: ShiftStatus.CLOSING,
+        opened_at: new Date(),
+      },
+    });
+    createdShiftIds.push(highValueShift.shift_id);
+
+    const closingCash = 1015.0; // variance = $15, < $5 but > 1% of 1000 = $10
+    const varianceReason = "Cash discrepancy found";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Reconciling cash with variance exceeding 1% threshold
+    const result = await shiftService.reconcileCash(
+      highValueShift.shift_id,
+      closingCash,
+      varianceReason,
+      auditContext,
+    );
+
+    // THEN: Reconciliation succeeds with VARIANCE_REVIEW status
+    expect(result.status).toBe(ShiftStatus.VARIANCE_REVIEW);
+    expect(result.variance_amount).toBe(15.0);
+    expect(result.variance_percentage).toBeCloseTo(1.5, 2);
+  });
+
+  it("4.4-UNIT-004: should calculate variance correctly (actual - expected)", async () => {
+    // GIVEN: Shift in CLOSING status with expected_cash = 150.0
+    const closingCash = 145.0; // variance = -$5 (shortage)
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Reconciling cash
+    const result = await shiftService.reconcileCash(
+      testClosingShift.shift_id,
+      closingCash,
+      undefined,
+      auditContext,
+    );
+
+    // THEN: Variance is calculated correctly (actual - expected)
+    expect(result.variance_amount).toBe(-5.0); // negative = shortage
+    expect(result.variance_percentage).toBeCloseTo(-3.33, 2);
+  });
+
+  it("4.4-UNIT-005: should require variance_reason when variance exceeds threshold", async () => {
+    // GIVEN: Shift in CLOSING status with expected_cash = 150.0
+    const closingCash = 156.0; // variance = $6, > $5
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Reconciling cash with variance > $5 but no variance_reason
+    // THEN: Should throw error requiring variance_reason
+    await expect(
+      shiftService.reconcileCash(
+        testClosingShift.shift_id,
+        closingCash,
+        undefined, // missing variance_reason
+        auditContext,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.reconcileCash(
+        testClosingShift.shift_id,
+        closingCash,
+        undefined,
+        auditContext,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.VARIANCE_REASON_REQUIRED,
+      );
+    }
+  });
+
+  it("4.4-UNIT-006: should reject reconciliation when shift is not in CLOSING status", async () => {
+    // GIVEN: Shift in OPEN status (not CLOSING)
+    const openShift = await prisma.shift.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: new Prisma.Decimal(100.0),
+        status: ShiftStatus.OPEN,
+        opened_at: new Date(),
+      },
+    });
+    createdShiftIds.push(openShift.shift_id);
+
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Attempting to reconcile
+    // THEN: Should throw ShiftServiceError with SHIFT_INVALID_STATUS code
+    await expect(
+      shiftService.reconcileCash(
+        openShift.shift_id,
+        150.0,
+        undefined,
+        auditContext,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.reconcileCash(
+        openShift.shift_id,
+        150.0,
+        undefined,
+        auditContext,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_INVALID_STATUS,
+      );
+    }
+  });
+
+  it("4.4-UNIT-007: should create audit log entry when reconciling cash", async () => {
+    // GIVEN: Shift in CLOSING status
+    const closingCash = 152.0;
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Reconciling cash
+    await shiftService.reconcileCash(
+      testClosingShift.shift_id,
+      closingCash,
+      undefined,
+      auditContext,
+    );
+
+    // THEN: Audit log entry is created
+    const auditLogs = await prisma.auditLog.findMany({
+      where: {
+        table_name: "shifts",
+        record_id: testClosingShift.shift_id,
+        action: "SHIFT_CASH_RECONCILED",
+      },
+      orderBy: { timestamp: "desc" },
+    });
+
+    expect(auditLogs.length).toBeGreaterThan(0);
+    const auditLog = auditLogs[0];
+    expect(auditLog.user_id).toBe(testShiftManagerUser.user_id);
+    expect(auditLog.action).toBe("SHIFT_CASH_RECONCILED");
+    expect(auditLog.new_values).toHaveProperty("closing_cash");
+    expect(auditLog.new_values).toHaveProperty("expected_cash");
+    expect(auditLog.new_values).toHaveProperty("variance_amount");
+    expect(auditLog.new_values).toHaveProperty("status");
+  });
+});
+
+/**
+ * Unit Tests: Shift Service - Variance Approval
+ *
+ * Story 4.5: Variance Approval Workflow
+ *
+ * CRITICAL TEST COVERAGE:
+ * - Variance approval with valid VARIANCE_REVIEW shift and reason
+ * - Status transition: VARIANCE_REVIEW → CLOSED
+ * - approved_by and approved_at are recorded
+ * - Shift locking prevents modifications when CLOSED
+ * - Validation: shift must be in VARIANCE_REVIEW status
+ * - variance_reason required when approving variance
+ * - Audit log creation with SHIFT_VARIANCE_APPROVED action
+ * - Error handling and error codes
+ */
+describe("Shift Service - Variance Approval (Story 4.5)", () => {
+  let testVarianceReviewShift: any;
+
+  beforeEach(async () => {
+    // Create a shift in VARIANCE_REVIEW status for approval tests
+    testVarianceReviewShift = await prisma.shift.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: new Prisma.Decimal(100.0),
+        expected_cash: new Prisma.Decimal(150.0),
+        closing_cash: new Prisma.Decimal(156.0),
+        variance: new Prisma.Decimal(6.0),
+        variance_reason: "Initial variance reason",
+        status: ShiftStatus.VARIANCE_REVIEW,
+        opened_at: new Date(),
+      },
+    });
+    createdShiftIds.push(testVarianceReviewShift.shift_id);
+  });
+
+  it("4.5-UNIT-001: should approve variance with valid VARIANCE_REVIEW shift and reason (status → CLOSED)", async () => {
+    // GIVEN: Shift in VARIANCE_REVIEW status
+    const varianceReason = "Approved: Extra cash from tips";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Approving variance
+    const result = await shiftService.approveVariance(
+      testVarianceReviewShift.shift_id,
+      varianceReason,
+      auditContext,
+    );
+
+    // THEN: Approval succeeds with CLOSED status
+    expect(result.status).toBe(ShiftStatus.CLOSED);
+    expect(result.variance_reason).toBe(varianceReason);
+    expect(result.approved_by).toBe(testShiftManagerUser.user_id);
+    expect(result.approved_at).toBeTruthy();
+
+    // Verify shift is updated in database
+    const updatedShift = await prisma.shift.findUnique({
+      where: { shift_id: testVarianceReviewShift.shift_id },
+    });
+    expect(updatedShift?.status).toBe(ShiftStatus.CLOSED);
+    expect(updatedShift?.variance_reason).toBe(varianceReason);
+    expect(updatedShift?.approved_by).toBe(testShiftManagerUser.user_id);
+    expect(updatedShift?.approved_at).not.toBeNull();
+    expect(updatedShift?.closed_at).not.toBeNull();
+  });
+
+  it("4.5-UNIT-002: should record approved_by and approved_at when approving variance", async () => {
+    // GIVEN: Shift in VARIANCE_REVIEW status
+    const varianceReason = "Approved: Variance approved";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Approving variance
+    const result = await shiftService.approveVariance(
+      testVarianceReviewShift.shift_id,
+      varianceReason,
+      auditContext,
+    );
+
+    // THEN: approved_by and approved_at are recorded
+    expect(result.approved_by).toBe(testShiftManagerUser.user_id);
+    expect(result.approved_at).toBeTruthy();
+
+    const updatedShift = await prisma.shift.findUnique({
+      where: { shift_id: testVarianceReviewShift.shift_id },
+    });
+    expect(updatedShift?.approved_by).toBe(testShiftManagerUser.user_id);
+    expect(updatedShift?.approved_at).not.toBeNull();
+    expect(updatedShift?.approved_at).toBeInstanceOf(Date);
+  });
+
+  it("4.5-UNIT-003: should reject approval when shift is not VARIANCE_REVIEW", async () => {
+    // GIVEN: Shift in CLOSING status (not VARIANCE_REVIEW)
+    const closingShift = await prisma.shift.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.SHIFT),
+        store_id: testStore.store_id,
+        opened_by: testShiftManagerUser.user_id,
+        cashier_id: testCashier.cashier_id,
+        pos_terminal_id: testTerminal.pos_terminal_id,
+        opening_cash: new Prisma.Decimal(100.0),
+        expected_cash: new Prisma.Decimal(150.0),
+        status: ShiftStatus.CLOSING,
+        opened_at: new Date(),
+      },
+    });
+    createdShiftIds.push(closingShift.shift_id);
+
+    const varianceReason = "Approved variance reason";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Attempting to approve variance
+    // THEN: Should throw ShiftServiceError with SHIFT_NOT_VARIANCE_REVIEW code
+    await expect(
+      shiftService.approveVariance(
+        closingShift.shift_id,
+        varianceReason,
+        auditContext,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.approveVariance(
+        closingShift.shift_id,
+        varianceReason,
+        auditContext,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_NOT_VARIANCE_REVIEW,
+      );
+    }
+  });
+
+  it("4.5-UNIT-004: should require variance_reason when approving variance", async () => {
+    // GIVEN: Shift in VARIANCE_REVIEW status
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Attempting to approve variance without reason
+    // THEN: Should throw ShiftServiceError with VARIANCE_REASON_REQUIRED code
+    await expect(
+      shiftService.approveVariance(
+        testVarianceReviewShift.shift_id,
+        "",
+        auditContext,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.approveVariance(
+        testVarianceReviewShift.shift_id,
+        "",
+        auditContext,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.VARIANCE_REASON_REQUIRED,
+      );
+    }
+  });
+
+  it("4.5-UNIT-005: should lock shift after approval (prevent modifications when CLOSED)", async () => {
+    // GIVEN: Shift in VARIANCE_REVIEW status
+    const varianceReason = "Approved: Variance approved";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Approving variance (status → CLOSED)
+    await shiftService.approveVariance(
+      testVarianceReviewShift.shift_id,
+      varianceReason,
+      auditContext,
+    );
+
+    // THEN: Attempting to modify the shift should fail
+    await expect(
+      shiftService.reconcileCash(
+        testVarianceReviewShift.shift_id,
+        160.0,
+        undefined,
+        auditContext,
+      ),
+    ).rejects.toThrow(ShiftServiceError);
+
+    try {
+      await shiftService.reconcileCash(
+        testVarianceReviewShift.shift_id,
+        160.0,
+        undefined,
+        auditContext,
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ShiftServiceError);
+      expect((error as ShiftServiceError).code).toBe(
+        ShiftErrorCode.SHIFT_LOCKED,
+      );
+    }
+  });
+
+  it("4.5-UNIT-006: should create audit log entry when approving variance", async () => {
+    // GIVEN: Shift in VARIANCE_REVIEW status
+    const varianceReason = "Approved: Variance approved";
+    const auditContext: AuditContext = {
+      userId: testShiftManagerUser.user_id,
+      userEmail: testShiftManagerUser.email,
+      userRoles: ["SHIFT_MANAGER"],
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+    };
+
+    // WHEN: Approving variance
+    await shiftService.approveVariance(
+      testVarianceReviewShift.shift_id,
+      varianceReason,
+      auditContext,
+    );
+
+    // THEN: Audit log entry is created
+    const auditLogs = await prisma.auditLog.findMany({
+      where: {
+        table_name: "shifts",
+        record_id: testVarianceReviewShift.shift_id,
+        action: "SHIFT_VARIANCE_APPROVED",
+      },
+      orderBy: { timestamp: "desc" },
+    });
+
+    expect(auditLogs.length, "Audit log should be created").toBeGreaterThan(0);
+    const auditLog = auditLogs[0];
+    expect(auditLog.user_id, "Audit log user_id should match").toBe(
+      testShiftManagerUser.user_id,
+    );
+    expect(
+      auditLog.action,
+      "Audit log action should be SHIFT_VARIANCE_APPROVED",
+    ).toBe("SHIFT_VARIANCE_APPROVED");
+    expect(auditLog.new_values, "Audit log should have status").toHaveProperty(
+      "status",
+      "CLOSED",
+    );
+    expect(
+      auditLog.new_values,
+      "Audit log should have variance_reason",
+    ).toHaveProperty("variance_reason");
+    expect(
+      auditLog.new_values,
+      "Audit log should have approved_by",
+    ).toHaveProperty("approved_by");
+    expect(
+      auditLog.new_values,
+      "Audit log should have approved_at",
+    ).toHaveProperty("approved_at");
+  });
+});
+
+// =============================================================================
+// SECTION: SECURITY & INPUT VALIDATION TESTS (MANDATORY - Applied Automatically by Workflow 9)
+// =============================================================================
+
+describe("ShiftService - Security & Input Validation", () => {
+  describe("SQL Injection Prevention", () => {
+    it("4.5-UNIT-SEC-001: should reject SQL injection attempts in store_id", async () => {
+      // GIVEN: Malicious SQL injection attempt in store_id
+      const maliciousStoreIds = [
+        "'; DROP TABLE stores; --",
+        "1' OR '1'='1",
+        "1'; DELETE FROM stores WHERE '1'='1",
+        "' UNION SELECT * FROM stores --",
+      ];
+
+      for (const maliciousStoreId of maliciousStoreIds) {
+        const openShiftData = {
+          store_id: maliciousStoreId,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+        };
+
+        // WHEN: Attempting to open shift with SQL injection in store_id
+        // THEN: Should throw error (validation or not found)
+        await expect(
+          shiftService.openShift(openShiftData, mockAuditContext),
+          `Should reject SQL injection in store_id: ${maliciousStoreId}`,
+        ).rejects.toThrow();
+
+        try {
+          await shiftService.openShift(openShiftData, mockAuditContext);
+        } catch (error) {
+          expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+            ShiftServiceError,
+          );
+          // Should be validation error, not SQL error
+          expect(
+            (error as ShiftServiceError).code,
+            "Error should be STORE_NOT_FOUND, not SQL error",
+          ).toBe(ShiftErrorCode.STORE_NOT_FOUND);
+        }
+      }
+    });
+
+    it("4.5-UNIT-SEC-002: should reject SQL injection attempts in cashier_id", async () => {
+      // GIVEN: Malicious SQL injection attempt in cashier_id
+      const maliciousCashierIds = [
+        "'; DROP TABLE users; --",
+        "1' OR '1'='1",
+        "' UNION SELECT password FROM users --",
+      ];
+
+      for (const maliciousCashierId of maliciousCashierIds) {
+        const openShiftData = {
+          store_id: testStore.store_id,
+          cashier_id: maliciousCashierId,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+        };
+
+        // WHEN: Attempting to open shift with SQL injection in cashier_id
+        // THEN: Should throw error
+        await expect(
+          shiftService.openShift(openShiftData, mockAuditContext),
+          `Should reject SQL injection in cashier_id: ${maliciousCashierId}`,
+        ).rejects.toThrow();
+
+        try {
+          await shiftService.openShift(openShiftData, mockAuditContext);
+        } catch (error) {
+          expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+            ShiftServiceError,
+          );
+          expect(
+            (error as ShiftServiceError).code,
+            "Error should be CASHIER_NOT_FOUND",
+          ).toBe(ShiftErrorCode.CASHIER_NOT_FOUND);
+        }
+      }
+    });
+
+    it("4.5-UNIT-SEC-003: should reject SQL injection attempts in pos_terminal_id", async () => {
+      // GIVEN: Malicious SQL injection attempt in pos_terminal_id
+      const maliciousTerminalIds = [
+        "'; DROP TABLE p_o_s_terminals; --",
+        "1' OR '1'='1",
+        "' UNION SELECT * FROM p_o_s_terminals --",
+      ];
+
+      for (const maliciousTerminalId of maliciousTerminalIds) {
+        const openShiftData = {
+          store_id: testStore.store_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: maliciousTerminalId,
+          opening_cash: 100.0,
+        };
+
+        // WHEN: Attempting to open shift with SQL injection in pos_terminal_id
+        // THEN: Should throw error
+        await expect(
+          shiftService.openShift(openShiftData, mockAuditContext),
+          `Should reject SQL injection in pos_terminal_id: ${maliciousTerminalId}`,
+        ).rejects.toThrow();
+
+        try {
+          await shiftService.openShift(openShiftData, mockAuditContext);
+        } catch (error) {
+          expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+            ShiftServiceError,
+          );
+          expect(
+            (error as ShiftServiceError).code,
+            "Error should be TERMINAL_NOT_FOUND",
+          ).toBe(ShiftErrorCode.TERMINAL_NOT_FOUND);
+        }
+      }
+    });
+
+    it("4.5-UNIT-SEC-004: should reject SQL injection attempts in shift_id", async () => {
+      // GIVEN: Malicious SQL injection attempt in shift_id
+      const maliciousShiftIds = [
+        "'; DROP TABLE shifts; --",
+        "1' OR '1'='1",
+        "1'; DELETE FROM shifts WHERE '1'='1",
+      ];
+
+      for (const maliciousShiftId of maliciousShiftIds) {
+        // WHEN: Attempting to initiate closing with SQL injection in shift_id
+        // THEN: Should throw error
+        await expect(
+          shiftService.initiateClosing(maliciousShiftId, mockAuditContext),
+          `Should reject SQL injection in shift_id: ${maliciousShiftId}`,
+        ).rejects.toThrow();
+
+        try {
+          await shiftService.initiateClosing(
+            maliciousShiftId,
+            mockAuditContext,
+          );
+        } catch (error) {
+          expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+            ShiftServiceError,
+          );
+          expect(
+            (error as ShiftServiceError).code,
+            "Error should be SHIFT_NOT_FOUND",
+          ).toBe(ShiftErrorCode.SHIFT_NOT_FOUND);
+        }
+      }
+    });
+  });
+
+  describe("Input Validation Edge Cases", () => {
+    it("4.5-UNIT-SEC-005: should reject empty string for variance_reason", async () => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          expected_cash: 150.0,
+          closing_cash: 156.0,
+          variance: 6.0,
+          variance_reason: "Initial variance reason",
+          status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Attempting to approve variance with empty string reason
+      // THEN: Should throw ShiftServiceError with VARIANCE_REASON_REQUIRED code
+      await expect(
+        shiftService.approveVariance(shift.shift_id, "", mockAuditContext),
+        "Should reject empty variance_reason",
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.approveVariance(
+          shift.shift_id,
+          "",
+          mockAuditContext,
+        );
+      } catch (error) {
+        expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+          ShiftServiceError,
+        );
+        expect(
+          (error as ShiftServiceError).code,
+          "Error code should be VARIANCE_REASON_REQUIRED",
+        ).toBe(ShiftErrorCode.VARIANCE_REASON_REQUIRED);
+      }
+    });
+
+    it("4.5-UNIT-SEC-006: should reject whitespace-only variance_reason", async () => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          expected_cash: 150.0,
+          closing_cash: 156.0,
+          variance: 6.0,
+          variance_reason: "Initial variance reason",
+          status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Attempting to approve variance with whitespace-only reason
+      // THEN: Should throw ShiftServiceError with VARIANCE_REASON_REQUIRED code
+      await expect(
+        shiftService.approveVariance(shift.shift_id, "   ", mockAuditContext),
+        "Should reject whitespace-only variance_reason",
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.approveVariance(
+          shift.shift_id,
+          "   ",
+          mockAuditContext,
+        );
+      } catch (error) {
+        expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+          ShiftServiceError,
+        );
+        expect(
+          (error as ShiftServiceError).code,
+          "Error code should be VARIANCE_REASON_REQUIRED",
+        ).toBe(ShiftErrorCode.VARIANCE_REASON_REQUIRED);
+      }
+    });
+
+    it("4.5-UNIT-SEC-007: should accept very long variance_reason (up to 500 characters)", async () => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          expected_cash: 150.0,
+          closing_cash: 156.0,
+          variance: 6.0,
+          variance_reason: "Initial variance reason",
+          status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // AND: Very long variance_reason (500 characters - max allowed)
+      const longReason = "A".repeat(500);
+
+      // WHEN: Approving variance with very long reason
+      const result = await shiftService.approveVariance(
+        shift.shift_id,
+        longReason,
+        mockAuditContext,
+      );
+
+      // THEN: Should succeed and store the long reason
+      expect(result, "Approval should succeed").toBeDefined();
+      expect(result.status, "Status should be CLOSED").toBe(ShiftStatus.CLOSED);
+      expect(result.variance_reason, "Variance reason should be stored").toBe(
+        longReason,
+      );
+    });
+
+    it("4.5-UNIT-SEC-007B: should reject variance_reason exceeding 500 characters", async () => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          expected_cash: 150.0,
+          closing_cash: 156.0,
+          variance: 6.0,
+          variance_reason: "Initial variance reason",
+          status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // AND: Variance reason exceeding max length (501 characters)
+      const tooLongReason = "A".repeat(501);
+
+      // WHEN: Attempting to approve variance with too long reason
+      // THEN: Should throw ShiftServiceError
+      await expect(
+        shiftService.approveVariance(
+          shift.shift_id,
+          tooLongReason,
+          mockAuditContext,
+        ),
+        "Should reject variance_reason exceeding 500 characters",
+      ).rejects.toThrow(ShiftServiceError);
+
+      try {
+        await shiftService.approveVariance(
+          shift.shift_id,
+          tooLongReason,
+          mockAuditContext,
+        );
+      } catch (error) {
+        expect(error, "Error should be ShiftServiceError").toBeInstanceOf(
+          ShiftServiceError,
+        );
+        expect(
+          (error as ShiftServiceError).code,
+          "Error code should be VARIANCE_REASON_REQUIRED",
+        ).toBe(ShiftErrorCode.VARIANCE_REASON_REQUIRED);
+      }
+    });
+
+    it("4.5-UNIT-SEC-008: should handle special characters in variance_reason", async () => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          expected_cash: 150.0,
+          closing_cash: 156.0,
+          variance: 6.0,
+          variance_reason: "Initial variance reason",
+          status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // AND: Variance reason with special characters
+      const specialCharReason =
+        "Approved: Extra cash from tips! @#$%^&*()_+-=[]{}|;':\",./<>?";
+
+      // WHEN: Approving variance with special characters
+      const result = await shiftService.approveVariance(
+        shift.shift_id,
+        specialCharReason,
+        mockAuditContext,
+      );
+
+      // THEN: Should succeed and store the special characters
+      expect(result, "Approval should succeed").toBeDefined();
+      expect(result.status, "Status should be CLOSED").toBe(ShiftStatus.CLOSED);
+      expect(
+        result.variance_reason,
+        "Variance reason with special chars should be stored",
+      ).toBe(specialCharReason);
+    });
+  });
+
+  describe("Enhanced Assertions", () => {
+    it("4.5-UNIT-SEC-009: should validate all response fields have correct types when approving variance", async () => {
+      // GIVEN: Shift in VARIANCE_REVIEW status
+      const shift = await prisma.shift.create({
+        data: {
+          store_id: testStore.store_id,
+          opened_by: testShiftManagerUser.user_id,
+          cashier_id: testCashier.cashier_id,
+          pos_terminal_id: testTerminal.pos_terminal_id,
+          opening_cash: 100.0,
+          expected_cash: 150.0,
+          closing_cash: 156.0,
+          variance: 6.0,
+          variance_reason: "Initial variance reason",
+          status: ShiftStatus.VARIANCE_REVIEW,
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      const varianceReason = "Approved: Variance approved";
+      const auditContext: AuditContext = {
+        userId: testShiftManagerUser.user_id,
+        userEmail: testShiftManagerUser.email,
+        userRoles: ["SHIFT_MANAGER"],
+        ipAddress: "127.0.0.1",
+        userAgent: "test-agent",
+      };
+
+      // WHEN: Approving variance
+      const result = await shiftService.approveVariance(
+        shift.shift_id,
+        varianceReason,
+        auditContext,
+      );
+
+      // THEN: All response fields should have correct types
+      expect(result, "Result should be defined").toBeDefined();
+      expect(typeof result.shift_id, "shift_id should be string").toBe(
+        "string",
+      );
+      expect(
+        result.shift_id.length,
+        "shift_id should be UUID format (36 chars)",
+      ).toBe(36);
+      expect(result.status, "status should be CLOSED").toBe(ShiftStatus.CLOSED);
+      expect(typeof result.closing_cash, "closing_cash should be number").toBe(
+        "number",
+      );
+      expect(
+        result.closing_cash,
+        "closing_cash should be positive",
+      ).toBeGreaterThan(0);
+      expect(
+        typeof result.expected_cash,
+        "expected_cash should be number",
+      ).toBe("number");
+      expect(
+        result.expected_cash,
+        "expected_cash should be positive",
+      ).toBeGreaterThan(0);
+      expect(
+        typeof result.variance_amount,
+        "variance_amount should be number",
+      ).toBe("number");
+      expect(
+        typeof result.variance_percentage,
+        "variance_percentage should be number",
+      ).toBe("number");
+      expect(
+        typeof result.variance_reason,
+        "variance_reason should be string",
+      ).toBe("string");
+      expect(
+        result.variance_reason.length,
+        "variance_reason should not be empty",
+      ).toBeGreaterThan(0);
+      expect(
+        typeof result.approved_by,
+        "approved_by should be string (UUID)",
+      ).toBe("string");
+      expect(
+        result.approved_by.length,
+        "approved_by should be UUID format",
+      ).toBe(36);
+      expect(
+        result.approved_at,
+        "approved_at should be Date instance",
+      ).toBeInstanceOf(Date);
+      expect(
+        result.closed_at,
+        "closed_at should be Date instance",
+      ).toBeInstanceOf(Date);
+    });
+  });
+});
+
+/**
+ * @test-level UNIT
+ * @justification Unit tests for ShiftService generateShiftReport business logic, validation, error handling, and edge cases. Tests service layer in isolation without HTTP layer.
+ * @story 4-6-shift-report-generation
+ *
+ * Unit Tests: Shift Service - Shift Report Generation
+ *
+ * Story 4.6: Shift Report Generation
+ *
+ * CRITICAL TEST COVERAGE:
+ * - Report generation with valid CLOSED shift
+ * - Report includes all required sections (summary, transactions, payment breakdown, variance)
+ * - Report fails when shift is not CLOSED
+ * - Report fails when shift not found
+ * - Transaction aggregation logic
+ * - Payment method breakdown calculation
+ * - Variance details inclusion
+ */
+
+describe("ShiftService - generateShiftReport", () => {
+  describe("Valid report generation (AC-1)", () => {
+    it("4.6-UNIT-001: should generate complete report for CLOSED shift with transactions", async () => {
+      // GIVEN: A CLOSED shift with transactions
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Report Test ${Date.now()}`,
+          device_id: `device-report-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const shift = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: testStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: testCashier.cashier_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            closing_cash: new Prisma.Decimal(250.0),
+            expected_cash: new Prisma.Decimal(150.0),
+            variance: new Prisma.Decimal(100.0),
+            status: "CLOSED",
+            opened_at: new Date(Date.now() - 8 * 60 * 60 * 1000),
+            closed_at: new Date(),
+          }),
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // Create transactions for the shift
+      // Note: Transaction.cashier_id references users table, not cashiers table
+      const transaction1 = await prisma.transaction.create({
+        data: {
+          ...createTransaction({
+            store_id: testStore.store_id,
+            shift_id: shift.shift_id,
+            cashier_id: testCashier.cashier_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            total: 50.0,
+          }),
+        },
+      });
+
+      await prisma.transactionLineItem.create({
+        data: createTransactionLineItem({
+          transaction_id: transaction1.transaction_id,
+          name: "Test Product 1",
+          quantity: 2,
+          unit_price: 25.0,
+          line_total: 50.0,
+        }),
+      });
+
+      await prisma.transactionPayment.create({
+        data: createTransactionPayment({
+          transaction_id: transaction1.transaction_id,
+          method: "CASH",
+          amount: 50.0,
+        }),
+      });
+
+      const transaction2 = await prisma.transaction.create({
+        data: {
+          ...createTransaction({
+            store_id: testStore.store_id,
+            shift_id: shift.shift_id,
+            cashier_id: testCashier.cashier_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            total: 100.0,
+          }),
+        },
+      });
+
+      await prisma.transactionLineItem.create({
+        data: createTransactionLineItem({
+          transaction_id: transaction2.transaction_id,
+          name: "Test Product 2",
+          quantity: 1,
+          unit_price: 100.0,
+          line_total: 100.0,
+        }),
+      });
+
+      await prisma.transactionPayment.create({
+        data: createTransactionPayment({
+          transaction_id: transaction2.transaction_id,
+          method: "CREDIT",
+          amount: 100.0,
+        }),
+      });
+
+      // WHEN: Generating shift report
+      const report = await shiftService.generateShiftReport(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      );
+
+      // THEN: Report should include all required sections
+      expect(report).toBeDefined();
+      expect(report.shift).toBeDefined();
+      expect(report.shift.shift_id).toBe(shift.shift_id);
+      expect(report.shift.status).toBe("CLOSED");
+
+      expect(report.summary).toBeDefined();
+      expect(report.summary.total_sales).toBe(150.0);
+      expect(report.summary.transaction_count).toBe(2);
+      expect(report.summary.opening_cash).toBe(100.0);
+      expect(report.summary.closing_cash).toBe(250.0);
+      expect(report.summary.expected_cash).toBe(150.0);
+      expect(report.summary.variance_amount).toBe(100.0);
+      expect(report.summary.variance_percentage).toBeCloseTo(66.67, 2);
+
+      expect(report.payment_methods).toBeDefined();
+      expect(report.payment_methods.length).toBe(2);
+      const cashPayment = report.payment_methods.find(
+        (pm) => pm.method === "CASH",
+      );
+      expect(cashPayment).toBeDefined();
+      expect(cashPayment?.total).toBe(50.0);
+      expect(cashPayment?.count).toBe(1);
+      const creditPayment = report.payment_methods.find(
+        (pm) => pm.method === "CREDIT",
+      );
+      expect(creditPayment).toBeDefined();
+      expect(creditPayment?.total).toBe(100.0);
+      expect(creditPayment?.count).toBe(1);
+
+      expect(report.transactions).toBeDefined();
+      expect(report.transactions.length).toBe(2);
+      expect(report.transactions[0].line_items.length).toBeGreaterThan(0);
+      expect(report.transactions[0].payments.length).toBeGreaterThan(0);
+    });
+
+    it("4.6-UNIT-002: should include variance details when variance exists", async () => {
+      // GIVEN: A CLOSED shift with variance
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Variance Test ${Date.now()}`,
+          device_id: `device-variance-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const shift = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: testStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: testCashier.cashier_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            closing_cash: new Prisma.Decimal(250.0),
+            expected_cash: new Prisma.Decimal(100.0),
+            variance: new Prisma.Decimal(150.0),
+            variance_reason: "Test variance reason",
+            approved_by: testShiftManagerUser.user_id,
+            approved_at: new Date(),
+            status: "CLOSED",
+            opened_at: new Date(Date.now() - 8 * 60 * 60 * 1000),
+            closed_at: new Date(),
+          }),
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN: Generating shift report
+      const report = await shiftService.generateShiftReport(
+        shift.shift_id,
+        testShiftManagerUser.user_id,
+      );
+
+      // THEN: Variance details should be included
+      expect(report.variance).toBeDefined();
+      expect(report.variance?.variance_amount).toBe(150.0);
+      expect(report.variance?.variance_percentage).toBe(150.0);
+      expect(report.variance?.variance_reason).toBe("Test variance reason");
+      expect(report.variance?.approved_by).toBeDefined();
+      expect(report.variance?.approved_at).toBeDefined();
+    });
+  });
+
+  describe("Error handling (AC-1)", () => {
+    it("4.6-UNIT-003: should fail when shift is not CLOSED", async () => {
+      // GIVEN: An OPEN shift
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Open Test ${Date.now()}`,
+          device_id: `device-open-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      const shift = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: testStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: testCashier.cashier_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            status: "OPEN",
+          }),
+        },
+      });
+      createdShiftIds.push(shift.shift_id);
+
+      // WHEN/THEN: Generating report should fail with SHIFT_NOT_CLOSED error
+      await expect(
+        shiftService.generateShiftReport(
+          shift.shift_id,
+          testShiftManagerUser.user_id,
+        ),
+      ).rejects.toThrow(ShiftServiceError);
+
+      await expect(
+        shiftService.generateShiftReport(
+          shift.shift_id,
+          testShiftManagerUser.user_id,
+        ),
+      ).rejects.toMatchObject({
+        code: ShiftErrorCode.SHIFT_NOT_CLOSED,
+      });
+    });
+
+    it("4.6-UNIT-004: should fail when shift not found", async () => {
+      // GIVEN: Non-existent shift ID
+      const fakeShiftId = "00000000-0000-0000-0000-000000000000";
+
+      // WHEN/THEN: Generating report should fail with SHIFT_NOT_FOUND error
+      await expect(
+        shiftService.generateShiftReport(
+          fakeShiftId,
+          testShiftManagerUser.user_id,
+        ),
+      ).rejects.toThrow(ShiftServiceError);
+
+      await expect(
+        shiftService.generateShiftReport(
+          fakeShiftId,
+          testShiftManagerUser.user_id,
+        ),
+      ).rejects.toMatchObject({
+        code: ShiftErrorCode.SHIFT_NOT_FOUND,
+      });
+    });
+  });
+
+  describe("Shift Number Calculation (Story 4.92)", () => {
+    it("4.92-UNIT-001: should return 1 for first shift of day", async () => {
+      // GIVEN: A terminal with no shifts today
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Shift Number Test ${Date.now()}`,
+          device_id: `device-shift-num-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      // WHEN: Calculating shift number
+      const shiftNumber = await shiftService.calculateShiftNumber(
+        isolatedTerminal.pos_terminal_id,
+        testStore.timezone,
+      );
+
+      // THEN: Should return 1 (first shift of day)
+      expect(shiftNumber).toBe(1);
+    });
+
+    it("4.92-UNIT-002: should increment sequentially for subsequent shifts", async () => {
+      // GIVEN: A terminal with 2 shifts already started today
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Shift Increment Test ${Date.now()}`,
+          device_id: `device-shift-inc-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      // Create 2 shifts that started today
+      const shift1 = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: testStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: testCashier.cashier_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            status: "OPEN",
+          }),
+          shift_number: 1,
+          opened_at: new Date(), // Today
+        },
+      });
+      createdShiftIds.push(shift1.shift_id);
+
+      const shift2 = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: testStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: testCashier.cashier_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            status: "CLOSED",
+          }),
+          shift_number: 2,
+          opened_at: new Date(), // Today
+        },
+      });
+      createdShiftIds.push(shift2.shift_id);
+
+      // WHEN: Calculating shift number
+      const shiftNumber = await shiftService.calculateShiftNumber(
+        isolatedTerminal.pos_terminal_id,
+        testStore.timezone,
+      );
+
+      // THEN: Should return 3 (next shift number)
+      expect(shiftNumber).toBe(3);
+    });
+
+    it("4.92-UNIT-003: shift belongs to day it started, not day it ended", async () => {
+      // GIVEN: A shift that started on Dec 3 at 11:00 PM and ended on Dec 4 at 1:00 AM
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Day Assignment Test ${Date.now()}`,
+          device_id: `device-day-assign-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      // Create a shift that started yesterday (Dec 3) at 11 PM
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      yesterday.setHours(23, 0, 0, 0); // 11:00 PM
+
+      const crossDayShift = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: testStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: testCashier.cashier_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            status: "CLOSED",
+          }),
+          shift_number: 1,
+          opened_at: yesterday, // Started yesterday
+          closed_at: new Date(yesterday.getTime() + 2 * 60 * 60 * 1000), // Closed 2 hours later (1 AM next day)
+        },
+      });
+      createdShiftIds.push(crossDayShift.shift_id);
+
+      // WHEN: Calculating shift number for today
+      const shiftNumber = await shiftService.calculateShiftNumber(
+        isolatedTerminal.pos_terminal_id,
+        testStore.timezone,
+      );
+
+      // THEN: Should return 1 (yesterday's shift doesn't count, this is first shift of today)
+      expect(shiftNumber).toBe(1);
+    });
+
+    it("4.92-UNIT-004: should handle timezone correctly for date calculations", async () => {
+      // GIVEN: A store in a different timezone (America/Denver)
+      const denverStore = await prisma.store.create({
+        data: {
+          company_id: testCompany.company_id,
+          name: `Denver Store ${Date.now()}`,
+          timezone: "America/Denver",
+          status: "ACTIVE",
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        },
+      });
+      createdStoreIds.push(denverStore.store_id);
+
+      const denverTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: denverStore.store_id,
+          name: `Denver Terminal ${Date.now()}`,
+          device_id: `device-denver-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(denverTerminal.pos_terminal_id);
+
+      // WHEN: Calculating shift number using Denver timezone
+      const shiftNumber = await shiftService.calculateShiftNumber(
+        denverTerminal.pos_terminal_id,
+        denverStore.timezone,
+      );
+
+      // THEN: Should return 1 (first shift)
+      expect(shiftNumber).toBe(1);
+    });
+  });
+});
