@@ -13,7 +13,7 @@ test.describe("Role-Based Token Expiry", () => {
     // GIVEN: A super admin user
     const userId = "test-super-admin-id";
     const email = "superadmin@test.com";
-    const roles = ["SUPER_ADMIN"];
+    const roles = ["SUPERADMIN"];
     const permissions = ["ALL"];
 
     // WHEN: Generating access token
@@ -65,11 +65,11 @@ test.describe("Role-Based Token Expiry", () => {
     expect(expiryTime).toBeLessThanOrEqual(3610); // 1h + 10s tolerance
   });
 
-  test("[P0] User with multiple roles including SUPER_ADMIN should receive 8 hour token", async () => {
-    // GIVEN: A user with SUPER_ADMIN and other roles
+  test("[P0] User with multiple roles including SUPERADMIN should receive 8 hour token", async () => {
+    // GIVEN: A user with SUPERADMIN and other roles
     const userId = "test-multi-role-id";
     const email = "multirole@test.com";
-    const roles = ["SUPER_ADMIN", "CLIENT_OWNER"];
+    const roles = ["SUPERADMIN", "CLIENT_OWNER"];
     const permissions = ["ALL"];
 
     // WHEN: Generating access token
@@ -80,7 +80,7 @@ test.describe("Role-Based Token Expiry", () => {
       permissions,
     );
 
-    // THEN: Token should have 8 hour expiry (SUPER_ADMIN takes precedence)
+    // THEN: Token should have 8 hour expiry (SUPERADMIN takes precedence)
     const decoded = jwt.decode(accessToken) as any;
     expect(decoded).toBeTruthy();
 

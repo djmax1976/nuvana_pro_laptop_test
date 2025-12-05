@@ -18,8 +18,8 @@ export interface ShiftReportData {
       name: string;
     } | null;
     cashier_id: string;
-    cashier_name: {
-      user_id: string;
+    cashier: {
+      cashier_id: string;
       name: string;
     } | null;
     opened_at: string;

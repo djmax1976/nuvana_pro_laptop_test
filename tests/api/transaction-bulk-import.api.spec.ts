@@ -34,6 +34,7 @@ import {
   createTransactionPayload,
   createJWTAccessToken,
   createStore as createStoreFactory,
+  createCashier,
 } from "../support/factories";
 import { createCompany, createStore, createUser } from "../support/helpers";
 import { PrismaClient } from "@prisma/client";
@@ -65,7 +66,7 @@ interface TestStoreAndShift {
 async function createTestStoreAndShift(
   prismaClient: PrismaClient,
   companyId: string,
-  cashierId: string,
+  createdByUserId: string,
   storeName?: string,
 ): Promise<TestStoreAndShift> {
   const store = await prismaClient.store.create({
@@ -77,11 +78,17 @@ async function createTestStoreAndShift(
     }),
   });
 
+  const cashierData = await createCashier({
+    store_id: store.store_id,
+    created_by: createdByUserId,
+  });
+  const cashier = await prismaClient.cashier.create({ data: cashierData });
+
   const shift = await prismaClient.shift.create({
     data: {
       store_id: store.store_id,
-      opened_by: cashierId,
-      cashier_id: cashierId,
+      opened_by: createdByUserId,
+      cashier_id: cashier.cashier_id,
       opening_cash: 100.0,
       status: "OPEN",
     },
@@ -220,7 +227,7 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const transaction = createTransactionPayload({
       store_id: store.store_id,
       shift_id: shift.shift_id,
-      cashier_id: superadminUser.user_id,
+      cashier_id: shift.cashier_id,
     });
     const csvContent = createCSVContent([transaction]);
 
@@ -266,7 +273,7 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const transaction = createTransactionPayload({
       store_id: store.store_id,
       shift_id: shift.shift_id,
-      cashier_id: superadminUser.user_id,
+      cashier_id: shift.cashier_id,
     });
     const jsonContent = createJSONContent([transaction]);
 
@@ -496,7 +503,7 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const transaction = createTransactionPayload({
       store_id: store.store_id,
       shift_id: shift.shift_id,
-      cashier_id: superadminUser.user_id,
+      cashier_id: shift.cashier_id,
     });
     const csvContent = createCSVContent([transaction]);
 
@@ -561,7 +568,7 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
       createTransactionPayload({
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: superadminUser.user_id,
+        cashier_id: shift.cashier_id,
       }),
     );
     const csvContent = createCSVContent(transactions);
@@ -1172,12 +1179,12 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
     const transaction1 = createTransactionPayload({
       store_id: store.store_id,
       shift_id: shift.shift_id,
-      cashier_id: superadminUser.user_id,
+      cashier_id: shift.cashier_id,
     });
     const transaction2 = createTransactionPayload({
       store_id: store.store_id,
       shift_id: shift.shift_id,
-      cashier_id: superadminUser.user_id,
+      cashier_id: shift.cashier_id,
     });
 
     const csvContent1 = createCSVContent([transaction1]);

@@ -63,8 +63,10 @@ async function validateCreateEmployeeBody(
     reply.code(400);
     reply.send({
       success: false,
-      error: "Validation error",
-      message: parseResult.error.issues[0].message,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: parseResult.error.issues[0].message,
+      },
     });
     return;
   }
@@ -163,8 +165,10 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
@@ -177,17 +181,21 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
           reply.code(403);
           return {
             success: false,
-            error: message,
-            message:
-              "You can only assign employees to your own stores with STORE scope roles",
+            error: {
+              code: "PERMISSION_DENIED",
+              message:
+                "You can only assign employees to your own stores with STORE scope roles",
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to create employee",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to create employee",
+          },
         };
       }
     },
@@ -219,8 +227,10 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: parseResult.error.issues[0].message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
           };
         }
 
@@ -244,8 +254,10 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to fetch employees",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch employees",
+          },
         };
       }
     },
@@ -277,8 +289,10 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Invalid user ID",
-            message: "User ID must be a valid UUID",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
           };
         }
 
@@ -287,8 +301,10 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "You cannot delete your own account",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "You cannot delete your own account",
+            },
           };
         }
 
@@ -314,8 +330,10 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message: "Employee not found",
+            error: {
+              code: "NOT_FOUND",
+              message: "Employee not found",
+            },
           };
         }
 
@@ -329,17 +347,21 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
           reply.code(403);
           return {
             success: false,
-            error: message,
-            message:
-              "You can only delete employees with STORE scope roles in your stores",
+            error: {
+              code: "PERMISSION_DENIED",
+              message:
+                "You can only delete employees with STORE scope roles in your stores",
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to delete employee",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to delete employee",
+          },
         };
       }
     },
@@ -374,8 +396,10 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to fetch roles",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch roles",
+          },
         };
       }
     },

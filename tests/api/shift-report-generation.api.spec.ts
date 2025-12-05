@@ -8,6 +8,7 @@ import {
   createTransactionLineItem,
   createTransactionPayment,
   createExpiredJWTAccessToken,
+  createCashier,
 } from "../support/factories";
 import { Prisma } from "@prisma/client";
 
@@ -51,17 +52,19 @@ import { Prisma } from "@prisma/client";
 
 /**
  * Creates a POS terminal for testing
+ * Uses crypto.randomUUID() for unique device_id to prevent collisions in parallel tests
  */
 async function createPOSTerminal(
   prismaClient: any,
   storeId: string,
   name?: string,
 ): Promise<{ pos_terminal_id: string; store_id: string; name: string }> {
+  const uniqueId = crypto.randomUUID();
   const terminal = await prismaClient.pOSTerminal.create({
     data: {
       store_id: storeId,
-      name: name || `Terminal ${Date.now()}`,
-      device_id: `device-${Date.now()}`,
+      name: name || `Terminal ${uniqueId.substring(0, 8)}`,
+      device_id: `device-${uniqueId}`,
       deleted_at: null, // Active terminal (not soft-deleted)
     },
   });
@@ -74,7 +77,30 @@ async function createPOSTerminal(
 }
 
 /**
+ * Creates a test Cashier for testing shifts
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
+}
+
+/**
  * Creates a CLOSED shift with transactions for testing
+ * @param prismaClient - Prisma client instance
+ * @param storeId - Store UUID
+ * @param openedBy - User UUID who opened the shift
+ * @param cashierId - Cashier UUID (from Cashier table, for shift.cashier_id)
+ * @param posTerminalId - POS terminal UUID
+ * @param transactionCashierUserId - User UUID for transaction.cashier_id (references users.user_id, NOT cashiers.cashier_id)
+ * @param openingCash - Opening cash amount
+ * @param closingCash - Closing cash amount
  */
 async function createClosedShiftWithTransactions(
   prismaClient: any,
@@ -82,6 +108,7 @@ async function createClosedShiftWithTransactions(
   openedBy: string,
   cashierId: string,
   posTerminalId: string,
+  transactionCashierUserId: string,
   openingCash: number = 100.0,
   closingCash: number = 250.0,
 ): Promise<{ shift_id: string; status: string }> {
@@ -104,12 +131,13 @@ async function createClosedShiftWithTransactions(
   });
 
   // Create transactions for the shift
+  // NOTE: transaction.cashier_id references users.user_id, NOT cashiers.cashier_id
   const transaction1 = await prismaClient.transaction.create({
     data: {
       ...createTransaction({
         store_id: storeId,
         shift_id: shift.shift_id,
-        cashier_id: cashierId,
+        cashier_id: transactionCashierUserId, // User ID, not Cashier ID
         pos_terminal_id: posTerminalId,
         subtotal: 50.0,
         tax: 4.0,
@@ -124,7 +152,7 @@ async function createClosedShiftWithTransactions(
       ...createTransaction({
         store_id: storeId,
         shift_id: shift.shift_id,
-        cashier_id: cashierId,
+        cashier_id: transactionCashierUserId, // User ID, not Cashier ID
         pos_terminal_id: posTerminalId,
         subtotal: 100.0,
         tax: 8.0,
@@ -323,16 +351,19 @@ test.describe("4.6-API: Shift Report - Authorization", () => {
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
     const terminal = await createPOSTerminal(prismaClient, store.store_id);
     const shift = await createClosedShiftWithTransactions(
       prismaClient,
       store.store_id,
       owner.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
+      owner.user_id, // transactionCashierUserId - User ID for transaction.cashier_id
     );
 
     // WHEN: Requesting shift report without permission
@@ -359,11 +390,13 @@ test.describe("4.6-API: Shift Report - Authorization", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.store.delete({ where: { store_id: store.store_id } });
     await prismaClient.company.delete({
       where: { company_id: company.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
     await prismaClient.user.delete({ where: { user_id: owner.user_id } });
   });
 });
@@ -380,9 +413,11 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
   }) => {
     // GIVEN: Authenticated user with SHIFT_REPORT_VIEW permission
     // AND: A CLOSED shift with transactions exists
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -391,8 +426,9 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
+      storeManagerUser.user_id, // transactionCashierUserId
       100.0,
       250.0,
     );
@@ -426,6 +462,51 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     expect(typeof body.data.shift.store_id, "Store ID should be string").toBe(
       "string",
     );
+    expect(
+      body.data.shift.store_name,
+      "Shift should include store_name",
+    ).toBeDefined();
+    expect(
+      typeof body.data.shift.store_name === "string" ||
+        body.data.shift.store_name === null,
+      "Store name should be string or null",
+    ).toBe(true);
+    expect(
+      body.data.shift.cashier_id,
+      "Shift should include cashier_id",
+    ).toBeDefined();
+    expect(
+      typeof body.data.shift.cashier_id,
+      "Cashier ID should be string",
+    ).toBe("string");
+    expect(
+      body.data.shift.cashier,
+      "Shift should include cashier object",
+    ).toBeDefined();
+    if (body.data.shift.cashier) {
+      expect(
+        body.data.shift.cashier.cashier_id,
+        "Cashier should have cashier_id",
+      ).toBeDefined();
+      expect(
+        body.data.shift.cashier.name,
+        "Cashier should have name",
+      ).toBeDefined();
+    }
+    expect(
+      body.data.shift.opened_by,
+      "Shift should include opened_by",
+    ).toBeDefined();
+    if (body.data.shift.opened_by) {
+      expect(
+        body.data.shift.opened_by.user_id,
+        "Opened by should have user_id",
+      ).toBeDefined();
+      expect(
+        body.data.shift.opened_by.name,
+        "Opened by should have name",
+      ).toBeDefined();
+    }
     expect(
       body.data.shift.opened_at,
       "Shift should include opened_at",
@@ -512,8 +593,41 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       "Payment methods should be an array",
     ).toBe(true);
 
-    // AND: Report should include variance details
-    expect(body.data.variance, "Report should include variance").toBeDefined();
+    // AND: Report should include variance details (null if no variance)
+    expect(
+      body.data.variance === null || typeof body.data.variance === "object",
+      "Variance should be null or object",
+    ).toBe(true);
+    if (body.data.variance) {
+      expect(
+        typeof body.data.variance.variance_amount,
+        "Variance amount should be number",
+      ).toBe("number");
+      expect(
+        typeof body.data.variance.variance_percentage,
+        "Variance percentage should be number",
+      ).toBe("number");
+      expect(
+        body.data.variance.variance_reason === null ||
+          typeof body.data.variance.variance_reason === "string",
+        "Variance reason should be string or null",
+      ).toBe(true);
+      if (body.data.variance.approved_by) {
+        expect(
+          body.data.variance.approved_by.user_id,
+          "Approved by should have user_id",
+        ).toBeDefined();
+        expect(
+          body.data.variance.approved_by.name,
+          "Approved by should have name",
+        ).toBeDefined();
+      }
+      expect(
+        body.data.variance.approved_at === null ||
+          typeof body.data.variance.approved_at === "string",
+        "Approved at should be string or null",
+      ).toBe(true);
+    }
 
     // AND: Report should include transactions with line items
     expect(
@@ -525,14 +639,89 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       "Transactions should be an array",
     ).toBe(true);
     if (body.data.transactions.length > 0) {
+      const transaction = body.data.transactions[0];
       expect(
-        body.data.transactions[0].line_items,
+        transaction.transaction_id,
+        "Transaction should have transaction_id",
+      ).toBeDefined();
+      expect(
+        typeof transaction.transaction_id,
+        "Transaction ID should be string",
+      ).toBe("string");
+      expect(
+        transaction.timestamp,
+        "Transaction should have timestamp",
+      ).toBeDefined();
+      expect(
+        transaction.timestamp,
+        "Timestamp should be ISO date format",
+      ).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+      expect(
+        typeof transaction.total,
+        "Transaction total should be number",
+      ).toBe("number");
+      expect(
+        transaction.cashier === null || typeof transaction.cashier === "object",
+        "Transaction cashier should be null or object",
+      ).toBe(true);
+      if (transaction.cashier) {
+        expect(
+          transaction.cashier.user_id,
+          "Transaction cashier should have user_id",
+        ).toBeDefined();
+        expect(
+          transaction.cashier.name,
+          "Transaction cashier should have name",
+        ).toBeDefined();
+      }
+      expect(
+        transaction.line_items,
         "Transactions should include line items",
       ).toBeDefined();
       expect(
-        body.data.transactions[0].payments,
+        Array.isArray(transaction.line_items),
+        "Line items should be an array",
+      ).toBe(true);
+      if (transaction.line_items.length > 0) {
+        const lineItem = transaction.line_items[0];
+        expect(
+          lineItem.product_name,
+          "Line item should have product_name",
+        ).toBeDefined();
+        expect(
+          typeof lineItem.product_name,
+          "Product name should be string",
+        ).toBe("string");
+        expect(
+          typeof lineItem.quantity,
+          "Line item quantity should be number",
+        ).toBe("number");
+        expect(typeof lineItem.price, "Line item price should be number").toBe(
+          "number",
+        );
+        expect(
+          typeof lineItem.subtotal,
+          "Line item subtotal should be number",
+        ).toBe("number");
+      }
+      expect(
+        transaction.payments,
         "Transactions should include payments",
       ).toBeDefined();
+      expect(
+        Array.isArray(transaction.payments),
+        "Payments should be an array",
+      ).toBe(true);
+      if (transaction.payments.length > 0) {
+        const payment = transaction.payments[0];
+        expect(payment.method, "Payment should have method").toBeDefined();
+        expect(typeof payment.method, "Payment method should be string").toBe(
+          "string",
+        );
+        expect(typeof payment.amount, "Payment amount should be number").toBe(
+          "number",
+        );
+      }
     }
 
     // Cleanup
@@ -544,7 +733,9 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.6-API-005: [P0] should include correct sales totals in report summary", async ({
@@ -553,9 +744,11 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift with known transaction totals
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -564,8 +757,9 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
+      storeManagerUser.user_id, // transactionCashierUserId
       100.0,
       250.0,
     );
@@ -598,7 +792,9 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.6-API-006: [P0] should include payment method breakdown in report", async ({
@@ -607,9 +803,11 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift with multiple payment methods
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -618,8 +816,9 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
+      storeManagerUser.user_id, // transactionCashierUserId
     );
 
     // WHEN: Requesting shift report
@@ -649,11 +848,33 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       expect(typeof pm.total, "Payment method total should be number").toBe(
         "number",
       );
+      expect(
+        pm.total,
+        "Payment method total should be positive",
+      ).toBeGreaterThan(0);
       expect(pm.count, "Payment method should have count").toBeDefined();
       expect(typeof pm.count, "Payment method count should be number").toBe(
         "number",
       );
+      expect(
+        pm.count,
+        "Payment method count should be positive",
+      ).toBeGreaterThan(0);
     });
+
+    // AND: Payment methods should match created payments (CASH: 54.0, CREDIT: 108.0)
+    const cashPayment = body.data.payment_methods.find(
+      (pm: any) => pm.method === "CASH",
+    );
+    const creditPayment = body.data.payment_methods.find(
+      (pm: any) => pm.method === "CREDIT",
+    );
+    expect(cashPayment, "Should have CASH payment method").toBeDefined();
+    expect(cashPayment.total, "CASH total should be 54.0").toBe(54.0);
+    expect(cashPayment.count, "CASH count should be 1").toBe(1);
+    expect(creditPayment, "Should have CREDIT payment method").toBeDefined();
+    expect(creditPayment.total, "CREDIT total should be 108.0").toBe(108.0);
+    expect(creditPayment.count, "CREDIT count should be 1").toBe(1);
 
     // Cleanup
     await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
@@ -664,7 +885,9 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 });
 
@@ -720,7 +943,8 @@ test.describe("4.6-API: Shift Report - Validation", () => {
   test("4.6-API-007b: [P0] should return 400 when shiftId is empty string", async ({
     storeManagerApiRequest,
   }) => {
-    // GIVEN: Empty string shift ID
+    // GIVEN: Empty string shift ID (URL encoded as %20 or results in double slash)
+    // Note: Empty string in path parameter may result in route mismatch (404) or validation error (400)
     const emptyShiftId = "";
 
     // WHEN: Requesting report with empty shift ID
@@ -728,13 +952,20 @@ test.describe("4.6-API: Shift Report - Validation", () => {
       `/api/shifts/${emptyShiftId}/report`,
     );
 
-    // THEN: Should return 400 Bad Request or 404
+    // THEN: Should return 400 Bad Request (validation error) or 404 (route not found)
     expect(
       response.status(),
       "Should return error for empty shift ID",
     ).toBeGreaterThanOrEqual(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
+    // If it's a 400, it should be a validation error; if 404, it's a route mismatch
+    if (response.status() === 400) {
+      expect(
+        body.error.code,
+        "Error code should be VALIDATION_ERROR for empty string",
+      ).toBe("VALIDATION_ERROR");
+    }
   });
 
   test("4.6-API-007c: [P0] should return 400 when shiftId is malformed UUID", async ({
@@ -763,9 +994,11 @@ test.describe("4.6-API: Shift Report - Validation", () => {
     prismaClient,
   }) => {
     // GIVEN: An OPEN shift (not CLOSED)
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -775,7 +1008,7 @@ test.describe("4.6-API: Shift Report - Validation", () => {
         ...createShift({
           store_id: storeManagerUser.store_id,
           opened_by: storeManagerUser.user_id,
-          cashier_id: cashier.user_id,
+          cashier_id: cashier.cashier_id,
           pos_terminal_id: terminal.pos_terminal_id,
           status: "OPEN",
         }),
@@ -807,7 +1040,9 @@ test.describe("4.6-API: Shift Report - Validation", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 });
 
@@ -822,9 +1057,11 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift with transactions
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -833,8 +1070,9 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
+      storeManagerUser.user_id, // transactionCashierUserId
     );
 
     // WHEN: Requesting PDF export
@@ -848,6 +1086,10 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       response.headers()["content-type"],
       "Should return PDF content type",
     ).toContain("application/pdf");
+    expect(
+      response.headers()["content-disposition"],
+      "Should include Content-Disposition header",
+    ).toContain(`attachment; filename="shift-report-${shift.shift_id}.pdf"`);
 
     // AND: Response body should be PDF binary data
     const buffer = await response.body();
@@ -862,7 +1104,9 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.6-API-009a: [P1] should return error for invalid export format", async ({
@@ -871,9 +1115,11 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift with transactions
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -882,8 +1128,9 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
+      storeManagerUser.user_id, // transactionCashierUserId
     );
 
     // WHEN: Requesting export with invalid format
@@ -891,13 +1138,23 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       `/api/shifts/${shift.shift_id}/report/export?format=xml`,
     );
 
-    // THEN: Should return error for invalid format
-    expect(
-      response.status(),
-      "Should return error for invalid format",
-    ).toBeGreaterThanOrEqual(400);
+    // THEN: Should return 400 Bad Request
+    // Note: Fastify schema validation (enum: ["pdf"]) rejects invalid formats
+    // before the handler runs, so we get VALIDATION_ERROR from schema validation
+    expect(response.status(), "Should return 400 for invalid format").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
+    // Schema validation returns VALIDATION_ERROR for enum mismatch
+    expect(body.error.code, "Error code should be VALIDATION_ERROR").toBe(
+      "VALIDATION_ERROR",
+    );
+    // Fastify schema validation message contains "format" field reference
+    const errorMessage = body.error.message || JSON.stringify(body.error);
+    expect(errorMessage, "Error message should be defined").toBeDefined();
+    expect(
+      errorMessage.toLowerCase(),
+      "Error should reference the format parameter",
+    ).toContain("format");
 
     // Cleanup
     await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
@@ -908,7 +1165,9 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 
   test("4.6-API-009b: [P1] should default to PDF when format parameter is missing", async ({
@@ -917,9 +1176,11 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift with transactions
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -928,8 +1189,9 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
+      storeManagerUser.user_id, // transactionCashierUserId
     );
 
     // WHEN: Requesting export without format parameter (should default to PDF)
@@ -943,6 +1205,10 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       response.headers()["content-type"],
       "Should return PDF content type",
     ).toContain("application/pdf");
+    expect(
+      response.headers()["content-disposition"],
+      "Should include Content-Disposition header",
+    ).toContain(`attachment; filename="shift-report-${shift.shift_id}.pdf"`);
 
     // Cleanup
     await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
@@ -953,7 +1219,9 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 });
 
@@ -1036,9 +1304,11 @@ test.describe("4.6-API: Shift Report - Security", () => {
     prismaClient,
   }) => {
     // GIVEN: A CLOSED shift with transactions
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
     const terminal = await createPOSTerminal(
       prismaClient,
       storeManagerUser.store_id,
@@ -1047,8 +1317,9 @@ test.describe("4.6-API: Shift Report - Security", () => {
       prismaClient,
       storeManagerUser.store_id,
       storeManagerUser.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
+      storeManagerUser.user_id, // transactionCashierUserId
     );
 
     // WHEN: Requesting shift report
@@ -1080,7 +1351,9 @@ test.describe("4.6-API: Shift Report - Security", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
   });
 });
 
@@ -1104,16 +1377,19 @@ test.describe("4.6-API: Shift Report - RLS Policies", () => {
     const otherStore = await prismaClient.store.create({
       data: createStore({ company_id: otherCompany.company_id }),
     });
-    const cashier = await prismaClient.user.create({
-      data: createUser({ name: "Cashier" }),
-    });
+    const cashier = await createTestCashier(
+      prismaClient,
+      otherStore.store_id,
+      otherOwner.user_id,
+    );
     const terminal = await createPOSTerminal(prismaClient, otherStore.store_id);
     const shift = await createClosedShiftWithTransactions(
       prismaClient,
       otherStore.store_id,
       otherOwner.user_id,
-      cashier.user_id,
+      cashier.cashier_id,
       terminal.pos_terminal_id,
+      otherOwner.user_id, // transactionCashierUserId
     );
 
     // WHEN: Requesting report for shift in inaccessible store
@@ -1140,13 +1416,15 @@ test.describe("4.6-API: Shift Report - RLS Policies", () => {
     } catch (error) {
       // Terminal may already be deleted, ignore not-found errors
     }
+    await prismaClient.cashier.delete({
+      where: { cashier_id: cashier.cashier_id },
+    });
     await prismaClient.store.delete({
       where: { store_id: otherStore.store_id },
     });
     await prismaClient.company.delete({
       where: { company_id: otherCompany.company_id },
     });
-    await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
     await prismaClient.user.delete({ where: { user_id: otherOwner.user_id } });
   });
 });

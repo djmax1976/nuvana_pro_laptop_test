@@ -8,15 +8,49 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
 import { TerminalAuthModal } from "@/components/terminals/TerminalAuthModal";
 import userEvent from "@testing-library/user-event";
+import * as cashiersApi from "@/lib/api/cashiers";
+
+// Mock the cashiers API hooks
+vi.mock("@/lib/api/cashiers", () => ({
+  useCashiers: vi.fn(),
+  useAuthenticateCashier: vi.fn(),
+}));
 
 describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
   const mockTerminalId = "550e8400-e29b-41d4-a716-446655440011";
+  const mockStoreId = "550e8400-e29b-41d4-a716-446655440022";
   const mockTerminalName = "Terminal 1";
   const mockOnOpenChange = vi.fn();
   const mockOnSubmit = vi.fn();
 
+  // Mock cashiers data
+  const mockCashiers = [
+    { cashier_id: "cashier-1", name: "John Doe", is_active: true },
+    { cashier_id: "cashier-2", name: "Jane Smith", is_active: true },
+    { cashier_id: "cashier-3", name: "Mike Johnson", is_active: true },
+  ];
+
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // Default mock implementation for useCashiers
+    vi.mocked(cashiersApi.useCashiers).mockReturnValue({
+      data: mockCashiers,
+      isLoading: false,
+      error: null,
+      isError: false,
+      isSuccess: true,
+      refetch: vi.fn(),
+    } as any);
+
+    // Default mock implementation for useAuthenticateCashier
+    vi.mocked(cashiersApi.useAuthenticateCashier).mockReturnValue({
+      mutateAsync: vi.fn().mockResolvedValue({ success: true }),
+      isPending: false,
+      isError: false,
+      error: null,
+      reset: vi.fn(),
+    } as any);
   });
 
   it("[P0] 4.9-COMPONENT-010: should render TerminalAuthModal when open is true", () => {
@@ -24,6 +58,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -45,6 +80,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -61,12 +97,13 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     expect(screen.getByText(/pin number/i)).toBeInTheDocument();
   });
 
-  it("[P0] 4.9-COMPONENT-012: should display static cashier name options in dropdown", async () => {
-    // GIVEN: Component is rendered
+  it("[P0] 4.9-COMPONENT-012: should display cashier name options from API in dropdown", async () => {
+    // GIVEN: Component is rendered with mocked cashiers from API
     const user = userEvent.setup();
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -77,7 +114,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     const selectTrigger = screen.getByTestId("cashier-name-select");
     await user.click(selectTrigger);
 
-    // THEN: Static cashier name options should be visible
+    // THEN: Cashier name options from API should be visible
     // Note: Radix UI Select creates multiple elements (hidden option + visible span)
     // Use getAllByText to handle multiple matches
     await waitFor(() => {
@@ -95,6 +132,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -119,6 +157,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -142,6 +181,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -176,6 +216,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -196,6 +237,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -236,6 +278,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     const { rerender } = renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -264,6 +307,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     rerender(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}
@@ -282,6 +326,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     renderWithProviders(
       <TerminalAuthModal
         terminalId={mockTerminalId}
+        storeId={mockStoreId}
         terminalName={mockTerminalName}
         open={true}
         onOpenChange={mockOnOpenChange}

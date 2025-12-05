@@ -8,7 +8,19 @@ import { AsyncLocalStorage } from "async_hooks";
 const rlsContext = new AsyncLocalStorage<string | null>();
 
 /**
- * Standard Prisma client
+ * Global type augmentation for PrismaClient singleton
+ */
+declare global {
+  // eslint-disable-next-line no-var
+  var __prisma: PrismaClient | undefined;
+}
+
+/**
+ * Standard Prisma client singleton
+ *
+ * In development, the PrismaClient instance is cached on the global object
+ * to prevent connection exhaustion during hot reloads. In production, a new
+ * instance is created per process.
  *
  * RLS enforcement is handled via:
  * 1. PostgreSQL RLS policies that check app.current_user_id session variable
@@ -19,7 +31,16 @@ const rlsContext = new AsyncLocalStorage<string | null>();
  * Prisma's connection pooling makes session variables unreliable.
  * For RLS-critical operations, use withRLSTransaction() explicitly.
  */
-export const prisma = new PrismaClient();
+export const prisma =
+  global.__prisma ??
+  (global.__prisma = new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+  }));
+
+// In non-production, ensure the instance is cached on global
+if (process.env.NODE_ENV !== "production") {
+  global.__prisma = prisma;
+}
 
 /**
  * UUID validation regex (RFC 4122)

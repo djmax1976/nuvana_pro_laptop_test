@@ -1,6 +1,5 @@
 import {
   Prisma,
-  PrismaClient,
   POSConnectionType,
   POSVendorType,
   POSTerminalStatus,
@@ -8,8 +7,7 @@ import {
 } from "@prisma/client";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 import { rbacService } from "./rbac.service";
-
-const prisma = new PrismaClient();
+import { prisma } from "../utils/db";
 
 /**
  * Store status enum values

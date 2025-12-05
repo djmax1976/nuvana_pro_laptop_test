@@ -9,7 +9,7 @@
  */
 
 import * as amqp from "amqplib";
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   initializeRabbitMQ,
   setupTransactionsQueue,
@@ -24,8 +24,7 @@ import {
 } from "../schemas/transaction.schema";
 import { TransactionMessage } from "../services/transaction.service";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
-
-const prisma = new PrismaClient();
+import { prisma } from "../utils/db";
 
 /**
  * Worker configuration

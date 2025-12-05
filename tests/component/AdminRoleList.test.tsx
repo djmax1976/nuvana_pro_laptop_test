@@ -51,7 +51,7 @@ describe("2.93-COMPONENT: AdminRoleList - Display All Roles", () => {
   const mockRoles = [
     {
       role_id: "role-1",
-      code: "SYSTEM_ADMIN",
+      code: "SUPERADMIN",
       scope: "SYSTEM",
       description: "System administrator",
       is_system_role: true,
@@ -124,7 +124,7 @@ describe("2.93-COMPONENT: AdminRoleList - Display All Roles", () => {
     );
 
     // THEN: All roles should be displayed
-    expect(screen.getByText("SYSTEM_ADMIN")).toBeInTheDocument();
+    expect(screen.getByText("SUPERADMIN")).toBeInTheDocument();
     expect(screen.getByText("STORE_MANAGER")).toBeInTheDocument();
     expect(screen.getByText("CORPORATE_ADMIN")).toBeInTheDocument();
   });
@@ -159,7 +159,7 @@ describe("2.93-COMPONENT: AdminRoleList - Display All Roles", () => {
 
     // THEN: User counts and company counts should be visible in the table rows
     const roleRow1 = screen.getByTestId("role-row-role-1");
-    expect(roleRow1.textContent).toContain("5"); // SYSTEM_ADMIN has 5 users
+    expect(roleRow1.textContent).toContain("5"); // SUPERADMIN has 5 users
 
     const roleRow2 = screen.getByTestId("role-row-role-2");
     expect(roleRow2.textContent).toContain("10"); // STORE_MANAGER has 10 users
@@ -215,7 +215,7 @@ describe("2.93-COMPONENT: AdminRoleList - Filtering", () => {
   const mockRoles = [
     {
       role_id: "role-1",
-      code: "SYSTEM_ADMIN",
+      code: "SUPERADMIN",
       scope: "SYSTEM",
       description: "System administrator",
       is_system_role: true,
@@ -273,7 +273,7 @@ describe("2.93-COMPONENT: AdminRoleList - Filtering", () => {
     // THEN: Only matching roles should be visible
     await waitFor(() => {
       expect(screen.getByText("STORE_MANAGER")).toBeInTheDocument();
-      expect(screen.queryByText("SYSTEM_ADMIN")).not.toBeInTheDocument();
+      expect(screen.queryByText("SUPERADMIN")).not.toBeInTheDocument();
     });
   });
 
@@ -298,7 +298,7 @@ describe("2.93-COMPONENT: AdminRoleList - Filtering", () => {
     // THEN: Only STORE scope roles should be visible
     await waitFor(() => {
       expect(screen.getByText("STORE_MANAGER")).toBeInTheDocument();
-      expect(screen.queryByText("SYSTEM_ADMIN")).not.toBeInTheDocument();
+      expect(screen.queryByText("SUPERADMIN")).not.toBeInTheDocument();
     });
   });
 });
@@ -429,7 +429,7 @@ describe("2.93-COMPONENT: AdminRoleList - Role Actions", () => {
         {
           ...mockRoles[0],
           is_system_role: true,
-          code: "SYSTEM_ADMIN",
+          code: "SUPERADMIN",
         },
       ],
       isLoading: false,
@@ -475,7 +475,7 @@ describe("2.93-COMPONENT: AdminRoleList - Stats Display", () => {
   const mockRoles = [
     {
       role_id: "role-1",
-      code: "SYSTEM_ADMIN",
+      code: "SUPERADMIN",
       scope: "SYSTEM",
       description: "System administrator",
       is_system_role: true,
@@ -505,7 +505,7 @@ describe("2.93-COMPONENT: AdminRoleList - Stats Display", () => {
     },
     {
       role_id: "role-3",
-      code: "COMPANY_ADMIN",
+      code: "CORPORATE_ADMIN",
       scope: "COMPANY",
       description: "Company admin",
       is_system_role: false,

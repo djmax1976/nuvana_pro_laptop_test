@@ -26,6 +26,7 @@ import { adminUserRoutes } from "./routes/admin-users";
 import { clientDashboardRoutes } from "./routes/client-dashboard";
 import { clientEmployeeRoutes } from "./routes/client-employees";
 import { clientRoleRoutes } from "./routes/client-roles";
+import { cashierRoutes } from "./routes/cashiers";
 import { adminRolesRoutes } from "./routes/admin-roles";
 import { rlsPlugin } from "./middleware/rls.middleware";
 
@@ -317,6 +318,9 @@ app.register(clientEmployeeRoutes);
 // Register client role permission management routes
 app.register(clientRoleRoutes);
 
+// Register cashier management routes
+app.register(cashierRoutes);
+
 // Root endpoint - API information and status
 app.get("/", async () => {
   return {
@@ -338,6 +342,13 @@ app.get("/", async () => {
       clientDashboard: "/api/client/dashboard",
       // Client employees: POST/GET /api/client/employees, DELETE /api/client/employees/:userId
       clientEmployees: "/api/client/employees",
+      // Cashiers: POST /api/stores/:storeId/cashiers - Create a new cashier for a store (requires CASHIER_CREATE permission)
+      //           GET /api/stores/:storeId/cashiers - List cashiers for a store with optional filtering (requires CASHIER_READ permission)
+      //           GET /api/stores/:storeId/cashiers/:cashierId - Get cashier details by ID (requires CASHIER_READ permission)
+      //           PUT /api/stores/:storeId/cashiers/:cashierId - Update cashier information (requires CASHIER_UPDATE permission)
+      //           DELETE /api/stores/:storeId/cashiers/:cashierId - Soft delete cashier (requires CASHIER_DELETE permission)
+      //           POST /api/stores/:storeId/cashiers/authenticate - Authenticate cashier by name/employee_id and PIN (public endpoint for terminal access)
+      cashiers: "/api/stores/:storeId/cashiers",
     },
     documentation: "https://github.com/your-org/nuvana-pro",
   };

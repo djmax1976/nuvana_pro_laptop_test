@@ -152,8 +152,11 @@ export async function companyRoutes(fastify: FastifyInstance) {
         fastify.log.error({ error }, "Error fetching companies");
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to fetch companies",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch companies",
+          },
         };
       }
     },
@@ -235,14 +238,20 @@ export async function companyRoutes(fastify: FastifyInstance) {
         if (error.message.includes("not found")) {
           reply.code(404);
           return {
-            error: "Company not found",
-            message: error.message,
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: error.message || "Company not found",
+            },
           };
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to fetch company",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch company",
+          },
         };
       }
     },
@@ -380,8 +389,11 @@ export async function companyRoutes(fastify: FastifyInstance) {
         if (error.message.includes("not found")) {
           reply.code(404);
           return {
-            error: "Company not found",
-            message: error.message,
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: error.message || "Company not found",
+            },
           };
         }
         if (
@@ -391,14 +403,20 @@ export async function companyRoutes(fastify: FastifyInstance) {
         ) {
           reply.code(400);
           return {
-            error: "Validation error",
-            message: error.message,
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: error.message,
+            },
           };
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to update company",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update company",
+          },
         };
       }
     },
@@ -485,28 +503,40 @@ export async function companyRoutes(fastify: FastifyInstance) {
         if (error.message.includes("not found")) {
           reply.code(404);
           return {
-            error: "Company not found",
-            message: error.message,
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: error.message || "Company not found",
+            },
           };
         }
         if (error.message.includes("ACTIVE company")) {
           reply.code(400);
           return {
-            error: "Cannot delete ACTIVE company",
-            message: error.message,
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: error.message,
+            },
           };
         }
         if (error.message.includes("active store")) {
           reply.code(400);
           return {
-            error: "Cannot delete company with active store(s)",
-            message: error.message,
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: error.message,
+            },
           };
         }
         reply.code(500);
         return {
-          error: "Internal server error",
-          message: "Failed to delete company",
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to delete company",
+          },
         };
       }
     },

@@ -4,11 +4,8 @@ import {
   createCompany,
   createStore,
   createUser,
+  createCashier,
 } from "../support/factories";
-import {
-  generatePublicId,
-  PUBLIC_ID_PREFIXES,
-} from "../../backend/src/utils/public-id";
 
 /**
  * Transaction Processing Worker Tests - Story 3.3
@@ -59,12 +56,28 @@ interface TestStoreAndShift {
 }
 
 /**
+ * Creates a Cashier entity for testing shifts
+ * IMPORTANT: shifts.cashier_id is a FK to cashiers table, NOT users table
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
+}
+
+/**
  * Creates a store and open shift for testing transactions
  */
 async function createTestStoreAndShift(
   prismaClient: any,
   companyId: string,
-  cashierId: string,
+  createdByUserId: string,
   storeName?: string,
 ): Promise<TestStoreAndShift> {
   const store = await prismaClient.store.create({
@@ -76,11 +89,18 @@ async function createTestStoreAndShift(
     }),
   });
 
+  // Create a proper Cashier entity (not User) for cashier_id FK
+  const cashier = await createTestCashier(
+    prismaClient,
+    store.store_id,
+    createdByUserId,
+  );
+
   const shift = await prismaClient.shift.create({
     data: {
       store_id: store.store_id,
-      opened_by: cashierId,
-      cashier_id: cashierId,
+      opened_by: createdByUserId,
+      cashier_id: cashier.cashier_id,
       opening_cash: 100.0,
       status: "OPEN",
     },
@@ -424,11 +444,18 @@ test.describe("Transaction Processing Worker - Validation", () => {
       corporateAdminUser.user_id,
     );
 
+    // Create a Cashier for the closed shift
+    const closedShiftCashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      corporateAdminUser.user_id,
+    );
+
     const closedShift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
         opened_by: corporateAdminUser.user_id,
-        cashier_id: corporateAdminUser.user_id,
+        cashier_id: closedShiftCashier.cashier_id,
         opening_cash: 100.0,
         status: "CLOSED",
         closing_cash: 500.0,
@@ -473,14 +500,14 @@ test.describe("Transaction Processing Worker - Validation", () => {
       prismaClient,
       corporateAdminUser.company_id,
       corporateAdminUser.user_id,
-      "Store 1",
+      "Test Store 1",
     );
 
     const { shift: shift2 } = await createTestStoreAndShift(
       prismaClient,
       corporateAdminUser.company_id,
       corporateAdminUser.user_id,
-      "Store 2",
+      "Test Store 2",
     );
 
     // Mismatch: store_id from Store 1, shift_id from Store 2
@@ -944,11 +971,9 @@ test.describe("Transaction Processing Worker - Edge Cases", () => {
 // SECTION 7: P0 CRITICAL - AUTHENTICATION SECURITY TESTS
 // =============================================================================
 
+// NOTE: Authentication tests do NOT require the worker - they test API-level
+// authentication failures before any message is queued to RabbitMQ.
 test.describe("Transaction Processing Worker - Authentication Security", () => {
-  test.skip(
-    !workerRunning,
-    "Worker process not running - set WORKER_RUNNING=true to enable",
-  );
   test("3.3-SEC-001: [P0] Should reject request without Authorization header", async ({
     request,
     corporateAdminUser,
@@ -1052,11 +1077,9 @@ test.describe("Transaction Processing Worker - Authentication Security", () => {
 // SECTION 8: P0 CRITICAL - AUTHORIZATION SECURITY TESTS
 // =============================================================================
 
+// NOTE: Authorization tests do NOT require the worker - they test API-level
+// permission checks before any message is queued to RabbitMQ.
 test.describe("Transaction Processing Worker - Authorization Security", () => {
-  test.skip(
-    !workerRunning,
-    "Worker process not running - set WORKER_RUNNING=true to enable",
-  );
   test("3.3-SEC-004: [P0] Should reject user accessing store from different company", async ({
     corporateAdminApiRequest,
     prismaClient,
@@ -1071,7 +1094,7 @@ test.describe("Transaction Processing Worker - Authorization Security", () => {
 
     const otherCompany = await prismaClient.company.create({
       data: createCompany({
-        name: "Other Company for SEC Test",
+        name: "Test Other Company for SEC Test",
         owner_user_id: otherOwnerUser.user_id,
       }),
     });
@@ -1080,7 +1103,7 @@ test.describe("Transaction Processing Worker - Authorization Security", () => {
       prismaClient,
       otherCompany.company_id,
       otherOwnerUser.user_id,
-      "Other Company Store",
+      "Test Other Company Store",
     );
 
     const payload = createTransactionPayload({
@@ -1106,11 +1129,9 @@ test.describe("Transaction Processing Worker - Authorization Security", () => {
 // SECTION 9: P1 HIGH - INPUT VALIDATION SECURITY TESTS
 // =============================================================================
 
+// NOTE: Input validation tests do NOT require the worker - they test API-level
+// Zod schema validation before any message is queued to RabbitMQ.
 test.describe("Transaction Processing Worker - Input Validation Security", () => {
-  test.skip(
-    !workerRunning,
-    "Worker process not running - set WORKER_RUNNING=true to enable",
-  );
   test("3.3-SEC-005: [P1] Should reject invalid UUID format for store_id", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
@@ -1464,6 +1485,9 @@ test.describe("Transaction Processing Worker - Input Validation Security", () =>
 // SECTION 10: P1 HIGH - SQL INJECTION PREVENTION TESTS
 // =============================================================================
 
+// NOTE: SQL Injection tests verify Prisma's parameterized queries protect against injection.
+// The API accepts the payload (valid structure), worker processes it safely.
+// These tests need the worker to verify the data is stored correctly as literal strings.
 test.describe("Transaction Processing Worker - SQL Injection Prevention", () => {
   test.skip(
     !workerRunning,
@@ -1577,11 +1601,8 @@ test.describe("Transaction Processing Worker - SQL Injection Prevention", () => 
 // SECTION 11: P2 MEDIUM - DATA LEAKAGE PREVENTION TESTS
 // =============================================================================
 
+// NOTE: Data leakage tests do NOT require the worker - they test API response format.
 test.describe("Transaction Processing Worker - Data Leakage Prevention", () => {
-  test.skip(
-    !workerRunning,
-    "Worker process not running - set WORKER_RUNNING=true to enable",
-  );
   test("3.3-SEC-016: [P2] Error response should not expose stack traces", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
@@ -1605,15 +1626,18 @@ test.describe("Transaction Processing Worker - Data Leakage Prevention", () => {
       payload,
     );
 
-    // THEN: Error response should not contain stack trace
+    // THEN: Error response should not contain stack trace indicators
     const body = await response.json();
     const bodyString = JSON.stringify(body);
 
-    expect(bodyString).not.toContain("at ");
+    // Check for stack trace patterns (file paths with line numbers)
+    expect(bodyString).not.toMatch(/at\s+\w+\s+\(/); // "at FunctionName ("
     expect(bodyString).not.toContain(".ts:");
     expect(bodyString).not.toContain(".js:");
     expect(bodyString).not.toContain("node_modules");
-    expect(bodyString).not.toContain("Error:");
+    // Note: "Error:" can appear in user-facing error messages, so we check for
+    // stack trace format patterns instead (e.g., "Error:\n    at")
+    expect(bodyString).not.toMatch(/Error:\s*\n\s*at\s/);
   });
 
   test("3.3-SEC-017: [P2] Success response should only contain expected fields", async ({

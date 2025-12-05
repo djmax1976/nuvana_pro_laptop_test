@@ -68,9 +68,9 @@ export class ReportService {
             `Opened By: ${reportData.shift.opened_by.name} (${reportData.shift.opened_by.user_id})`,
           );
         }
-        if (reportData.shift.cashier_name) {
+        if (reportData.shift.cashier) {
           doc.text(
-            `Cashier: ${reportData.shift.cashier_name.name} (${reportData.shift.cashier_name.user_id})`,
+            `Cashier: ${reportData.shift.cashier.name} (${reportData.shift.cashier.cashier_id})`,
           );
         }
         doc.text(`Opened At: ${reportData.shift.opened_at}`);

@@ -18,6 +18,7 @@ import {
   createTransaction as createTransactionFactory,
   type TransactionData,
 } from "../factories/transaction.factory";
+import { createCashier as createCashierFactory } from "../factories/cashier.factory";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
@@ -197,8 +198,62 @@ export async function createStore(
 }
 
 /**
+ * Create a cashier in the database
+ * If prisma is not provided, creates a new PrismaClient instance
+ *
+ * @param overrides - Requires store_id and created_by (user_id of creator)
+ * @param prisma - Optional PrismaClient instance
+ * @returns Created cashier with cashier_id
+ */
+export async function createCashier(
+  overrides: {
+    store_id: string;
+    created_by: string;
+    name?: string;
+    employee_id?: string;
+  },
+  prisma?: PrismaClient,
+): Promise<{
+  cashier_id: string;
+  store_id: string;
+  employee_id: string;
+  name: string;
+  [key: string]: any;
+}> {
+  const prismaClient = prisma || new PrismaClient();
+
+  // Only include optional fields if they are defined to avoid overriding defaults with undefined
+  const factoryOverrides: {
+    store_id: string;
+    created_by: string;
+    name?: string;
+    employee_id?: string;
+  } = {
+    store_id: overrides.store_id,
+    created_by: overrides.created_by,
+  };
+
+  if (overrides.name !== undefined) {
+    factoryOverrides.name = overrides.name;
+  }
+  if (overrides.employee_id !== undefined) {
+    factoryOverrides.employee_id = overrides.employee_id;
+  }
+
+  const cashierData = await createCashierFactory(factoryOverrides);
+
+  const result = await prismaClient.cashier.create({ data: cashierData });
+
+  if (!prisma) await prismaClient.$disconnect();
+  return result;
+}
+
+/**
  * Create a shift in the database
  * If prisma is not provided, creates a new PrismaClient instance
+ *
+ * IMPORTANT: cashier_id must reference the cashiers table (not users table).
+ * If cashier_id is not provided, this function will create a real Cashier entity.
  */
 export async function createShift(
   overrides: {
@@ -221,18 +276,23 @@ export async function createShift(
 }> {
   const prismaClient = prisma || new PrismaClient();
 
-  // Create a cashier user if not provided
-  let cashierId = overrides.cashier_id;
-  if (!cashierId) {
-    const cashier = await createUser(prismaClient, {});
-    cashierId = cashier.user_id;
-  }
-
-  // Create an opener user if not provided
+  // Create an opener user if not provided (this is a User, required for opened_by)
   let openedById = overrides.opened_by;
   if (!openedById) {
     const opener = await createUser(prismaClient, {});
     openedById = opener.user_id;
+  }
+
+  // Create a Cashier entity if not provided
+  // IMPORTANT: shifts.cashier_id is a FK to cashiers table, NOT users table
+  let cashierId = overrides.cashier_id;
+  if (!cashierId) {
+    const cashierData = await createCashierFactory({
+      store_id: overrides.store_id,
+      created_by: openedById,
+    });
+    const cashier = await prismaClient.cashier.create({ data: cashierData });
+    cashierId = cashier.cashier_id;
   }
 
   const result = await prismaClient.shift.create({
@@ -310,4 +370,59 @@ export async function createTransaction(
 
   if (!prisma) await prismaClient.$disconnect();
   return result;
+}
+
+/**
+ * Calculate the next expected employee_id for a store
+ *
+ * This helper queries the maximum existing employee_id for a store (ignoring
+ * soft-deleted rows) and calculates the next sequential employee_id.
+ *
+ * This is more reliable than counting cashiers because:
+ * - It ignores soft-deleted rows (disabled_at IS NOT NULL)
+ * - It handles gaps in employee_id sequences
+ * - It's not affected by parallel tests or leftover records
+ *
+ * @param storeId - Store UUID
+ * @param offset - Optional offset from the next employee_id (default: 0)
+ *                 offset=0 returns the next employee_id
+ *                 offset=1 returns the employee_id after the next one
+ * @param prismaClient - Prisma client instance
+ * @returns Next expected employee_id (4-digit zero-padded string)
+ */
+export async function getNextExpectedEmployeeId(
+  storeId: string,
+  offset: number = 0,
+  prismaClient?: PrismaClient,
+): Promise<string> {
+  const client = prismaClient || new PrismaClient();
+
+  try {
+    // Query max employee_id for this store, ignoring soft-deleted rows
+    const maxCashier = await client.cashier.findFirst({
+      where: {
+        store_id: storeId,
+        disabled_at: null, // Only active (non-soft-deleted) cashiers
+      },
+      orderBy: { employee_id: "desc" },
+      select: { employee_id: true },
+    });
+
+    let nextNumber = 1;
+    if (maxCashier) {
+      // Parse the numeric portion of the employee_id
+      const currentNumber = parseInt(maxCashier.employee_id, 10);
+      if (!isNaN(currentNumber)) {
+        nextNumber = currentNumber + 1 + offset;
+      }
+    } else {
+      // No existing cashiers, start at 1 + offset
+      nextNumber = 1 + offset;
+    }
+
+    // Zero-pad to 4 digits
+    return nextNumber.toString().padStart(4, "0");
+  } finally {
+    if (!prismaClient) await client.$disconnect();
+  }
 }

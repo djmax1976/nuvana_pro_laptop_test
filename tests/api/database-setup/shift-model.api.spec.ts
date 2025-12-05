@@ -4,6 +4,7 @@ import {
   createCompany,
   createStore,
   createShift,
+  createCashier,
 } from "../../support/factories";
 import { Prisma } from "@prisma/client";
 
@@ -22,6 +23,21 @@ import { Prisma } from "@prisma/client";
  * Status: ready-for-dev
  * Test Level: API (Prisma schema validation)
  */
+
+/**
+ * Helper function to create a test Cashier record
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
+}
 
 test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
   test("[P0] 4.1-API-001-001: Shift model should have all required fields", async ({
@@ -42,11 +58,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       openerId = opener.user_id;
 
-      const cashier = await prismaClient.user.create({
-        data: createUser({ name: "Shift Cashier" }),
-      });
-      cashierId = cashier.user_id;
-
       const owner = await prismaClient.user.create({
         data: createUser({ name: "Company Owner" }),
       });
@@ -60,10 +71,18 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       storeId = store.store_id;
 
+      // Create a Cashier record (not User)
+      const cashier = await createTestCashier(
+        prismaClient,
+        store.store_id,
+        opener.user_id,
+      );
+      cashierId = cashier.cashier_id;
+
       const shiftData = createShift({
         store_id: store.store_id,
         opened_by: opener.user_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         status: "NOT_STARTED",
       });
 
@@ -83,7 +102,7 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       expect(shift).toHaveProperty("shift_id");
       expect(shift).toHaveProperty("store_id", store.store_id);
       expect(shift).toHaveProperty("opened_by", opener.user_id);
-      expect(shift).toHaveProperty("cashier_id", cashier.user_id);
+      expect(shift).toHaveProperty("cashier_id", cashier.cashier_id);
       expect(shift).toHaveProperty("opening_cash");
       expect(shift).toHaveProperty("status", "NOT_STARTED");
       expect(shift).toHaveProperty("opened_at");
@@ -94,6 +113,11 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       if (shiftId) {
         await prismaClient.shift
           .delete({ where: { shift_id: shiftId } })
+          .catch(() => {});
+      }
+      if (cashierId) {
+        await prismaClient.cashier
+          .delete({ where: { cashier_id: cashierId } })
           .catch(() => {});
       }
       if (storeId) {
@@ -109,11 +133,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       if (openerId) {
         await prismaClient.user
           .delete({ where: { user_id: openerId } })
-          .catch(() => {});
-      }
-      if (cashierId) {
-        await prismaClient.user
-          .delete({ where: { user_id: cashierId } })
           .catch(() => {});
       }
     }
@@ -155,11 +174,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       openerId = opener.user_id;
 
-      const cashier = await prismaClient.user.create({
-        data: createUser({ name: "Shift Cashier" }),
-      });
-      cashierId = cashier.user_id;
-
       const owner = await prismaClient.user.create({
         data: createUser({ name: "Company Owner" }),
       });
@@ -173,12 +187,20 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       storeId = store.store_id;
 
+      // Create a Cashier record (not User)
+      const cashier = await createTestCashier(
+        prismaClient,
+        store.store_id,
+        opener.user_id,
+      );
+      cashierId = cashier.cashier_id;
+
       // THEN: Each status value should be accepted
       for (const status of statuses) {
         const shiftData = createShift({
           store_id: store.store_id,
           opened_by: opener.user_id,
-          cashier_id: cashier.user_id,
+          cashier_id: cashier.cashier_id,
           status: status,
         });
 
@@ -203,6 +225,11 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
           .delete({ where: { shift_id: shiftId } })
           .catch(() => {});
       }
+      if (cashierId) {
+        await prismaClient.cashier
+          .delete({ where: { cashier_id: cashierId } })
+          .catch(() => {});
+      }
       if (storeId) {
         await prismaClient.store
           .delete({ where: { store_id: storeId } })
@@ -216,11 +243,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       if (openerId) {
         await prismaClient.user
           .delete({ where: { user_id: openerId } })
-          .catch(() => {});
-      }
-      if (cashierId) {
-        await prismaClient.user
-          .delete({ where: { user_id: cashierId } })
           .catch(() => {});
       }
     }
@@ -244,11 +266,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       openerId = opener.user_id;
 
-      const cashier = await prismaClient.user.create({
-        data: createUser({ name: "Shift Cashier" }),
-      });
-      cashierId = cashier.user_id;
-
       const owner = await prismaClient.user.create({
         data: createUser({ name: "Company Owner" }),
       });
@@ -262,10 +279,18 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       storeId = store.store_id;
 
+      // Create a Cashier record (not User)
+      const cashier = await createTestCashier(
+        prismaClient,
+        store.store_id,
+        opener.user_id,
+      );
+      cashierId = cashier.cashier_id;
+
       const shiftData = createShift({
         store_id: store.store_id,
         opened_by: opener.user_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
       });
 
       const shift = await prismaClient.shift.create({
@@ -297,6 +322,11 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
           .delete({ where: { shift_id: shiftId } })
           .catch(() => {});
       }
+      if (cashierId) {
+        await prismaClient.cashier
+          .delete({ where: { cashier_id: cashierId } })
+          .catch(() => {});
+      }
       if (storeId) {
         await prismaClient.store
           .delete({ where: { store_id: storeId } })
@@ -310,11 +340,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       if (openerId) {
         await prismaClient.user
           .delete({ where: { user_id: openerId } })
-          .catch(() => {});
-      }
-      if (cashierId) {
-        await prismaClient.user
-          .delete({ where: { user_id: cashierId } })
           .catch(() => {});
       }
     }
@@ -338,11 +363,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       openerId = opener.user_id;
 
-      const cashier = await prismaClient.user.create({
-        data: createUser({ name: "Shift Cashier" }),
-      });
-      cashierId = cashier.user_id;
-
       const owner = await prismaClient.user.create({
         data: createUser({ name: "Company Owner" }),
       });
@@ -356,10 +376,18 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       storeId = store.store_id;
 
+      // Create a Cashier record (not User)
+      const cashier = await createTestCashier(
+        prismaClient,
+        store.store_id,
+        opener.user_id,
+      );
+      cashierId = cashier.cashier_id;
+
       const shiftData = createShift({
         store_id: store.store_id,
         opened_by: opener.user_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
       });
 
       const shift = await prismaClient.shift.create({
@@ -391,6 +419,11 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
           .delete({ where: { shift_id: shiftId } })
           .catch(() => {});
       }
+      if (cashierId) {
+        await prismaClient.cashier
+          .delete({ where: { cashier_id: cashierId } })
+          .catch(() => {});
+      }
       if (storeId) {
         await prismaClient.store
           .delete({ where: { store_id: storeId } })
@@ -406,24 +439,20 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
           .delete({ where: { user_id: openerId } })
           .catch(() => {});
       }
-      if (cashierId) {
-        await prismaClient.user
-          .delete({ where: { user_id: cashierId } })
-          .catch(() => {});
-      }
     }
   });
 
-  test("[P0] 4.1-API-001-005: Shift should have relationship to User (cashier)", async ({
+  test("[P0] 4.1-API-001-005: Shift should have relationship to Cashier", async ({
     prismaClient,
   }) => {
-    // GIVEN: Prisma schema defines Shift with cashier_id foreign key
+    // GIVEN: Prisma schema defines Shift with cashier_id foreign key to Cashier model
     // WHEN: Creating a Shift with cashier_id and querying with include
     let shiftId: string | null = null;
     let storeId: string | null = null;
     let companyId: string | null = null;
     let openerId: string | null = null;
     let cashierId: string | null = null;
+    let ownerId: string | null = null;
 
     try {
       // Setup: Create required dependencies
@@ -432,14 +461,10 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       openerId = opener.user_id;
 
-      const cashier = await prismaClient.user.create({
-        data: createUser({ name: "Shift Cashier" }),
-      });
-      cashierId = cashier.user_id;
-
       const owner = await prismaClient.user.create({
         data: createUser({ name: "Company Owner" }),
       });
+      ownerId = owner.user_id;
       const company = await prismaClient.company.create({
         data: createCompany({ owner_user_id: owner.user_id }),
       });
@@ -450,10 +475,23 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       storeId = store.store_id;
 
+      // Create a Cashier record (Shift.cashier now points to Cashier model, not User)
+      const cashier = await prismaClient.cashier.create({
+        data: {
+          store_id: store.store_id,
+          employee_id: "0001",
+          name: "Test Cashier",
+          pin_hash: "$2b$10$testHashForTestOnly1234567890",
+          hired_on: new Date(),
+          created_by: opener.user_id,
+        },
+      });
+      cashierId = cashier.cashier_id;
+
       const shiftData = createShift({
         store_id: store.store_id,
         opened_by: opener.user_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
       });
 
       const shift = await prismaClient.shift.create({
@@ -468,7 +506,7 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       shiftId = shift.shift_id;
 
-      // THEN: Shift should have relationship to User (cashier)
+      // THEN: Shift should have relationship to Cashier
       const shiftWithCashier = await prismaClient.shift.findUnique({
         where: { shift_id: shift.shift_id },
         include: { cashier: true },
@@ -476,13 +514,18 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
 
       expect(shiftWithCashier).not.toBeNull();
       expect(shiftWithCashier?.cashier).not.toBeNull();
-      expect(shiftWithCashier?.cashier.user_id).toBe(cashier.user_id);
+      expect(shiftWithCashier?.cashier.cashier_id).toBe(cashier.cashier_id);
       expect(shiftWithCashier?.cashier.name).toBe(cashier.name);
     } finally {
       // Cleanup
       if (shiftId) {
         await prismaClient.shift
           .delete({ where: { shift_id: shiftId } })
+          .catch(() => {});
+      }
+      if (cashierId) {
+        await prismaClient.cashier
+          .delete({ where: { cashier_id: cashierId } })
           .catch(() => {});
       }
       if (storeId) {
@@ -500,9 +543,9 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
           .delete({ where: { user_id: openerId } })
           .catch(() => {});
       }
-      if (cashierId) {
+      if (ownerId) {
         await prismaClient.user
-          .delete({ where: { user_id: cashierId } })
+          .delete({ where: { user_id: ownerId } })
           .catch(() => {});
       }
     }
@@ -526,11 +569,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       openerId = opener.user_id;
 
-      const cashier = await prismaClient.user.create({
-        data: createUser({ name: "Shift Cashier" }),
-      });
-      cashierId = cashier.user_id;
-
       const owner = await prismaClient.user.create({
         data: createUser({ name: "Company Owner" }),
       });
@@ -544,6 +582,14 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       storeId = store.store_id;
 
+      // Create a Cashier record (not User)
+      const cashier = await createTestCashier(
+        prismaClient,
+        store.store_id,
+        opener.user_id,
+      );
+      cashierId = cashier.cashier_id;
+
       const openingCash = new Prisma.Decimal("100.00");
       const expectedCash = new Prisma.Decimal("150.00");
       const closingCash = new Prisma.Decimal("145.00");
@@ -552,7 +598,7 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       const shiftData = createShift({
         store_id: store.store_id,
         opened_by: opener.user_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         opening_cash: openingCash,
         expected_cash: expectedCash,
         closing_cash: closingCash,
@@ -586,6 +632,11 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
           .delete({ where: { shift_id: shiftId } })
           .catch(() => {});
       }
+      if (cashierId) {
+        await prismaClient.cashier
+          .delete({ where: { cashier_id: cashierId } })
+          .catch(() => {});
+      }
       if (storeId) {
         await prismaClient.store
           .delete({ where: { store_id: storeId } })
@@ -599,11 +650,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       if (openerId) {
         await prismaClient.user
           .delete({ where: { user_id: openerId } })
-          .catch(() => {});
-      }
-      if (cashierId) {
-        await prismaClient.user
-          .delete({ where: { user_id: cashierId } })
           .catch(() => {});
       }
     }
@@ -628,11 +674,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       openerId = opener.user_id;
 
-      const cashier = await prismaClient.user.create({
-        data: createUser({ name: "Shift Cashier" }),
-      });
-      cashierId = cashier.user_id;
-
       const approver = await prismaClient.user.create({
         data: createUser({ name: "Shift Approver" }),
       });
@@ -651,13 +692,21 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       storeId = store.store_id;
 
+      // Create a Cashier record (not User)
+      const cashier = await createTestCashier(
+        prismaClient,
+        store.store_id,
+        opener.user_id,
+      );
+      cashierId = cashier.cashier_id;
+
       const varianceReason = "Shortage due to miscounted change";
       const approvedAt = new Date();
 
       const shiftData = createShift({
         store_id: store.store_id,
         opened_by: opener.user_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         variance_reason: varianceReason,
         approved_by: approver.user_id,
         approved_at: approvedAt,
@@ -691,6 +740,11 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
           .delete({ where: { shift_id: shiftId } })
           .catch(() => {});
       }
+      if (cashierId) {
+        await prismaClient.cashier
+          .delete({ where: { cashier_id: cashierId } })
+          .catch(() => {});
+      }
       if (storeId) {
         await prismaClient.store
           .delete({ where: { store_id: storeId } })
@@ -704,11 +758,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       if (openerId) {
         await prismaClient.user
           .delete({ where: { user_id: openerId } })
-          .catch(() => {});
-      }
-      if (cashierId) {
-        await prismaClient.user
-          .delete({ where: { user_id: cashierId } })
           .catch(() => {});
       }
       if (approverId) {
@@ -737,11 +786,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       openerId = opener.user_id;
 
-      const cashier = await prismaClient.user.create({
-        data: createUser({ name: "Shift Cashier" }),
-      });
-      cashierId = cashier.user_id;
-
       const owner = await prismaClient.user.create({
         data: createUser({ name: "Company Owner" }),
       });
@@ -755,10 +799,18 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       });
       storeId = store.store_id;
 
+      // Create a Cashier record (not User)
+      const cashier = await createTestCashier(
+        prismaClient,
+        store.store_id,
+        opener.user_id,
+      );
+      cashierId = cashier.cashier_id;
+
       const shiftData = createShift({
         store_id: store.store_id,
         opened_by: opener.user_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
       });
 
       const shift = await prismaClient.shift.create({
@@ -789,6 +841,11 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
           .delete({ where: { shift_id: shiftId } })
           .catch(() => {});
       }
+      if (cashierId) {
+        await prismaClient.cashier
+          .delete({ where: { cashier_id: cashierId } })
+          .catch(() => {});
+      }
       if (storeId) {
         await prismaClient.store
           .delete({ where: { store_id: storeId } })
@@ -802,11 +859,6 @@ test.describe("4.1-API-001: Shift Model - Schema Validation", () => {
       if (openerId) {
         await prismaClient.user
           .delete({ where: { user_id: openerId } })
-          .catch(() => {});
-      }
-      if (cashierId) {
-        await prismaClient.user
-          .delete({ where: { user_id: cashierId } })
           .catch(() => {});
       }
     }

@@ -8,6 +8,7 @@ import {
   toStoreTime,
 } from "../utils/timezone.utils";
 import { addDays } from "date-fns";
+import { PERMISSIONS } from "../constants/permissions";
 
 /**
  * Client Dashboard Routes
@@ -35,18 +36,43 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
       const user = (request as any).user as UserIdentity;
 
       try {
-        // Verify user is a client user
+        // Verify user has access to client dashboard
+        // User must either have is_client_user flag OR CLIENT_DASHBOARD_ACCESS permission
+        // This allows STORE_MANAGER, SHIFT_MANAGER etc. to access their assigned stores
         const dbUser = await prisma.user.findUnique({
           where: { user_id: user.id },
           select: { is_client_user: true, name: true, email: true },
         });
 
-        if (!dbUser?.is_client_user) {
+        // Check if user has CLIENT_DASHBOARD_ACCESS permission via their roles
+        const hasClientDashboardPermission = await prisma.userRole.findFirst({
+          where: {
+            user_id: user.id,
+            role: {
+              role_permissions: {
+                some: {
+                  permission: {
+                    code: PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        if (
+          !dbUser ||
+          (!dbUser.is_client_user && !hasClientDashboardPermission)
+        ) {
           reply.code(403);
-          return {
-            error: "Access denied",
-            message: "This endpoint is for client users only",
-          };
+          reply.send({
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: "This endpoint is for client users only",
+            },
+          });
+          return;
         }
 
         // Get companies owned by this user with store counts
@@ -72,10 +98,11 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
 
         // Also get stores where user is assigned via user_roles (for store employees)
         // This allows STORE_MANAGER, CASHIER, etc. to see their assigned stores
+        // We get ALL role assignments (store-level or company-level) to capture both scenarios
         const userRoleAssignments = await prisma.userRole.findMany({
           where: {
             user_id: user.id,
-            store_id: { not: null },
+            OR: [{ store_id: { not: null } }, { company_id: { not: null } }],
           },
           select: {
             store_id: true,
@@ -118,34 +145,55 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
         // Combine owned and assigned companies
         const companies = [...ownedCompanies, ...assignedCompanies];
 
-        // Get stores: either from owned companies OR assigned via user_roles
+        // Get stores: either from owned companies, assigned companies, OR assigned via user_roles
         const ownedCompanyIds = ownedCompanies.map(
           (c: { company_id: string }) => c.company_id,
         );
 
-        const stores = await prisma.store.findMany({
-          where: {
-            OR: [
-              { company_id: { in: ownedCompanyIds } },
-              { store_id: { in: assignedStoreIds } },
-            ],
-          },
-          select: {
-            store_id: true,
-            name: true,
-            location_json: true,
-            timezone: true,
-            status: true,
-            company_id: true,
-            created_at: true,
-            company: {
-              select: {
-                name: true,
-              },
-            },
-          },
-          orderBy: { name: "asc" },
-        });
+        // Combine all company IDs where user should see stores
+        const allAccessibleCompanyIds = [
+          ...ownedCompanyIds,
+          ...assignedCompanyIds,
+        ];
+
+        // Build OR conditions for stores query
+        const storeOrConditions: Array<
+          { company_id: { in: string[] } } | { store_id: { in: string[] } }
+        > = [];
+
+        if (allAccessibleCompanyIds.length > 0) {
+          storeOrConditions.push({
+            company_id: { in: allAccessibleCompanyIds },
+          });
+        }
+        if (assignedStoreIds.length > 0) {
+          storeOrConditions.push({ store_id: { in: assignedStoreIds } });
+        }
+
+        // Query stores if user has any access, otherwise return empty array
+        const stores =
+          storeOrConditions.length > 0
+            ? await prisma.store.findMany({
+                where: {
+                  OR: storeOrConditions,
+                },
+                select: {
+                  store_id: true,
+                  name: true,
+                  location_json: true,
+                  timezone: true,
+                  status: true,
+                  company_id: true,
+                  created_at: true,
+                  company: {
+                    select: {
+                      name: true,
+                    },
+                  },
+                },
+                orderBy: { name: "asc" },
+              })
+            : [];
 
         // Deduplicate stores (in case user owns company AND is assigned to store)
         const uniqueStores = stores.filter(
@@ -286,68 +334,74 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
 
         // Format response to match ClientDashboardResponse interface
         reply.code(200);
-        return {
-          user: {
-            id: user.id,
-            email: dbUser.email,
-            name: dbUser.name || "",
+        reply.send({
+          success: true,
+          data: {
+            user: {
+              id: user.id,
+              email: dbUser.email,
+              name: dbUser.name || "",
+            },
+            companies: companies.map(
+              (c: {
+                company_id: string;
+                name: string;
+                address: string | null;
+                status: string;
+                created_at: Date;
+                _count: { stores: number };
+              }) => ({
+                company_id: c.company_id,
+                name: c.name,
+                address: c.address,
+                status: c.status,
+                created_at: c.created_at.toISOString(),
+                store_count: c._count.stores,
+              }),
+            ),
+            stores: uniqueStores.map(
+              (s: {
+                store_id: string;
+                company_id: string;
+                company: { name: string };
+                name: string;
+                location_json: unknown;
+                timezone: string;
+                status: string;
+                created_at: Date;
+              }) => ({
+                store_id: s.store_id,
+                company_id: s.company_id,
+                company_name: s.company.name,
+                name: s.name,
+                location_json: s.location_json as {
+                  address?: string;
+                  gps?: { lat: number; lng: number };
+                } | null,
+                timezone: s.timezone,
+                status: s.status,
+                created_at: s.created_at.toISOString(),
+              }),
+            ),
+            stats: {
+              total_companies: companies.length,
+              total_stores: uniqueStores.length,
+              active_stores: activeStores,
+              total_employees: employeeCount,
+              today_transactions: todayTransactionCount,
+            },
           },
-          companies: companies.map(
-            (c: {
-              company_id: string;
-              name: string;
-              address: string | null;
-              status: string;
-              created_at: Date;
-              _count: { stores: number };
-            }) => ({
-              company_id: c.company_id,
-              name: c.name,
-              address: c.address,
-              status: c.status,
-              created_at: c.created_at.toISOString(),
-              store_count: c._count.stores,
-            }),
-          ),
-          stores: uniqueStores.map(
-            (s: {
-              store_id: string;
-              company_id: string;
-              company: { name: string };
-              name: string;
-              location_json: unknown;
-              timezone: string;
-              status: string;
-              created_at: Date;
-            }) => ({
-              store_id: s.store_id,
-              company_id: s.company_id,
-              company_name: s.company.name,
-              name: s.name,
-              location_json: s.location_json as {
-                address?: string;
-                gps?: { lat: number; lng: number };
-              } | null,
-              timezone: s.timezone,
-              status: s.status,
-              created_at: s.created_at.toISOString(),
-            }),
-          ),
-          stats: {
-            total_companies: companies.length,
-            total_stores: uniqueStores.length,
-            active_stores: activeStores,
-            total_employees: employeeCount,
-            today_transactions: todayTransactionCount,
-          },
-        };
+        });
       } catch (error) {
         fastify.log.error({ error }, "Client dashboard error");
         reply.code(500);
-        return {
-          error: "Internal Server Error",
-          message: "Failed to load dashboard data",
-        };
+        reply.send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to load dashboard data",
+          },
+        });
       }
     },
   );

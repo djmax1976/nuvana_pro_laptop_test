@@ -6,10 +6,16 @@ import {
   createExpiredJWTRefreshToken,
   createAdminJWTAccessToken,
   createMalformedJWTAccessToken,
-  createUser,
 } from "../support/factories";
 import { createUserWithRole } from "../support/helpers/user-with-role.helper";
+import { deleteUserWithRelatedData } from "../support/cleanup-helper";
 import { faker } from "@faker-js/faker";
+
+/**
+ * Test data identifier prefix for JWT token system tests.
+ * Used to identify test data for cleanup in global teardown.
+ */
+const TEST_EMAIL_PREFIX = "jwt-test-";
 
 /**
  * Safely normalizes error text from API response body.
@@ -57,7 +63,8 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
   }) => {
     // GIVEN: User exists in database with role
     // Note: Email is lowercased to match backend normalization
-    const userEmail = faker.internet.email().toLowerCase();
+    const userEmail =
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -88,12 +95,8 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
       expect(body.user).toHaveProperty("user_id", createdUser.user_id);
       expect(body.user).toHaveProperty("email", userEmail);
     } finally {
-      await prismaClient.userRole.deleteMany({
-        where: { user_id: createdUser.user_id },
-      });
-      await prismaClient.user.delete({
-        where: { user_id: createdUser.user_id },
-      });
+      // Use robust cleanup helper to handle foreign key constraints
+      await deleteUserWithRelatedData(prismaClient, createdUser.user_id);
     }
   });
 
@@ -168,7 +171,8 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email().toLowerCase();
+    const userEmail =
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -198,12 +202,8 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
       expect(body.user).toHaveProperty("user_id", createdUser.user_id);
       expect(body.user).toHaveProperty("email", userEmail);
     } finally {
-      await prismaClient.userRole.deleteMany({
-        where: { user_id: createdUser.user_id },
-      });
-      await prismaClient.user.delete({
-        where: { user_id: createdUser.user_id },
-      });
+      // Use robust cleanup helper to handle foreign key constraints
+      await deleteUserWithRelatedData(prismaClient, createdUser.user_id);
     }
   });
 
@@ -274,7 +274,8 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email().toLowerCase();
+    const userEmail =
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -302,12 +303,8 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
       expect(body.user).toHaveProperty("user_id", createdUser.user_id);
       expect(body.user).toHaveProperty("email", userEmail);
     } finally {
-      await prismaClient.userRole.deleteMany({
-        where: { user_id: createdUser.user_id },
-      });
-      await prismaClient.user.delete({
-        where: { user_id: createdUser.user_id },
-      });
+      // Use robust cleanup helper to handle foreign key constraints
+      await deleteUserWithRelatedData(prismaClient, createdUser.user_id);
     }
   });
 });
@@ -318,7 +315,8 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email().toLowerCase();
+    const userEmail =
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -365,12 +363,8 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
       expect(newRefreshTokenCookie).toBeTruthy();
       expect(newRefreshTokenCookie).toContain("HttpOnly");
     } finally {
-      await prismaClient.userRole.deleteMany({
-        where: { user_id: createdUser.user_id },
-      });
-      await prismaClient.user.delete({
-        where: { user_id: createdUser.user_id },
-      });
+      // Use robust cleanup helper to handle foreign key constraints
+      await deleteUserWithRelatedData(prismaClient, createdUser.user_id);
     }
   });
 
@@ -451,7 +445,8 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email().toLowerCase();
+    const userEmail =
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -515,12 +510,8 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
       // THEN: New token is accepted
       expect(response3.status()).toBe(200);
     } finally {
-      await prismaClient.userRole.deleteMany({
-        where: { user_id: createdUser.user_id },
-      });
-      await prismaClient.user.delete({
-        where: { user_id: createdUser.user_id },
-      });
+      // Use robust cleanup helper to handle foreign key constraints
+      await deleteUserWithRelatedData(prismaClient, createdUser.user_id);
     }
   });
 
@@ -555,7 +546,8 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email().toLowerCase();
+    const userEmail =
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -588,12 +580,8 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
       expect(body.user).toHaveProperty("id", createdUser.user_id);
       expect(body.user).toHaveProperty("email", userEmail);
     } finally {
-      await prismaClient.userRole.deleteMany({
-        where: { user_id: createdUser.user_id },
-      });
-      await prismaClient.user.delete({
-        where: { user_id: createdUser.user_id },
-      });
+      // Use robust cleanup helper to handle foreign key constraints
+      await deleteUserWithRelatedData(prismaClient, createdUser.user_id);
     }
   });
 });
@@ -604,7 +592,8 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     prismaClient,
   }) => {
     // GIVEN: User exists in database with valid refresh token
-    const userEmail = faker.internet.email().toLowerCase();
+    const userEmail =
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -675,12 +664,8 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
       const body = await retryResponse.json();
       expect(body.user).toHaveProperty("user_id", createdUser.user_id);
     } finally {
-      await prismaClient.userRole.deleteMany({
-        where: { user_id: createdUser.user_id },
-      });
-      await prismaClient.user.delete({
-        where: { user_id: createdUser.user_id },
-      });
+      // Use robust cleanup helper to handle foreign key constraints
+      await deleteUserWithRelatedData(prismaClient, createdUser.user_id);
     }
   });
 
@@ -771,7 +756,8 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     prismaClient,
   }) => {
     // GIVEN: User exists with valid refresh token
-    const userEmail = faker.internet.email().toLowerCase();
+    const userEmail =
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -843,12 +829,8 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
       );
       expect(oldRefreshRetry.status()).toBe(401); // Old token rejected
     } finally {
-      await prismaClient.userRole.deleteMany({
-        where: { user_id: createdUser.user_id },
-      });
-      await prismaClient.user.delete({
-        where: { user_id: createdUser.user_id },
-      });
+      // Use robust cleanup helper to handle foreign key constraints
+      await deleteUserWithRelatedData(prismaClient, createdUser.user_id);
     }
   });
 
@@ -883,7 +865,8 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     prismaClient,
   }) => {
     // GIVEN: User exists in database with role
-    const userEmail = faker.internet.email().toLowerCase();
+    const userEmail =
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -915,12 +898,8 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
       // Note: createdUser.email is lowercase (normalized during creation)
       expect(body.user).toHaveProperty("email", createdUser.email);
     } finally {
-      await prismaClient.userRole.deleteMany({
-        where: { user_id: createdUser.user_id },
-      });
-      await prismaClient.user.delete({
-        where: { user_id: createdUser.user_id },
-      });
+      // Use robust cleanup helper to handle foreign key constraints
+      await deleteUserWithRelatedData(prismaClient, createdUser.user_id);
     }
   });
 
@@ -929,7 +908,8 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
     prismaClient,
   }) => {
     // GIVEN: User exists with valid refresh token
-    const userEmail = faker.internet.email().toLowerCase();
+    const userEmail =
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -969,12 +949,8 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
       const body = await replayAttempt.json();
       expect(body).toHaveProperty("error");
     } finally {
-      await prismaClient.userRole.deleteMany({
-        where: { user_id: createdUser.user_id },
-      });
-      await prismaClient.user.delete({
-        where: { user_id: createdUser.user_id },
-      });
+      // Use robust cleanup helper to handle foreign key constraints
+      await deleteUserWithRelatedData(prismaClient, createdUser.user_id);
     }
   });
 

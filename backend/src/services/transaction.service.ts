@@ -6,7 +6,7 @@
  * Story 3.4: Transaction Query API
  */
 
-import { PrismaClient, Prisma, ShiftStatus } from "@prisma/client";
+import { Prisma, ShiftStatus } from "@prisma/client";
 import { v4 as uuidv4 } from "uuid";
 import { publishToTransactionsQueue } from "../utils/rabbitmq";
 import {
@@ -23,8 +23,7 @@ import {
   TransactionLineItemResponse,
   TransactionPaymentResponse,
 } from "../types/transaction.types";
-
-const prisma = new PrismaClient();
+import { prisma } from "../utils/db";
 
 /**
  * Transaction message structure for RabbitMQ

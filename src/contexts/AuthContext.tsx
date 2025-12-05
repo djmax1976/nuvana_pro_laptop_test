@@ -14,6 +14,8 @@ interface User {
   id: string;
   email: string;
   name: string;
+  user_role?: string;
+  roles?: string[];
 }
 
 interface AuthContextType {
@@ -21,6 +23,8 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   isClientUser: boolean;
+  isStoreUser: boolean; // True if user should access /mystore (store-level roles)
+  userRole: string | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -28,10 +32,20 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Store-level roles that should access /mystore instead of /dashboard
+const STORE_ROLES = [
+  "CLIENT_USER",
+  "STORE_MANAGER",
+  "SHIFT_MANAGER",
+  "CASHIER",
+];
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isClientUser, setIsClientUser] = useState(false);
+  const [isStoreUser, setIsStoreUser] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const router = useRouter();
 
   const backendUrl =
@@ -67,10 +81,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (response.ok) {
           const validatedData = await response.json();
-          const userData = {
+          const roles = validatedData.user.roles || [];
+
+          // Determine user_role for routing
+          let detectedUserRole: string | null = null;
+          if (roles.includes("CLIENT_OWNER")) {
+            detectedUserRole = "CLIENT_OWNER";
+          } else if (roles.includes("CLIENT_USER")) {
+            detectedUserRole = "CLIENT_USER";
+          } else if (roles.includes("STORE_MANAGER")) {
+            detectedUserRole = "STORE_MANAGER";
+          } else if (roles.includes("SHIFT_MANAGER")) {
+            detectedUserRole = "SHIFT_MANAGER";
+          } else if (roles.includes("CASHIER")) {
+            detectedUserRole = "CASHIER";
+          } else if (roles.includes("SUPERADMIN")) {
+            detectedUserRole = "SUPERADMIN";
+          }
+
+          // Check if user is a store-level user
+          const detectedIsStoreUser = roles.some((r: string) =>
+            STORE_ROLES.includes(r),
+          );
+
+          const userData: User = {
             id: validatedData.user.id,
             email: validatedData.user.email,
             name: validatedData.user.name || validatedData.user.email,
+            user_role: detectedUserRole || undefined,
+            roles: roles,
           };
 
           // Update localStorage with validated user data
@@ -82,11 +121,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               user: userData,
               authenticated: true,
               isClientUser: validatedData.user?.is_client_user === true,
+              isStoreUser: detectedIsStoreUser,
+              userRole: detectedUserRole,
             }),
           );
 
           setUser(userData);
           setIsClientUser(validatedData.user?.is_client_user === true);
+          setIsStoreUser(detectedIsStoreUser);
+          setUserRole(detectedUserRole);
 
           // Restore user's theme preference immediately
           // This must happen before next-themes initializes
@@ -102,12 +145,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem("client_auth_session");
           setUser(null);
           setIsClientUser(false);
+          setIsStoreUser(false);
+          setUserRole(null);
         }
       } catch (error) {
         localStorage.removeItem("auth_session");
         localStorage.removeItem("client_auth_session");
         setUser(null);
         setIsClientUser(false);
+        setIsStoreUser(false);
+        setUserRole(null);
       } finally {
         setIsLoading(false);
       }
@@ -145,6 +192,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setUser(null);
     setIsClientUser(false);
+    setIsStoreUser(false);
+    setUserRole(null);
     router.push("/login");
   }, [backendUrl, user, router]);
 
@@ -194,6 +243,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(data.message || "Login failed");
     }
 
+    // Determine isStoreUser from roles
+    const roles = data.user?.roles || [];
+    const detectedIsStoreUser = roles.some((r: string) =>
+      STORE_ROLES.includes(r),
+    );
+
     // Store user info - clear legacy key to prevent conflicts
     localStorage.removeItem("client_auth_session");
     localStorage.setItem(
@@ -202,6 +257,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: data.user,
         authenticated: true,
         isClientUser: data.user?.is_client_user === true,
+        isStoreUser: detectedIsStoreUser,
+        userRole: data.user?.user_role,
       }),
     );
 
@@ -216,6 +273,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setUser(data.user);
     setIsClientUser(data.user?.is_client_user === true);
+    setIsStoreUser(detectedIsStoreUser);
+    setUserRole(data.user?.user_role || null);
     // ThemeSync will call setTheme() to ensure next-themes internal state is updated
   };
 
@@ -228,10 +287,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (response.ok) {
         const data = await response.json();
-        const userData = {
+        const roles = data.user.roles || [];
+
+        // Determine user_role for routing
+        let detectedUserRole: string | null = null;
+        if (roles.includes("CLIENT_OWNER")) {
+          detectedUserRole = "CLIENT_OWNER";
+        } else if (roles.includes("CLIENT_USER")) {
+          detectedUserRole = "CLIENT_USER";
+        } else if (roles.includes("STORE_MANAGER")) {
+          detectedUserRole = "STORE_MANAGER";
+        } else if (roles.includes("SHIFT_MANAGER")) {
+          detectedUserRole = "SHIFT_MANAGER";
+        } else if (roles.includes("CASHIER")) {
+          detectedUserRole = "CASHIER";
+        } else if (roles.includes("SUPERADMIN")) {
+          detectedUserRole = "SUPERADMIN";
+        }
+
+        const detectedIsStoreUser = roles.some((r: string) =>
+          STORE_ROLES.includes(r),
+        );
+
+        const userData: User = {
           id: data.user.id,
           email: data.user.email,
           name: data.user.name || data.user.email,
+          user_role: detectedUserRole || undefined,
+          roles: roles,
         };
 
         // Clear legacy key to prevent conflicts
@@ -242,17 +325,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             user: userData,
             authenticated: true,
             isClientUser: data.user?.is_client_user === true,
+            isStoreUser: detectedIsStoreUser,
+            userRole: detectedUserRole,
           }),
         );
 
         setUser(userData);
         setIsClientUser(data.user?.is_client_user === true);
+        setIsStoreUser(detectedIsStoreUser);
+        setUserRole(detectedUserRole);
       } else {
         // Token invalid or expired
         localStorage.removeItem("auth_session");
         localStorage.removeItem("client_auth_session");
         setUser(null);
         setIsClientUser(false);
+        setIsStoreUser(false);
+        setUserRole(null);
       }
     } catch (error) {
       console.error("Failed to refresh user:", error);
@@ -260,6 +349,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem("client_auth_session");
       setUser(null);
       setIsClientUser(false);
+      setIsStoreUser(false);
+      setUserRole(null);
     }
   };
 
@@ -270,6 +361,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         isClientUser,
+        isStoreUser,
+        userRole,
         login,
         logout,
         refreshUser,

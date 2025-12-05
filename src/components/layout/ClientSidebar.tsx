@@ -11,6 +11,7 @@ import {
   Package,
   Ticket,
   Users,
+  UserCheck,
   Shield,
   BarChart3,
   Bot,
@@ -100,6 +101,11 @@ export function ClientSidebar({ className, onNavigate }: ClientSidebarProps) {
       title: "Employees",
       href: "/client-dashboard/employees",
       icon: Users,
+    },
+    {
+      title: "Cashiers",
+      href: "/client-dashboard/cashiers",
+      icon: UserCheck,
     },
   ];
 

@@ -71,6 +71,12 @@ export const CLIENT_EMPLOYEE_DELETE = "CLIENT_EMPLOYEE_DELETE";
 // Client Role Management Permissions
 export const CLIENT_ROLE_MANAGE = "CLIENT_ROLE_MANAGE";
 
+// Cashier Management Permissions
+export const CASHIER_CREATE = "CASHIER_CREATE";
+export const CASHIER_READ = "CASHIER_READ";
+export const CASHIER_UPDATE = "CASHIER_UPDATE";
+export const CASHIER_DELETE = "CASHIER_DELETE";
+
 /**
  * All permission codes as a constant object
  * Useful for validation and iteration
@@ -137,6 +143,12 @@ export const PERMISSIONS = {
 
   // Client Role Management
   CLIENT_ROLE_MANAGE,
+
+  // Cashier Management
+  CASHIER_CREATE,
+  CASHIER_READ,
+  CASHIER_UPDATE,
+  CASHIER_DELETE,
 } as const;
 
 /**
@@ -217,6 +229,12 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
 
   // Client Role Management
   [CLIENT_ROLE_MANAGE]: "Manage role permissions for owned stores",
+
+  // Cashier Management
+  [CASHIER_CREATE]: "Create cashiers for stores",
+  [CASHIER_READ]: "View cashier list and details",
+  [CASHIER_UPDATE]: "Update cashier information",
+  [CASHIER_DELETE]: "Deactivate/remove cashiers",
 };
 
 /**
@@ -287,6 +305,11 @@ export const PERMISSION_CATEGORIES = {
     description: "Permissions for viewing and updating store information",
     permissions: [STORE_READ, STORE_UPDATE],
   },
+  CASHIERS: {
+    name: "Cashier Management",
+    description: "Permissions for managing cashiers at store terminals",
+    permissions: [CASHIER_CREATE, CASHIER_READ, CASHIER_UPDATE, CASHIER_DELETE],
+  },
 } as const;
 
 /**
@@ -349,6 +372,12 @@ export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
   CLIENT_EMPLOYEE_CREATE,
   CLIENT_EMPLOYEE_READ,
   CLIENT_EMPLOYEE_DELETE,
+
+  // Cashier Management - Managing cashiers for stores
+  CASHIER_CREATE,
+  CASHIER_READ,
+  CASHIER_UPDATE,
+  CASHIER_DELETE,
 
   // Store - Read and update store information
   STORE_READ,

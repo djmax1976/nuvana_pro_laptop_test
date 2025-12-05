@@ -111,24 +111,6 @@ export async function seedRBAC() {
       },
     });
 
-    // CASHIER - STORE scope
-    const cashierRole = await prisma.role.upsert({
-      where: { code: "CASHIER" },
-      update: {
-        scope: "STORE",
-        description:
-          "Cashier with read-only access and transaction processing capabilities",
-        is_system_role: true,
-      },
-      create: {
-        code: "CASHIER",
-        scope: "STORE",
-        description:
-          "Cashier with read-only access and transaction processing capabilities",
-        is_system_role: true,
-      },
-    });
-
     // CLIENT_OWNER - COMPANY scope (owns and manages their own company and stores)
     const clientOwnerRole = await prisma.role.upsert({
       where: { code: "CLIENT_OWNER" },
@@ -161,6 +143,24 @@ export async function seedRBAC() {
         scope: "COMPANY",
         description:
           "Client user with read-only access to view owned companies and stores",
+        is_system_role: true,
+      },
+    });
+
+    // CASHIER - STORE scope (cashiers who operate terminals and handle transactions)
+    const cashierRole = await prisma.role.upsert({
+      where: { code: "CASHIER" },
+      update: {
+        scope: "STORE",
+        description:
+          "Cashier with access to operate terminals and handle transactions at assigned stores",
+        is_system_role: true,
+      },
+      create: {
+        code: "CASHIER",
+        scope: "STORE",
+        description:
+          "Cashier with access to operate terminals and handle transactions at assigned stores",
         is_system_role: true,
       },
     });
@@ -260,6 +260,11 @@ export async function seedRBAC() {
       PERMISSIONS.REPORT_DAILY,
       PERMISSIONS.REPORT_ANALYTICS,
       PERMISSIONS.REPORT_EXPORT,
+      // Cashier Management
+      PERMISSIONS.CASHIER_CREATE,
+      PERMISSIONS.CASHIER_READ,
+      PERMISSIONS.CASHIER_UPDATE,
+      PERMISSIONS.CASHIER_DELETE,
     ];
 
     for (const permissionCode of storeManagerPermissions) {
@@ -300,6 +305,8 @@ export async function seedRBAC() {
       PERMISSIONS.LOTTERY_REPORT,
       PERMISSIONS.REPORT_SHIFT,
       PERMISSIONS.REPORT_DAILY,
+      // Cashier Management (read-only for shift managers to view cashiers)
+      PERMISSIONS.CASHIER_READ,
     ];
 
     for (const permissionCode of shiftManagerPermissions) {
@@ -322,71 +329,70 @@ export async function seedRBAC() {
     }
     console.log("✅ SHIFT_MANAGER: Permissions mapped");
 
-    // CASHIER: Transactions, read-only access and basic operations
-    // CLIENT_DASHBOARD_ACCESS allows cashiers to access the client dashboard
-    // CLIENT_EMPLOYEE_READ allows viewing employees (read-only for cashiers)
-    const cashierPermissions = [
-      PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
-      PERMISSIONS.CLIENT_EMPLOYEE_READ,
-      PERMISSIONS.SHIFT_READ,
-      PERMISSIONS.TRANSACTION_CREATE,
-      PERMISSIONS.TRANSACTION_READ,
-      PERMISSIONS.INVENTORY_READ,
-      PERMISSIONS.LOTTERY_REPORT,
-      PERMISSIONS.REPORT_SHIFT,
-    ];
-
-    for (const permissionCode of cashierPermissions) {
-      const permissionId = permissionMap.get(permissionCode);
-      if (permissionId) {
-        await prisma.rolePermission.upsert({
-          where: {
-            role_id_permission_id: {
-              role_id: cashierRole.role_id,
-              permission_id: permissionId,
-            },
-          },
-          update: {},
-          create: {
-            role_id: cashierRole.role_id,
-            permission_id: permissionId,
-          },
-        });
-      }
-    }
-    console.log("✅ CASHIER: Permissions mapped");
-
-    // CLIENT_OWNER: Full access to their own companies, stores, employees, transactions, and reports
+    // CLIENT_OWNER: Full access to ALL company and store scope operations
+    // This includes everything EXCEPT system-level admin permissions (ADMIN_*)
     const clientOwnerPermissions = [
+      // Company Management (COMPANY scope)
       PERMISSIONS.COMPANY_CREATE,
       PERMISSIONS.COMPANY_READ,
       PERMISSIONS.COMPANY_UPDATE,
       PERMISSIONS.COMPANY_DELETE,
+
+      // Store Management (STORE scope)
       PERMISSIONS.STORE_CREATE,
       PERMISSIONS.STORE_READ,
       PERMISSIONS.STORE_UPDATE,
       PERMISSIONS.STORE_DELETE,
+
+      // User Management (for their company/stores)
       PERMISSIONS.USER_CREATE,
       PERMISSIONS.USER_READ,
       PERMISSIONS.USER_UPDATE,
       PERMISSIONS.USER_DELETE,
+
+      // Shift Operations (STORE scope)
+      PERMISSIONS.SHIFT_OPEN,
+      PERMISSIONS.SHIFT_CLOSE,
       PERMISSIONS.SHIFT_READ,
+      PERMISSIONS.SHIFT_RECONCILE,
+      PERMISSIONS.SHIFT_REPORT_VIEW,
+
+      // Transaction Management (STORE scope)
       PERMISSIONS.TRANSACTION_CREATE,
       PERMISSIONS.TRANSACTION_READ,
+      PERMISSIONS.TRANSACTION_IMPORT,
+
+      // Inventory Management (STORE scope)
       PERMISSIONS.INVENTORY_READ,
       PERMISSIONS.INVENTORY_ADJUST,
       PERMISSIONS.INVENTORY_ORDER,
+
+      // Lottery Management (STORE scope)
+      PERMISSIONS.LOTTERY_PACK_RECEIVE,
+      PERMISSIONS.LOTTERY_SHIFT_RECONCILE,
       PERMISSIONS.LOTTERY_REPORT,
+
+      // Reports (COMPANY/STORE scope)
       PERMISSIONS.REPORT_SHIFT,
       PERMISSIONS.REPORT_DAILY,
       PERMISSIONS.REPORT_ANALYTICS,
       PERMISSIONS.REPORT_EXPORT,
-      // Client Dashboard and Employee Management
+
+      // Client Dashboard Access
       PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
+
+      // Client Employee Management
       PERMISSIONS.CLIENT_EMPLOYEE_CREATE,
       PERMISSIONS.CLIENT_EMPLOYEE_READ,
       PERMISSIONS.CLIENT_EMPLOYEE_DELETE,
-      // Client Role Management
+
+      // Cashier Management (STORE scope)
+      PERMISSIONS.CASHIER_CREATE,
+      PERMISSIONS.CASHIER_READ,
+      PERMISSIONS.CASHIER_UPDATE,
+      PERMISSIONS.CASHIER_DELETE,
+
+      // Client Role Management (owner can manage roles for their stores)
       PERMISSIONS.CLIENT_ROLE_MANAGE,
     ];
 
@@ -426,6 +432,8 @@ export async function seedRBAC() {
       PERMISSIONS.CLIENT_EMPLOYEE_CREATE,
       PERMISSIONS.CLIENT_EMPLOYEE_READ,
       PERMISSIONS.CLIENT_EMPLOYEE_DELETE,
+      // Cashier Management (read-only for client users to view cashiers at terminals)
+      PERMISSIONS.CASHIER_READ,
     ];
 
     for (const permissionCode of clientUserPermissions) {
@@ -447,6 +455,35 @@ export async function seedRBAC() {
       }
     }
     console.log("✅ CLIENT_USER: Permissions mapped");
+
+    // CASHIER: Basic shift and transaction operations for cashiers at terminals
+    const cashierPermissions = [
+      PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
+      PERMISSIONS.SHIFT_READ,
+      PERMISSIONS.TRANSACTION_CREATE,
+      PERMISSIONS.TRANSACTION_READ,
+      PERMISSIONS.REPORT_SHIFT,
+    ];
+
+    for (const permissionCode of cashierPermissions) {
+      const permissionId = permissionMap.get(permissionCode);
+      if (permissionId) {
+        await prisma.rolePermission.upsert({
+          where: {
+            role_id_permission_id: {
+              role_id: cashierRole.role_id,
+              permission_id: permissionId,
+            },
+          },
+          update: {},
+          create: {
+            role_id: cashierRole.role_id,
+            permission_id: permissionId,
+          },
+        });
+      }
+    }
+    console.log("✅ CASHIER: Permissions mapped");
 
     console.log("✅ RBAC seed completed successfully");
   } catch (error) {

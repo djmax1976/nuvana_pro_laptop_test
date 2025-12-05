@@ -75,9 +75,20 @@ export interface ClientDashboardResponse {
 /**
  * API error response
  */
-export interface ApiError {
-  error: string;
-  message: string;
+interface ApiError {
+  success: false;
+  error: {
+    code: string;
+    message: string;
+  };
+}
+
+/**
+ * API success response
+ */
+interface ApiSuccessResponse<T> {
+  success: true;
+  data: T;
 }
 
 /**
@@ -104,18 +115,49 @@ async function apiRequest<T>(
     headers,
   });
 
+  // Capture status before consuming response
+  const status = response.status;
+  const statusText = response.statusText;
+
   if (!response.ok) {
     const errorData: ApiError = await response.json().catch(() => ({
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
+      success: false,
+      error: {
+        code: "UNKNOWN_ERROR",
+        message: `HTTP ${status}: ${statusText}`,
+      },
     }));
 
     throw new Error(
-      errorData.message || errorData.error || "API request failed",
+      errorData.error?.message || errorData.error?.code || "API request failed",
     );
   }
 
-  return response.json();
+  const result = await response.json();
+
+  // Runtime validation of response payload
+  if (
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    result.success !== true ||
+    !("data" in result) ||
+    result.data === undefined
+  ) {
+    // Only include payload preview in development/test to prevent information leakage in production
+    // Truncate to 500 chars to prevent huge error messages
+    // In test environment, we need the payload for debugging test failures
+    const payloadPreview =
+      process.env.NODE_ENV !== "production"
+        ? ` Payload: ${JSON.stringify(result, null, 2).slice(0, 500)}`
+        : "";
+    throw new Error(
+      `Invalid API response format: Expected { success: true, data: T }. ` +
+        `HTTP Status: ${status} ${statusText}.${payloadPreview}`,
+    );
+  }
+
+  return result.data;
 }
 
 /**

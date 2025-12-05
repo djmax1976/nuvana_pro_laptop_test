@@ -6,10 +6,26 @@ import {
   createShift,
 } from "../support/helpers";
 import { createTerminal } from "../support/factories/terminal.factory";
+import { createCashier } from "../support/factories";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
+
+/**
+ * Helper function to create a test cashier for shift operations
+ */
+async function createTestCashier(
+  prismaClient: any,
+  storeId: string,
+  createdByUserId: string,
+): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
+  const cashierData = await createCashier({
+    store_id: storeId,
+    created_by: createdByUserId,
+  });
+  return prismaClient.cashier.create({ data: cashierData });
+}
 
 /**
  * Terminal Management API Tests
@@ -509,13 +525,18 @@ test.describe("Terminal Management API", () => {
     });
 
     // AND: Terminal has an active shift
-    const cashier = await createUser(prismaClient);
+    const user = await createUser(prismaClient);
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      user.user_id,
+    );
     await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal.pos_terminal_id,
-        opened_by: cashier.user_id,
+        opened_by: user.user_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
@@ -1864,13 +1885,18 @@ test.describe("Terminal Management API", () => {
         device_id: terminalData.device_id || null,
       },
     });
-    const cashier = await createUser(prismaClient);
+    const user = await createUser(prismaClient);
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      user.user_id,
+    );
     await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal.pos_terminal_id,
-        opened_by: cashier.user_id,
+        opened_by: user.user_id,
         status: "ACTIVE",
         opening_cash: 100.0,
       },
@@ -1909,13 +1935,18 @@ test.describe("Terminal Management API", () => {
         device_id: terminalData.device_id || null,
       },
     });
-    const cashier = await createUser(prismaClient);
+    const user = await createUser(prismaClient);
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      user.user_id,
+    );
     await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal.pos_terminal_id,
-        opened_by: cashier.user_id,
+        opened_by: user.user_id,
         status: "CLOSING",
         opening_cash: 100.0,
       },
@@ -1954,13 +1985,18 @@ test.describe("Terminal Management API", () => {
         device_id: terminalData.device_id || null,
       },
     });
-    const cashier = await createUser(prismaClient);
+    const user = await createUser(prismaClient);
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      user.user_id,
+    );
     await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        cashier_id: cashier.user_id,
+        cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal.pos_terminal_id,
-        opened_by: cashier.user_id,
+        opened_by: user.user_id,
         status: "RECONCILING",
         opening_cash: 100.0,
       },

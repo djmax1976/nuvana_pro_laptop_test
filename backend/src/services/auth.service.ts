@@ -69,7 +69,7 @@ export class AuthService {
    * @returns Token expiry string (e.g., "1h" or "8h")
    */
   private getAccessTokenExpiry(roles: string[] = []): string {
-    const isSuperAdmin = roles.includes("SUPER_ADMIN");
+    const isSuperAdmin = roles.includes("SUPERADMIN");
     return isSuperAdmin
       ? this.superAdminAccessTokenExpiry
       : this.defaultAccessTokenExpiry;
@@ -111,7 +111,7 @@ export class AuthService {
 
     // Determine expiry based on roles
     const expiresIn = this.getAccessTokenExpiry(roles);
-    const isSuperAdmin = roles.includes("SUPER_ADMIN");
+    const isSuperAdmin = roles.includes("SUPERADMIN");
 
     // Audit logging for super admin token generation
     if (isSuperAdmin) {

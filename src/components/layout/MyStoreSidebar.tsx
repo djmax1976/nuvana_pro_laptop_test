@@ -160,10 +160,11 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
       </nav>
 
       {/* Terminal Authentication Modal */}
-      {selectedTerminal && (
+      {selectedTerminal && firstStoreId && (
         <TerminalAuthModal
           terminalId={selectedTerminal.pos_terminal_id}
           terminalName={selectedTerminal.name}
+          storeId={firstStoreId}
           open={isModalOpen}
           onOpenChange={handleModalClose}
         />

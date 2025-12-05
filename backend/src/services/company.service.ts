@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   CreateCompanyInput,
   UpdateCompanyInput,
@@ -8,8 +8,7 @@ import {
   AuditContext,
 } from "../types/company.types";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
-
-const prisma = new PrismaClient();
+import { prisma } from "../utils/db";
 
 /**
  * Company service for managing company CRUD operations

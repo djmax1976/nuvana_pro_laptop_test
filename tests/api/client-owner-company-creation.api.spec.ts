@@ -90,6 +90,8 @@ test.describe("CLIENT_OWNER Company Creation API", () => {
     );
     expect(ownerRole).toBeDefined();
     expect(ownerRole.company_id).toBeDefined();
+    expect(ownerRole.company_name).toBe(userData.companyName);
+    // Note: scope_type is not returned in API response, only used during assignment
 
     // AND: is_client_user flag is set
     const createdUser = await prismaClient.user.findUnique({
@@ -117,7 +119,7 @@ test.describe("CLIENT_OWNER Company Creation API", () => {
     await prismaClient.user.delete({ where: { user_id: body.data.user_id } });
   });
 
-  test("[P0-BR-CO-002] should reject CLIENT_OWNER creation without companyName", async ({
+  test("[P0-BR-CO-002a] should reject CLIENT_OWNER creation without companyName", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -152,10 +154,14 @@ test.describe("CLIENT_OWNER Company Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).toMatch(/company name/i);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toMatch(
+      /company name.*required|required.*company name/i,
+    );
   });
 
-  test("[P0-BR-CO-003] should reject CLIENT_OWNER creation without companyAddress", async ({
+  test("[P0-BR-CO-002b] should reject CLIENT_OWNER creation without companyAddress", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -190,7 +196,11 @@ test.describe("CLIENT_OWNER Company Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).toMatch(/company address/i);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toMatch(
+      /company address.*required|required.*company address/i,
+    );
   });
 
   test("[P0-BR-CO-004] should reject empty companyName", async ({
@@ -228,6 +238,7 @@ test.describe("CLIENT_OWNER Company Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
   });
 
   test("[P0-BR-CO-005] should reject whitespace-only companyName", async ({
@@ -265,6 +276,85 @@ test.describe("CLIENT_OWNER Company Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  test("[P0-BR-CO-005a] should reject empty companyAddress", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    const clientOwnerRole = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
+    });
+
+    if (!clientOwnerRole) {
+      test.skip();
+      return;
+    }
+
+    const userData = {
+      name: "Test Company Owner",
+      email: `companyowner-${Date.now()}@test.com`,
+      password: "SecurePassword123!",
+      companyName: "Test Company",
+      companyAddress: "", // Empty
+      roles: [
+        {
+          role_id: clientOwnerRole.role_id,
+          scope_type: "COMPANY",
+        },
+      ],
+    };
+
+    const response = await superadminApiRequest.post(
+      "/api/admin/users",
+      userData,
+    );
+
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  test("[P0-BR-CO-005b] should reject whitespace-only companyAddress", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    const clientOwnerRole = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
+    });
+
+    if (!clientOwnerRole) {
+      test.skip();
+      return;
+    }
+
+    const userData = {
+      name: "Test Company Owner",
+      email: `companyowner-${Date.now()}@test.com`,
+      password: "SecurePassword123!",
+      companyName: "Test Company",
+      companyAddress: "   ", // Whitespace only
+      roles: [
+        {
+          role_id: clientOwnerRole.role_id,
+          scope_type: "COMPANY",
+        },
+      ],
+    };
+
+    const response = await superadminApiRequest.post(
+      "/api/admin/users",
+      userData,
+    );
+
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
   });
 
   test("[P0-BR-CO-006] should trim companyName and companyAddress", async ({
@@ -361,7 +451,9 @@ test.describe("CLIENT_OWNER Company Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).toMatch(/255|characters|exceed/i);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/255|characters|exceed/i);
   });
 
   test("[P0-BR-CO-008] should reject companyAddress exceeding 500 characters", async ({
@@ -399,7 +491,100 @@ test.describe("CLIENT_OWNER Company Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).toMatch(/500|characters|exceed/i);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/500|characters|exceed/i);
+  });
+
+  test("[P0-BR-CO-003] should create new company even if company_id is provided in role", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    const clientOwnerRole = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
+    });
+
+    if (!clientOwnerRole) {
+      test.skip();
+      return;
+    }
+
+    // Create a temporary user to own the dummy company
+    const tempUser = await prismaClient.user.create({
+      data: {
+        public_id: `USR-${Date.now()}`,
+        email: `temp-${Date.now()}@test.com`,
+        name: "Temp User",
+        status: "ACTIVE",
+      },
+    });
+
+    // Create a dummy company to use as company_id
+    const dummyCompany = await prismaClient.company.create({
+      data: {
+        public_id: `CMP-${Date.now()}`,
+        name: "Dummy Company",
+        address: "Dummy Address",
+        status: "ACTIVE",
+        owner_user_id: tempUser.user_id,
+      },
+    });
+
+    const timestamp = Date.now();
+    const userData = {
+      name: "Test Company Owner",
+      email: `companyowner-${timestamp}@test.com`,
+      password: "SecurePassword123!",
+      companyName: `New Company ${timestamp}`,
+      companyAddress: "123 Test Street",
+      roles: [
+        {
+          role_id: clientOwnerRole.role_id,
+          scope_type: "COMPANY",
+          company_id: dummyCompany.company_id, // Provided but should be ignored
+        },
+      ],
+    };
+
+    const response = await superadminApiRequest.post(
+      "/api/admin/users",
+      userData,
+    );
+
+    // THEN: User is created successfully
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    const ownerRole = body.data.roles.find(
+      (r: any) => r.role.code === "CLIENT_OWNER",
+    );
+
+    // AND: A NEW company was created (not the dummy one)
+    expect(ownerRole.company_id).toBeDefined();
+    expect(ownerRole.company_id).not.toBe(dummyCompany.company_id);
+    expect(ownerRole.company_name).toBe(userData.companyName);
+
+    // Verify the new company exists
+    const newCompany = await prismaClient.company.findUnique({
+      where: { company_id: ownerRole.company_id },
+    });
+    expect(newCompany).toBeDefined();
+    expect(newCompany?.name).toBe(userData.companyName);
+    expect(newCompany?.owner_user_id).toBe(body.data.user_id);
+
+    // Cleanup
+    await prismaClient.userRole.deleteMany({
+      where: { user_id: body.data.user_id },
+    });
+    await prismaClient.company.delete({
+      where: { company_id: ownerRole.company_id },
+    });
+    await prismaClient.user.delete({ where: { user_id: body.data.user_id } });
+    await prismaClient.company.delete({
+      where: { company_id: dummyCompany.company_id },
+    });
+    await prismaClient.user.delete({ where: { user_id: tempUser.user_id } });
   });
 
   test("[P0-SEC] should require SUPERADMIN permission to create CLIENT_OWNER", async ({
@@ -437,6 +622,9 @@ test.describe("CLIENT_OWNER Company Creation API", () => {
 
     // THEN: Request is rejected with 403
     expect(response.status()).toBe(403);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
   });
 
   test("[P0-TX] should rollback company creation if user creation fails", async ({
@@ -484,10 +672,15 @@ test.describe("CLIENT_OWNER Company Creation API", () => {
       userData,
     );
 
-    // THEN: Request fails with 400 (validation) or 409 (conflict/duplicate email)
-    expect([400, 409]).toContain(response.status());
+    // THEN: Request fails with 409 (conflict/duplicate email)
+    expect(response.status()).toBe(409);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("CONFLICT");
+    expect(body.error.message).toMatch(/already exists|email.*exists/i);
 
-    // AND: No orphan company was created
+    // AND: No orphan company was created (transaction rollback)
     const orphanCompany = await prismaClient.company.findFirst({
       where: { name: companyName },
     });

@@ -127,8 +127,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to fetch roles",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch roles",
+          },
         };
       }
     },
@@ -160,8 +162,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to fetch deleted roles",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch deleted roles",
+          },
         };
       }
     },
@@ -193,8 +197,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to fetch permissions",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch permissions",
+          },
         };
       }
     },
@@ -220,8 +226,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "Invalid role ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid role ID format",
+            },
           };
         }
 
@@ -231,8 +239,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message: "Role not found",
+            error: {
+              code: "NOT_FOUND",
+              message: "Role not found",
+            },
           };
         }
 
@@ -246,8 +256,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to fetch role",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch role",
+          },
         };
       }
     },
@@ -275,8 +287,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: parseResult.error.issues[0].message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
           };
         }
 
@@ -303,16 +317,20 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to create role",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to create role",
+          },
         };
       }
     },
@@ -339,8 +357,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "Invalid role ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid role ID format",
+            },
           };
         }
 
@@ -350,8 +370,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: parseResult.error.issues[0].message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
           };
         }
 
@@ -380,8 +402,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message,
+            error: {
+              code: "NOT_FOUND",
+              message: message || "Resource not found",
+            },
           };
         }
 
@@ -394,16 +418,20 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to update role",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update role",
+          },
         };
       }
     },
@@ -430,8 +458,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "Invalid role ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid role ID format",
+            },
           };
         }
 
@@ -441,8 +471,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: parseResult.error.issues[0].message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
           };
         }
 
@@ -468,8 +500,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message,
+            error: {
+              code: "NOT_FOUND",
+              message: message || "Resource not found",
+            },
           };
         }
 
@@ -477,16 +511,20 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to update role permissions",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update role permissions",
+          },
         };
       }
     },
@@ -513,8 +551,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "Invalid role ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid role ID format",
+            },
           };
         }
 
@@ -535,8 +575,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message,
+            error: {
+              code: "NOT_FOUND",
+              message: message || "Resource not found",
+            },
           };
         }
 
@@ -548,16 +590,20 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to delete role",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to delete role",
+          },
         };
       }
     },
@@ -584,8 +630,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "Invalid role ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid role ID format",
+            },
           };
         }
 
@@ -606,8 +654,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message,
+            error: {
+              code: "NOT_FOUND",
+              message: message || "Resource not found",
+            },
           };
         }
 
@@ -615,16 +665,20 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to restore role",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to restore role",
+          },
         };
       }
     },
@@ -651,8 +705,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "Invalid role ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid role ID format",
+            },
           };
         }
 
@@ -673,8 +729,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message,
+            error: {
+              code: "NOT_FOUND",
+              message: message || "Resource not found",
+            },
           };
         }
 
@@ -685,16 +743,20 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to purge role",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to purge role",
+          },
         };
       }
     },
@@ -731,8 +793,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to fetch companies with roles",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch companies with roles",
+          },
         };
       }
     },
@@ -758,8 +822,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "Invalid company ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid company ID format",
+            },
           };
         }
 
@@ -770,8 +836,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message: "Company not found",
+            error: {
+              code: "NOT_FOUND",
+              message: "Company not found",
+            },
           };
         }
 
@@ -785,8 +853,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to fetch company roles",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch company roles",
+          },
         };
       }
     },
@@ -813,8 +883,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "Invalid company ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid company ID format",
+            },
           };
         }
 
@@ -824,8 +896,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: parseResult.error.issues[0].message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
           };
         }
 
@@ -850,8 +924,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message,
+            error: {
+              code: "NOT_FOUND",
+              message: message || "Resource not found",
+            },
           };
         }
 
@@ -863,16 +939,20 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to set company roles",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to set company roles",
+          },
         };
       }
     },
@@ -899,8 +979,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "Invalid company ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid company ID format",
+            },
           };
         }
 
@@ -910,8 +992,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: parseResult.error.issues[0].message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
           };
         }
 
@@ -936,8 +1020,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message,
+            error: {
+              code: "NOT_FOUND",
+              message: message || "Resource not found",
+            },
           };
         }
 
@@ -949,16 +1035,20 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to add role to company",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to add role to company",
+          },
         };
       }
     },
@@ -988,8 +1078,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "Invalid company ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid company ID format",
+            },
           };
         }
 
@@ -997,8 +1089,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "Invalid role ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid role ID format",
+            },
           };
         }
 
@@ -1023,8 +1117,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message,
+            error: {
+              code: "NOT_FOUND",
+              message: message || "Resource not found",
+            },
           };
         }
 
@@ -1035,16 +1131,20 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
           };
         }
 
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to remove role from company",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to remove role from company",
+          },
         };
       }
     },
@@ -1070,8 +1170,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(400);
           return {
             success: false,
-            error: "Validation error",
-            message: "Invalid role ID format",
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid role ID format",
+            },
           };
         }
 
@@ -1082,8 +1184,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
           reply.code(404);
           return {
             success: false,
-            error: "Not found",
-            message: "Role not found",
+            error: {
+              code: "NOT_FOUND",
+              message: "Role not found",
+            },
           };
         }
 
@@ -1097,8 +1201,10 @@ export async function adminRolesRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to fetch role companies",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch role companies",
+          },
         };
       }
     },

@@ -7,7 +7,7 @@ import { z } from "zod";
  *
  * Role Types and Their Requirements:
  * ----------------------------------
- * 1. SYSTEM_ADMIN: System-level access, scope_type=SYSTEM, no company/store required
+ * 1. SUPERADMIN: System-level access, scope_type=SYSTEM, no company/store required
  * 2. CLIENT_OWNER: Creates and owns a company, scope_type=COMPANY
  *    - When creating: companyName + companyAddress required, company_id NOT required (created automatically)
  *    - Company is created atomically with the user
@@ -31,12 +31,12 @@ import { z } from "zod";
  * Used for role-specific validation logic
  */
 export const ROLE_CODES = {
-  SYSTEM_ADMIN: "SYSTEM_ADMIN",
+  SUPERADMIN: "SUPERADMIN",
+  CORPORATE_ADMIN: "CORPORATE_ADMIN",
   CLIENT_OWNER: "CLIENT_OWNER",
   CLIENT_USER: "CLIENT_USER",
   STORE_MANAGER: "STORE_MANAGER",
   SHIFT_MANAGER: "SHIFT_MANAGER",
-  CASHIER: "CASHIER",
 } as const;
 
 export type RoleCode = (typeof ROLE_CODES)[keyof typeof ROLE_CODES];

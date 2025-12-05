@@ -326,6 +326,7 @@ export function ConnectionConfigForm({
           <Input
             id="api-key"
             type="password"
+            autoComplete="off"
             value={
               // eslint-disable-next-line security/detect-object-injection
               localValues.apiKey ?? getConfigValue("apiKey")
@@ -374,6 +375,7 @@ export function ConnectionConfigForm({
           <Input
             id="webhook-secret"
             type="password"
+            autoComplete="off"
             value={
               // eslint-disable-next-line security/detect-object-injection
               localValues.secret ?? getConfigValue("secret")

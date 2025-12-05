@@ -29,7 +29,6 @@ model User {
   audit_logs              AuditLog[]
   owned_companies         Company[]              @relation("CompanyOwner")
   shifts_opened           Shift[]                @relation("ShiftOpener")
-  shifts_cashier          Shift[]                @relation("ShiftCashier")
   shifts_approved         Shift[]                @relation("ShiftApprover")
   transactions            Transaction[]          @relation("TransactionCashier")
   assigned_roles          UserRole[]             @relation("UserRoleAssigner")
@@ -39,6 +38,8 @@ model User {
   roles_deleted           Role[]                 @relation("RoleDeleter")
   company_roles_assigned  CompanyAllowedRole[]   @relation("CompanyAllowedRoleAssigner")
   bulk_import_jobs        BulkImportJob[]        @relation("BulkImportJobUser")
+  cashiers_created        Cashier[]              @relation("CashierCreatedBy")
+  cashiers_updated        Cashier[]              @relation("CashierUpdatedBy")
 
   @@index([email])
   @@index([status])
@@ -80,6 +81,7 @@ model Store {
   public_id     String        @unique @db.VarChar(30)
   pos_terminals POSTerminal[]
   shifts        Shift[]
+  cashiers      Cashier[]
   company       Company       @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
   transactions  Transaction[]
   user_roles    UserRole[]
@@ -88,6 +90,52 @@ model Store {
   @@index([status])
   @@index([public_id])
   @@map("stores")
+}
+
+/// Cashier model with soft-delete semantics
+/// 
+/// SOFT-DELETE SEMANTICS:
+/// - disabled_at IS NULL = cashier is active (authoritative field for filtering)
+/// - disabled_at IS NOT NULL = cashier is soft-deleted
+/// - is_active is a denormalized boolean for quick checks and backward compatibility
+/// 
+/// RULES:
+/// - When disabling: set is_active=false AND disabled_at=now() atomically
+/// - When re-enabling: set is_active=true AND disabled_at=NULL atomically
+/// - All queries MUST filter by disabled_at IS NULL (not is_active) to ensure consistency
+/// - is_active should be kept in sync with disabled_at for backward compatibility
+model Cashier {
+  cashier_id              String    @id @default(uuid()) @db.Uuid
+  store_id                String    @db.Uuid
+  employee_id             String    @db.VarChar(4) // 4-digit zero-padded, unique per store
+  name                    String    @db.VarChar(255)
+  pin_hash                String    @db.VarChar(255) // bcrypt hashed
+  sha256_pin_fingerprint  String?   @db.VarChar(64) // SHA-256 hex digest for fast uniqueness checks
+  is_active               Boolean   @default(true) // Denormalized: true when disabled_at IS NULL, false when disabled_at IS NOT NULL
+  hired_on                DateTime  @db.Date
+  termination_date        DateTime? @db.Date
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  disabled_at             DateTime? @db.Timestamptz(6) // Authoritative: NULL = active, NOT NULL = soft-deleted
+  created_by              String    @db.Uuid
+  updated_by              String?   @db.Uuid
+
+  store    Store    @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  creator  User     @relation("CashierCreatedBy", fields: [created_by], references: [user_id])
+  updater  User?    @relation("CashierUpdatedBy", fields: [updated_by], references: [user_id])
+  shifts   Shift[]
+
+  @@unique([store_id, employee_id])
+  @@unique([store_id, pin_hash])
+  @@unique([store_id, sha256_pin_fingerprint])
+  @@index([store_id])
+  // Note: No single-column index on employee_id - all queries filter by store_id too
+  // The composite unique index (store_id, employee_id) handles these efficiently
+  @@index([is_active])
+  @@index([disabled_at])
+  @@index([created_by])
+  @@index([updated_by])
+  @@map("cashiers")
 }
 
 model Role {
@@ -288,7 +336,7 @@ model Shift {
   external_data     Json?
   synced_at         DateTime?   @db.Timestamptz(6)
   opener          User          @relation("ShiftOpener", fields: [opened_by], references: [user_id])
-  cashier         User          @relation("ShiftCashier", fields: [cashier_id], references: [user_id])
+  cashier         Cashier       @relation(fields: [cashier_id], references: [cashier_id])
   approver        User?         @relation("ShiftApprover", fields: [approved_by], references: [user_id])
   pos_terminal    POSTerminal?  @relation(fields: [pos_terminal_id], references: [pos_terminal_id])
   store           Store         @relation(fields: [store_id], references: [store_id], onDelete: Cascade)

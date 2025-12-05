@@ -3,10 +3,8 @@ import bcrypt from "bcrypt";
 import { getUserById } from "../services/user.service";
 import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
-import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
-
-const prisma = new PrismaClient();
+import { prisma } from "../utils/db";
 
 // NOTE: OAuth has been removed from this application
 // Using local email/password authentication with bcrypt
@@ -35,10 +33,14 @@ export async function authRoutes(fastify: FastifyInstance) {
         // Validate input
         if (!email || !password) {
           reply.code(400);
-          return {
-            error: "Bad Request",
-            message: "Email and password are required",
-          };
+          reply.send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Email and password are required",
+            },
+          });
+          return;
         }
 
         // Find user by email
@@ -48,29 +50,41 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         if (!user) {
           reply.code(401);
-          return {
-            error: "Unauthorized",
-            message: "Invalid email or password",
-          };
+          reply.send({
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid email or password",
+            },
+          });
+          return;
         }
 
         // Check if user is active
         if (user.status !== "ACTIVE") {
           reply.code(401);
-          return {
-            error: "Unauthorized",
-            message: "Account is inactive",
-          };
+          reply.send({
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Account is inactive",
+            },
+          });
+          return;
         }
 
         // Check if user has a password set
         // Return generic message to not leak account existence
         if (!user.password_hash) {
           reply.code(401);
-          return {
-            error: "Unauthorized",
-            message: "Invalid email or password",
-          };
+          reply.send({
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid email or password",
+            },
+          });
+          return;
         }
 
         // Verify password
@@ -81,10 +95,14 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         if (!isValidPassword) {
           reply.code(401);
-          return {
-            error: "Unauthorized",
-            message: "Invalid email or password",
-          };
+          reply.send({
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid email or password",
+            },
+          });
+          return;
         }
 
         // Generate JWT tokens with RBAC
@@ -111,6 +129,15 @@ export async function authRoutes(fastify: FastifyInstance) {
           maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
         });
 
+        // Fetch user roles to determine routing
+        const userRoles = await prisma.userRole.findMany({
+          where: { user_id: user.user_id },
+          include: { role: { select: { code: true, scope: true } } },
+        });
+
+        // Extract role codes for routing logic
+        const roleCodes = userRoles.map((ur) => ur.role.code);
+
         // Determine if user should access client dashboard
         // A user is a client user if:
         // 1. They have is_client_user = true in database, OR
@@ -118,45 +145,78 @@ export async function authRoutes(fastify: FastifyInstance) {
         // This ensures employees created before the is_client_user fix still work
         let isClientUser = user.is_client_user;
 
-        if (!isClientUser) {
-          // Check if user has any COMPANY or STORE scope roles
-          const userRoles = await prisma.userRole.findMany({
-            where: { user_id: user.user_id },
-            include: { role: { select: { scope: true } } },
-          });
+        const hasClientRole = userRoles.some(
+          (ur) => ur.role.scope === "COMPANY" || ur.role.scope === "STORE",
+        );
 
-          const hasClientRole = userRoles.some(
-            (ur) => ur.role.scope === "COMPANY" || ur.role.scope === "STORE",
-          );
-
-          if (hasClientRole) {
-            isClientUser = true;
-            // Update the database to fix the is_client_user flag for future logins
+        if (!isClientUser && hasClientRole) {
+          isClientUser = true;
+          // Update the database to fix the is_client_user flag for future logins
+          try {
             await prisma.user.update({
               where: { user_id: user.user_id },
               data: { is_client_user: true },
             });
+          } catch (updateError) {
+            // Log error but don't fail the login
+            fastify.log.error(
+              {
+                error: updateError,
+                user_id: user.user_id,
+                context: "best-effort migration of is_client_user",
+              },
+              "Failed to update is_client_user flag during login",
+            );
           }
         }
 
-        // Return success response with user data (including is_client_user for routing)
+        // Determine primary user role for routing:
+        // - CLIENT_USER goes to /mystore (terminal dashboard)
+        // - CLIENT_OWNER goes to /dashboard (client owner dashboard)
+        // - STORE_MANAGER, SHIFT_MANAGER, CASHIER go to /mystore
+        // Priority: CLIENT_OWNER > CLIENT_USER > STORE_MANAGER > SHIFT_MANAGER > CASHIER
+        let userRole: string | null = null;
+        if (roleCodes.includes("CLIENT_OWNER")) {
+          userRole = "CLIENT_OWNER";
+        } else if (roleCodes.includes("CLIENT_USER")) {
+          userRole = "CLIENT_USER";
+        } else if (roleCodes.includes("STORE_MANAGER")) {
+          userRole = "STORE_MANAGER";
+        } else if (roleCodes.includes("SHIFT_MANAGER")) {
+          userRole = "SHIFT_MANAGER";
+        } else if (roleCodes.includes("CASHIER")) {
+          userRole = "CASHIER";
+        } else if (roleCodes.includes("SUPERADMIN")) {
+          userRole = "SUPERADMIN";
+        }
+
+        // Return success response with user data (including user_role for routing)
         reply.code(200);
-        return {
-          message: "Login successful",
-          user: {
-            id: user.user_id,
-            email: user.email,
-            name: user.name,
-            is_client_user: isClientUser,
+        reply.send({
+          success: true,
+          data: {
+            message: "Login successful",
+            user: {
+              id: user.user_id,
+              email: user.email,
+              name: user.name,
+              is_client_user: isClientUser,
+              user_role: userRole,
+              roles: roleCodes,
+            },
           },
-        };
+        });
+        return;
       } catch (error) {
         fastify.log.error({ error }, "Login error");
         reply.code(500);
-        return {
-          error: "Internal Server Error",
-          message: "An error occurred during login",
-        };
+        reply.send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "An error occurred during login",
+          },
+        });
       }
     },
   );

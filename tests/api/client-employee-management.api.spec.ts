@@ -155,8 +155,10 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body).toHaveProperty("error");
+    expect(body.error).toHaveProperty("code");
+    expect(body.error).toHaveProperty("message");
     expect(
-      body.error,
+      body.error.message,
       "Error should mention STORE scope restriction",
     ).toContain("STORE scope");
   });
@@ -196,8 +198,10 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body).toHaveProperty("error");
+    expect(body.error).toHaveProperty("code");
+    expect(body.error).toHaveProperty("message");
     expect(
-      body.error,
+      body.error.message,
       "Error should mention STORE scope restriction",
     ).toContain("STORE scope");
   });
@@ -281,6 +285,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body).toHaveProperty("error");
+    expect(body.error).toHaveProperty("code");
+    expect(body.error).toHaveProperty("message");
+    expect(
+      body.error.message.toLowerCase(),
+      "Error should mention email already exists",
+    ).toContain("email");
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -446,6 +456,9 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     );
     const body = await response.json();
     expect(body.success).toBe(true);
+    expect(body.message, "Response should include success message").toBe(
+      "Employee deleted successfully",
+    );
 
     // AND: Employee record is DELETED (hard delete)
     const deletedEmployee = await prismaClient.user.findUnique({
@@ -927,6 +940,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body).toHaveProperty("error");
+    expect(body.error).toHaveProperty("code");
+    expect(body.error).toHaveProperty("message");
+    expect(
+      body.error.message.toLowerCase(),
+      "Error should mention cannot delete own account",
+    ).toContain("cannot delete");
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -949,5 +968,9 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     );
     const body = await response.json();
     expect(body.success).toBe(false);
+    expect(body).toHaveProperty("error");
+    expect(body.error).toHaveProperty("code");
+    expect(body.error.code).toBe("NOT_FOUND");
+    expect(body.error).toHaveProperty("message");
   });
 });

@@ -230,6 +230,7 @@ type RBACFixture = {
     token: string;
   };
   cashierPage: import("@playwright/test").Page;
+  clientOwnerPage: import("@playwright/test").Page;
 };
 
 export const test = base.extend<RBACFixture>({
@@ -512,8 +513,21 @@ export const test = base.extend<RBACFixture>({
         where: { user_id: user.user_id },
       });
 
-      // 5. Delete the user
-      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      // 5. Delete cashiers created by this user (FK constraint: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
+      // 6. Delete the user (check if exists first to avoid errors if already deleted by global cleanup)
+      const userExists = await bypassClient.user.findUnique({
+        where: { user_id: user.user_id },
+        select: { user_id: true },
+      });
+      if (userExists) {
+        await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      }
     });
   },
 
@@ -718,6 +732,13 @@ export const test = base.extend<RBACFixture>({
         });
       });
 
+      // 3.7. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
       // 4. Delete user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
@@ -871,6 +892,13 @@ export const test = base.extend<RBACFixture>({
         where: { store_id: store.store_id },
       });
 
+      // 5.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
       // 6. Delete the store manager user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
@@ -880,6 +908,16 @@ export const test = base.extend<RBACFixture>({
       // 8. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
+      });
+
+      // 8.5. Delete cashiers created/updated by owner user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [
+            { created_by: ownerUser.user_id },
+            { updated_by: ownerUser.user_id },
+          ],
+        },
       });
 
       // 9. Delete the owner user (created for company ownership)
@@ -1056,6 +1094,13 @@ export const test = base.extend<RBACFixture>({
         where: { store_id: store.store_id },
       });
 
+      // 4.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
       // 5. Delete the shift manager user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
@@ -1065,6 +1110,16 @@ export const test = base.extend<RBACFixture>({
       // 7. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
+      });
+
+      // 7.5. Delete cashiers created/updated by owner user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [
+            { created_by: ownerUser.user_id },
+            { updated_by: ownerUser.user_id },
+          ],
+        },
       });
 
       // 8. Delete the owner user (created for company ownership)
@@ -1188,6 +1243,13 @@ export const test = base.extend<RBACFixture>({
         where: { store_id: store.store_id },
       });
 
+      // 4.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
       // 5. Delete the authenticated user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
@@ -1197,6 +1259,16 @@ export const test = base.extend<RBACFixture>({
       // 7. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
+      });
+
+      // 7.5. Delete cashiers created/updated by owner user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [
+            { created_by: ownerUser.user_id },
+            { updated_by: ownerUser.user_id },
+          ],
+        },
       });
 
       // 8. Delete the owner user (created for company ownership)
@@ -1528,16 +1600,61 @@ export const test = base.extend<RBACFixture>({
       });
     });
 
-    // Client Owner permissions - explicit list following least privilege principle
-    // Does NOT include ADMIN_SYSTEM_CONFIG which is Super Admin only
+    // Client Owner permissions - CLIENT_OWNER has ALL company and store scope permissions
+    // Does NOT include ADMIN_* which is Super Admin only
+    // Must match the permissions defined in rbac.seed.ts for CLIENT_OWNER role
     const clientPermissions = [
+      // Company Management
+      "COMPANY_CREATE",
+      "COMPANY_READ",
+      "COMPANY_UPDATE",
+      "COMPANY_DELETE",
+      // Store Management
+      "STORE_CREATE",
+      "STORE_READ",
+      "STORE_UPDATE",
+      "STORE_DELETE",
+      // User Management
+      "USER_CREATE",
+      "USER_READ",
+      "USER_UPDATE",
+      "USER_DELETE",
+      // Shift Operations
+      "SHIFT_OPEN",
+      "SHIFT_CLOSE",
+      "SHIFT_READ",
+      "SHIFT_RECONCILE",
+      "SHIFT_REPORT_VIEW",
+      // Transaction Management
+      "TRANSACTION_CREATE",
+      "TRANSACTION_READ",
+      "TRANSACTION_IMPORT",
+      // Inventory Management
+      "INVENTORY_READ",
+      "INVENTORY_ADJUST",
+      "INVENTORY_ORDER",
+      // Lottery Management
+      "LOTTERY_PACK_RECEIVE",
+      "LOTTERY_SHIFT_RECONCILE",
+      "LOTTERY_REPORT",
+      // Reports
+      "REPORT_SHIFT",
+      "REPORT_DAILY",
+      "REPORT_ANALYTICS",
+      "REPORT_EXPORT",
+      // Client Dashboard Access
       "CLIENT_DASHBOARD_ACCESS",
+      // Client Employee Management
       "CLIENT_EMPLOYEE_CREATE",
       "CLIENT_EMPLOYEE_READ",
       "CLIENT_EMPLOYEE_DELETE",
+      // Cashier Management
+      "CASHIER_CREATE",
+      "CASHIER_READ",
+      "CASHIER_UPDATE",
+      "CASHIER_DELETE",
+      // Client Role Management
       "CLIENT_ROLE_MANAGE",
-      "STORE_READ",
-      "STORE_UPDATE",
     ];
 
     const token = createJWTAccessToken({
@@ -1619,6 +1736,13 @@ export const test = base.extend<RBACFixture>({
       // 8. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
+      });
+
+      // 8.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
       });
 
       // 9. Delete user
@@ -1764,6 +1888,13 @@ export const test = base.extend<RBACFixture>({
         where: { role_id: restrictedRole.role_id },
       });
 
+      // 5.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
       // 6. Delete the regular user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
@@ -1778,6 +1909,16 @@ export const test = base.extend<RBACFixture>({
       // 9. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
+      });
+
+      // 9.5. Delete cashiers created/updated by owner user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [
+            { created_by: ownerUser.user_id },
+            { updated_by: ownerUser.user_id },
+          ],
+        },
       });
 
       // 10. Delete owner user
@@ -2101,6 +2242,13 @@ export const test = base.extend<RBACFixture>({
         where: { company_id: company.company_id },
       });
 
+      // 6.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
       // 7. Delete the user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
     });
@@ -2190,6 +2338,58 @@ export const test = base.extend<RBACFixture>({
     // Use domcontentloaded instead of networkidle for better CI reliability
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
+      { waitUntil: "domcontentloaded" },
+    );
+
+    // Wait for the page to be ready
+    await page.waitForLoadState("load");
+
+    await use(page);
+
+    // Cleanup: Clear session state
+    await page.context().clearCookies();
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+  },
+
+  clientOwnerPage: async ({ page, clientUser }, use) => {
+    // Setup: Use real authentication with JWT cookie for CLIENT_OWNER user
+    // CLIENT_OWNER role is required to access /client-dashboard routes
+
+    // Add authentication cookie (real JWT token)
+    await page.context().addCookies([
+      {
+        name: "access_token",
+        value: clientUser.token,
+        domain: "localhost",
+        path: "/",
+      },
+    ]);
+
+    // Set localStorage auth_session directly to bypass API call during tests
+    // CLIENT_OWNER users need the role to be correctly identified by ClientAuthContext
+    await page.addInitScript((userData) => {
+      localStorage.setItem(
+        "auth_session",
+        JSON.stringify({
+          user: {
+            id: userData.user_id,
+            email: userData.email,
+            name: userData.name,
+            roles: userData.roles,
+          },
+          authenticated: true,
+          isClientUser: true, // CLIENT_OWNER is a client user
+        }),
+      );
+    }, clientUser);
+
+    // Navigate to client dashboard - ClientAuthContext will verify CLIENT_OWNER role
+    // Use domcontentloaded instead of networkidle for better CI reliability
+    await page.goto(
+      `${process.env.FRONTEND_URL || "http://localhost:3000"}/client-dashboard`,
       { waitUntil: "domcontentloaded" },
     );
 

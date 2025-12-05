@@ -167,15 +167,81 @@ describe("RBACService - CLIENT_OWNER Permission Checks", () => {
       const roles = await rbacService.getUserRoles(testClientOwnerUserId);
       const clientOwnerRole = roles.find((r) => r.role_code === "CLIENT_OWNER");
 
+      // CLIENT_OWNER must have ALL company and store scope permissions
+      // This list must match rbac.seed.ts CLIENT_OWNER permissions
       const requiredPermissions = [
+        // Client Dashboard
         "CLIENT_DASHBOARD_ACCESS",
+        // Client Employee Management
         "CLIENT_EMPLOYEE_CREATE",
         "CLIENT_EMPLOYEE_READ",
         "CLIENT_EMPLOYEE_DELETE",
+        // Cashier Management (Story 4.9)
+        "CASHIER_CREATE",
+        "CASHIER_READ",
+        "CASHIER_UPDATE",
+        "CASHIER_DELETE",
+        // Client Role Management
+        "CLIENT_ROLE_MANAGE",
+        // Company Management
+        "COMPANY_CREATE",
+        "COMPANY_READ",
+        "COMPANY_UPDATE",
+        "COMPANY_DELETE",
+        // Store Management
+        "STORE_CREATE",
+        "STORE_READ",
+        "STORE_UPDATE",
+        "STORE_DELETE",
+        // Shift Operations
+        "SHIFT_OPEN",
+        "SHIFT_CLOSE",
+        "SHIFT_READ",
+        "SHIFT_RECONCILE",
+        "SHIFT_REPORT_VIEW",
+        // Transaction Management
+        "TRANSACTION_CREATE",
+        "TRANSACTION_READ",
+        "TRANSACTION_IMPORT",
+        // Inventory Management
+        "INVENTORY_READ",
+        "INVENTORY_ADJUST",
+        "INVENTORY_ORDER",
+        // Lottery Management
+        "LOTTERY_PACK_RECEIVE",
+        "LOTTERY_SHIFT_RECONCILE",
+        "LOTTERY_REPORT",
+        // Reports
+        "REPORT_SHIFT",
+        "REPORT_DAILY",
+        "REPORT_ANALYTICS",
+        "REPORT_EXPORT",
       ];
 
       for (const perm of requiredPermissions) {
-        expect(clientOwnerRole?.permissions).toContain(perm);
+        expect(
+          clientOwnerRole?.permissions,
+          `CLIENT_OWNER should have ${perm} permission`,
+        ).toContain(perm);
+      }
+    });
+
+    it("should include CASHIER_* permissions for cashier management", async () => {
+      const roles = await rbacService.getUserRoles(testClientOwnerUserId);
+      const clientOwnerRole = roles.find((r) => r.role_code === "CLIENT_OWNER");
+
+      const cashierPermissions = [
+        "CASHIER_CREATE",
+        "CASHIER_READ",
+        "CASHIER_UPDATE",
+        "CASHIER_DELETE",
+      ];
+
+      for (const perm of cashierPermissions) {
+        expect(
+          clientOwnerRole?.permissions,
+          `CLIENT_OWNER should have ${perm} for cashier management`,
+        ).toContain(perm);
       }
     });
   });
@@ -284,6 +350,264 @@ describe("RBACService - CLIENT_OWNER Permission Checks", () => {
 
       expect(hasPermission).toBe(true);
     });
+  });
+});
+
+describe("RBACService - CLIENT_USER Permission Checks", () => {
+  let testClientUserId: string;
+  let clientUserRoleId: string;
+  let testClientUserCompanyId: string;
+  let testClientUserStoreId: string;
+
+  beforeAll(async () => {
+    // Get CLIENT_USER role ID
+    const clientUserRole = await prisma.role.findUnique({
+      where: { code: "CLIENT_USER" },
+    });
+    if (!clientUserRole) {
+      throw new Error("CLIENT_USER role not found - run RBAC seed first");
+    }
+    clientUserRoleId = clientUserRole.role_id;
+
+    // First, create a company and store for the CLIENT_USER
+    // (CLIENT_USER requires pre-existing company_id and store_id, unlike CLIENT_OWNER)
+    const company = await prisma.company.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: `RBAC Client User Test Company ${Date.now()}`,
+        address: "123 RBAC Client User Test Street",
+        status: "ACTIVE",
+        owner_user_id: testAdminUser.user_id,
+      },
+    });
+    testClientUserCompanyId = company.company_id;
+    createdCompanyIds.push(testClientUserCompanyId);
+
+    const store = await prisma.store.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        name: `RBAC Client User Test Store ${Date.now()}`,
+        company_id: testClientUserCompanyId,
+        status: "ACTIVE",
+      },
+    });
+    testClientUserStoreId = store.store_id;
+    createdStoreIds.push(testClientUserStoreId);
+
+    // Create a CLIENT_USER user with pre-existing company and store
+    const uniqueEmail = `rbac-client-user-${Date.now()}@test.com`;
+
+    const input: CreateUserInput = {
+      email: uniqueEmail,
+      name: "RBAC Test Client User",
+      password: "TestPassword123!",
+      roles: [
+        {
+          role_id: clientUserRoleId,
+          scope_type: "COMPANY",
+          company_id: testClientUserCompanyId,
+          store_id: testClientUserStoreId,
+        },
+      ],
+    };
+
+    const result = await userAdminService.createUser(input, auditContext);
+    testClientUserId = result.user_id;
+    createdUserIds.push(testClientUserId);
+
+    // Clear any cached permissions for clean test
+    await rbacService.invalidateUserRolesCache(testClientUserId);
+  });
+
+  it("should include CASHIER_READ in CLIENT_USER role permissions", async () => {
+    const roles = await rbacService.getUserRoles(testClientUserId);
+    const clientUserRole = roles.find((r) => r.role_code === "CLIENT_USER");
+
+    expect(clientUserRole).toBeDefined();
+    expect(
+      clientUserRole?.permissions,
+      "CLIENT_USER should have CASHIER_READ for viewing cashiers at terminals",
+    ).toContain("CASHIER_READ");
+  });
+
+  it("should grant CASHIER_READ permission for own company", async () => {
+    const hasPermission = await rbacService.checkPermission(
+      testClientUserId,
+      "CASHIER_READ" as any,
+      { companyId: testClientUserCompanyId },
+    );
+
+    expect(hasPermission).toBe(true);
+  });
+
+  it("should NOT include CASHIER_CREATE/UPDATE/DELETE in CLIENT_USER permissions", async () => {
+    const roles = await rbacService.getUserRoles(testClientUserId);
+    const clientUserRole = roles.find((r) => r.role_code === "CLIENT_USER");
+
+    expect(clientUserRole?.permissions).not.toContain("CASHIER_CREATE");
+    expect(clientUserRole?.permissions).not.toContain("CASHIER_UPDATE");
+    expect(clientUserRole?.permissions).not.toContain("CASHIER_DELETE");
+  });
+
+  it("should include all required CLIENT_USER permissions", async () => {
+    const roles = await rbacService.getUserRoles(testClientUserId);
+    const clientUserRole = roles.find((r) => r.role_code === "CLIENT_USER");
+
+    // CLIENT_USER must have these permissions (matching rbac.seed.ts)
+    const requiredPermissions = [
+      "CLIENT_DASHBOARD_ACCESS",
+      "COMPANY_READ",
+      "STORE_READ",
+      "SHIFT_READ",
+      "TRANSACTION_READ",
+      "INVENTORY_READ",
+      "LOTTERY_REPORT",
+      "REPORT_SHIFT",
+      "REPORT_DAILY",
+      "REPORT_ANALYTICS",
+      "CLIENT_EMPLOYEE_CREATE",
+      "CLIENT_EMPLOYEE_READ",
+      "CLIENT_EMPLOYEE_DELETE",
+      "CASHIER_READ", // Added for Story 4.9
+    ];
+
+    for (const perm of requiredPermissions) {
+      expect(
+        clientUserRole?.permissions,
+        `CLIENT_USER should have ${perm} permission`,
+      ).toContain(perm);
+    }
+  });
+});
+
+describe("RBACService - SHIFT_MANAGER Permission Checks", () => {
+  let testShiftManagerUserId: string;
+  let shiftManagerRoleId: string;
+  let testShiftManagerStoreId: string;
+  let testShiftManagerCompanyId: string;
+
+  beforeAll(async () => {
+    // Get SHIFT_MANAGER role ID
+    const shiftManagerRole = await prisma.role.findUnique({
+      where: { code: "SHIFT_MANAGER" },
+    });
+    if (!shiftManagerRole) {
+      throw new Error("SHIFT_MANAGER role not found - run RBAC seed first");
+    }
+    shiftManagerRoleId = shiftManagerRole.role_id;
+
+    // Create a company and store for the shift manager
+    const company = await prisma.company.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: `RBAC Shift Manager Test Company ${Date.now()}`,
+        address: "123 Shift Manager Test Street",
+        status: "ACTIVE",
+        owner_user_id: testAdminUser.user_id,
+      },
+    });
+    testShiftManagerCompanyId = company.company_id;
+    createdCompanyIds.push(testShiftManagerCompanyId);
+
+    const store = await prisma.store.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        name: `RBAC Shift Manager Test Store ${Date.now()}`,
+        company_id: testShiftManagerCompanyId,
+        status: "ACTIVE",
+      },
+    });
+    testShiftManagerStoreId = store.store_id;
+    createdStoreIds.push(testShiftManagerStoreId);
+
+    // Create a SHIFT_MANAGER user
+    const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+    const shiftManagerUser = await prisma.user.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        email: `rbac-shift-manager-${Date.now()}@test.com`,
+        name: "RBAC Test Shift Manager",
+        password_hash: hashedPassword,
+        status: "ACTIVE",
+      },
+    });
+    testShiftManagerUserId = shiftManagerUser.user_id;
+    createdUserIds.push(testShiftManagerUserId);
+
+    // Assign SHIFT_MANAGER role with store scope
+    await prisma.userRole.create({
+      data: {
+        user_id: testShiftManagerUserId,
+        role_id: shiftManagerRoleId,
+        company_id: testShiftManagerCompanyId,
+        store_id: testShiftManagerStoreId,
+        assigned_by: testAdminUser.user_id,
+      },
+    });
+
+    // Clear any cached permissions for clean test
+    await rbacService.invalidateUserRolesCache(testShiftManagerUserId);
+  });
+
+  it("should include CASHIER_READ in SHIFT_MANAGER role permissions", async () => {
+    const roles = await rbacService.getUserRoles(testShiftManagerUserId);
+    const shiftManagerRole = roles.find((r) => r.role_code === "SHIFT_MANAGER");
+
+    expect(shiftManagerRole).toBeDefined();
+    expect(
+      shiftManagerRole?.permissions,
+      "SHIFT_MANAGER should have CASHIER_READ for viewing cashiers",
+    ).toContain("CASHIER_READ");
+  });
+
+  it("should grant CASHIER_READ permission for own store", async () => {
+    const hasPermission = await rbacService.checkPermission(
+      testShiftManagerUserId,
+      "CASHIER_READ" as any,
+      { storeId: testShiftManagerStoreId },
+    );
+
+    expect(hasPermission).toBe(true);
+  });
+
+  it("should NOT include CASHIER_CREATE/UPDATE/DELETE in SHIFT_MANAGER permissions", async () => {
+    const roles = await rbacService.getUserRoles(testShiftManagerUserId);
+    const shiftManagerRole = roles.find((r) => r.role_code === "SHIFT_MANAGER");
+
+    expect(shiftManagerRole?.permissions).not.toContain("CASHIER_CREATE");
+    expect(shiftManagerRole?.permissions).not.toContain("CASHIER_UPDATE");
+    expect(shiftManagerRole?.permissions).not.toContain("CASHIER_DELETE");
+  });
+
+  it("should include all required SHIFT_MANAGER permissions", async () => {
+    const roles = await rbacService.getUserRoles(testShiftManagerUserId);
+    const shiftManagerRole = roles.find((r) => r.role_code === "SHIFT_MANAGER");
+
+    // SHIFT_MANAGER must have these permissions (matching rbac.seed.ts)
+    const requiredPermissions = [
+      "CLIENT_DASHBOARD_ACCESS",
+      "CLIENT_EMPLOYEE_READ",
+      "SHIFT_OPEN",
+      "SHIFT_CLOSE",
+      "SHIFT_READ",
+      "SHIFT_RECONCILE",
+      "TRANSACTION_CREATE",
+      "TRANSACTION_READ",
+      "INVENTORY_READ",
+      "LOTTERY_PACK_RECEIVE",
+      "LOTTERY_SHIFT_RECONCILE",
+      "LOTTERY_REPORT",
+      "REPORT_SHIFT",
+      "REPORT_DAILY",
+      "CASHIER_READ", // Added for Story 4.9
+    ];
+
+    for (const perm of requiredPermissions) {
+      expect(
+        shiftManagerRole?.permissions,
+        `SHIFT_MANAGER should have ${perm} permission`,
+      ).toContain(perm);
+    }
   });
 });
 
