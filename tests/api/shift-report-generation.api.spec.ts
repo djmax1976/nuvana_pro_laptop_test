@@ -1149,10 +1149,12 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       "VALIDATION_ERROR",
     );
     // Fastify schema validation message contains "format" field reference
+    const errorMessage = body.error.message || JSON.stringify(body.error);
+    expect(errorMessage, "Error message should be defined").toBeDefined();
     expect(
-      body.error.message || JSON.stringify(body.error),
+      errorMessage.toLowerCase(),
       "Error should reference the format parameter",
-    ).toBeDefined();
+    ).toContain("format");
 
     // Cleanup
     await cleanupShiftWithTransactions(prismaClient, shift.shift_id);

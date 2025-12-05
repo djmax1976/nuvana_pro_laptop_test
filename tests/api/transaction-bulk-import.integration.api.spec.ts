@@ -234,12 +234,6 @@ async function uploadBulkImportFile(
   let lastBody: any = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (attempt > 0) {
-      // Exponential backoff: 2s, 4s, 8s for retries
-      const backoffDelay = Math.min(2000 * Math.pow(2, attempt - 1), 10000);
-      await new Promise((resolve) => setTimeout(resolve, backoffDelay));
-    }
-
     lastResponse = await apiRequest.post(
       "/api/transactions/bulk-import",
       formData,
@@ -260,6 +254,7 @@ async function uploadBulkImportFile(
       return { response: lastResponse, body: lastBody, jobId };
     } else if (status === 429 && attempt < maxRetries) {
       // Rate limited - parse error message for retry time if available
+      let waitTime: number | null = null;
       try {
         lastBody = await lastResponse.json();
         const errorMessage = lastBody.error?.message || "";
@@ -267,15 +262,19 @@ async function uploadBulkImportFile(
         if (retryMatch) {
           const retrySeconds = parseInt(retryMatch[1], 10);
           // Wait for the specified retry time plus a buffer
-          const waitTime = Math.max(retrySeconds * 1000, 2000);
-          await new Promise((resolve) => setTimeout(resolve, waitTime));
-        } else {
-          // No retry time specified, use exponential backoff
-          // Already handled above
+          waitTime = Math.max(retrySeconds * 1000, 2000);
         }
       } catch {
-        // If we can't parse, exponential backoff already applied above
+        // If we can't parse, fall through to exponential backoff
       }
+
+      // If no retry time was parsed, use exponential backoff
+      if (waitTime === null) {
+        // Exponential backoff: 2s, 4s, 8s for retries
+        waitTime = Math.min(2000 * Math.pow(2, attempt), 10000);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
       continue; // Retry
     } else {
       // Other error or final attempt failed
@@ -505,7 +504,7 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     );
     expect(
       job.processed_rows + job.error_rows,
-      "Processed + error rows should equal total rows when completed",
+      "Processed + error rows should be less than or equal to total rows",
     ).toBeLessThanOrEqual(job.total_rows);
 
     // If job is completed, verify all rows are accounted for

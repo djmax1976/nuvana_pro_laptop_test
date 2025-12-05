@@ -385,41 +385,64 @@ test.describe("Cashier Store Dropdown", () => {
     );
 
     // Wait for either toast to appear or dialog to close
-    await Promise.race([
-      toastTitle.waitFor({ state: "visible", timeout: 5000 }).catch(() => {}),
-      toastDescription
-        .waitFor({ state: "visible", timeout: 5000 })
-        .catch(() => {}),
-      page
-        .waitForSelector('[data-testid="cashier-name"]', {
+    // Using Promise.any so the first successful wait wins
+    // If all conditions fail, the test will fail with an AggregateError
+    try {
+      await Promise.any([
+        toastTitle.waitFor({ state: "visible", timeout: 5000 }),
+        toastDescription.waitFor({ state: "visible", timeout: 5000 }),
+        page.waitForSelector('[data-testid="cashier-name"]', {
           state: "hidden",
           timeout: 5000,
-        })
-        .catch(() => {}),
-    ]);
+        }),
+      ]);
+    } catch (error) {
+      throw new Error(
+        `None of the expected success conditions occurred: toast title, toast description, or dialog closure. Original error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
     await page.screenshot({ path: "test-results/cashier-after-submit.png" });
 
     // Verify success - check for toast or dialog closure
-    const toastTitleVisible = await toastTitle
-      .isVisible({ timeout: 2000 })
-      .catch(() => false);
-    const toastDescVisible = await toastDescription
-      .isVisible({ timeout: 2000 })
-      .catch(() => false);
-    const dialogClosed = await page
-      .locator('[data-testid="cashier-name"]')
-      .isHidden({ timeout: 2000 })
-      .catch(() => false);
+    let toastTitleVisible = false;
+    try {
+      await toastTitle.waitFor({ state: "visible", timeout: 2000 });
+      toastTitleVisible = true;
+    } catch {
+      toastTitleVisible = false;
+    }
+
+    let toastDescVisible = false;
+    try {
+      await toastDescription.waitFor({ state: "visible", timeout: 2000 });
+      toastDescVisible = true;
+    } catch {
+      toastDescVisible = false;
+    }
+
+    let dialogClosed = false;
+    try {
+      await page
+        .locator('[data-testid="cashier-name"]')
+        .waitFor({ state: "hidden", timeout: 2000 });
+      dialogClosed = true;
+    } catch {
+      dialogClosed = false;
+    }
 
     // At least one success indicator should be present
     expect(toastTitleVisible || toastDescVisible || dialogClosed).toBe(true);
 
     // Ensure there's no validation error for store
     const storeError = page.locator("text=Store is required");
-    const hasStoreError = await storeError
-      .isVisible({ timeout: 1000 })
-      .catch(() => false);
+    let hasStoreError = false;
+    try {
+      await storeError.waitFor({ state: "visible", timeout: 1000 });
+      hasStoreError = true;
+    } catch {
+      hasStoreError = false;
+    }
     expect(hasStoreError).toBe(false);
 
     // Verify the form submission was successful by checking the store value was preserved

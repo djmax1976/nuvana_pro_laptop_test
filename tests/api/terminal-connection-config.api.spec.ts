@@ -332,8 +332,6 @@ test.describe("Terminal Connection Configuration API", () => {
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body.error).toHaveProperty("code", "VALIDATION_ERROR");
-    // Zod validation errors include details array
-    expect(body.error.details || body.error.message).toBeDefined();
     // Zod validation errors include details array, service-level errors have message
     expect(body.error.details || body.error.message).toBeDefined();
   });

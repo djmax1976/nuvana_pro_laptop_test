@@ -80,36 +80,43 @@ async function assignUserToStore(
     const role = await bypassClient.role.findUnique({
       where: { code: roleCode },
     });
-    if (role) {
-      // Update existing userRole to point to the test store
-      // This handles cases where the user already has a role assigned
-      const existingRoleAssignment = await bypassClient.userRole.findFirst({
-        where: {
-          user_id: user.user_id,
-          role_id: role.role_id,
+
+    if (!role) {
+      throw new Error(
+        `Role not found: roleCode="${roleCode}", user_id="${user.user_id}", company_id="${company.company_id}", store_id="${store.store_id}". ` +
+          `The role with code "${roleCode}" does not exist in the database. ` +
+          `This may indicate a missing test setup or database seed data.`,
+      );
+    }
+
+    // Update existing userRole to point to the test store
+    // This handles cases where the user already has a role assigned
+    const existingRoleAssignment = await bypassClient.userRole.findFirst({
+      where: {
+        user_id: user.user_id,
+        role_id: role.role_id,
+      },
+    });
+
+    if (existingRoleAssignment) {
+      // Update existing assignment to point to the test store
+      await bypassClient.userRole.update({
+        where: { user_role_id: existingRoleAssignment.user_role_id },
+        data: {
+          company_id: company.company_id,
+          store_id: store.store_id,
         },
       });
-
-      if (existingRoleAssignment) {
-        // Update existing assignment to point to the test store
-        await bypassClient.userRole.update({
-          where: { user_role_id: existingRoleAssignment.user_role_id },
-          data: {
-            company_id: company.company_id,
-            store_id: store.store_id,
-          },
-        });
-      } else {
-        // Create new role assignment
-        await bypassClient.userRole.create({
-          data: {
-            user_id: user.user_id,
-            role_id: role.role_id,
-            company_id: company.company_id,
-            store_id: store.store_id,
-          },
-        });
-      }
+    } else {
+      // Create new role assignment
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: role.role_id,
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      });
     }
   });
 }
