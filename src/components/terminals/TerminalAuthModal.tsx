@@ -166,7 +166,11 @@ export function TerminalAuthModal({
 
       // Verify session was created (required for terminal operations)
       if (!authResult.session?.session_token) {
-        throw new Error("Failed to create cashier session");
+        form.setError("root", {
+          type: "manual",
+          message: "Failed to create cashier session",
+        });
+        return;
       }
 
       // Store session in context for subsequent terminal operations
@@ -199,8 +203,19 @@ export function TerminalAuthModal({
         router.push(`/terminal/${terminalId}/shift`);
         onOpenChange(false);
       }
-    } catch {
-      // Error is handled by mutation state - no console logging to avoid exposing sensitive data
+    } catch (error) {
+      // Set form error for non-mutation errors (e.g., missing session token)
+      // Mutation errors are handled by mutation state
+      if (
+        error instanceof Error &&
+        error.message === "Failed to create cashier session"
+      ) {
+        form.setError("root", {
+          type: "manual",
+          message: error.message,
+        });
+      }
+      // Other errors are handled by mutation state - no console logging to avoid exposing sensitive data
     }
   };
 
@@ -278,6 +293,14 @@ export function TerminalAuthModal({
                       ? "Invalid PIN. Please try again."
                       : authenticateMutation.error.message
                     : "Authentication failed. Please check your credentials."}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {form.formState.errors.root && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  {form.formState.errors.root.message}
                 </AlertDescription>
               </Alert>
             )}

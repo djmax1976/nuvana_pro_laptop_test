@@ -21,6 +21,7 @@
 import crypto from "crypto";
 import { prisma } from "../utils/db";
 import type { CashierSession } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 /**
  * Session token response returned to frontend
@@ -116,9 +117,8 @@ export async function createCashierSession(params: {
   const plainToken = generateSessionToken();
   const tokenHash = hashSessionToken(plainToken);
 
-  // Calculate expiry
-  const expiresAt = new Date();
-  expiresAt.setHours(expiresAt.getHours() + expiryHours);
+  // Calculate expiry (UTC-safe, timezone-independent)
+  const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
 
   // Create session in database
   const session = await prisma.cashierSession.create({
@@ -225,6 +225,10 @@ export async function validateSessionToken(
     return { valid: false, error: "Session has expired" };
   }
 
+  if (!session.cashier) {
+    return { valid: false, error: "Cashier session is missing cashier data" };
+  }
+
   if (!session.cashier.is_active) {
     return { valid: false, error: "Cashier account is disabled" };
   }
@@ -251,8 +255,29 @@ export async function endCashierSession(
         ended_at: new Date(),
       },
     });
-  } catch {
-    return null;
+  } catch (error: unknown) {
+    // Handle "not found" case - this is expected and can return null
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2025"
+    ) {
+      // Record not found - this is a valid case, return null
+      return null;
+    }
+
+    // Log all other errors with full context for debugging
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    const errorStack = error instanceof Error ? error.stack : String(error);
+
+    console.error(
+      `Failed to end cashier session: sessionId=${sessionId}, error=${errorMessage}, stack=${errorStack}`,
+    );
+
+    // Rethrow with additional context for callers to handle
+    throw new Error(
+      `Failed to end cashier session (sessionId: ${sessionId}): ${errorMessage}`,
+    );
   }
 }
 
@@ -277,7 +302,14 @@ export async function endCashierSessionByToken(
         ended_at: new Date(),
       },
     });
-  } catch {
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    const errorStack = err instanceof Error ? err.stack : String(err);
+
+    console.error(
+      `Failed to end cashier session by token: function=endCashierSessionByToken, tokenHash=${tokenHash}, error=${errorMessage}, stack=${errorStack}`,
+    );
+
     return null;
   }
 }

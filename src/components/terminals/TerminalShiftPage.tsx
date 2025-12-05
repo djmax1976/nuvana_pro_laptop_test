@@ -14,7 +14,7 @@
  * - End Shift button (placeholder)
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -87,6 +87,7 @@ export function TerminalShiftPageContent({
   terminalId,
 }: TerminalShiftPageContentProps) {
   const [showEndShiftDialog, setShowEndShiftDialog] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const { session } = useCashierSession();
   const updateStartingCashMutation = useUpdateStartingCash();
 
@@ -97,15 +98,27 @@ export function TerminalShiftPageContent({
     },
   });
 
+  // Clear session error when a valid session exists
+  useEffect(() => {
+    if (session?.sessionToken) {
+      setSessionError(null);
+    }
+  }, [session?.sessionToken]);
+
   const handleUpdateStartingCash = async (values: StartingCashFormValues) => {
     if (values.starting_cash === undefined || values.starting_cash === "") {
       // Optional field - allow empty
       return;
     }
 
+    // Clear any previous session error when retrying
+    setSessionError(null);
+
     // Session token required for terminal operations
     if (!session?.sessionToken) {
-      console.error("No active cashier session - please re-authenticate");
+      setSessionError(
+        "No active cashier session. Please re-authenticate to continue.",
+      );
       return;
     }
 
@@ -209,6 +222,11 @@ export function TerminalShiftPageContent({
                   </FormItem>
                 )}
               />
+              {sessionError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{sessionError}</AlertDescription>
+                </Alert>
+              )}
               {updateStartingCashMutation.isPending && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
