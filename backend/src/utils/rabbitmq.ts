@@ -31,7 +31,8 @@ export async function initializeRabbitMQ(): Promise<Connection> {
     return connection;
   }
 
-  const rabbitmqUrl = process.env.RABBITMQ_URL || "amqp://localhost:5672";
+  const rabbitmqUrl =
+    process.env.RABBITMQ_URL || "amqp://guest:guest@localhost:5672";
 
   let retries = 0;
   const maxRetries = 10;

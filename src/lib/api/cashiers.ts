@@ -35,11 +35,12 @@ export interface CashierAuthResult {
 
 /**
  * API error response
+ * Note: error can be a string OR an object with code/message
  */
 interface ApiError {
   success: false;
-  error: string;
-  message: string;
+  error: string | { code: string; message: string };
+  message?: string;
 }
 
 /**
@@ -81,9 +82,15 @@ async function apiRequest<T>(
       message: `HTTP ${response.status}: ${response.statusText}`,
     }));
 
-    throw new Error(
-      errorData.message || errorData.error || "API request failed",
-    );
+    // Handle nested error object: { error: { code, message } }
+    const errorMessage =
+      errorData.message ||
+      (typeof errorData.error === "object"
+        ? errorData.error.message
+        : errorData.error) ||
+      "API request failed";
+
+    throw new Error(errorMessage);
   }
 
   const result: ApiSuccessResponse<T> = await response.json();
@@ -121,9 +128,15 @@ async function apiRequestVoid(
       message: `HTTP ${response.status}: ${response.statusText}`,
     }));
 
-    throw new Error(
-      errorData.message || errorData.error || "API request failed",
-    );
+    // Handle nested error object: { error: { code, message } }
+    const errorMessage =
+      errorData.message ||
+      (typeof errorData.error === "object"
+        ? errorData.error.message
+        : errorData.error) ||
+      "API request failed";
+
+    throw new Error(errorMessage);
   }
 
   // 204 No Content responses have no body, so we just return void

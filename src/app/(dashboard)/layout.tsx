@@ -6,7 +6,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 
 /**
- * Dashboard layout for authenticated SUPER_ADMIN users only
+ * Dashboard layout for authenticated SUPERADMIN users only
  * Uses DashboardLayout component with sidebar and header
  * Redirects to login if user is not authenticated
  * Redirects store-level users (CLIENT_USER, STORE_MANAGER, etc.) to /mystore

@@ -25,6 +25,25 @@ import {
  * - Direct SQL query RLS enforcement
  * - INSERT/UPDATE/DELETE policy enforcement
  *
+ * RLS Implementation Details:
+ * - RLS policies use helper functions: app.get_user_company_id(), app.get_user_store_id(), app.is_system_admin()
+ * - Helper functions read from app.current_user_id session variable (set via SET command)
+ * - app.get_user_company_id() looks for UserRole with COMPANY scope role and non-null company_id
+ * - app.get_user_store_id() looks for UserRole with STORE scope role and non-null store_id
+ * - app.is_system_admin() checks for SUPERADMIN role with SYSTEM scope
+ * - Application-level UUID validation exists in withRLSContext/withRLSTransaction (defense-in-depth)
+ *
+ * Test Coverage:
+ * - Company table: SELECT, INSERT, UPDATE, DELETE policies (tests 2.3-API-001, 003, 004, 005, 006)
+ * - Store table: SELECT, INSERT, UPDATE, DELETE policies (tests 2.3-API-002, 004, 011)
+ * - Shift table: SELECT policy (tests 2.3-API-007, 008)
+ * - Transaction table: SELECT policy (tests 2.3-API-022, 023, 024, 025)
+ * - System Admin bypass: Company, Store, Transaction access (tests 2.3-API-009, 010, 024)
+ * - Corporate Admin company-wide access: Store, Transaction access (tests 2.3-API-011, 025)
+ * - Prisma ORM integration: Prisma queries and raw SQL (tests 2.3-API-012, 013)
+ * - Security: SQL injection prevention, unauthorized access, data leakage (tests 2.3-API-018, 019, 020, 021, 026, 027, 028)
+ * - Edge cases: No company_id, no roles, context isolation (tests 2.3-API-014, 015, 016, 017, 029, 030)
+ *
  * Priority: P0 (Critical - Security feature)
  *
  * Quality Standards Applied:
@@ -41,11 +60,20 @@ import {
  *
  * Note: Uses SET (not SET LOCAL) because SET LOCAL only lasts within a transaction.
  * The session variable persists across Prisma queries until the connection is released.
+ *
+ * IMPORTANT: This helper bypasses application-level UUID validation (which exists in
+ * withRLSContext/withRLSTransaction) to allow testing RLS policies directly. In production,
+ * the application validates UUID format before setting RLS context to prevent SQL injection.
+ *
+ * @param prisma - Prisma client instance (should be rlsPrismaClient for RLS-enforced tests)
+ * @param userId - Valid UUID string of the user to set as RLS context
  */
 async function setRLSContext(
   prisma: PrismaClient,
   userId: string,
 ): Promise<void> {
+  // Direct SQL execution bypasses application-level validation
+  // This is intentional for testing RLS policies, but requires valid UUID format
   await prisma.$executeRawUnsafe(`SET app.current_user_id = '${userId}'`);
 }
 
@@ -141,6 +169,8 @@ test.describe("RLS Policies - Company-Level Isolation", () => {
     const [companyA, companyB] = companies;
 
     // Update user's UserRole to have company_id = companyA.company_id
+    // Note: corporateAdminUser has CORPORATE_ADMIN role with COMPANY scope,
+    // so app.get_user_company_id() will find this role and return company_id
     await prismaClient.userRole.updateMany({
       where: { user_id: corporateAdminUser.user_id },
       data: { company_id: companyA.company_id },
@@ -197,6 +227,8 @@ test.describe("RLS Policies - Company-Level Isolation", () => {
     );
 
     // Update user's UserRole to have company_id = companyA.company_id
+    // Note: corporateAdminUser has CORPORATE_ADMIN role with COMPANY scope,
+    // so app.get_user_company_id() will find this role and return company_id
     await prismaClient.userRole.updateMany({
       where: { user_id: corporateAdminUser.user_id },
       data: { company_id: companyA.company_id },
@@ -250,6 +282,8 @@ test.describe("RLS Policies - Company-Level Isolation", () => {
     const [companyA, companyB] = companies;
 
     // Update user's UserRole to have company_id = companyA.company_id
+    // Note: corporateAdminUser has CORPORATE_ADMIN role with COMPANY scope,
+    // so app.get_user_company_id() will find this role and return company_id
     await prismaClient.userRole.updateMany({
       where: { user_id: corporateAdminUser.user_id },
       data: { company_id: companyA.company_id },
@@ -422,6 +456,8 @@ test.describe("RLS Policies - Store-Level Isolation", () => {
     });
 
     // Update user's UserRole to have store_id = store1.store_id
+    // Note: storeManagerUser has STORE_MANAGER role with STORE scope,
+    // so app.get_user_store_id() will find this role and return store_id
     await prismaClient.userRole.updateMany({
       where: { user_id: storeManagerUser.user_id },
       data: { store_id: store1.store_id, company_id: company.company_id },
@@ -492,6 +528,8 @@ test.describe("RLS Policies - Store-Level Isolation", () => {
     });
 
     // Update user's UserRole to have store_id = store1.store_id
+    // Note: storeManagerUser has STORE_MANAGER role with STORE scope,
+    // so app.get_user_store_id() will find this role and return store_id
     await prismaClient.userRole.updateMany({
       where: { user_id: storeManagerUser.user_id },
       data: { store_id: store1.store_id, company_id: company.company_id },
@@ -578,12 +616,13 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     });
 
     // Create transactions for both stores
+    // Note: transaction.cashier_id references users.user_id, not cashiers.cashier_id
     const transaction1 = await prismaClient.transaction.create({
       data: {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store1.store_id,
         shift_id: shift1.shift_id,
-        cashier_id: cashier1.cashier_id,
+        cashier_id: storeManagerUser.user_id, // User ID, not Cashier ID
         subtotal: 100,
         tax: 8,
         total: 108,
@@ -594,7 +633,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store2.store_id,
         shift_id: shift2.shift_id,
-        cashier_id: cashier2.cashier_id,
+        cashier_id: storeManagerUser.user_id, // User ID, not Cashier ID
         subtotal: 200,
         tax: 16,
         total: 216,
@@ -602,6 +641,8 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     });
 
     // Update user's UserRole to have store_id = store1.store_id
+    // Note: storeManagerUser has STORE_MANAGER role with STORE scope,
+    // so app.get_user_store_id() will find this role and return store_id
     await prismaClient.userRole.updateMany({
       where: { user_id: storeManagerUser.user_id },
       data: { store_id: store1.store_id, company_id: company.company_id },
@@ -682,12 +723,13 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
       },
     });
 
+    // Note: transaction.cashier_id references users.user_id, not cashiers.cashier_id
     const transaction2 = await prismaClient.transaction.create({
       data: {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: store2.store_id,
         shift_id: shift2.shift_id,
-        cashier_id: cashier2.cashier_id,
+        cashier_id: storeManagerUser.user_id, // User ID, not Cashier ID
         subtotal: 200,
         tax: 16,
         total: 216,
@@ -695,6 +737,8 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     });
 
     // Update user's UserRole to have store_id = store1.store_id
+    // Note: storeManagerUser has STORE_MANAGER role with STORE scope,
+    // so app.get_user_store_id() will find this role and return store_id
     await prismaClient.userRole.updateMany({
       where: { user_id: storeManagerUser.user_id },
       data: { store_id: store1.store_id, company_id: company.company_id },
@@ -731,6 +775,7 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
 
   test("2.3-API-024: [P0] should allow System Admin to access all transactions", async ({
     prismaClient,
+    rlsPrismaClient,
     superadminUser,
     storeManagerUser,
   }) => {
@@ -765,12 +810,13 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
       });
       shifts.push(shift);
 
+      // Note: transaction.cashier_id references users.user_id, not cashiers.cashier_id
       const transaction = await prismaClient.transaction.create({
         data: {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
           store_id: store.store_id,
           shift_id: shift.shift_id,
-          cashier_id: cashier.cashier_id,
+          cashier_id: storeManagerUser.user_id, // User ID, not Cashier ID
           subtotal: 100,
           tax: 8,
           total: 108,
@@ -779,17 +825,19 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
       transactions.push(transaction);
     }
 
-    // Set RLS context for System Admin
-    await setRLSContext(prismaClient, superadminUser.user_id);
+    // Set RLS context for System Admin on RLS-enforced connection
+    // Note: System Admin bypass happens through app.is_system_admin() function
+    // which checks for SUPERADMIN role with SYSTEM scope
+    await setRLSContext(rlsPrismaClient, superadminUser.user_id);
 
-    // WHEN: System Admin queries Transaction table
-    const result = await prismaClient.transaction.findMany({
+    // WHEN: System Admin queries Transaction table with RLS-enforced connection
+    const result = await rlsPrismaClient.transaction.findMany({
       where: {
         transaction_id: { in: transactions.map((t) => t.transaction_id) },
       },
     });
 
-    // THEN: System Admin sees all transactions (RLS bypass)
+    // THEN: System Admin sees all transactions (RLS bypass via app.is_system_admin())
     expect(result.length).toBeGreaterThanOrEqual(2);
     const resultTransactionIds = result.map((t) => t.transaction_id);
     for (const transaction of transactions) {
@@ -860,12 +908,13 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
       });
       shiftsA.push(shift);
 
+      // Note: transaction.cashier_id references users.user_id, not cashiers.cashier_id
       const transaction = await prismaClient.transaction.create({
         data: {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
           store_id: store.store_id,
           shift_id: shift.shift_id,
-          cashier_id: cashier.cashier_id,
+          cashier_id: storeManagerUser.user_id, // User ID, not Cashier ID
           subtotal: 100,
           tax: 8,
           total: 108,
@@ -890,12 +939,13 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
         opening_cash: 1000,
       },
     });
+    // Note: transaction.cashier_id references users.user_id, not cashiers.cashier_id
     const transactionB = await prismaClient.transaction.create({
       data: {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.TRANSACTION),
         store_id: storesB[0].store_id,
         shift_id: shiftB.shift_id,
-        cashier_id: cashierB.cashier_id,
+        cashier_id: storeManagerUser.user_id, // User ID, not Cashier ID
         subtotal: 200,
         tax: 16,
         total: 216,
@@ -903,6 +953,8 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
     });
 
     // Update user's UserRole to have company_id = companyA.company_id
+    // Note: corporateAdminUser has CORPORATE_ADMIN role with COMPANY scope,
+    // so app.get_user_company_id() will find this role and return company_id
     await prismaClient.userRole.updateMany({
       where: { user_id: corporateAdminUser.user_id },
       data: { company_id: companyA.company_id },
@@ -963,23 +1015,26 @@ test.describe("RLS Policies - Transaction Store-Level Isolation", () => {
 test.describe("RLS Policies - System Admin Bypass", () => {
   test("2.3-API-009: [P0] should allow System Admin to access all companies", async ({
     prismaClient,
+    rlsPrismaClient,
     superadminUser,
   }) => {
     // GIVEN: Multiple companies exist
     const companies = await createTestCompanies(prismaClient, 3);
     const companyIds = companies.map((c) => c.company_id);
 
-    // Set RLS context for System Admin
-    await setRLSContext(prismaClient, superadminUser.user_id);
+    // Set RLS context for System Admin on RLS-enforced connection
+    // Note: System Admin bypass happens through app.is_system_admin() function
+    // which checks for SUPERADMIN role with SYSTEM scope
+    await setRLSContext(rlsPrismaClient, superadminUser.user_id);
 
-    // WHEN: System Admin queries Company table
-    const result = await prismaClient.company.findMany({
+    // WHEN: System Admin queries Company table with RLS-enforced connection
+    const result = await rlsPrismaClient.company.findMany({
       where: {
         company_id: { in: companyIds },
       },
     });
 
-    // THEN: System Admin sees all companies (RLS bypass)
+    // THEN: System Admin sees all companies (RLS bypass via app.is_system_admin())
     expect(result.length).toBeGreaterThanOrEqual(3);
     const resultCompanyIds = result.map((c) => c.company_id);
     // Explicit: All test companies should be visible
@@ -995,6 +1050,7 @@ test.describe("RLS Policies - System Admin Bypass", () => {
 
   test("2.3-API-010: [P0] should allow System Admin to access all stores", async ({
     prismaClient,
+    rlsPrismaClient,
     superadminUser,
   }) => {
     // GIVEN: Multiple stores in different companies exist
@@ -1006,17 +1062,19 @@ test.describe("RLS Policies - System Admin Bypass", () => {
     );
     const storeIds = stores.map((s) => s.store_id);
 
-    // Set RLS context for System Admin
-    await setRLSContext(prismaClient, superadminUser.user_id);
+    // Set RLS context for System Admin on RLS-enforced connection
+    // Note: System Admin bypass happens through app.is_system_admin() function
+    // which checks for SUPERADMIN role with SYSTEM scope
+    await setRLSContext(rlsPrismaClient, superadminUser.user_id);
 
-    // WHEN: System Admin queries Store table
-    const result = await prismaClient.store.findMany({
+    // WHEN: System Admin queries Store table with RLS-enforced connection
+    const result = await rlsPrismaClient.store.findMany({
       where: {
         store_id: { in: storeIds },
       },
     });
 
-    // THEN: System Admin sees all stores (RLS bypass)
+    // THEN: System Admin sees all stores (RLS bypass via app.is_system_admin())
     expect(result).toHaveLength(stores.length);
     const resultStoreIds = result.map((s) => s.store_id);
     // Explicit: All test stores should be visible
@@ -1056,7 +1114,9 @@ test.describe("RLS Policies - Corporate Admin Company Access", () => {
       (s) => s.company_id === companyB.company_id,
     );
 
-    // Update user's UserRole to have company_id = companyA.company_id (COMPANY scope)
+    // Update user's UserRole to have company_id = companyA.company_id
+    // Note: corporateAdminUser has CORPORATE_ADMIN role with COMPANY scope,
+    // so app.get_user_company_id() will find this role and return company_id
     await prismaClient.userRole.updateMany({
       where: { user_id: corporateAdminUser.user_id },
       data: { company_id: companyA.company_id },
@@ -1100,6 +1160,8 @@ test.describe("RLS Policies - Prisma ORM Integration", () => {
     const [companyA] = companies;
 
     // Update user's UserRole to have company_id = companyA.company_id
+    // Note: corporateAdminUser has CORPORATE_ADMIN role with COMPANY scope,
+    // so app.get_user_company_id() will find this role and return company_id
     await prismaClient.userRole.updateMany({
       where: { user_id: corporateAdminUser.user_id },
       data: { company_id: companyA.company_id },
@@ -1135,6 +1197,8 @@ test.describe("RLS Policies - Prisma ORM Integration", () => {
     const [companyA] = companies;
 
     // Update user's UserRole to have company_id = companyA.company_id
+    // Note: corporateAdminUser has CORPORATE_ADMIN role with COMPANY scope,
+    // so app.get_user_company_id() will find this role and return company_id
     await prismaClient.userRole.updateMany({
       where: { user_id: corporateAdminUser.user_id },
       data: { company_id: companyA.company_id },
@@ -1178,6 +1242,8 @@ test.describe("RLS Policies - Silent Filtering", () => {
     const [companyA, companyB] = companies;
 
     // Update user's UserRole to have company_id = companyA.company_id
+    // Note: corporateAdminUser has CORPORATE_ADMIN role with COMPANY scope,
+    // so app.get_user_company_id() will find this role and return company_id
     await prismaClient.userRole.updateMany({
       where: { user_id: corporateAdminUser.user_id },
       data: { company_id: companyA.company_id },
@@ -1212,6 +1278,8 @@ test.describe("RLS Policies - Silent Filtering", () => {
     const [companyA, companyB] = companies;
 
     // Update user's UserRole to have company_id = companyA.company_id
+    // Note: corporateAdminUser has CORPORATE_ADMIN role with COMPANY scope,
+    // so app.get_user_company_id() will find this role and return company_id
     await prismaClient.userRole.updateMany({
       where: { user_id: corporateAdminUser.user_id },
       data: { company_id: companyA.company_id },
@@ -1324,12 +1392,15 @@ test.describe("RLS Policies - Security Tests", () => {
     });
 
     // WHEN: Attempting SQL injection in RLS context
+    // Note: PostgreSQL will reject invalid SQL syntax when trying to cast to UUID
+    // The application layer (withRLSContext/withRLSTransaction) also validates UUID format
     const maliciousUserId = `'; DROP TABLE companies; --`;
 
-    // THEN: SQL injection should be prevented (either sanitized or error thrown)
+    // THEN: SQL injection should be prevented - PostgreSQL rejects invalid UUID format
+    // The SET command will fail because PostgreSQL cannot cast the malicious string to UUID
     await expect(
       prismaClient.$executeRawUnsafe(
-        `SET LOCAL app.current_user_id = '${maliciousUserId}'`,
+        `SET app.current_user_id = '${maliciousUserId}'`,
       ),
     ).rejects.toThrow();
 
@@ -1451,12 +1522,13 @@ test.describe("RLS Policies - Security Tests", () => {
     });
 
     // WHEN: Attempting boolean-based SQL injection in RLS context
+    // Note: PostgreSQL will reject invalid UUID format when trying to cast
     const maliciousUserId = `' OR '1'='1`;
 
-    // THEN: SQL injection should be prevented (either sanitized or error thrown)
+    // THEN: SQL injection should be prevented - PostgreSQL rejects invalid UUID format
     await expect(
       prismaClient.$executeRawUnsafe(
-        `SET LOCAL app.current_user_id = '${maliciousUserId}'`,
+        `SET app.current_user_id = '${maliciousUserId}'`,
       ),
     ).rejects.toThrow();
 
@@ -1489,12 +1561,13 @@ test.describe("RLS Policies - Security Tests", () => {
     });
 
     // WHEN: Attempting UNION-based SQL injection in RLS context
+    // Note: PostgreSQL will reject invalid UUID format when trying to cast
     const maliciousUserId = `' UNION SELECT company_id FROM companies --`;
 
-    // THEN: SQL injection should be prevented (either sanitized or error thrown)
+    // THEN: SQL injection should be prevented - PostgreSQL rejects invalid UUID format
     await expect(
       prismaClient.$executeRawUnsafe(
-        `SET LOCAL app.current_user_id = '${maliciousUserId}'`,
+        `SET app.current_user_id = '${maliciousUserId}'`,
       ),
     ).rejects.toThrow();
 

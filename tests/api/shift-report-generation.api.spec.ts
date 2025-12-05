@@ -449,6 +449,51 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       "string",
     );
     expect(
+      body.data.shift.store_name,
+      "Shift should include store_name",
+    ).toBeDefined();
+    expect(
+      typeof body.data.shift.store_name === "string" ||
+        body.data.shift.store_name === null,
+      "Store name should be string or null",
+    ).toBe(true);
+    expect(
+      body.data.shift.cashier_id,
+      "Shift should include cashier_id",
+    ).toBeDefined();
+    expect(
+      typeof body.data.shift.cashier_id,
+      "Cashier ID should be string",
+    ).toBe("string");
+    expect(
+      body.data.shift.cashier,
+      "Shift should include cashier object",
+    ).toBeDefined();
+    if (body.data.shift.cashier) {
+      expect(
+        body.data.shift.cashier.cashier_id,
+        "Cashier should have cashier_id",
+      ).toBeDefined();
+      expect(
+        body.data.shift.cashier.name,
+        "Cashier should have name",
+      ).toBeDefined();
+    }
+    expect(
+      body.data.shift.opened_by,
+      "Shift should include opened_by",
+    ).toBeDefined();
+    if (body.data.shift.opened_by) {
+      expect(
+        body.data.shift.opened_by.user_id,
+        "Opened by should have user_id",
+      ).toBeDefined();
+      expect(
+        body.data.shift.opened_by.name,
+        "Opened by should have name",
+      ).toBeDefined();
+    }
+    expect(
       body.data.shift.opened_at,
       "Shift should include opened_at",
     ).toBeDefined();
@@ -534,8 +579,41 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       "Payment methods should be an array",
     ).toBe(true);
 
-    // AND: Report should include variance details
-    expect(body.data.variance, "Report should include variance").toBeDefined();
+    // AND: Report should include variance details (null if no variance)
+    expect(
+      body.data.variance === null || typeof body.data.variance === "object",
+      "Variance should be null or object",
+    ).toBe(true);
+    if (body.data.variance) {
+      expect(
+        typeof body.data.variance.variance_amount,
+        "Variance amount should be number",
+      ).toBe("number");
+      expect(
+        typeof body.data.variance.variance_percentage,
+        "Variance percentage should be number",
+      ).toBe("number");
+      expect(
+        body.data.variance.variance_reason === null ||
+          typeof body.data.variance.variance_reason === "string",
+        "Variance reason should be string or null",
+      ).toBe(true);
+      if (body.data.variance.approved_by) {
+        expect(
+          body.data.variance.approved_by.user_id,
+          "Approved by should have user_id",
+        ).toBeDefined();
+        expect(
+          body.data.variance.approved_by.name,
+          "Approved by should have name",
+        ).toBeDefined();
+      }
+      expect(
+        body.data.variance.approved_at === null ||
+          typeof body.data.variance.approved_at === "string",
+        "Approved at should be string or null",
+      ).toBe(true);
+    }
 
     // AND: Report should include transactions with line items
     expect(
@@ -547,14 +625,89 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       "Transactions should be an array",
     ).toBe(true);
     if (body.data.transactions.length > 0) {
+      const transaction = body.data.transactions[0];
       expect(
-        body.data.transactions[0].line_items,
+        transaction.transaction_id,
+        "Transaction should have transaction_id",
+      ).toBeDefined();
+      expect(
+        typeof transaction.transaction_id,
+        "Transaction ID should be string",
+      ).toBe("string");
+      expect(
+        transaction.timestamp,
+        "Transaction should have timestamp",
+      ).toBeDefined();
+      expect(
+        transaction.timestamp,
+        "Timestamp should be ISO date format",
+      ).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+      expect(
+        typeof transaction.total,
+        "Transaction total should be number",
+      ).toBe("number");
+      expect(
+        transaction.cashier === null || typeof transaction.cashier === "object",
+        "Transaction cashier should be null or object",
+      ).toBe(true);
+      if (transaction.cashier) {
+        expect(
+          transaction.cashier.user_id,
+          "Transaction cashier should have user_id",
+        ).toBeDefined();
+        expect(
+          transaction.cashier.name,
+          "Transaction cashier should have name",
+        ).toBeDefined();
+      }
+      expect(
+        transaction.line_items,
         "Transactions should include line items",
       ).toBeDefined();
       expect(
-        body.data.transactions[0].payments,
+        Array.isArray(transaction.line_items),
+        "Line items should be an array",
+      ).toBe(true);
+      if (transaction.line_items.length > 0) {
+        const lineItem = transaction.line_items[0];
+        expect(
+          lineItem.product_name,
+          "Line item should have product_name",
+        ).toBeDefined();
+        expect(
+          typeof lineItem.product_name,
+          "Product name should be string",
+        ).toBe("string");
+        expect(
+          typeof lineItem.quantity,
+          "Line item quantity should be number",
+        ).toBe("number");
+        expect(typeof lineItem.price, "Line item price should be number").toBe(
+          "number",
+        );
+        expect(
+          typeof lineItem.subtotal,
+          "Line item subtotal should be number",
+        ).toBe("number");
+      }
+      expect(
+        transaction.payments,
         "Transactions should include payments",
       ).toBeDefined();
+      expect(
+        Array.isArray(transaction.payments),
+        "Payments should be an array",
+      ).toBe(true);
+      if (transaction.payments.length > 0) {
+        const payment = transaction.payments[0];
+        expect(payment.method, "Payment should have method").toBeDefined();
+        expect(typeof payment.method, "Payment method should be string").toBe(
+          "string",
+        );
+        expect(typeof payment.amount, "Payment amount should be number").toBe(
+          "number",
+        );
+      }
     }
 
     // Cleanup
@@ -679,11 +832,33 @@ test.describe("4.6-API: Shift Report - Valid CLOSED Shift (AC-1)", () => {
       expect(typeof pm.total, "Payment method total should be number").toBe(
         "number",
       );
+      expect(
+        pm.total,
+        "Payment method total should be positive",
+      ).toBeGreaterThan(0);
       expect(pm.count, "Payment method should have count").toBeDefined();
       expect(typeof pm.count, "Payment method count should be number").toBe(
         "number",
       );
+      expect(
+        pm.count,
+        "Payment method count should be positive",
+      ).toBeGreaterThan(0);
     });
+
+    // AND: Payment methods should match created payments (CASH: 54.0, CREDIT: 108.0)
+    const cashPayment = body.data.payment_methods.find(
+      (pm: any) => pm.method === "CASH",
+    );
+    const creditPayment = body.data.payment_methods.find(
+      (pm: any) => pm.method === "CREDIT",
+    );
+    expect(cashPayment, "Should have CASH payment method").toBeDefined();
+    expect(cashPayment.total, "CASH total should be 54.0").toBe(54.0);
+    expect(cashPayment.count, "CASH count should be 1").toBe(1);
+    expect(creditPayment, "Should have CREDIT payment method").toBeDefined();
+    expect(creditPayment.total, "CREDIT total should be 108.0").toBe(108.0);
+    expect(creditPayment.count, "CREDIT count should be 1").toBe(1);
 
     // Cleanup
     await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
@@ -752,7 +927,8 @@ test.describe("4.6-API: Shift Report - Validation", () => {
   test("4.6-API-007b: [P0] should return 400 when shiftId is empty string", async ({
     storeManagerApiRequest,
   }) => {
-    // GIVEN: Empty string shift ID
+    // GIVEN: Empty string shift ID (URL encoded as %20 or results in double slash)
+    // Note: Empty string in path parameter may result in route mismatch (404) or validation error (400)
     const emptyShiftId = "";
 
     // WHEN: Requesting report with empty shift ID
@@ -760,13 +936,20 @@ test.describe("4.6-API: Shift Report - Validation", () => {
       `/api/shifts/${emptyShiftId}/report`,
     );
 
-    // THEN: Should return 400 Bad Request or 404
+    // THEN: Should return 400 Bad Request (validation error) or 404 (route not found)
     expect(
       response.status(),
       "Should return error for empty shift ID",
     ).toBeGreaterThanOrEqual(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
+    // If it's a 400, it should be a validation error; if 404, it's a route mismatch
+    if (response.status() === 400) {
+      expect(
+        body.error.code,
+        "Error code should be VALIDATION_ERROR for empty string",
+      ).toBe("VALIDATION_ERROR");
+    }
   });
 
   test("4.6-API-007c: [P0] should return 400 when shiftId is malformed UUID", async ({
@@ -886,6 +1069,10 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       response.headers()["content-type"],
       "Should return PDF content type",
     ).toContain("application/pdf");
+    expect(
+      response.headers()["content-disposition"],
+      "Should include Content-Disposition header",
+    ).toContain(`attachment; filename="shift-report-${shift.shift_id}.pdf"`);
 
     // AND: Response body should be PDF binary data
     const buffer = await response.body();
@@ -933,13 +1120,17 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       `/api/shifts/${shift.shift_id}/report/export?format=xml`,
     );
 
-    // THEN: Should return error for invalid format
-    expect(
-      response.status(),
-      "Should return error for invalid format",
-    ).toBeGreaterThanOrEqual(400);
+    // THEN: Should return 400 Bad Request with INVALID_FORMAT error code
+    expect(response.status(), "Should return 400 for invalid format").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be INVALID_FORMAT").toBe(
+      "INVALID_FORMAT",
+    );
+    expect(
+      body.error.message,
+      "Error message should mention unsupported format",
+    ).toContain("xml");
 
     // Cleanup
     await cleanupShiftWithTransactions(prismaClient, shift.shift_id);
@@ -989,6 +1180,10 @@ test.describe("4.6-API: Shift Report - PDF Export (AC-1)", () => {
       response.headers()["content-type"],
       "Should return PDF content type",
     ).toContain("application/pdf");
+    expect(
+      response.headers()["content-disposition"],
+      "Should include Content-Disposition header",
+    ).toContain(`attachment; filename="shift-report-${shift.shift_id}.pdf"`);
 
     // Cleanup
     await cleanupShiftWithTransactions(prismaClient, shift.shift_id);

@@ -90,6 +90,12 @@ async function globalTeardown() {
     }
 
     // Delete in correct FK order using a transaction
+    // FK relationships to consider:
+    // - Transaction.cashier_id -> User.user_id
+    // - Shift.cashier_id -> Cashier.cashier_id
+    // - Shift.opened_by -> User.user_id
+    // - Cashier.store_id -> Store.store_id
+    // - Cashier.created_by -> User.user_id
     await prisma.$transaction(async (tx) => {
       // 1. Delete transactions
       if (storeIds.length > 0 || userIds.length > 0) {
@@ -106,12 +112,13 @@ async function globalTeardown() {
       }
 
       // 2. Delete shifts
+      // Note: Shift.opened_by references User, Shift.cashier_id references Cashier
       if (storeIds.length > 0 || userIds.length > 0) {
         const shiftResult = await tx.shift.deleteMany({
           where: {
             OR: [
               ...(storeIds.length > 0 ? [{ store_id: { in: storeIds } }] : []),
-              ...(userIds.length > 0 ? [{ cashier_id: { in: userIds } }] : []),
+              ...(userIds.length > 0 ? [{ opened_by: { in: userIds } }] : []),
             ],
           },
         });
@@ -119,7 +126,22 @@ async function globalTeardown() {
           console.log(`   Deleted ${shiftResult.count} shifts`);
       }
 
-      // 3. Delete POS terminals
+      // 3. Delete cashiers (after shifts, before stores)
+      // Note: Cashier.store_id references Store, Cashier.created_by references User
+      if (storeIds.length > 0 || userIds.length > 0) {
+        const cashierResult = await tx.cashier.deleteMany({
+          where: {
+            OR: [
+              ...(storeIds.length > 0 ? [{ store_id: { in: storeIds } }] : []),
+              ...(userIds.length > 0 ? [{ created_by: { in: userIds } }] : []),
+            ],
+          },
+        });
+        if (cashierResult.count > 0)
+          console.log(`   Deleted ${cashierResult.count} cashiers`);
+      }
+
+      // 4. Delete POS terminals
       if (storeIds.length > 0) {
         const posResult = await tx.pOSTerminal.deleteMany({
           where: { store_id: { in: storeIds } },
@@ -128,7 +150,7 @@ async function globalTeardown() {
           console.log(`   Deleted ${posResult.count} POS terminals`);
       }
 
-      // 4. Delete user roles
+      // 5. Delete user roles
       const userRoleResult = await tx.userRole.deleteMany({
         where: {
           OR: [
@@ -143,7 +165,7 @@ async function globalTeardown() {
       if (userRoleResult.count > 0)
         console.log(`   Deleted ${userRoleResult.count} user roles`);
 
-      // 5. Delete stores
+      // 6. Delete stores
       if (storeIds.length > 0) {
         const storeResult = await tx.store.deleteMany({
           where: { store_id: { in: storeIds } },
@@ -152,7 +174,7 @@ async function globalTeardown() {
           console.log(`   Deleted ${storeResult.count} stores`);
       }
 
-      // 6. Delete companies
+      // 7. Delete companies
       if (companyIds.length > 0) {
         const companyResult = await tx.company.deleteMany({
           where: { company_id: { in: companyIds } },
@@ -161,7 +183,7 @@ async function globalTeardown() {
           console.log(`   Deleted ${companyResult.count} companies`);
       }
 
-      // 7. Delete users
+      // 8. Delete users
       if (userIds.length > 0) {
         const userResult = await tx.user.deleteMany({
           where: { user_id: { in: userIds } },
@@ -170,7 +192,7 @@ async function globalTeardown() {
           console.log(`   Deleted ${userResult.count} users`);
       }
 
-      // 8. Clean up audit logs
+      // 9. Clean up audit logs
       const auditResult = await tx.auditLog.deleteMany({
         where: {
           OR: [

@@ -147,7 +147,25 @@ export async function seedRBAC() {
       },
     });
 
-    console.log("✅ Seeded 6 roles");
+    // CASHIER - STORE scope (cashiers who operate terminals and handle transactions)
+    const cashierRole = await prisma.role.upsert({
+      where: { code: "CASHIER" },
+      update: {
+        scope: "STORE",
+        description:
+          "Cashier with access to operate terminals and handle transactions at assigned stores",
+        is_system_role: true,
+      },
+      create: {
+        code: "CASHIER",
+        scope: "STORE",
+        description:
+          "Cashier with access to operate terminals and handle transactions at assigned stores",
+        is_system_role: true,
+      },
+    });
+
+    console.log("✅ Seeded 7 roles");
 
     // Map roles to permissions
     console.log("Mapping roles to permissions...");
@@ -437,6 +455,35 @@ export async function seedRBAC() {
       }
     }
     console.log("✅ CLIENT_USER: Permissions mapped");
+
+    // CASHIER: Basic shift and transaction operations for cashiers at terminals
+    const cashierPermissions = [
+      PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
+      PERMISSIONS.SHIFT_READ,
+      PERMISSIONS.TRANSACTION_CREATE,
+      PERMISSIONS.TRANSACTION_READ,
+      PERMISSIONS.REPORT_SHIFT,
+    ];
+
+    for (const permissionCode of cashierPermissions) {
+      const permissionId = permissionMap.get(permissionCode);
+      if (permissionId) {
+        await prisma.rolePermission.upsert({
+          where: {
+            role_id_permission_id: {
+              role_id: cashierRole.role_id,
+              permission_id: permissionId,
+            },
+          },
+          update: {},
+          create: {
+            role_id: cashierRole.role_id,
+            permission_id: permissionId,
+          },
+        });
+      }
+    }
+    console.log("✅ CASHIER: Permissions mapped");
 
     console.log("✅ RBAC seed completed successfully");
   } catch (error) {

@@ -51,12 +51,14 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.message || "Login failed");
+        throw new Error(data.error?.message || data.message || "Login failed");
       }
 
       // Get user role and client user flag for routing
-      const userRole = data.user?.user_role;
-      const isClientUser = data.user?.is_client_user === true;
+      // Backend returns { success: true, data: { user: { ... } } }
+      const userData = data.data?.user || data.user;
+      const userRole = userData?.user_role;
+      const isClientUser = userData?.is_client_user === true;
 
       // Validate userRole against explicit set of allowed roles
       const isValidRole =
@@ -69,14 +71,14 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
           console.error("[LoginForm] Role validation failed:", {
             userRole,
             allowedRoles: ALLOWED_ROLES,
-            userData: data.user,
+            userData: userData,
           });
         } else {
           console.error("[LoginForm] Role validation failed:", {
             userRole,
             allowedRoles: ALLOWED_ROLES,
-            userId: data.user?.id
-              ? `user_${data.user.id.substring(0, 8)}...`
+            userId: userData?.id
+              ? `user_${userData.id.substring(0, 8)}...`
               : "unknown",
           });
         }
@@ -120,7 +122,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
       localStorage.setItem(
         "auth_session",
         JSON.stringify({
-          user: data.user,
+          user: userData,
           authenticated: true,
           isClientUser: isClientUser,
           isStoreUser: isStoreUser,
@@ -135,7 +137,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         // Role-based redirect:
         // - Store-level users (CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER) go to /mystore
         // - CLIENT_OWNER goes to /client-dashboard (client owner dashboard)
-        // - Admin users (SUPER_ADMIN) go to /dashboard (admin dashboard)
+        // - Admin users (SUPERADMIN) go to /dashboard (admin dashboard)
         if (isStoreUser) {
           router.push("/mystore");
         } else if (userRole === "CLIENT_OWNER") {

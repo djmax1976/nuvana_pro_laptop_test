@@ -302,9 +302,10 @@ test.describe("2.93-API: Super Admin Role Management", () => {
     expect(response.status(), "Expected 400 Bad Request status").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
+    const errorMessage =
+      body.message ?? body.error?.message ?? JSON.stringify(body.error ?? "");
     expect(
-      (body.message ?? "").toLowerCase().includes("system") ||
-        (body.error ?? "").toLowerCase().includes("system"),
+      errorMessage.toLowerCase().includes("system"),
       "Error should mention system role",
     ).toBe(true);
   });

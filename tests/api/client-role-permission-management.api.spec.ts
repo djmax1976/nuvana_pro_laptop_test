@@ -1,9 +1,6 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import {
-  createClientRolePermission,
-  createUpdateRolePermissionsRequest,
-} from "../support/factories/client-role-permission.factory";
-import { createUser, createCompany, createStore } from "../support/factories";
+import { createUpdateRolePermissionsRequest } from "../support/factories/client-role-permission.factory";
+import { createUser, createCompany } from "../support/factories";
 
 /**
  * @test-level API
@@ -41,8 +38,6 @@ test.describe("2.92-API: Client Role Permission Management", () => {
 
   test("2.92-API-001: [P1] GET /api/client/roles - should return only STORE scope roles (AC #1)", async ({
     clientUserApiRequest,
-    clientUser,
-    prismaClient,
   }) => {
     // GIVEN: I am authenticated as a Client Owner with CLIENT_ROLE_MANAGE permission
     // (clientUser fixture provides user with company and store)
@@ -115,7 +110,6 @@ test.describe("2.92-API: Client Role Permission Management", () => {
 
   test("2.92-API-003: [P1] GET /api/client/roles/:roleId/permissions - should return permissions grouped by category (AC #2)", async ({
     clientUserApiRequest,
-    clientUser,
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a Client Owner
@@ -457,11 +451,11 @@ test.describe("2.92-API: Client Role Permission Management", () => {
     expect(response.status(), "Expected 400 Bad Request status").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error code should be RESTRICTED_PERMISSION").toBe(
+    expect(body.error.code, "Error code should be RESTRICTED_PERMISSION").toBe(
       "RESTRICTED_PERMISSION",
     );
     expect(
-      body.message.toLowerCase(),
+      body.error.message.toLowerCase(),
       "Error message should indicate restricted permission",
     ).toContain("restricted");
   });
@@ -945,7 +939,7 @@ test.describe("2.92-API: Client Role Permission Management", () => {
     expect(response.status(), "Expected 400 Bad Request status").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error code should be VALIDATION_ERROR").toBe(
+    expect(body.error.code, "Error code should be VALIDATION_ERROR").toBe(
       "VALIDATION_ERROR",
     );
   });
@@ -972,7 +966,7 @@ test.describe("2.92-API: Client Role Permission Management", () => {
     expect(response.status(), "Expected 400 Bad Request status").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error code should be VALIDATION_ERROR").toBe(
+    expect(body.error.code, "Error code should be VALIDATION_ERROR").toBe(
       "VALIDATION_ERROR",
     );
   });
@@ -1006,11 +1000,11 @@ test.describe("2.92-API: Client Role Permission Management", () => {
     expect(response.status(), "Expected 400 Bad Request status").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error code should be VALIDATION_ERROR").toBe(
+    expect(body.error.code, "Error code should be VALIDATION_ERROR").toBe(
       "VALIDATION_ERROR",
     );
     expect(
-      body.message.toLowerCase(),
+      body.error.message.toLowerCase(),
       "Error message should mention 50 permission limit",
     ).toContain("50");
   });
@@ -1175,7 +1169,7 @@ test.describe("2.92-API: Client Role Permission Management", () => {
     expect(response.status(), "Expected 404 Not Found status").toBe(404);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error code should be NOT_FOUND").toBe("NOT_FOUND");
+    expect(body.error.code, "Error code should be NOT_FOUND").toBe("NOT_FOUND");
   });
 
   test("2.92-EDGE-002: [P1] GET /api/client/roles/:roleId/permissions - should reject SYSTEM scope role", async ({
@@ -1425,7 +1419,7 @@ test.describe("2.92-API: Client Role Permission Management", () => {
     expect(response.status(), "Expected 400 Bad Request status").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error code should be RESTRICTED_PERMISSION").toBe(
+    expect(body.error.code, "Error code should be RESTRICTED_PERMISSION").toBe(
       "RESTRICTED_PERMISSION",
     );
   });
@@ -1464,7 +1458,7 @@ test.describe("2.92-API: Client Role Permission Management", () => {
     expect(response.status(), "Expected 400 Bad Request status").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error code should be RESTRICTED_PERMISSION").toBe(
+    expect(body.error.code, "Error code should be RESTRICTED_PERMISSION").toBe(
       "RESTRICTED_PERMISSION",
     );
   });
@@ -1506,7 +1500,7 @@ test.describe("2.92-API: Client Role Permission Management", () => {
     expect(response.status(), "Expected 400 Bad Request status").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error, "Error code should be RESTRICTED_PERMISSION").toBe(
+    expect(body.error.code, "Error code should be RESTRICTED_PERMISSION").toBe(
       "RESTRICTED_PERMISSION",
     );
   });

@@ -222,7 +222,7 @@ describe("4.9-COMPONENT: CashierForm - Single Store Auto-Selection", () => {
     expect(screen.queryByTestId("cashier-store")).not.toBeInTheDocument();
   });
 
-  it("[P1] 4.9-COMPONENT-005: should disable store dropdown while loading", () => {
+  it("[P1] 4.9-COMPONENT-005: should show loading spinner while fetching stores", () => {
     // GIVEN: Dashboard data is still loading
     vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue({
       data: undefined,
@@ -238,9 +238,14 @@ describe("4.9-COMPONENT: CashierForm - Single Store Auto-Selection", () => {
       <CashierForm onSuccess={mockOnSuccess} onCancel={mockOnCancel} />,
     );
 
-    // THEN: Store select should be disabled
-    const storeSelect = screen.getByTestId("cashier-store");
-    expect(storeSelect).toBeDisabled();
+    // THEN: Loading spinner should be shown instead of the form
+    // The form waits for stores to load before rendering to prevent race conditions
+    expect(screen.queryByTestId("cashier-store")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("cashier-name")).not.toBeInTheDocument();
+
+    // Loading spinner should be visible (Loader2 component with animate-spin class)
+    const spinner = document.querySelector(".animate-spin");
+    expect(spinner).toBeInTheDocument();
   });
 });
 

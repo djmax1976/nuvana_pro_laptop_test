@@ -182,6 +182,7 @@ export function EmployeeForm({ onSuccess, onCancel }: EmployeeFormProps) {
                 <Input
                   type="password"
                   placeholder="Enter a secure password"
+                  autoComplete="new-password"
                   disabled={isSubmitting}
                   data-testid="employee-password"
                   {...field}

@@ -323,7 +323,9 @@ test.describe("2.8-API: User Management API - User CRUD Operations", () => {
     expect(response.status()).toBe(404);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body).toHaveProperty("error");
+    // GET endpoint returns error as string (inconsistent with other endpoints)
+    expect(body.error).toBe("Not found");
+    expect(body.message).toBe("User not found");
   });
 });
 
@@ -1017,8 +1019,9 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
+    expect(body.error).toHaveProperty("code", "VALIDATION_ERROR");
     // Zod returns generic error when required field is missing (undefined)
-    expect(body.message || body.error).toMatch(/expected array|role|required/i);
+    expect(body.error.message).toMatch(/expected array|role|required/i);
   });
 
   test("2.8-API-029: [P0] POST /api/admin/users - should reject user creation with empty roles array", async ({
@@ -1038,6 +1041,8 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
+    expect(body.error).toHaveProperty("code", "VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/at least one role|required/i);
   });
 
   test("2.8-API-030: [P0] DELETE /api/admin/users/:userId/roles/:userRoleId - should prevent revoking last role", async ({
@@ -1072,7 +1077,8 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message || body.error).toMatch(/last|minimum|at least/i);
+    expect(body.error).toHaveProperty("code", "VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/last|minimum|at least/i);
 
     // AND: Role still exists in database
     const stillExists = await prismaClient.userRole.findUnique({
@@ -1098,7 +1104,8 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message || body.error).toMatch(/own|self|yourself/i);
+    expect(body.error).toHaveProperty("code", "VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/own|self|yourself/i);
   });
 });
 
@@ -1162,7 +1169,8 @@ test.describe("2.8-API: User Management API - User Deletion Operations", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message || body.error).toMatch(/ACTIVE|inactive first/i);
+    expect(body.error).toHaveProperty("code", "VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/ACTIVE|inactive first/i);
 
     // AND: User still exists in database
     const stillExists = await prismaClient.user.findUnique({
@@ -1186,7 +1194,8 @@ test.describe("2.8-API: User Management API - User Deletion Operations", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message || body.error).toMatch(/own|self|yourself/i);
+    expect(body.error).toHaveProperty("code", "VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/own|self|yourself/i);
   });
 
   test("2.8-API-035: [P0] DELETE /api/admin/users/:userId - should reject deletion of user with active companies", async ({
@@ -1229,9 +1238,8 @@ test.describe("2.8-API: User Management API - User Deletion Operations", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message || body.error).toMatch(
-      /active company|deactivate.*company/i,
-    );
+    expect(body.error).toHaveProperty("code", "VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/active company|deactivate.*company/i);
 
     // AND: User and company still exist
     const userStillExists = await prismaClient.user.findUnique({
@@ -1296,9 +1304,8 @@ test.describe("2.8-API: User Management API - User Deletion Operations", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message || body.error).toMatch(
-      /active store|deactivate.*store/i,
-    );
+    expect(body.error).toHaveProperty("code", "VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/active store|deactivate.*store/i);
 
     // AND: User, company, and store still exist
     const userStillExists = await prismaClient.user.findUnique({
@@ -1409,8 +1416,8 @@ test.describe("2.8-API: User Management API - User Deletion Operations", () => {
     expect(response.status()).toBe(404);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.error).toBe("Not found");
-    expect(body.message).toBe("User not found");
+    expect(body.error).toHaveProperty("code", "NOT_FOUND");
+    expect(body.error).toHaveProperty("message", "User not found");
   });
 
   test("2.8-API-039: [P1] DELETE /api/admin/users/:userId - should validate UUID format", async ({
@@ -1426,8 +1433,11 @@ test.describe("2.8-API: User Management API - User Deletion Operations", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.error).toBe("Invalid user ID");
-    expect(body.message).toBe("User ID must be a valid UUID");
+    expect(body.error).toHaveProperty("code", "VALIDATION_ERROR");
+    expect(body.error).toHaveProperty(
+      "message",
+      "User ID must be a valid UUID",
+    );
   });
 
   test("2.8-API-040: [P0-SEC] DELETE /api/admin/users/:userId - should require ADMIN_SYSTEM_CONFIG permission", async ({

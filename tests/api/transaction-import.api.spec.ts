@@ -33,16 +33,6 @@ import {
 // HELPER FUNCTIONS
 // =============================================================================
 
-interface TestStoreAndShift {
-  store: { store_id: string; company_id: string; name: string };
-  shift: {
-    shift_id: string;
-    store_id: string;
-    cashier_id: string;
-    status: string;
-  };
-}
-
 /**
  * Creates a cashier for testing
  */
@@ -59,38 +49,9 @@ async function createTestCashier(
 }
 
 /**
- * Creates a store and open shift for testing transactions
- */
-async function createTestStoreAndShift(
-  prismaClient: any,
-  companyId: string,
-  cashierId: string,
-  storeName?: string,
-): Promise<TestStoreAndShift> {
-  const store = await prismaClient.store.create({
-    data: createStore({
-      company_id: companyId,
-      name: storeName || `Test Store ${Date.now()}`,
-      timezone: "America/New_York",
-      status: "ACTIVE",
-    }),
-  });
-
-  const shift = await prismaClient.shift.create({
-    data: {
-      store_id: store.store_id,
-      opened_by: cashierId,
-      cashier_id: cashierId,
-      opening_cash: 100.0,
-      status: "OPEN",
-    },
-  });
-
-  return { store, shift };
-}
-
-/**
  * Creates a store, cashier, and open shift for testing transactions
+ * NOTE: opened_by must be a user_id (references User table)
+ *       cashier_id must be a cashier_id (references Cashier table)
  */
 async function createTestStoreShiftAndCashier(
   prismaClient: any,
@@ -125,8 +86,8 @@ async function createTestStoreShiftAndCashier(
   const shift = await prismaClient.shift.create({
     data: {
       store_id: store.store_id,
-      opened_by: cashier.cashier_id,
-      cashier_id: cashier.cashier_id,
+      opened_by: createdByUserId, // Must be user_id (references User table)
+      cashier_id: cashier.cashier_id, // Must be cashier_id (references Cashier table)
       opening_cash: 100.0,
       status: "OPEN",
     },
@@ -266,8 +227,8 @@ test.describe("Transaction Import API - Authentication", () => {
     const unauthorizedShift = await prismaClient.shift.create({
       data: {
         store_id: unauthorizedStore.store_id,
-        opened_by: otherCashier.cashier_id,
-        cashier_id: otherCashier.cashier_id,
+        opened_by: otherUser.user_id, // Must be user_id (references User table)
+        cashier_id: otherCashier.cashier_id, // Must be cashier_id (references Cashier table)
         opening_cash: 100.0,
         status: "OPEN",
       },
@@ -418,8 +379,8 @@ test.describe("Transaction Import API - Core Functionality", () => {
     const closedShift = await prismaClient.shift.create({
       data: {
         store_id: store.store_id,
-        opened_by: cashier.cashier_id,
-        cashier_id: cashier.cashier_id,
+        opened_by: corporateAdminUser.user_id, // Must be user_id (references User table)
+        cashier_id: cashier.cashier_id, // Must be cashier_id (references Cashier table)
         opening_cash: 100.0,
         status: "CLOSED",
         closing_cash: 500.0,

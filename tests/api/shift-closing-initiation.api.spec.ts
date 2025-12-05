@@ -145,23 +145,30 @@ async function createActiveShift(
 /**
  * Creates a cash transaction with payment for a shift
  * Used to test expected cash calculation (opening_cash + cash payments)
+ *
+ * @param prismaClient - Prisma client instance
+ * @param shiftId - Shift UUID
+ * @param storeId - Store UUID
+ * @param userId - User UUID (for transaction.cashier_id which references users.user_id)
+ * @param amount - Transaction amount
  */
 async function createCashTransaction(
   prismaClient: any,
   shiftId: string,
   storeId: string,
-  cashierId: string,
+  userId: string,
   amount: number,
 ): Promise<{ transaction_id: string }> {
   // Generate a unique public_id for the transaction
   const publicId = `TST-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 
   // Create transaction with required fields
+  // Note: transaction.cashier_id references users.user_id (not cashiers.cashier_id)
   const transaction = await prismaClient.transaction.create({
     data: {
       shift_id: shiftId,
       store_id: storeId,
-      cashier_id: cashierId,
+      cashier_id: userId,
       subtotal: new Prisma.Decimal(amount),
       tax: new Prisma.Decimal(0),
       discount: new Prisma.Decimal(0),
@@ -520,18 +527,19 @@ test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
     );
 
     // Create cash transactions
+    // Note: transaction.cashier_id references users.user_id, not cashiers.cashier_id
     await createCashTransaction(
       prismaClient,
       shift.shift_id,
       storeManagerUser.store_id,
-      cashier.cashier_id,
+      storeManagerUser.user_id,
       25.0,
     );
     await createCashTransaction(
       prismaClient,
       shift.shift_id,
       storeManagerUser.store_id,
-      cashier.cashier_id,
+      storeManagerUser.user_id,
       25.0,
     );
 

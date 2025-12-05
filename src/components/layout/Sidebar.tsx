@@ -38,19 +38,19 @@ const allNavItems: NavItemWithRole[] = [
     title: "Users",
     href: "/admin/users",
     icon: UserCog,
-    roles: ["SYSTEM_ADMIN"], // System Admin only - ADMIN_SYSTEM_CONFIG permission
+    roles: ["SUPERADMIN"], // System Admin only - ADMIN_SYSTEM_CONFIG permission
   },
   {
     title: "Roles",
     href: "/admin/roles",
     icon: Shield,
-    roles: ["SYSTEM_ADMIN"], // System Admin only - ADMIN_SYSTEM_CONFIG permission
+    roles: ["SUPERADMIN"], // System Admin only - ADMIN_SYSTEM_CONFIG permission
   },
   {
     title: "Companies",
     href: "/companies",
     icon: Building2,
-    roles: ["SYSTEM_ADMIN"], // System Admin only
+    roles: ["SUPERADMIN"], // System Admin only
   },
   {
     title: "Stores",
@@ -68,7 +68,7 @@ const allNavItems: NavItemWithRole[] = [
     title: "Shift Settings",
     href: "/admin/shifts",
     icon: Clock,
-    roles: ["SYSTEM_ADMIN", "CORPORATE_ADMIN"], // Admin shift configuration
+    roles: ["SUPERADMIN", "CORPORATE_ADMIN"], // Admin shift configuration
   },
   {
     title: "Inventory",

@@ -34,15 +34,24 @@ import {
 
 /**
  * Helper function to create a test cashier record
+ *
+ * @param prismaClient - Prisma client instance
+ * @param storeId - Store UUID
+ * @param createdByUserId - User UUID who creates the cashier
+ * @param cashierIdOverride - Optional: Set cashier_id to this value (use user_id for auto-assignment tests)
  */
 async function createTestCashier(
   prismaClient: any,
   storeId: string,
   createdByUserId: string,
+  cashierIdOverride?: string,
 ): Promise<{ cashier_id: string; store_id: string; employee_id: string }> {
   const cashierData = await createCashier({
     store_id: storeId,
     created_by: createdByUserId,
+    // When cashierIdOverride is provided, use it as the cashier_id
+    // This is needed for auto-assignment tests where the API sets cashier_id = user.id
+    ...(cashierIdOverride ? { cashier_id: cashierIdOverride } : {}),
   });
   return prismaClient.cashier.create({ data: cashierData });
 }
@@ -194,11 +203,13 @@ test.describe("4.8-API: Shift Opening Auto-Assignment", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record for the user
+    // Create a cashier record with cashier_id = user.user_id
+    // This is required because the API auto-assigns cashier_id = user.id when not provided
     const cashier = await createTestCashier(
       prismaClient,
       store.store_id,
       user.user_id,
+      user.user_id, // cashierIdOverride: set cashier_id to match user_id for auto-assignment
     );
 
     // Assign SHIFT_MANAGER role to the user at the store level (SHIFT_MANAGER has SHIFT_OPEN permission)
@@ -549,11 +560,13 @@ test.describe("4.8-API: Audit Logging", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record for the superadmin user
+    // Create a cashier record with cashier_id = superadminUser.user_id
+    // This is required because the API auto-assigns cashier_id = user.id when not provided
     const cashier = await createTestCashier(
       prismaClient,
       store.store_id,
       superadminUser.user_id,
+      superadminUser.user_id, // cashierIdOverride: set cashier_id to match user_id for auto-assignment
     );
 
     // WHEN: User opens shift without providing cashier_id (self-service)
@@ -813,11 +826,13 @@ test.describe("4.8-API: Security Tests", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record for the superadmin user
-    const cashier = await createTestCashier(
+    // Create a cashier record with cashier_id = superadminUser.user_id
+    // This is required because the API auto-assigns cashier_id = user.id when not provided
+    await createTestCashier(
       prismaClient,
       store.store_id,
       superadminUser.user_id,
+      superadminUser.user_id, // cashierIdOverride: set cashier_id to match user_id for auto-assignment
     );
 
     // WHEN: Opening shift with opening_cash = 1000
@@ -878,11 +893,13 @@ test.describe("4.8-API: Security Tests", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record for the superadmin user
+    // Create a cashier record with cashier_id = superadminUser.user_id
+    // This is required because the API auto-assigns cashier_id = user.id when not provided
     const cashier = await createTestCashier(
       prismaClient,
       store.store_id,
       superadminUser.user_id,
+      superadminUser.user_id, // cashierIdOverride: set cashier_id to match user_id for auto-assignment
     );
 
     // Create active shift using the cashier
@@ -930,11 +947,13 @@ test.describe("4.8-API: Security Tests", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record for the user
+    // Create a cashier record with cashier_id = user.user_id
+    // This is required because the API auto-assigns cashier_id = user.id when not provided
     const cashier = await createTestCashier(
       prismaClient,
       store.store_id,
       user.user_id,
+      user.user_id, // cashierIdOverride: set cashier_id to match user_id for auto-assignment
     );
 
     // Assign SHIFT_MANAGER role (has SHIFT_OPEN permission) at the store level
@@ -1004,11 +1023,13 @@ test.describe("4.8-API: Edge Cases", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record for the superadmin user
-    const cashier = await createTestCashier(
+    // Create a cashier record with cashier_id = superadminUser.user_id
+    // This is required because the API auto-assigns cashier_id = user.id when not provided
+    await createTestCashier(
       prismaClient,
       store.store_id,
       superadminUser.user_id,
+      superadminUser.user_id, // cashierIdOverride: set cashier_id to match user_id for auto-assignment
     );
 
     // WHEN: Opening shift with opening_cash = 0
@@ -1041,11 +1062,13 @@ test.describe("4.8-API: Edge Cases", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record for the superadmin user
-    const cashier = await createTestCashier(
+    // Create a cashier record with cashier_id = superadminUser.user_id
+    // This is required because the API auto-assigns cashier_id = user.id when not provided
+    await createTestCashier(
       prismaClient,
       store.store_id,
       superadminUser.user_id,
+      superadminUser.user_id, // cashierIdOverride: set cashier_id to match user_id for auto-assignment
     );
 
     // WHEN: Opening shift with decimal opening_cash
@@ -1120,11 +1143,13 @@ test.describe("4.8-API: Edge Cases", () => {
       data: createTerminal({ store_id: store.store_id }),
     });
 
-    // Create a cashier record for the superadmin user
+    // Create a cashier record with cashier_id = superadminUser.user_id
+    // This is required because the API auto-assigns cashier_id = user.id when not provided
     const cashier = await createTestCashier(
       prismaClient,
       store.store_id,
       superadminUser.user_id,
+      superadminUser.user_id, // cashierIdOverride: set cashier_id to match user_id for auto-assignment
     );
 
     // WHEN: Opening shift

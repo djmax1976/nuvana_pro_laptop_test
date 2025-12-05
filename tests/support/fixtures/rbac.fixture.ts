@@ -725,6 +725,13 @@ export const test = base.extend<RBACFixture>({
         });
       });
 
+      // 3.7. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
       // 4. Delete user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
@@ -878,6 +885,13 @@ export const test = base.extend<RBACFixture>({
         where: { store_id: store.store_id },
       });
 
+      // 5.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
       // 6. Delete the store manager user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
@@ -887,6 +901,16 @@ export const test = base.extend<RBACFixture>({
       // 8. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
+      });
+
+      // 8.5. Delete cashiers created/updated by owner user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [
+            { created_by: ownerUser.user_id },
+            { updated_by: ownerUser.user_id },
+          ],
+        },
       });
 
       // 9. Delete the owner user (created for company ownership)
@@ -1063,6 +1087,13 @@ export const test = base.extend<RBACFixture>({
         where: { store_id: store.store_id },
       });
 
+      // 4.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
       // 5. Delete the shift manager user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
@@ -1072,6 +1103,16 @@ export const test = base.extend<RBACFixture>({
       // 7. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
+      });
+
+      // 7.5. Delete cashiers created/updated by owner user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [
+            { created_by: ownerUser.user_id },
+            { updated_by: ownerUser.user_id },
+          ],
+        },
       });
 
       // 8. Delete the owner user (created for company ownership)
@@ -1195,6 +1236,13 @@ export const test = base.extend<RBACFixture>({
         where: { store_id: store.store_id },
       });
 
+      // 4.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
       // 5. Delete the authenticated user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
@@ -1204,6 +1252,16 @@ export const test = base.extend<RBACFixture>({
       // 7. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
+      });
+
+      // 7.5. Delete cashiers created/updated by owner user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [
+            { created_by: ownerUser.user_id },
+            { updated_by: ownerUser.user_id },
+          ],
+        },
       });
 
       // 8. Delete the owner user (created for company ownership)
@@ -1673,6 +1731,13 @@ export const test = base.extend<RBACFixture>({
         where: { company_id: company.company_id },
       });
 
+      // 8.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
       // 9. Delete user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
     });
@@ -1816,6 +1881,13 @@ export const test = base.extend<RBACFixture>({
         where: { role_id: restrictedRole.role_id },
       });
 
+      // 5.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
       // 6. Delete the regular user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
@@ -1830,6 +1902,16 @@ export const test = base.extend<RBACFixture>({
       // 9. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
+      });
+
+      // 9.5. Delete cashiers created/updated by owner user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [
+            { created_by: ownerUser.user_id },
+            { updated_by: ownerUser.user_id },
+          ],
+        },
       });
 
       // 10. Delete owner user
@@ -2151,6 +2233,13 @@ export const test = base.extend<RBACFixture>({
       // 6. Delete company
       await bypassClient.company.delete({
         where: { company_id: company.company_id },
+      });
+
+      // 6.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
       });
 
       // 7. Delete the user

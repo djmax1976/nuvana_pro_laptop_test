@@ -6,10 +6,6 @@ import {
   createUser,
   createCashier,
 } from "../support/factories";
-import {
-  generatePublicId,
-  PUBLIC_ID_PREFIXES,
-} from "../../backend/src/utils/public-id";
 
 /**
  * Transaction Processing Worker Tests - Story 3.3
@@ -504,14 +500,14 @@ test.describe("Transaction Processing Worker - Validation", () => {
       prismaClient,
       corporateAdminUser.company_id,
       corporateAdminUser.user_id,
-      "Store 1",
+      "Test Store 1",
     );
 
     const { shift: shift2 } = await createTestStoreAndShift(
       prismaClient,
       corporateAdminUser.company_id,
       corporateAdminUser.user_id,
-      "Store 2",
+      "Test Store 2",
     );
 
     // Mismatch: store_id from Store 1, shift_id from Store 2
@@ -975,11 +971,9 @@ test.describe("Transaction Processing Worker - Edge Cases", () => {
 // SECTION 7: P0 CRITICAL - AUTHENTICATION SECURITY TESTS
 // =============================================================================
 
+// NOTE: Authentication tests do NOT require the worker - they test API-level
+// authentication failures before any message is queued to RabbitMQ.
 test.describe("Transaction Processing Worker - Authentication Security", () => {
-  test.skip(
-    !workerRunning,
-    "Worker process not running - set WORKER_RUNNING=true to enable",
-  );
   test("3.3-SEC-001: [P0] Should reject request without Authorization header", async ({
     request,
     corporateAdminUser,
@@ -1083,11 +1077,9 @@ test.describe("Transaction Processing Worker - Authentication Security", () => {
 // SECTION 8: P0 CRITICAL - AUTHORIZATION SECURITY TESTS
 // =============================================================================
 
+// NOTE: Authorization tests do NOT require the worker - they test API-level
+// permission checks before any message is queued to RabbitMQ.
 test.describe("Transaction Processing Worker - Authorization Security", () => {
-  test.skip(
-    !workerRunning,
-    "Worker process not running - set WORKER_RUNNING=true to enable",
-  );
   test("3.3-SEC-004: [P0] Should reject user accessing store from different company", async ({
     corporateAdminApiRequest,
     prismaClient,
@@ -1102,7 +1094,7 @@ test.describe("Transaction Processing Worker - Authorization Security", () => {
 
     const otherCompany = await prismaClient.company.create({
       data: createCompany({
-        name: "Other Company for SEC Test",
+        name: "Test Other Company for SEC Test",
         owner_user_id: otherOwnerUser.user_id,
       }),
     });
@@ -1111,7 +1103,7 @@ test.describe("Transaction Processing Worker - Authorization Security", () => {
       prismaClient,
       otherCompany.company_id,
       otherOwnerUser.user_id,
-      "Other Company Store",
+      "Test Other Company Store",
     );
 
     const payload = createTransactionPayload({
@@ -1137,11 +1129,9 @@ test.describe("Transaction Processing Worker - Authorization Security", () => {
 // SECTION 9: P1 HIGH - INPUT VALIDATION SECURITY TESTS
 // =============================================================================
 
+// NOTE: Input validation tests do NOT require the worker - they test API-level
+// Zod schema validation before any message is queued to RabbitMQ.
 test.describe("Transaction Processing Worker - Input Validation Security", () => {
-  test.skip(
-    !workerRunning,
-    "Worker process not running - set WORKER_RUNNING=true to enable",
-  );
   test("3.3-SEC-005: [P1] Should reject invalid UUID format for store_id", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
@@ -1495,6 +1485,9 @@ test.describe("Transaction Processing Worker - Input Validation Security", () =>
 // SECTION 10: P1 HIGH - SQL INJECTION PREVENTION TESTS
 // =============================================================================
 
+// NOTE: SQL Injection tests verify Prisma's parameterized queries protect against injection.
+// The API accepts the payload (valid structure), worker processes it safely.
+// These tests need the worker to verify the data is stored correctly as literal strings.
 test.describe("Transaction Processing Worker - SQL Injection Prevention", () => {
   test.skip(
     !workerRunning,
@@ -1608,11 +1601,8 @@ test.describe("Transaction Processing Worker - SQL Injection Prevention", () => 
 // SECTION 11: P2 MEDIUM - DATA LEAKAGE PREVENTION TESTS
 // =============================================================================
 
+// NOTE: Data leakage tests do NOT require the worker - they test API response format.
 test.describe("Transaction Processing Worker - Data Leakage Prevention", () => {
-  test.skip(
-    !workerRunning,
-    "Worker process not running - set WORKER_RUNNING=true to enable",
-  );
   test("3.3-SEC-016: [P2] Error response should not expose stack traces", async ({
     corporateAdminApiRequest,
     corporateAdminUser,
@@ -1636,15 +1626,18 @@ test.describe("Transaction Processing Worker - Data Leakage Prevention", () => {
       payload,
     );
 
-    // THEN: Error response should not contain stack trace
+    // THEN: Error response should not contain stack trace indicators
     const body = await response.json();
     const bodyString = JSON.stringify(body);
 
-    expect(bodyString).not.toContain("at ");
+    // Check for stack trace patterns (file paths with line numbers)
+    expect(bodyString).not.toMatch(/at\s+\w+\s+\(/); // "at FunctionName ("
     expect(bodyString).not.toContain(".ts:");
     expect(bodyString).not.toContain(".js:");
     expect(bodyString).not.toContain("node_modules");
-    expect(bodyString).not.toContain("Error:");
+    // Note: "Error:" can appear in user-facing error messages, so we check for
+    // stack trace format patterns instead (e.g., "Error:\n    at")
+    expect(bodyString).not.toMatch(/Error:\s*\n\s*at\s/);
   });
 
   test("3.3-SEC-017: [P2] Success response should only contain expected fields", async ({

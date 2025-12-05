@@ -36,6 +36,17 @@ export async function deleteUserWithRelatedData(
   } = options;
 
   try {
+    // Check if user exists first
+    const userExists = await prisma.user.findUnique({
+      where: { user_id: userId },
+      select: { user_id: true },
+    });
+
+    if (!userExists) {
+      if (verbose) console.log(`User ${userId} not found, skipping cleanup`);
+      return;
+    }
+
     // Step 1: Get all shifts for this user (needed for transaction cleanup)
     const userShifts = await prisma.shift.findMany({
       where: { cashier_id: userId },
@@ -77,7 +88,17 @@ export async function deleteUserWithRelatedData(
 
     if (verbose) console.log(`✓ Deleted user roles for user ${userId}`);
 
-    // Step 5: Finally delete the user
+    // Step 5: Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey, cashiers_updated_by_fkey)
+    await prisma.cashier.deleteMany({
+      where: {
+        OR: [{ created_by: userId }, { updated_by: userId }],
+      },
+    });
+
+    if (verbose)
+      console.log(`✓ Deleted cashiers created/updated by user ${userId}`);
+
+    // Step 6: Finally delete the user
     await prisma.user.delete({
       where: { user_id: userId },
     });
@@ -115,6 +136,16 @@ export async function deleteCompanyWithRelatedData(
   companyId: string,
 ): Promise<void> {
   try {
+    // Check if company exists first
+    const companyExists = await prisma.company.findUnique({
+      where: { company_id: companyId },
+      select: { company_id: true },
+    });
+
+    if (!companyExists) {
+      return; // Already deleted, nothing to do
+    }
+
     // Step 1: Delete stores first (FK: stores.company_id -> companies)
     await prisma.store.deleteMany({
       where: { company_id: companyId },
@@ -145,6 +176,16 @@ export async function deleteStoreWithRelatedData(
   storeId: string,
 ): Promise<void> {
   try {
+    // Check if store exists first
+    const storeExists = await prisma.store.findUnique({
+      where: { store_id: storeId },
+      select: { store_id: true },
+    });
+
+    if (!storeExists) {
+      return; // Already deleted, nothing to do
+    }
+
     // Step 1: Delete user roles linked to this store (FK: user_roles.store_id -> stores)
     await prisma.userRole.deleteMany({
       where: { store_id: storeId },

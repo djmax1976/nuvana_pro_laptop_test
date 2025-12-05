@@ -295,6 +295,7 @@ export function UserForm() {
                 <Input
                   type="password"
                   placeholder="********"
+                  autoComplete="new-password"
                   data-testid="user-password-input"
                   {...field}
                 />

@@ -146,9 +146,8 @@ export function TerminalAuthModal({
 
       // Success - close modal
       onOpenChange(false);
-    } catch (error) {
-      // Error is handled by mutation state
-      console.error("Authentication failed:", error);
+    } catch {
+      // Error is handled by mutation state - no console logging to avoid exposing sensitive data
     }
   };
 
@@ -187,7 +186,10 @@ export function TerminalAuthModal({
               <Alert variant="destructive">
                 <AlertDescription>
                   {authenticateMutation.error instanceof Error
-                    ? authenticateMutation.error.message
+                    ? authenticateMutation.error.message ===
+                      "Authentication failed"
+                      ? "Invalid PIN. Please try again."
+                      : authenticateMutation.error.message
                     : "Authentication failed. Please check your credentials."}
                 </AlertDescription>
               </Alert>
@@ -241,6 +243,7 @@ export function TerminalAuthModal({
                     <Input
                       type="password"
                       placeholder="Enter PIN number"
+                      autoComplete="off"
                       disabled={isSubmitting}
                       data-testid="pin-number-input"
                       {...field}

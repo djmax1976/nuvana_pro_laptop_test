@@ -7,7 +7,7 @@
  * Story: 4.9 - Cashier Management
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -100,7 +100,17 @@ export function CashierForm({
     [dashboardData?.stores],
   );
 
-  // Form setup
+  // Compute default store_id BEFORE form initialization
+  // This ensures the form has the correct value on first render after data loads
+  const defaultStoreId = useMemo(() => {
+    // Priority: existing cashier > prop storeId > auto-select single store
+    if (cashier?.store_id) return cashier.store_id;
+    if (storeId) return storeId;
+    if (stores.length === 1) return stores[0].store_id;
+    return "";
+  }, [cashier?.store_id, storeId, stores]);
+
+  // Form setup - defaultValues computed after stores are available
   const form = useForm<CashierFormValues | CashierEditFormValues>({
     resolver: zodResolver(
       isEditing ? cashierEditFormSchema : cashierFormSchema,
@@ -111,31 +121,36 @@ export function CashierForm({
       hired_on: cashier?.hired_on
         ? new Date(cashier.hired_on).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0],
-      store_id: cashier?.store_id || storeId || "",
+      store_id: defaultStoreId,
       termination_date: cashier?.termination_date
         ? new Date(cashier.termination_date).toISOString().split("T")[0]
         : "",
     },
   });
 
-  // Track if we've set the store_id to avoid race conditions
-  const storeIdSetRef = useRef(false);
-
-  // Auto-select single store when data loads and no store is selected
-  // Use a ref to ensure we only set this once per mount
+  // Reset form with correct store_id when stores data loads (for new cashiers only)
+  // This ensures the form value is properly synced after async data fetch
   useEffect(() => {
-    if (!isEditing && stores.length === 1 && !storeIdSetRef.current) {
+    if (!isEditing && !isLoadingStores && stores.length === 1) {
       const currentStoreId = form.getValues("store_id");
-      if (!currentStoreId) {
-        storeIdSetRef.current = true;
-        form.setValue("store_id", stores[0].store_id, {
-          shouldValidate: true,
-          shouldDirty: false,
-          shouldTouch: false,
+      if (!currentStoreId && stores[0]?.store_id) {
+        form.reset({
+          ...form.getValues(),
+          store_id: stores[0].store_id,
         });
       }
     }
-  }, [stores, isEditing, form]);
+  }, [isEditing, isLoadingStores, stores, form]);
+
+  // Show loading state while fetching stores (only for new cashiers)
+  // This ensures form renders AFTER we have store data, preventing race conditions
+  if (!isEditing && isLoadingStores) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   // Handle form submission
   async function onSubmit(data: CashierFormValues | CashierEditFormValues) {
@@ -217,7 +232,6 @@ export function CashierForm({
     }
   }
 
-  const isLoading = isLoadingStores;
   const isSubmitting =
     createCashierMutation.isPending || updateCashierMutation.isPending;
 
@@ -235,33 +249,18 @@ export function CashierForm({
                 <Select
                   onValueChange={field.onChange}
                   value={field.value}
-                  disabled={isLoading || isSubmitting || stores.length === 1}
+                  disabled={isSubmitting || stores.length === 1}
                 >
                   <FormControl>
                     <SelectTrigger data-testid="cashier-store">
-                      {stores.length === 1 ? (
-                        <span>
-                          {stores[0].name}
-                          {stores[0].company_name && (
-                            <span className="text-muted-foreground ml-2">
-                              ({stores[0].company_name})
-                            </span>
-                          )}
-                        </span>
-                      ) : (
-                        <SelectValue placeholder="Select a store" />
-                      )}
+                      <SelectValue placeholder="Select a store" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
                     {stores.map((store) => (
                       <SelectItem key={store.store_id} value={store.store_id}>
                         {store.name}
-                        {store.company_name && (
-                          <span className="text-muted-foreground ml-2">
-                            ({store.company_name})
-                          </span>
-                        )}
+                        {store.company_name && ` (${store.company_name})`}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -311,6 +310,7 @@ export function CashierForm({
                   placeholder="Enter a 4 digit pin number"
                   maxLength={4}
                   disabled={isSubmitting}
+                  autoComplete="off"
                   data-testid="cashier-pin"
                   {...field}
                 />
@@ -380,7 +380,7 @@ export function CashierForm({
           </Button>
           <Button
             type="submit"
-            disabled={isLoading || isSubmitting}
+            disabled={isSubmitting}
             data-testid="submit-cashier"
           >
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

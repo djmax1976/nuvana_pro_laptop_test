@@ -777,12 +777,15 @@ export class CashierService {
 
     // Log authentication attempt (success or failure)
     const logAuthAttempt = async (success: boolean, reason?: string) => {
+      // Use a null UUID (all zeros) when cashier is not found to satisfy UUID constraint
+      const recordId =
+        cashier?.cashier_id || "00000000-0000-0000-0000-000000000000";
       await prisma.auditLog.create({
         data: {
           user_id: null, // Cashier authentication doesn't have a user_id
           action: success ? "AUTH_SUCCESS" : "AUTH_FAILURE",
           table_name: "cashiers",
-          record_id: cashier?.cashier_id || "unknown",
+          record_id: recordId,
           new_values: {
             store_id: storeId,
             identifier: identifier.name || identifier.employee_id,

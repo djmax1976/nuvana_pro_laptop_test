@@ -341,8 +341,10 @@ export async function cashierRoutes(fastify: FastifyInstance) {
         reply.code(500);
         return {
           success: false,
-          error: "Internal server error",
-          message: "Failed to get cashier",
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to get cashier",
+          },
         };
       }
     },

@@ -41,10 +41,6 @@
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
 import { createUser, createCompany, createStore } from "../support/factories";
-import {
-  generatePublicId,
-  PUBLIC_ID_PREFIXES,
-} from "../../backend/src/utils/public-id";
 
 test.describe("CLIENT_USER Creation API", () => {
   test("[P0-BR-CU-001] should create CLIENT_USER with company and store assignment", async ({
@@ -169,7 +165,7 @@ test.describe("CLIENT_USER Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).toContain("Company ID is required");
+    expect(body.error?.message).toContain("Company ID is required");
   });
 
   test("[P0-BR-CU-003] should reject CLIENT_USER creation without store_id", async ({
@@ -217,7 +213,7 @@ test.describe("CLIENT_USER Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).toContain("Store ID is required");
+    expect(body.error?.message).toContain("Store ID is required");
 
     // Cleanup
     await prismaClient.company.delete({
@@ -294,7 +290,7 @@ test.describe("CLIENT_USER Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).toContain(
+    expect(body.error?.message).toContain(
       "Store does not belong to the specified company",
     );
 
@@ -363,7 +359,7 @@ test.describe("CLIENT_USER Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).toContain(
+    expect(body.error?.message).toContain(
       "Cannot assign CLIENT_USER to an inactive company",
     );
 
@@ -429,7 +425,7 @@ test.describe("CLIENT_USER Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).toContain(
+    expect(body.error?.message).toContain(
       "Cannot assign CLIENT_USER to an inactive store",
     );
 
@@ -483,8 +479,8 @@ test.describe("CLIENT_USER Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).toContain("Company with ID");
-    expect(body.message).toContain("not found");
+    expect(body.error?.message).toContain("Company with ID");
+    expect(body.error?.message).toContain("not found");
   });
 
   test("[P0-BR-CU-008] should reject CLIENT_USER when store does not exist", async ({
@@ -534,8 +530,8 @@ test.describe("CLIENT_USER Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).toContain("Store with ID");
-    expect(body.message).toContain("not found");
+    expect(body.error?.message).toContain("Store with ID");
+    expect(body.error?.message).toContain("not found");
 
     // Cleanup
     await prismaClient.company.delete({
@@ -643,6 +639,6 @@ test.describe("CLIENT_USER Creation API", () => {
     expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).toContain("Invalid");
+    expect(body.error?.message).toContain("Invalid");
   });
 });

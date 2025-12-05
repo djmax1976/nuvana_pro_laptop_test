@@ -7,6 +7,7 @@ import {
   createCashier,
 } from "../support/factories";
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 
 /**
  * @test-level API
@@ -25,7 +26,7 @@ import { Prisma } from "@prisma/client";
  * - Variance calculation (actual_cash - expected_cash)
  * - Status transition: CLOSING → RECONCILING (acceptable variance)
  * - Status transition: CLOSING → VARIANCE_REVIEW (variance exceeds threshold)
- * - Variance threshold: $5 absolute OR 1% relative
+ * - Variance threshold: $5 absolute AND 1% relative (both must be exceeded)
  * - variance_reason required when status is VARIANCE_REVIEW
  * - variance_reason optional when status is RECONCILING
  * - Audit log creation
@@ -62,11 +63,13 @@ async function createPOSTerminal(
   storeId: string,
   name?: string,
 ): Promise<{ pos_terminal_id: string; store_id: string; name: string }> {
+  // Use UUID for uniqueness across parallel tests (Date.now() can collide)
+  const uniqueId = randomUUID();
   const terminal = await prismaClient.pOSTerminal.create({
     data: {
       store_id: storeId,
-      name: name || `Terminal ${Date.now()}`,
-      device_id: `device-${Date.now()}`,
+      name: name || `Terminal ${uniqueId.slice(0, 8)}`,
+      device_id: `device-${uniqueId}`,
       deleted_at: null, // Active terminal (not soft-deleted)
     },
   });
@@ -322,7 +325,7 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
         1000.0,
       );
 
-      // WHEN: Reconciling with closing_cash = 1015.0 (variance = $15, < $5 but > 1% of 1000 = $10)
+      // WHEN: Reconciling with closing_cash = 1015.0 (variance = $15, > $5 AND > 1% of 1000 = $10)
       const response = await request.put(
         `/api/shifts/${shift.shift_id}/reconcile`,
         {
@@ -344,6 +347,160 @@ test.describe("PUT /api/shifts/:shiftId/reconcile", () => {
       expect(result.data.variance_amount).toBe(15.0);
       expect(result.data.variance_percentage).toBeCloseTo(1.5, 2);
       expect(result.data.variance_reason).toBe("Cash discrepancy found");
+    });
+
+    test("4.4-API-005a: [P0] should reconcile with RECONCILING status when variance exceeds $5 but not 1%", async ({
+      request,
+      authenticatedShiftManager,
+    }) => {
+      // GIVEN: Shift in CLOSING status with expected_cash = 1000.0
+      const user = authenticatedShiftManager.user;
+      const store = authenticatedShiftManager.store;
+
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
+      const terminal = await createPOSTerminal(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+      );
+      const shift = await createClosingShift(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+        cashier.cashier_id,
+        terminal.pos_terminal_id,
+        500.0,
+        1000.0,
+      );
+
+      // WHEN: Reconciling with closing_cash = 1006.0 (variance = $6, > $5 BUT < 1% of 1000 = $10)
+      // AND logic: $6 > $5 (true) AND $6/1000 = 0.6% > 1% (false) → RECONCILING
+      const response = await request.put(
+        `/api/shifts/${shift.shift_id}/reconcile`,
+        {
+          data: {
+            closing_cash: 1006.0,
+          },
+          headers: {
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
+          },
+        },
+      );
+
+      // THEN: Reconciliation succeeds with RECONCILING status (AND logic requires both thresholds)
+      expect(response.status()).toBe(200);
+      const result = await response.json();
+      expect(result.success).toBe(true);
+      expect(result.data.status).toBe("RECONCILING");
+      expect(result.data.variance_amount).toBe(6.0);
+      expect(result.data.variance_percentage).toBeCloseTo(0.6, 2);
+    });
+
+    test("4.4-API-005b: [P0] should reconcile with RECONCILING status when variance exceeds 1% but not $5", async ({
+      request,
+      authenticatedShiftManager,
+    }) => {
+      // GIVEN: Shift in CLOSING status with expected_cash = 100.0
+      const user = authenticatedShiftManager.user;
+      const store = authenticatedShiftManager.store;
+
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
+      const terminal = await createPOSTerminal(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+      );
+      const shift = await createClosingShift(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+        cashier.cashier_id,
+        terminal.pos_terminal_id,
+        50.0,
+        100.0,
+      );
+
+      // WHEN: Reconciling with closing_cash = 104.0 (variance = $4, < $5 BUT > 1% of 100 = $1)
+      // AND logic: $4 > $5 (false) AND $4/100 = 4% > 1% (true) → RECONCILING
+      const response = await request.put(
+        `/api/shifts/${shift.shift_id}/reconcile`,
+        {
+          data: {
+            closing_cash: 104.0,
+          },
+          headers: {
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
+          },
+        },
+      );
+
+      // THEN: Reconciliation succeeds with RECONCILING status (AND logic requires both thresholds)
+      expect(response.status()).toBe(200);
+      const result = await response.json();
+      expect(result.success).toBe(true);
+      expect(result.data.status).toBe("RECONCILING");
+      expect(result.data.variance_amount).toBe(4.0);
+      expect(result.data.variance_percentage).toBeCloseTo(4.0, 2);
+    });
+
+    test("4.4-API-004b: [P0] should reconcile cash with negative variance exceeding threshold (status → VARIANCE_REVIEW)", async ({
+      request,
+      authenticatedShiftManager,
+    }) => {
+      // GIVEN: Shift in CLOSING status with expected_cash = 150.0
+      const user = authenticatedShiftManager.user;
+      const store = authenticatedShiftManager.store;
+
+      const cashier = await createTestCashier(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+      );
+      const terminal = await createPOSTerminal(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+      );
+      const shift = await createClosingShift(
+        authenticatedShiftManager.prisma,
+        store.store_id,
+        user.user_id,
+        cashier.cashier_id,
+        terminal.pos_terminal_id,
+        100.0,
+        150.0,
+      );
+
+      // WHEN: Reconciling with closing_cash = 144.0 (variance = -$6, |$6| > $5 AND > 1%)
+      // AND logic: |$6| > $5 (true) AND |$6|/150 = 4% > 1% (true) → VARIANCE_REVIEW
+      const response = await request.put(
+        `/api/shifts/${shift.shift_id}/reconcile`,
+        {
+          data: {
+            closing_cash: 144.0,
+            variance_reason: "Cash shortage detected",
+          },
+          headers: {
+            Cookie: `access_token=${authenticatedShiftManager.token}`,
+          },
+        },
+      );
+
+      // THEN: Reconciliation succeeds with VARIANCE_REVIEW status
+      expect(response.status()).toBe(200);
+      const result = await response.json();
+      expect(result.success).toBe(true);
+      expect(result.data.status).toBe("VARIANCE_REVIEW");
+      expect(result.data.closing_cash).toBe(144.0);
+      expect(result.data.expected_cash).toBe(150.0);
+      expect(result.data.variance_amount).toBe(-6.0);
+      expect(result.data.variance_percentage).toBeCloseTo(-4.0, 2);
+      expect(result.data.variance_reason).toBe("Cash shortage detected");
     });
 
     test("4.4-API-006: [P0] should allow optional variance_reason when status is RECONCILING", async ({

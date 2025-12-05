@@ -377,30 +377,32 @@ test.describe("2.9-API: Client Dashboard - GET /api/client/dashboard", () => {
       expect(response.status()).toBe(200);
 
       const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.data).toBeDefined();
 
       // AND: Dashboard data includes user info
-      expect(body.user).toBeDefined();
-      expect(body.user.id).toBe(clientUser.user_id);
-      expect(body.user.email).toBe(clientUser.email);
+      expect(body.data.user).toBeDefined();
+      expect(body.data.user.id).toBe(clientUser.user_id);
+      expect(body.data.user.email).toBe(clientUser.email);
 
       // AND: Companies list is returned
-      expect(body.companies).toBeDefined();
-      expect(Array.isArray(body.companies)).toBe(true);
-      expect(body.companies.length).toBe(1);
-      expect(body.companies[0].company_id).toBe(company.company_id);
+      expect(body.data.companies).toBeDefined();
+      expect(Array.isArray(body.data.companies)).toBe(true);
+      expect(body.data.companies.length).toBe(1);
+      expect(body.data.companies[0].company_id).toBe(company.company_id);
 
       // AND: Stores list is returned
-      expect(body.stores).toBeDefined();
-      expect(Array.isArray(body.stores)).toBe(true);
-      expect(body.stores.length).toBe(1);
-      expect(body.stores[0].store_id).toBe(store.store_id);
+      expect(body.data.stores).toBeDefined();
+      expect(Array.isArray(body.data.stores)).toBe(true);
+      expect(body.data.stores.length).toBe(1);
+      expect(body.data.stores[0].store_id).toBe(store.store_id);
 
       // AND: Quick stats are returned
-      expect(body.stats).toBeDefined();
-      expect(body.stats.active_stores).toBeDefined();
-      expect(body.stats.total_employees).toBeDefined();
-      expect(body.stats.total_companies).toBe(1);
-      expect(body.stats.total_stores).toBe(1);
+      expect(body.data.stats).toBeDefined();
+      expect(body.data.stats.active_stores).toBeDefined();
+      expect(body.data.stats.total_employees).toBeDefined();
+      expect(body.data.stats.total_companies).toBe(1);
+      expect(body.data.stats.total_stores).toBe(1);
     } finally {
       // Cleanup in proper order
       await prismaClient.store.delete({ where: { store_id: store.store_id } });
@@ -491,14 +493,16 @@ test.describe("2.9-API: Client Dashboard - GET /api/client/dashboard", () => {
       expect(response.status()).toBe(200);
 
       const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.data).toBeDefined();
 
       // AND: Only Client 1's company is returned
-      expect(body.companies).toBeDefined();
-      expect(body.companies.length).toBe(1);
-      expect(body.companies[0].name).toBe("Company One");
+      expect(body.data.companies).toBeDefined();
+      expect(body.data.companies.length).toBe(1);
+      expect(body.data.companies[0].name).toBe("Company One");
 
       // AND: Client 2's company is NOT returned (owner isolation)
-      const companyNames = body.companies.map((c: any) => c.name);
+      const companyNames = body.data.companies.map((c: any) => c.name);
       expect(companyNames).not.toContain("Company Two");
     } finally {
       // Cleanup in proper order
@@ -1904,18 +1908,20 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
       expect(response.status()).toBe(200);
 
       const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.data).toBeDefined();
 
       // AND: User info is returned
-      expect(body.user).toBeDefined();
-      expect(body.user.id).toBe(storeManager.user_id);
+      expect(body.data.user).toBeDefined();
+      expect(body.data.user.id).toBe(storeManager.user_id);
 
       // AND: Assigned company's stores are returned
-      expect(body.stores).toBeDefined();
-      expect(Array.isArray(body.stores)).toBe(true);
-      expect(body.stores.length).toBeGreaterThanOrEqual(1);
+      expect(body.data.stores).toBeDefined();
+      expect(Array.isArray(body.data.stores)).toBe(true);
+      expect(body.data.stores.length).toBeGreaterThanOrEqual(1);
 
       // AND: The assigned store is in the list
-      const storeIds = body.stores.map((s: any) => s.store_id);
+      const storeIds = body.data.stores.map((s: any) => s.store_id);
       expect(storeIds).toContain(store.store_id);
     } finally {
       // Cleanup in proper order
@@ -2022,12 +2028,14 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
       expect(response.status()).toBe(200);
 
       const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.data).toBeDefined();
 
       // AND: ALL stores from the assigned company are returned
-      expect(body.stores).toBeDefined();
-      expect(body.stores.length).toBe(2);
+      expect(body.data.stores).toBeDefined();
+      expect(body.data.stores.length).toBe(2);
 
-      const storeNames = body.stores.map((s: any) => s.name);
+      const storeNames = body.data.stores.map((s: any) => s.name);
       expect(storeNames).toContain("Store Alpha");
       expect(storeNames).toContain("Store Beta");
     } finally {
@@ -2136,12 +2144,14 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
       expect(response.status()).toBe(200);
 
       const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.data).toBeDefined();
 
       // AND: Only the assigned store is returned
-      expect(body.stores).toBeDefined();
-      expect(body.stores.length).toBe(1);
-      expect(body.stores[0].store_id).toBe(store1.store_id);
-      expect(body.stores[0].name).toBe("Assigned Store");
+      expect(body.data.stores).toBeDefined();
+      expect(body.data.stores.length).toBe(1);
+      expect(body.data.stores[0].store_id).toBe(store1.store_id);
+      expect(body.data.stores[0].name).toBe("Assigned Store");
     } finally {
       await prismaClient.userRole.deleteMany({
         where: { user_id: shiftManager.user_id },
@@ -2198,7 +2208,8 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
       expect(response.status()).toBe(403);
 
       const body = await response.json();
-      expect(body.error).toBe("Access denied");
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe("PERMISSION_DENIED");
     } finally {
       await prismaClient.user.delete({ where: { user_id: user.user_id } });
     }
@@ -2245,9 +2256,11 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
       expect(response.status()).toBe(200);
 
       const body = await response.json();
-      expect(body.stores).toBeDefined();
-      expect(body.stores).toEqual([]);
-      expect(body.companies).toEqual([]);
+      expect(body.success).toBe(true);
+      expect(body.data).toBeDefined();
+      expect(body.data.stores).toBeDefined();
+      expect(body.data.stores).toEqual([]);
+      expect(body.data.companies).toEqual([]);
     } finally {
       await prismaClient.user.delete({ where: { user_id: user.user_id } });
     }
@@ -2325,11 +2338,13 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
       expect(response.status()).toBe(200);
 
       const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.data).toBeDefined();
 
       // AND: Store appears only once (no duplicates)
-      expect(body.stores).toBeDefined();
-      expect(body.stores.length).toBe(1);
-      expect(body.stores[0].store_id).toBe(store.store_id);
+      expect(body.data.stores).toBeDefined();
+      expect(body.data.stores.length).toBe(1);
+      expect(body.data.stores[0].store_id).toBe(store.store_id);
     } finally {
       await prismaClient.userRole.deleteMany({
         where: { user_id: owner.user_id },

@@ -7,6 +7,7 @@ import {
   createCashier,
 } from "../support/factories";
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 
 /**
  * @test-level API
@@ -47,11 +48,13 @@ async function createPOSTerminal(
   storeId: string,
   name?: string,
 ): Promise<{ pos_terminal_id: string; store_id: string; name: string }> {
+  // Use UUID for uniqueness across parallel tests (Date.now() can collide)
+  const uniqueId = randomUUID();
   const terminal = await prismaClient.pOSTerminal.create({
     data: {
       store_id: storeId,
-      name: name || `Terminal ${Date.now()}`,
-      device_id: `device-${Date.now()}`,
+      name: name || `Terminal ${uniqueId.slice(0, 8)}`,
+      device_id: `device-${uniqueId}`,
       deleted_at: null, // Active terminal (not soft-deleted)
     },
   });
