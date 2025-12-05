@@ -1,6 +1,7 @@
 import { ReactElement } from "react";
 import { render, RenderOptions } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { CashierSessionProvider } from "@/contexts/CashierSessionContext";
 
 /**
  * Test utility for rendering components with required providers
@@ -23,7 +24,9 @@ export function renderWithProviders(
 
   const Wrapper = ({ children }: { children: React.ReactNode }) => {
     return (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <CashierSessionProvider>{children}</CashierSessionProvider>
+      </QueryClientProvider>
     );
   };
 

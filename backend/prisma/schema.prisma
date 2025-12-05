@@ -40,6 +40,7 @@ model User {
   bulk_import_jobs        BulkImportJob[]        @relation("BulkImportJobUser")
   cashiers_created        Cashier[]              @relation("CashierCreatedBy")
   cashiers_updated        Cashier[]              @relation("CashierUpdatedBy")
+  cashier_sessions_auth   CashierSession[]       @relation("CashierSessionAuthenticator")
 
   @@index([email])
   @@index([status])
@@ -79,12 +80,13 @@ model Store {
   updated_at    DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
   configuration Json?
   public_id     String        @unique @db.VarChar(30)
-  pos_terminals POSTerminal[]
-  shifts        Shift[]
-  cashiers      Cashier[]
-  company       Company       @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
-  transactions  Transaction[]
-  user_roles    UserRole[]
+  pos_terminals    POSTerminal[]
+  shifts           Shift[]
+  cashiers         Cashier[]
+  company          Company          @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  transactions     Transaction[]
+  user_roles       UserRole[]
+  cashier_sessions CashierSession[]
 
   @@index([company_id])
   @@index([status])
@@ -124,6 +126,7 @@ model Cashier {
   creator  User     @relation("CashierCreatedBy", fields: [created_by], references: [user_id])
   updater  User?    @relation("CashierUpdatedBy", fields: [updated_by], references: [user_id])
   shifts   Shift[]
+  sessions CashierSession[]
 
   @@unique([store_id, employee_id])
   @@unique([store_id, pin_hash])
@@ -336,12 +339,13 @@ model Shift {
   external_shift_id String?     @db.VarChar(255)
   external_data     Json?
   synced_at         DateTime?   @db.Timestamptz(6)
-  opener          User          @relation("ShiftOpener", fields: [opened_by], references: [user_id])
-  cashier         Cashier       @relation(fields: [cashier_id], references: [cashier_id])
-  approver        User?         @relation("ShiftApprover", fields: [approved_by], references: [user_id])
-  pos_terminal    POSTerminal?  @relation(fields: [pos_terminal_id], references: [pos_terminal_id])
-  store           Store         @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  transactions    Transaction[]
+  opener           User             @relation("ShiftOpener", fields: [opened_by], references: [user_id])
+  cashier          Cashier          @relation(fields: [cashier_id], references: [cashier_id])
+  approver         User?            @relation("ShiftApprover", fields: [approved_by], references: [user_id])
+  pos_terminal     POSTerminal?     @relation(fields: [pos_terminal_id], references: [pos_terminal_id])
+  store            Store            @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  transactions     Transaction[]
+  cashier_sessions CashierSession[]
 
   @@index([store_id])
   @@index([opened_by])
@@ -369,9 +373,10 @@ model POSTerminal {
   deleted_at      DateTime?         @db.Timestamptz(6) // Soft delete timestamp (NULL = active)
   created_at      DateTime          @default(now()) @db.Timestamptz(6)
   updated_at      DateTime          @default(now()) @updatedAt @db.Timestamptz(6)
-  store           Store             @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  shifts          Shift[]
-  transactions    Transaction[]
+  store            Store             @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  shifts           Shift[]
+  transactions     Transaction[]
+  cashier_sessions CashierSession[]
 
   @@unique([device_id]) // Global uniqueness (device_id can be null, but if set, must be unique across all stores)
   @@index([store_id])
@@ -460,4 +465,46 @@ model BulkImportJob {
   @@index([status])
   @@index([started_at])
   @@map("bulk_import_jobs")
+}
+
+/// Cashier Terminal Session - Tracks active cashier sessions on terminals
+///
+/// This model implements the Cashier Session Token pattern for terminal operations:
+/// - Created when a cashier authenticates via PIN on a terminal
+/// - Required for all terminal operations (shift start, transactions, etc.)
+/// - Invalidated on shift end, logout, or expiration
+///
+/// Security Model:
+/// - CLIENT_USER authenticates to access dashboard (web JWT)
+/// - CASHIER authenticates via PIN (creates CashierSession)
+/// - Terminal operations require BOTH valid JWT AND valid CashierSession
+/// - Authorization checks use CASHIER's permissions (SHIFT_OPEN, etc.)
+///
+/// Story: Terminal Shift Operations
+model CashierSession {
+  session_id         String       @id @default(uuid()) @db.Uuid
+  cashier_id         String       @db.Uuid
+  terminal_id        String       @db.Uuid
+  store_id           String       @db.Uuid
+  session_token_hash String       @unique @db.VarChar(64) // SHA-256 hash of token
+  authenticated_by   String       @db.Uuid // CLIENT_USER who was logged in when cashier authenticated
+  shift_id           String?      @db.Uuid // Linked once shift starts (nullable until then)
+  created_at         DateTime     @default(now()) @db.Timestamptz(6)
+  expires_at         DateTime     @db.Timestamptz(6) // Session timeout (configurable, default 12 hours)
+  ended_at           DateTime?    @db.Timestamptz(6) // When session was explicitly ended
+  is_active          Boolean      @default(true)
+
+  // Relations
+  cashier       Cashier     @relation(fields: [cashier_id], references: [cashier_id], onDelete: Cascade)
+  terminal      POSTerminal @relation(fields: [terminal_id], references: [pos_terminal_id], onDelete: Cascade)
+  store         Store       @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  authenticated User        @relation("CashierSessionAuthenticator", fields: [authenticated_by], references: [user_id])
+  shift         Shift?      @relation(fields: [shift_id], references: [shift_id])
+
+  // Indexes for performance
+  @@index([session_token_hash])
+  @@index([terminal_id, is_active])
+  @@index([cashier_id, is_active])
+  @@index([expires_at])
+  @@map("cashier_sessions")
 }

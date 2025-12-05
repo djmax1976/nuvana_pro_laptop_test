@@ -107,11 +107,12 @@ export interface ApiResponse<T> {
 
 /**
  * API error response
+ * The error field can be a string or an object with code and message
  */
 export interface ApiError {
   success: false;
-  error: string;
-  message: string;
+  error: string | { code: string; message: string };
+  message?: string;
 }
 
 // ============ API Request Helper ============
@@ -147,9 +148,22 @@ async function apiRequest<T>(
       message: `HTTP ${response.status}: ${response.statusText}`,
     }));
 
-    throw new Error(
-      errorData.message || errorData.error || "API request failed",
-    );
+    // Extract error message - handle both string and object error formats
+    let errorMessage: string;
+    if (errorData.message) {
+      errorMessage = errorData.message;
+    } else if (typeof errorData.error === "string") {
+      errorMessage = errorData.error;
+    } else if (
+      typeof errorData.error === "object" &&
+      errorData.error?.message
+    ) {
+      errorMessage = errorData.error.message;
+    } else {
+      errorMessage = "API request failed";
+    }
+
+    throw new Error(errorMessage);
   }
 
   return response.json();
@@ -342,18 +356,56 @@ export async function reconcileCash(
 
 /**
  * Start a shift for a terminal
+ *
+ * Requires a valid cashier session token from authenticateCashier().
+ * The cashier_id is extracted from the session token on the backend.
+ *
  * Story 4.92: Terminal Shift Page
+ *
+ * @param terminalId - Terminal UUID
+ * @param sessionToken - Cashier session token from authenticateCashier()
  */
 export async function startShift(
   terminalId: string,
-  cashierId: string,
+  sessionToken: string,
 ): Promise<ApiResponse<ShiftResponse & { shift_number: number | null }>> {
-  return apiRequest<
-    ApiResponse<ShiftResponse & { shift_number: number | null }>
-  >(`/api/terminals/${terminalId}/shifts/start`, {
+  const url = `${API_BASE_URL}/api/terminals/${terminalId}/shifts/start`;
+
+  const response = await fetch(url, {
     method: "POST",
-    body: JSON.stringify({ cashier_id: cashierId }),
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Cashier-Session": sessionToken,
+    },
+    body: JSON.stringify({}), // No body needed - cashier_id from session
   });
+
+  if (!response.ok) {
+    const errorData: ApiError = await response.json().catch(() => ({
+      success: false,
+      error: "Unknown error",
+      message: `HTTP ${response.status}: ${response.statusText}`,
+    }));
+
+    let errorMessage: string;
+    if (errorData.message) {
+      errorMessage = errorData.message;
+    } else if (typeof errorData.error === "string") {
+      errorMessage = errorData.error;
+    } else if (
+      typeof errorData.error === "object" &&
+      errorData.error?.message
+    ) {
+      errorMessage = errorData.error.message;
+    } else {
+      errorMessage = "API request failed";
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
 }
 
 /**
@@ -374,22 +426,61 @@ export async function getActiveShift(
 
 /**
  * Update starting cash for a shift
+ *
+ * Requires a valid cashier session token from authenticateCashier().
+ * The cashier_id is extracted from the session token on the backend.
+ *
  * Story 4.92: Terminal Shift Page
+ *
+ * @param shiftId - Shift UUID
+ * @param startingCash - Starting cash amount
+ * @param sessionToken - Cashier session token from authenticateCashier()
  */
 export async function updateStartingCash(
   shiftId: string,
-  cashierId: string,
   startingCash: number,
+  sessionToken: string,
 ): Promise<ApiResponse<ShiftResponse & { shift_number: number | null }>> {
-  return apiRequest<
-    ApiResponse<ShiftResponse & { shift_number: number | null }>
-  >(`/api/shifts/${shiftId}/starting-cash`, {
+  const url = `${API_BASE_URL}/api/shifts/${shiftId}/starting-cash`;
+
+  const response = await fetch(url, {
     method: "PUT",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Cashier-Session": sessionToken,
+    },
     body: JSON.stringify({
-      cashier_id: cashierId,
       starting_cash: startingCash,
+      cashier_id: "", // Ignored by backend - uses session cashier_id
     }),
   });
+
+  if (!response.ok) {
+    const errorData: ApiError = await response.json().catch(() => ({
+      success: false,
+      error: "Unknown error",
+      message: `HTTP ${response.status}: ${response.statusText}`,
+    }));
+
+    let errorMessage: string;
+    if (errorData.message) {
+      errorMessage = errorData.message;
+    } else if (typeof errorData.error === "string") {
+      errorMessage = errorData.error;
+    } else if (
+      typeof errorData.error === "object" &&
+      errorData.error?.message
+    ) {
+      errorMessage = errorData.error.message;
+    } else {
+      errorMessage = "API request failed";
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
 }
 
 // ============ TanStack Query Keys ============
@@ -544,6 +635,9 @@ export function useShiftDetail(
 
 /**
  * Hook to start a shift for a terminal
+ *
+ * Requires a valid cashier session token from authenticateCashier().
+ *
  * Story 4.92: Terminal Shift Page
  */
 export function useShiftStart() {
@@ -552,11 +646,11 @@ export function useShiftStart() {
   return useMutation({
     mutationFn: ({
       terminalId,
-      cashierId,
+      sessionToken,
     }: {
       terminalId: string;
-      cashierId: string;
-    }) => startShift(terminalId, cashierId),
+      sessionToken: string;
+    }) => startShift(terminalId, sessionToken),
     onSuccess: (_, variables) => {
       // Invalidate active shift query for this terminal
       queryClient.invalidateQueries({
@@ -589,6 +683,9 @@ export function useActiveShift(
 
 /**
  * Hook to update starting cash for a shift
+ *
+ * Requires a valid cashier session token from authenticateCashier().
+ *
  * Story 4.92: Terminal Shift Page
  */
 export function useUpdateStartingCash() {
@@ -597,13 +694,13 @@ export function useUpdateStartingCash() {
   return useMutation({
     mutationFn: ({
       shiftId,
-      cashierId,
       startingCash,
+      sessionToken,
     }: {
       shiftId: string;
-      cashierId: string;
       startingCash: number;
-    }) => updateStartingCash(shiftId, cashierId, startingCash),
+      sessionToken: string;
+    }) => updateStartingCash(shiftId, startingCash, sessionToken),
     onSuccess: (response, variables) => {
       // Extract terminalId from response
       const terminalId = response.data?.pos_terminal_id;

@@ -25,12 +25,23 @@ export interface Cashier {
 }
 
 /**
+ * Cashier session data returned when terminal_id is provided
+ */
+export interface CashierSession {
+  session_id: string;
+  session_token: string;
+  expires_at: string; // ISO date string
+}
+
+/**
  * Cashier authentication result
+ * Includes session data when terminal_id was provided in the request
  */
 export interface CashierAuthResult {
   cashier_id: string;
   employee_id: string;
   name: string;
+  session: CashierSession | null;
 }
 
 /**
@@ -293,15 +304,22 @@ export async function deleteCashier(
 
 /**
  * Authenticate cashier by name or employee_id and PIN
+ *
+ * When terminalId is provided, a Cashier Session Token is created and returned.
+ * This token must be included in subsequent terminal operation requests via
+ * the X-Cashier-Session header.
+ *
  * @param storeId - Store UUID
  * @param identifier - Name or employee_id
  * @param pin - PIN number (4 digits)
- * @returns Cashier authentication result
+ * @param terminalId - Optional terminal UUID for creating session token
+ * @returns Cashier authentication result with optional session data
  */
 export async function authenticateCashier(
   storeId: string,
   identifier: { name?: string; employee_id?: string },
   pin: string,
+  terminalId?: string,
 ): Promise<CashierAuthResult> {
   if (!storeId) {
     throw new Error("Store ID is required");
@@ -323,6 +341,7 @@ export async function authenticateCashier(
         name: identifier.name,
         employee_id: identifier.employee_id,
         pin,
+        terminal_id: terminalId,
       }),
     },
   );
@@ -372,11 +391,13 @@ export function useAuthenticateCashier() {
       storeId,
       identifier,
       pin,
+      terminalId,
     }: {
       storeId: string;
       identifier: { name?: string; employee_id?: string };
       pin: string;
-    }) => authenticateCashier(storeId, identifier, pin),
+      terminalId?: string;
+    }) => authenticateCashier(storeId, identifier, pin, terminalId),
   });
 }
 

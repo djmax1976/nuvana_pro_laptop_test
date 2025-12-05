@@ -48,6 +48,7 @@ import { useCashiers, useAuthenticateCashier } from "@/lib/api/cashiers";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useActiveShift, useShiftStart } from "@/lib/api/shifts";
 import { useRouter } from "next/navigation";
+import { useCashierSession } from "@/contexts/CashierSessionContext";
 
 /**
  * Form validation schema for terminal authentication
@@ -97,6 +98,7 @@ export function TerminalAuthModal({
   onSubmit,
 }: TerminalAuthModalProps) {
   const router = useRouter();
+  const { setSession } = useCashierSession();
 
   // Check for active shift when modal opens
   const {
@@ -153,22 +155,50 @@ export function TerminalAuthModal({
     }
 
     try {
-      // Authenticate cashier
+      // Authenticate cashier and create session token for this terminal
+      // The session token is required for terminal operations (enterprise POS pattern)
       const authResult = await authenticateMutation.mutateAsync({
         storeId,
         identifier: { name: values.cashier_name },
         pin: values.pin_number,
+        terminalId, // Pass terminal ID to create session token
       });
 
-      // On successful authentication, start a shift for this terminal
-      const shiftResult = await startShiftMutation.mutateAsync({
-        terminalId,
+      // Verify session was created (required for terminal operations)
+      if (!authResult.session?.session_token) {
+        throw new Error("Failed to create cashier session");
+      }
+
+      // Store session in context for subsequent terminal operations
+      // This enables other components to access the session token
+      setSession({
+        sessionId: authResult.session.session_id,
+        sessionToken: authResult.session.session_token,
         cashierId: authResult.cashier_id,
+        cashierName: values.cashier_name,
+        terminalId,
+        expiresAt: authResult.session.expires_at,
       });
 
-      // Success - redirect to shift page
-      router.push(`/mystore/terminal/${terminalId}/shift`);
-      onOpenChange(false);
+      // Check if there's already an active shift for this terminal
+      // If so, just navigate to it. If not, start a new shift.
+      if (activeShift) {
+        // Active shift exists - just navigate to it (PIN auth creates session for operations)
+        router.push(`/terminal/${terminalId}/shift`);
+        onOpenChange(false);
+      } else {
+        // No active shift - start a new one
+        // Use session token instead of cashier ID for proper authorization
+        const shiftResult = await startShiftMutation.mutateAsync({
+          terminalId,
+          sessionToken: authResult.session.session_token,
+        });
+
+        // Success - redirect to shift page
+        // Note: Route is /terminal/... not /mystore/terminal/... because (mystore) is a route group
+        router.push(`/terminal/${terminalId}/shift`);
+        onOpenChange(false);
+      }
     } catch {
       // Error is handled by mutation state - no console logging to avoid exposing sensitive data
     }
@@ -214,10 +244,9 @@ export function TerminalAuthModal({
             )}
 
             {activeShift && !isLoadingActiveShift && (
-              <Alert variant="destructive">
+              <Alert>
                 <AlertDescription>
-                  This terminal already has an active shift. Please end the
-                  current shift before starting a new one.
+                  This terminal has an active shift. Authenticate to resume.
                 </AlertDescription>
               </Alert>
             )}
@@ -324,13 +353,13 @@ export function TerminalAuthModal({
               </Button>
               <Button
                 type="submit"
-                disabled={isSubmitting || isLoadingActiveShift || !!activeShift}
+                disabled={isSubmitting || isLoadingActiveShift}
                 data-testid="terminal-auth-submit-button"
               >
                 {isSubmitting && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                Submit
+                {activeShift ? "Resume Shift" : "Start Shift"}
               </Button>
             </DialogFooter>
           </form>

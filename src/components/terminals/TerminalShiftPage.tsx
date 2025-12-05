@@ -47,6 +47,7 @@ import {
 import { useUpdateStartingCash } from "@/lib/api/shifts";
 import { Loader2, DollarSign, Receipt, XCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useCashierSession } from "@/contexts/CashierSessionContext";
 
 /**
  * Starting cash form validation schema
@@ -86,6 +87,7 @@ export function TerminalShiftPageContent({
   terminalId,
 }: TerminalShiftPageContentProps) {
   const [showEndShiftDialog, setShowEndShiftDialog] = useState(false);
+  const { session } = useCashierSession();
   const updateStartingCashMutation = useUpdateStartingCash();
 
   const form = useForm<StartingCashFormValues>({
@@ -101,11 +103,17 @@ export function TerminalShiftPageContent({
       return;
     }
 
+    // Session token required for terminal operations
+    if (!session?.sessionToken) {
+      console.error("No active cashier session - please re-authenticate");
+      return;
+    }
+
     try {
       await updateStartingCashMutation.mutateAsync({
         shiftId: shift.shift_id,
-        cashierId: shift.cashier_id,
         startingCash: values.starting_cash || 0,
+        sessionToken: session.sessionToken,
       });
     } catch (error) {
       // Error is handled by mutation state

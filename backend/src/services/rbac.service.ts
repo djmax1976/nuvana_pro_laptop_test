@@ -359,6 +359,71 @@ export class RBACService {
       }
     }
   }
+
+  /**
+   * Check if a role has a specific permission
+   *
+   * This is used for cashier session authorization where we need to check
+   * if the CASHIER role has a permission, independent of any user.
+   *
+   * @param roleCode - Role code (e.g., 'CASHIER', 'STORE_MANAGER')
+   * @param permission - Permission code to check
+   * @param scope - Optional scope for client permission overrides
+   * @returns true if role has permission, false otherwise
+   */
+  async checkRoleHasPermission(
+    roleCode: string,
+    permission: PermissionCode,
+    scope?: { storeId?: string },
+  ): Promise<boolean> {
+    const cacheKey = `role_has_permission:${roleCode}:${permission}:${scope?.storeId || ""}`;
+
+    // Try to get from cache first (if Redis is available)
+    const redis = await getRedisClient();
+    if (redis) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached !== null) {
+          return cached === "true";
+        }
+      } catch (error) {
+        console.error(
+          "Redis error in checkRoleHasPermission, using DB:",
+          error,
+        );
+      }
+    }
+
+    // Find the role by code
+    const role = await prisma.role.findUnique({
+      where: { code: roleCode },
+      include: {
+        role_permissions: {
+          include: {
+            permission: true,
+          },
+        },
+      },
+    });
+
+    if (!role) {
+      await this.cachePermissionCheck(cacheKey, false);
+      return false;
+    }
+
+    // Check if the role has the permission in its default permissions
+    const hasSystemDefault = role.role_permissions.some(
+      (rp: any) => rp.permission.code === permission,
+    );
+
+    // For STORE scope roles, we might need to check client overrides
+    // But for the CASHIER role check, we use the system default since
+    // cashier sessions are not tied to a specific client owner
+    const effectivePermission = hasSystemDefault;
+
+    await this.cachePermissionCheck(cacheKey, effectivePermission);
+    return effectivePermission;
+  }
 }
 
 // Export singleton instance

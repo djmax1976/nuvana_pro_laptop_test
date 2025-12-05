@@ -258,6 +258,7 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
 
   it("[P3] 4.91-COMPONENT-005: should handle authentication success and proceed to shift operations", async () => {
     // GIVEN: Authentication succeeds (no onSubmit prop = uses internal mutation)
+    // Note: Mock must include session data for the new cashier session flow
     (global.fetch as any)
       .mockResolvedValueOnce({
         ok: true,
@@ -270,6 +271,30 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
             cashier_id: "cashier-1",
             employee_id: "0001",
             name: "John Smith",
+            session: {
+              session_id: "test-session-id",
+              session_token: "test-session-token-123",
+              expires_at: new Date(
+                Date.now() + 12 * 60 * 60 * 1000,
+              ).toISOString(),
+            },
+          },
+        }),
+      })
+      // Mock for shift start endpoint
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: {
+            shift_id: "test-shift-id",
+            store_id: mockStoreId,
+            pos_terminal_id: mockTerminalId,
+            cashier_id: "cashier-1",
+            status: "OPEN",
+            opened_at: new Date().toISOString(),
+            opening_cash: 0,
+            shift_number: 1,
           },
         }),
       });
@@ -323,9 +348,10 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
     });
 
     // AND: Shift start mutation is triggered and router redirects to shift page
+    // Note: (mystore) is a route group, so the URL is /terminal/... not /mystore/terminal/...
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith(
-        expect.stringContaining("/mystore/terminal/"),
+        expect.stringContaining("/terminal/"),
       );
     });
 

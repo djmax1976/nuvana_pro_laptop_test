@@ -270,14 +270,21 @@ export class ShiftService {
 
   /**
    * Convert terminal ID to a consistent numeric lock ID for PostgreSQL advisory locks
-   * Uses SHA-256 hash of the terminal ID and takes first 8 bytes as bigint
+   * Uses SHA-256 hash of the terminal ID and takes first 4 bytes as a 32-bit integer.
+   * We use 4 bytes (32-bit) instead of 8 bytes (64-bit) because:
+   * 1. PostgreSQL advisory locks accept bigint, but Prisma has issues serializing JS BigInt
+   * 2. A 32-bit integer fits safely in JavaScript's number type
+   * 3. 4 billion+ unique lock IDs is sufficient for terminal-level locking
+   *
    * @param terminalId - POS terminal UUID
-   * @returns BigInt lock ID for advisory lock
+   * @returns Number lock ID for advisory lock (fits in PostgreSQL bigint)
    */
-  private getTerminalLockId(terminalId: string): bigint {
+  private getTerminalLockId(terminalId: string): number {
     // Convert UUID to a consistent numeric lock ID
+    // Use first 4 bytes of SHA-256 hash as a 32-bit unsigned integer
     const hash = crypto.createHash("sha256").update(terminalId).digest();
-    return BigInt("0x" + hash.slice(0, 8).toString("hex"));
+    // Read as unsigned 32-bit integer (big-endian)
+    return hash.readUInt32BE(0);
   }
 
   /**

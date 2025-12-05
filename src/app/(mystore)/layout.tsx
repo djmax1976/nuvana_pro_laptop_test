@@ -7,6 +7,7 @@ import {
   ClientAuthProvider,
   useClientAuth,
 } from "@/contexts/ClientAuthContext";
+import { CashierSessionProvider } from "@/contexts/CashierSessionContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 /**
@@ -92,7 +93,9 @@ export default function MyStoreDashboardRouteLayout({
   return (
     <QueryClientProvider client={queryClient}>
       <ClientAuthProvider>
-        <MyStoreDashboardLayoutInner>{children}</MyStoreDashboardLayoutInner>
+        <CashierSessionProvider>
+          <MyStoreDashboardLayoutInner>{children}</MyStoreDashboardLayoutInner>
+        </CashierSessionProvider>
       </ClientAuthProvider>
     </QueryClientProvider>
   );
