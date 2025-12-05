@@ -222,12 +222,25 @@ export async function createCashier(
 }> {
   const prismaClient = prisma || new PrismaClient();
 
-  const cashierData = await createCashierFactory({
+  // Only include optional fields if they are defined to avoid overriding defaults with undefined
+  const factoryOverrides: {
+    store_id: string;
+    created_by: string;
+    name?: string;
+    employee_id?: string;
+  } = {
     store_id: overrides.store_id,
     created_by: overrides.created_by,
-    name: overrides.name,
-    employee_id: overrides.employee_id,
-  });
+  };
+
+  if (overrides.name !== undefined) {
+    factoryOverrides.name = overrides.name;
+  }
+  if (overrides.employee_id !== undefined) {
+    factoryOverrides.employee_id = overrides.employee_id;
+  }
+
+  const cashierData = await createCashierFactory(factoryOverrides);
 
   const result = await prismaClient.cashier.create({ data: cashierData });
 

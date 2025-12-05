@@ -1,0 +1,79 @@
+# Trivy Ignore Configuration - Enterprise Security Policy
+# ========================================================
+# This file documents accepted security exceptions following enterprise best practices.
+#
+# POLICY REQUIREMENTS:
+# 1. All exceptions MUST have a documented statement explaining the risk acceptance
+# 2. Exceptions SHOULD have an expiration date for periodic review
+# 3. Exceptions MUST be reviewed during security audits
+# 4. New exceptions require security team approval
+#
+# REFERENCES:
+# - NIST SP 800-204D: Software Supply Chain Security in DevSecOps CI/CD
+# - CISA/NSA Defending CI/CD Environments
+# - VEX (Vulnerability Exploitability Exchange) Standard
+#
+# VEX STATUS VALUES:
+# - not_affected: Vulnerable code is not present or not reachable
+# - affected: Vulnerability exists but risk is accepted (document why)
+# - fixed: Patch has been applied
+# - under_investigation: Being analyzed
+#
+# Last reviewed: 2025-12-04
+# Next review due: 2026-03-04
+
+# =============================================================================
+# VULNERABILITY EXCEPTIONS
+# =============================================================================
+vulnerabilities:
+  # Template for adding new exceptions:
+  # - id: CVE-YYYY-NNNNN
+  #   paths:
+  #     - "specific/file/path"  # Optional: limit to specific files
+  #   purls:
+  #     - "pkg:npm/package-name"  # Optional: limit to specific packages
+  #   expired_at: YYYY-MM-DD  # Required: forces periodic review
+  #   statement: |
+  #     RISK ASSESSMENT: [Low/Medium/High]
+  #     JUSTIFICATION: Detailed explanation of why this is acceptable
+  #     MITIGATIONS: Any compensating controls in place
+  #     APPROVED BY: [Name/Role]
+  #     TICKET: [Link to approval ticket]
+
+# =============================================================================
+# MISCONFIGURATION EXCEPTIONS
+# =============================================================================
+misconfigurations:
+  # Example: Docker best practice exceptions for development images
+  # - id: AVD-DS-0002
+  #   paths:
+  #     - "Dockerfile.dev"
+  #   expired_at: 2025-06-01
+  #   statement: |
+  #     Development-only Dockerfile, not used in production.
+  #     Production images use multi-stage builds with non-root user.
+
+# =============================================================================
+# SECRET EXCEPTIONS
+# =============================================================================
+secrets:
+  # Example: Test/mock credentials that are not real secrets
+  # - id: generic-api-key
+  #   paths:
+  #     - "tests/fixtures/*.json"
+  #   statement: |
+  #     Test fixtures containing mock API keys for unit tests.
+  #     These are not real credentials and are safe to commit.
+
+# =============================================================================
+# LICENSE EXCEPTIONS
+# =============================================================================
+licenses:
+  # Example: GPL exceptions for development dependencies
+  # - id: GPL-3.0
+  #   paths:
+  #     - "node_modules/dev-tool/**"
+  #   expired_at: 2025-06-01
+  #   statement: |
+  #     Development-only dependency, not bundled in production.
+  #     No GPL code is distributed to customers.

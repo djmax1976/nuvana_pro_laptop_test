@@ -230,6 +230,7 @@ type RBACFixture = {
     token: string;
   };
   cashierPage: import("@playwright/test").Page;
+  clientOwnerPage: import("@playwright/test").Page;
 };
 
 export const test = base.extend<RBACFixture>({
@@ -519,8 +520,14 @@ export const test = base.extend<RBACFixture>({
         },
       });
 
-      // 6. Delete the user
-      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      // 6. Delete the user (check if exists first to avoid errors if already deleted by global cleanup)
+      const userExists = await bypassClient.user.findUnique({
+        where: { user_id: user.user_id },
+        select: { user_id: true },
+      });
+      if (userExists) {
+        await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      }
     });
   },
 
@@ -2331,6 +2338,58 @@ export const test = base.extend<RBACFixture>({
     // Use domcontentloaded instead of networkidle for better CI reliability
     await page.goto(
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard`,
+      { waitUntil: "domcontentloaded" },
+    );
+
+    // Wait for the page to be ready
+    await page.waitForLoadState("load");
+
+    await use(page);
+
+    // Cleanup: Clear session state
+    await page.context().clearCookies();
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+  },
+
+  clientOwnerPage: async ({ page, clientUser }, use) => {
+    // Setup: Use real authentication with JWT cookie for CLIENT_OWNER user
+    // CLIENT_OWNER role is required to access /client-dashboard routes
+
+    // Add authentication cookie (real JWT token)
+    await page.context().addCookies([
+      {
+        name: "access_token",
+        value: clientUser.token,
+        domain: "localhost",
+        path: "/",
+      },
+    ]);
+
+    // Set localStorage auth_session directly to bypass API call during tests
+    // CLIENT_OWNER users need the role to be correctly identified by ClientAuthContext
+    await page.addInitScript((userData) => {
+      localStorage.setItem(
+        "auth_session",
+        JSON.stringify({
+          user: {
+            id: userData.user_id,
+            email: userData.email,
+            name: userData.name,
+            roles: userData.roles,
+          },
+          authenticated: true,
+          isClientUser: true, // CLIENT_OWNER is a client user
+        }),
+      );
+    }, clientUser);
+
+    // Navigate to client dashboard - ClientAuthContext will verify CLIENT_OWNER role
+    // Use domcontentloaded instead of networkidle for better CI reliability
+    await page.goto(
+      `${process.env.FRONTEND_URL || "http://localhost:3000"}/client-dashboard`,
       { waitUntil: "domcontentloaded" },
     );
 
