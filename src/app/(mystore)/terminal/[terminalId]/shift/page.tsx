@@ -10,8 +10,8 @@
  * and placeholder metrics for sales, tax, and voids.
  */
 
-import { useParams, useRouter } from "next/navigation";
-import { useActiveShift, useUpdateStartingCash } from "@/lib/api/shifts";
+import { useParams } from "next/navigation";
+import { useActiveShift } from "@/lib/api/shifts";
 import { useCashiers } from "@/lib/api/cashiers";
 import { TerminalShiftPageContent } from "@/components/terminals/TerminalShiftPage";
 import { Loader2 } from "lucide-react";
@@ -19,7 +19,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function TerminalShiftPage() {
   const params = useParams();
-  const router = useRouter();
   const terminalId = params.terminalId as string;
 
   // Get active shift for this terminal

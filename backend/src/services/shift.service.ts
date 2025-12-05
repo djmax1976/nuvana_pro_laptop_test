@@ -12,7 +12,8 @@ import { rbacService } from "./rbac.service";
 import { ShiftReportData } from "../types/shift-report.types";
 import { getRedisClient } from "../utils/redis";
 import { toStoreTime, toUTC } from "../utils/timezone.utils";
-import { format, startOfDay, addDays } from "date-fns";
+import { startOfDay, addDays } from "date-fns";
+import * as crypto from "crypto";
 
 /**
  * Audit context for logging operations
@@ -268,48 +269,88 @@ export class ShiftService {
   }
 
   /**
+   * Convert terminal ID to a consistent numeric lock ID for PostgreSQL advisory locks
+   * Uses SHA-256 hash of the terminal ID and takes first 8 bytes as bigint
+   * @param terminalId - POS terminal UUID
+   * @returns BigInt lock ID for advisory lock
+   */
+  private getTerminalLockId(terminalId: string): bigint {
+    // Convert UUID to a consistent numeric lock ID
+    const hash = crypto.createHash("sha256").update(terminalId).digest();
+    return BigInt("0x" + hash.slice(0, 8).toString("hex"));
+  }
+
+  /**
    * Calculate shift number for a terminal
    * Shift number is determined by counting shifts that STARTED on the current calendar day
    * for this terminal (using store timezone), then adding 1.
    *
+   * This method uses PostgreSQL advisory locks to prevent race conditions when
+   * multiple concurrent requests try to create shifts for the same terminal.
+   *
    * @param terminalId - POS terminal UUID
    * @param storeTimezone - Store timezone (IANA format, e.g., "America/Denver")
+   * @param tx - Optional Prisma transaction client. If provided, uses transaction-scoped lock.
+   *             If not provided, uses session-scoped lock (must be manually released).
    * @returns Next shift number (1 for first shift of day, 2 for second, etc.)
    */
   async calculateShiftNumber(
     terminalId: string,
     storeTimezone: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<number> {
-    // Get current UTC time
-    const now = new Date();
+    const client = tx || prisma;
 
-    // Convert to store timezone to get current date in store's timezone
-    const storeTime = toStoreTime(now, storeTimezone);
+    // Acquire advisory lock using terminal ID hash
+    // This prevents concurrent requests from calculating duplicate shift numbers
+    const lockId = this.getTerminalLockId(terminalId);
 
-    // Get start of day in store timezone (00:00:00)
-    const startOfDayStore = startOfDay(storeTime);
-    // Get start of next day in store timezone (00:00:00 next day)
-    const startOfNextDayStore = startOfDay(addDays(storeTime, 1));
+    if (tx) {
+      // Transaction-scoped lock (automatically released on commit/rollback)
+      await client.$executeRaw`SELECT pg_advisory_xact_lock(${lockId})`;
+    } else {
+      // Session-scoped lock (must be manually released)
+      await client.$executeRaw`SELECT pg_advisory_lock(${lockId})`;
+    }
 
-    // Convert store timezone day boundaries to UTC for database query
-    const startOfDayUTC = toUTC(startOfDayStore, storeTimezone);
-    const startOfNextDayUTC = toUTC(startOfNextDayStore, storeTimezone);
+    try {
+      // Get current UTC time
+      const now = new Date();
 
-    // Count shifts that started today (in store timezone) for this terminal
-    // Shift belongs to the day it STARTED (opened_at), not when it ended
-    // Use < startOfNextDayUTC to ensure we capture all shifts from the current day
-    const shiftCount = await prisma.shift.count({
-      where: {
-        pos_terminal_id: terminalId,
-        opened_at: {
-          gte: startOfDayUTC,
-          lt: startOfNextDayUTC,
+      // Convert to store timezone to get current date in store's timezone
+      const storeTime = toStoreTime(now, storeTimezone);
+
+      // Get start of day in store timezone (00:00:00)
+      const startOfDayStore = startOfDay(storeTime);
+      // Get start of next day in store timezone (00:00:00 next day)
+      const startOfNextDayStore = startOfDay(addDays(storeTime, 1));
+
+      // Convert store timezone day boundaries to UTC for database query
+      const startOfDayUTC = toUTC(startOfDayStore, storeTimezone);
+      const startOfNextDayUTC = toUTC(startOfNextDayStore, storeTimezone);
+
+      // Count shifts that started today (in store timezone) for this terminal
+      // Shift belongs to the day it STARTED (opened_at), not when it ended
+      // Use < startOfNextDayUTC to ensure we capture all shifts from the current day
+      const shiftCount = await client.shift.count({
+        where: {
+          pos_terminal_id: terminalId,
+          opened_at: {
+            gte: startOfDayUTC,
+            lt: startOfNextDayUTC,
+          },
         },
-      },
-    });
+      });
 
-    // Next shift number is count + 1
-    return shiftCount + 1;
+      // Next shift number is count + 1
+      return shiftCount + 1;
+    } finally {
+      // Release session-scoped lock if we acquired one
+      if (!tx) {
+        await client.$executeRaw`SELECT pg_advisory_unlock(${lockId})`;
+      }
+      // Transaction-scoped locks are automatically released, no need to unlock
+    }
   }
 
   /**
@@ -367,14 +408,17 @@ export class ShiftService {
       );
     }
 
-    // Calculate shift number using store timezone
-    const shiftNumber = await this.calculateShiftNumber(
-      terminalId,
-      terminal.store.timezone,
-    );
-
     // Create shift and audit log in a transaction for atomicity
+    // Calculate shift number inside the transaction to use transaction-scoped advisory lock
     const shift = await prisma.$transaction(async (tx) => {
+      // Calculate shift number using store timezone within the transaction
+      // This ensures the advisory lock is held for the entire critical section
+      const shiftNumber = await this.calculateShiftNumber(
+        terminalId,
+        terminal.store.timezone,
+        tx,
+      );
+
       // Create shift record with shift_number
       const newShift = await tx.shift.create({
         data: {
