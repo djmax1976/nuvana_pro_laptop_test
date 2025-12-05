@@ -46,6 +46,8 @@ import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
 import { useCashiers, useAuthenticateCashier } from "@/lib/api/cashiers";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useActiveShift, useShiftStart } from "@/lib/api/shifts";
+import { useRouter } from "next/navigation";
 
 /**
  * Form validation schema for terminal authentication
@@ -87,13 +89,24 @@ interface TerminalAuthModalProps {
  * - XSS: React automatically escapes output, no manual sanitization needed for text inputs
  */
 export function TerminalAuthModal({
-  terminalId: _terminalId,
+  terminalId,
   terminalName,
   storeId,
   open,
   onOpenChange,
   onSubmit,
 }: TerminalAuthModalProps) {
+  const router = useRouter();
+
+  // Check for active shift when modal opens
+  const {
+    data: activeShift,
+    isLoading: isLoadingActiveShift,
+    error: activeShiftError,
+  } = useActiveShift(terminalId, { enabled: open });
+
+  // Shift start mutation
+  const startShiftMutation = useShiftStart();
   const form = useForm<TerminalAuthFormValues>({
     resolver: zodResolver(terminalAuthFormSchema),
     mode: "onSubmit",
@@ -116,7 +129,9 @@ export function TerminalAuthModal({
   const authenticateMutation = useAuthenticateCashier();
 
   const isSubmitting =
-    form.formState.isSubmitting || authenticateMutation.isPending;
+    form.formState.isSubmitting ||
+    authenticateMutation.isPending ||
+    startShiftMutation.isPending;
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -126,6 +141,7 @@ export function TerminalAuthModal({
         pin_number: "",
       });
       authenticateMutation.reset();
+      startShiftMutation.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -138,13 +154,20 @@ export function TerminalAuthModal({
 
     try {
       // Authenticate cashier
-      await authenticateMutation.mutateAsync({
+      const authResult = await authenticateMutation.mutateAsync({
         storeId,
         identifier: { name: values.cashier_name },
         pin: values.pin_number,
       });
 
-      // Success - close modal
+      // On successful authentication, start a shift for this terminal
+      const shiftResult = await startShiftMutation.mutateAsync({
+        terminalId,
+        cashierId: authResult.cashier_id,
+      });
+
+      // Success - redirect to shift page
+      router.push(`/mystore/terminal/${terminalId}/shift`);
       onOpenChange(false);
     } catch {
       // Error is handled by mutation state - no console logging to avoid exposing sensitive data
@@ -178,6 +201,41 @@ export function TerminalAuthModal({
               <Alert variant="destructive">
                 <AlertDescription>
                   Failed to load cashiers. Please try again.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {isLoadingActiveShift && (
+              <Alert>
+                <AlertDescription>
+                  Checking for active shift...
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {activeShift && !isLoadingActiveShift && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  This terminal already has an active shift. Please end the
+                  current shift before starting a new one.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {activeShiftError && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  Failed to check for active shift. Please try again.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {startShiftMutation.isError && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  {startShiftMutation.error instanceof Error
+                    ? startShiftMutation.error.message
+                    : "Failed to start shift. Please try again."}
                 </AlertDescription>
               </Alert>
             )}
@@ -266,7 +324,7 @@ export function TerminalAuthModal({
               </Button>
               <Button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isLoadingActiveShift || !!activeShift}
                 data-testid="terminal-auth-submit-button"
               >
                 {isSubmitting && (

@@ -1,0 +1,245 @@
+/**
+ * Terminal Shift Start Flow E2E Tests
+ *
+ * Story 4.92: Terminal Shift Page
+ *
+ * Tests the complete user journey:
+ * - Cashier authentication at terminal
+ * - Automatic shift creation on authentication
+ * - Redirect to shift page
+ * - Shift page displays correct information
+ * - Second cashier cannot start shift if terminal has active shift
+ *
+ * Priority: P0 (Critical - Regression protection for terminal shift flow)
+ */
+
+import { test, expect, Page } from "@playwright/test";
+import bcrypt from "bcrypt";
+import { v4 as uuidv4 } from "uuid";
+import { PrismaClient } from "@prisma/client";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
+import { createCashier } from "../support/factories";
+
+/**
+ * Helper function to perform cashier authentication
+ */
+async function authenticateCashier(
+  page: Page,
+  cashierName: string,
+  pin: string,
+): Promise<void> {
+  // Wait for cashier name select to be visible
+  await page.waitForSelector('[data-testid="cashier-name-select"]');
+  
+  // Select cashier name
+  await page.click('[data-testid="cashier-name-select"]');
+  await page.click(`text=${cashierName}`);
+  
+  // Enter PIN
+  await page.fill('[data-testid="pin-number-input"]', pin);
+  
+  // Submit
+  await page.click('[data-testid="terminal-auth-submit-button"]');
+}
+
+test.describe("4.92-E2E: Terminal Shift Start Flow", () => {
+  let prisma: PrismaClient;
+  let clientUser: any;
+  let company: any;
+  let store: any;
+  let terminal: any;
+  let cashier1: any;
+  let cashier2: any;
+  const password = "TestPassword123!";
+  const cashier1Pin = "1234";
+  const cashier2Pin = "5678";
+
+  test.beforeAll(async () => {
+    prisma = new PrismaClient();
+    // Create test client user with company and store
+    const passwordHash = await bcrypt.hash(password, 10);
+    const userId = uuidv4();
+    const companyId = uuidv4();
+    const storeId = uuidv4();
+
+    clientUser = await prisma.user.create({
+      data: {
+        user_id: userId,
+        email: `e2e-shift-${Date.now()}@test.com`,
+        name: "E2E Test Client",
+        status: "ACTIVE",
+        password_hash: passwordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
+    });
+
+    company = await prisma.company.create({
+      data: {
+        company_id: companyId,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: "E2E Test Company",
+        address: "123 E2E Test Street",
+        status: "ACTIVE",
+        owner_user_id: clientUser.user_id,
+      },
+    });
+
+    store = await prisma.store.create({
+      data: {
+        store_id: storeId,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        company_id: company.company_id,
+        name: "E2E Test Store",
+        timezone: "America/New_York",
+        status: "ACTIVE",
+        location_json: { address: "456 Store Ave" },
+      },
+    });
+
+    // Create terminal
+    terminal = await prisma.pOSTerminal.create({
+      data: {
+        store_id: store.store_id,
+        name: "E2E Test Terminal",
+        device_id: `device-e2e-${Date.now()}`,
+        deleted_at: null,
+      },
+    });
+
+    // Create cashiers
+    const cashier1Data = await createCashier({
+      store_id: store.store_id,
+      created_by: clientUser.user_id,
+      name: "Cashier One",
+      pin: cashier1Pin,
+    });
+    cashier1 = await prisma.cashier.create({ data: cashier1Data });
+
+    const cashier2Data = await createCashier({
+      store_id: store.store_id,
+      created_by: clientUser.user_id,
+      name: "Cashier Two",
+      pin: cashier2Pin,
+    });
+    cashier2 = await prisma.cashier.create({ data: cashier2Data });
+  });
+
+  test.afterAll(async () => {
+    // Cleanup
+    if (cashier1) await prisma.cashier.deleteMany({ where: { cashier_id: cashier1.cashier_id } });
+    if (cashier2) await prisma.cashier.deleteMany({ where: { cashier_id: cashier2.cashier_id } });
+    if (terminal) await prisma.pOSTerminal.deleteMany({ where: { pos_terminal_id: terminal.pos_terminal_id } });
+    if (store) await prisma.store.deleteMany({ where: { store_id: store.store_id } });
+    if (company) await prisma.company.deleteMany({ where: { company_id: company.company_id } });
+    if (clientUser) await prisma.user.deleteMany({ where: { user_id: clientUser.user_id } });
+    await prisma.$disconnect();
+  });
+
+  test("4.92-E2E-001: cashier authentication redirects to shift page", async ({
+    page,
+  }) => {
+    // GIVEN: User is logged in and on terminal dashboard
+    await page.goto("/login");
+    await page.fill('input[name="email"], input[type="email"]', clientUser.email);
+    await page.fill('input[name="password"], input[type="password"]', password);
+    await Promise.all([
+      page.waitForURL(/.*mystore.*/, { timeout: 15000 }),
+      page.click('button[type="submit"]'),
+    ]);
+
+    // Navigate to terminal (assuming terminal link exists)
+    // For this test, we'll need to navigate directly to the terminal auth modal
+    // or click on the terminal link if it exists in the dashboard
+    
+    // WHEN: Cashier authenticates
+    // Note: This assumes the terminal auth modal is accessible
+    // In a real scenario, we'd click on the terminal link first
+    await authenticateCashier(page, "Cashier One", cashier1Pin);
+
+    // THEN: Should redirect to shift page
+    await page.waitForURL(
+      new RegExp(`/mystore/terminal/${terminal.pos_terminal_id}/shift`),
+      { timeout: 10000 },
+    );
+    expect(page.url()).toContain("/mystore/terminal/");
+    expect(page.url()).toContain("/shift");
+  });
+
+  test("4.92-E2E-002: shift is created on authentication", async ({ page }) => {
+    // GIVEN: User is logged in
+    await page.goto("/login");
+    await page.fill('input[name="email"], input[type="email"]', clientUser.email);
+    await page.fill('input[name="password"], input[type="password"]', password);
+    await Promise.all([
+      page.waitForURL(/.*mystore.*/, { timeout: 15000 }),
+      page.click('button[type="submit"]'),
+    ]);
+
+    // WHEN: Cashier authenticates
+    await authenticateCashier(page, "Cashier One", cashier1Pin);
+
+    // THEN: Shift page should display shift information
+    await page.waitForURL(
+      new RegExp(`/mystore/terminal/${terminal.pos_terminal_id}/shift`),
+      { timeout: 10000 },
+    );
+
+    // Verify shift information is displayed
+    expect(await page.textContent("body")).toContain("Cashier One");
+    expect(await page.textContent("body")).toContain("Shift");
+  });
+
+  test("4.92-E2E-003: second cashier cannot start shift if terminal has active shift", async ({
+    page,
+  }) => {
+    // GIVEN: Terminal already has an active shift (from previous test or setup)
+    // First, ensure there's an active shift by creating one via API or previous test
+    
+    // WHEN: Second cashier tries to authenticate
+    await page.goto("/login");
+    await page.fill('input[name="email"], input[type="email"]', clientUser.email);
+    await page.fill('input[name="password"], input[type="password"]', password);
+    await Promise.all([
+      page.waitForURL(/.*mystore.*/, { timeout: 15000 }),
+      page.click('button[type="submit"]'),
+    ]);
+
+    // Try to authenticate as second cashier
+    await authenticateCashier(page, "Cashier Two", cashier2Pin);
+
+    // THEN: Should show error message about active shift
+    // The modal should display a message that terminal has active shift
+    await page.waitForSelector('text=/active shift/i', { timeout: 5000 });
+    expect(await page.textContent("body")).toContain("active shift");
+  });
+
+  test("4.92-E2E-004: shift page displays correct information", async ({
+    page,
+  }) => {
+    // GIVEN: User is logged in and shift is active
+    await page.goto("/login");
+    await page.fill('input[name="email"], input[type="email"]', clientUser.email);
+    await page.fill('input[name="password"], input[type="password"]', password);
+    await Promise.all([
+      page.waitForURL(/.*mystore.*/, { timeout: 15000 }),
+      page.click('button[type="submit"]'),
+    ]);
+
+    // Navigate directly to shift page (assuming shift exists)
+    await page.goto(`/mystore/terminal/${terminal.pos_terminal_id}/shift`);
+
+    // THEN: Should display all required information
+    await page.waitForSelector('text=/Cashier/i', { timeout: 5000 });
+    expect(await page.textContent("body")).toContain("Cashier");
+    expect(await page.textContent("body")).toContain("Started at");
+    expect(await page.textContent("body")).toContain("Shift");
+    expect(await page.textContent("body")).toContain("Total Sales");
+    expect(await page.textContent("body")).toContain("Total Tax Collected");
+    expect(await page.textContent("body")).toContain("Total Voids");
+  });
+});
+

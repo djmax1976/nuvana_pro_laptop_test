@@ -1,0 +1,220 @@
+/**
+ * @test-level Component
+ * @justification Component tests for TerminalShiftPage - validates rendering and user interactions
+ * @story 4-92-terminal-shift-page
+ */
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
+import { TerminalShiftPageContent } from "@/components/terminals/TerminalShiftPage";
+import userEvent from "@testing-library/user-event";
+import * as shiftsApi from "@/lib/api/shifts";
+
+// Mock the shifts API hooks
+vi.mock("@/lib/api/shifts", () => ({
+  useActiveShift: vi.fn(),
+  useUpdateStartingCash: vi.fn(),
+}));
+
+describe("4.92-COMPONENT: TerminalShiftPage Component", () => {
+  const mockShift = {
+    shift_id: "shift-1",
+    cashier_id: "cashier-1",
+    opened_at: "2025-12-05T10:00:00Z",
+    shift_number: 1,
+    opening_cash: 0,
+  };
+  const mockCashierName = "John Doe";
+  const mockTerminalId = "terminal-1";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    // Default mock implementation for useUpdateStartingCash
+    vi.mocked(shiftsApi.useUpdateStartingCash).mockReturnValue({
+      mutateAsync: vi.fn().mockResolvedValue({ success: true }),
+      isPending: false,
+      isError: false,
+      isSuccess: false,
+      error: null,
+      reset: vi.fn(),
+    } as any);
+  });
+
+  it("4.92-COMPONENT-001: should display cashier name", () => {
+    // GIVEN: Component is rendered with shift data
+    renderWithProviders(
+      <TerminalShiftPageContent
+        shift={mockShift}
+        cashierName={mockCashierName}
+        terminalId={mockTerminalId}
+      />,
+    );
+
+    // THEN: Cashier name should be displayed
+    expect(screen.getByText("Cashier")).toBeInTheDocument();
+    expect(screen.getByText(mockCashierName)).toBeInTheDocument();
+  });
+
+  it("4.92-COMPONENT-002: should display shift start time", () => {
+    // GIVEN: Component is rendered with shift data
+    renderWithProviders(
+      <TerminalShiftPageContent
+        shift={mockShift}
+        cashierName={mockCashierName}
+        terminalId={mockTerminalId}
+      />,
+    );
+
+    // THEN: Shift start time should be displayed
+    expect(screen.getByText("Started at")).toBeInTheDocument();
+    // The time format will be "5:00 AM" or similar (depends on timezone)
+    expect(screen.getByText(/^\d{1,2}:\d{2}\s(AM|PM)$/i)).toBeInTheDocument();
+  });
+
+  it("4.92-COMPONENT-003: should display shift number", () => {
+    // GIVEN: Component is rendered with shift data
+    renderWithProviders(
+      <TerminalShiftPageContent
+        shift={mockShift}
+        cashierName={mockCashierName}
+        terminalId={mockTerminalId}
+      />,
+    );
+
+    // THEN: Shift number should be displayed
+    expect(screen.getByText("Shift Number")).toBeInTheDocument();
+    expect(screen.getByText(/Shift \d+/)).toBeInTheDocument();
+  });
+
+  it("4.92-COMPONENT-004: should display placeholder metrics", () => {
+    // GIVEN: Component is rendered with shift data
+    renderWithProviders(
+      <TerminalShiftPageContent
+        shift={mockShift}
+        cashierName={mockCashierName}
+        terminalId={mockTerminalId}
+      />,
+    );
+
+    // THEN: Placeholder metrics should be displayed
+    expect(screen.getByText("Total Sales")).toBeInTheDocument();
+    expect(screen.getByText("Total Tax Collected")).toBeInTheDocument();
+    expect(screen.getByText("Total Voids")).toBeInTheDocument();
+    // All should show $0.00
+    const zeroAmounts = screen.getAllByText("$0.00");
+    expect(zeroAmounts.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("4.92-COMPONENT-005: should validate starting cash input accepts positive number or zero", async () => {
+    const user = userEvent.setup();
+    
+    // GIVEN: Component is rendered
+    renderWithProviders(
+      <TerminalShiftPageContent
+        shift={mockShift}
+        cashierName={mockCashierName}
+        terminalId={mockTerminalId}
+      />,
+    );
+
+    // WHEN: Entering a valid positive number
+    const input = screen.getByLabelText(/starting cash/i);
+    await user.clear(input);
+    await user.type(input, "100.50");
+
+    // THEN: Input should accept the value
+    expect(input).toHaveValue(100.5);
+  });
+
+  it("4.92-COMPONENT-006: should show End Shift button disabled with Coming Soon message", () => {
+    // GIVEN: Component is rendered
+    renderWithProviders(
+      <TerminalShiftPageContent
+        shift={mockShift}
+        cashierName={mockCashierName}
+        terminalId={mockTerminalId}
+      />,
+    );
+
+    // THEN: End Shift button should be visible and disabled
+    const endShiftButton = screen.getByText("End Shift");
+    expect(endShiftButton).toBeInTheDocument();
+    expect(endShiftButton).toBeDisabled();
+    
+    // AND: Should show message about coming soon functionality
+    expect(
+      screen.getByText(/end shift functionality will be available/i),
+    ).toBeInTheDocument();
+  });
+
+  it("4.92-COMPONENT-007: should update starting cash on form submission", async () => {
+    const user = userEvent.setup();
+    const mockMutateAsync = vi.fn().mockResolvedValue({
+      success: true,
+      data: { ...mockShift, opening_cash: 150.50 },
+    });
+
+    vi.mocked(shiftsApi.useUpdateStartingCash).mockReturnValue({
+      mutateAsync: mockMutateAsync,
+      isPending: false,
+      isError: false,
+      isSuccess: false,
+      error: null,
+      reset: vi.fn(),
+    } as any);
+
+    // GIVEN: Component is rendered
+    renderWithProviders(
+      <TerminalShiftPageContent
+        shift={mockShift}
+        cashierName={mockCashierName}
+        terminalId={mockTerminalId}
+      />,
+    );
+
+    // WHEN: Entering starting cash and submitting
+    const input = screen.getByLabelText(/starting cash/i);
+    await user.clear(input);
+    await user.type(input, "150.50");
+    
+    const submitButton = screen.getByText("Update Starting Cash");
+    await user.click(submitButton);
+
+    // THEN: Should call updateStartingCash mutation
+    await waitFor(() => {
+      expect(mockMutateAsync).toHaveBeenCalledWith({
+        shiftId: mockShift.shift_id,
+        cashierId: mockShift.cashier_id,
+        startingCash: 150.5,
+      });
+    });
+  });
+
+  it("4.92-COMPONENT-008: should show error message when starting cash update fails", async () => {
+    const mockError = new Error("Update failed");
+    vi.mocked(shiftsApi.useUpdateStartingCash).mockReturnValue({
+      mutateAsync: vi.fn().mockRejectedValue(mockError),
+      isPending: false,
+      isError: true,
+      isSuccess: false,
+      error: mockError,
+      reset: vi.fn(),
+    } as any);
+
+    // GIVEN: Component is rendered with error state
+    renderWithProviders(
+      <TerminalShiftPageContent
+        shift={mockShift}
+        cashierName={mockCashierName}
+        terminalId={mockTerminalId}
+      />,
+    );
+
+    // THEN: Error message should be displayed
+    expect(
+      screen.getByText(/failed to update starting cash/i),
+    ).toBeInTheDocument();
+  });
+});
+

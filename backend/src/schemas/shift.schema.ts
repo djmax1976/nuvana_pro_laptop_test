@@ -199,3 +199,74 @@ export function validateShiftQueryInput(data: unknown): ShiftQueryInput {
 export function safeValidateShiftQueryInput(data: unknown) {
   return ShiftQuerySchema.safeParse(data);
 }
+
+/**
+ * Start Shift Request Schema
+ * Validates the request body for POST /api/terminals/:terminalId/shifts/start
+ * Story 4.92: Terminal Shift Page
+ */
+export const StartShiftSchema = z.object({
+  cashier_id: z.string().uuid("cashier_id must be a valid UUID"),
+});
+
+/**
+ * Type inference from start shift schema
+ */
+export type StartShiftInput = z.infer<typeof StartShiftSchema>;
+
+/**
+ * Validate start shift request and return typed result
+ * @param data - Raw payload data
+ * @returns Validated and typed start shift input
+ * @throws ZodError if validation fails
+ */
+export function validateStartShiftInput(data: unknown): StartShiftInput {
+  return StartShiftSchema.parse(data);
+}
+
+/**
+ * Safe validation that returns result object instead of throwing
+ * @param data - Raw payload data
+ * @returns SafeParseResult with success flag and data/error
+ */
+export function safeValidateStartShiftInput(data: unknown) {
+  return StartShiftSchema.safeParse(data);
+}
+
+/**
+ * Update Starting Cash Request Schema
+ * Validates the request body for PUT /api/shifts/:shiftId/starting-cash
+ * Story 4.92: Terminal Shift Page
+ */
+export const UpdateStartingCashSchema = z.object({
+  starting_cash: z
+    .number()
+    .nonnegative("starting_cash must be a non-negative number or zero"),
+  cashier_id: z.string().uuid("cashier_id must be a valid UUID"),
+});
+
+/**
+ * Type inference from update starting cash schema
+ */
+export type UpdateStartingCashInput = z.infer<typeof UpdateStartingCashSchema>;
+
+/**
+ * Validate update starting cash request and return typed result
+ * @param data - Raw payload data
+ * @returns Validated and typed update starting cash input
+ * @throws ZodError if validation fails
+ */
+export function validateUpdateStartingCashInput(
+  data: unknown,
+): UpdateStartingCashInput {
+  return UpdateStartingCashSchema.parse(data);
+}
+
+/**
+ * Safe validation that returns result object instead of throwing
+ * @param data - Raw payload data
+ * @returns SafeParseResult with success flag and data/error
+ */
+export function safeValidateUpdateStartingCashInput(data: unknown) {
+  return UpdateStartingCashSchema.safeParse(data);
+}

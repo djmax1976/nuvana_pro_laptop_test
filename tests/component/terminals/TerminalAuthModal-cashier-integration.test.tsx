@@ -8,6 +8,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
 import { TerminalAuthModal } from "@/components/terminals/TerminalAuthModal";
 import userEvent from "@testing-library/user-event";
+import * as shiftsApi from "@/lib/api/shifts";
+
+// Mock next/navigation
+const mockPush = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: mockPush,
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+  }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+// Mock the shifts API hooks
+vi.mock("@/lib/api/shifts", () => ({
+  useActiveShift: vi.fn(),
+  useShiftStart: vi.fn(),
+}));
 
 /**
  * Component Tests: TerminalAuthModal - Real Cashier Integration
@@ -40,6 +61,23 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
     vi.clearAllMocks();
     // Reset fetch mock
     global.fetch = vi.fn();
+
+    // Default mock implementation for useActiveShift
+    vi.mocked(shiftsApi.useActiveShift).mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: null,
+      isError: false,
+    } as any);
+
+    // Default mock implementation for useShiftStart
+    vi.mocked(shiftsApi.useShiftStart).mockReturnValue({
+      mutateAsync: vi.fn().mockResolvedValue({ shift_id: "shift-1" }),
+      isPending: false,
+      isError: false,
+      error: null,
+      reset: vi.fn(),
+    } as any);
   });
 
   it("[P3] 4.91-COMPONENT-001: should fetch cashiers from API on mount", async () => {
@@ -228,9 +266,11 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          cashier_id: "cashier-1",
-          employee_id: "0001",
-          name: "John Smith",
+          data: {
+            cashier_id: "cashier-1",
+            employee_id: "0001",
+            name: "John Smith",
+          },
         }),
       });
 
@@ -279,6 +319,13 @@ describe("4.91-COMPONENT: TerminalAuthModal - Real Cashier Integration", () => {
         expect.objectContaining({
           method: "POST",
         }),
+      );
+    });
+
+    // AND: Shift start mutation is triggered and router redirects to shift page
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith(
+        expect.stringContaining("/mystore/terminal/"),
       );
     });
 

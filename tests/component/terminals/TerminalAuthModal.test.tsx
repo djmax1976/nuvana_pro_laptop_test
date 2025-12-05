@@ -9,11 +9,32 @@ import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
 import { TerminalAuthModal } from "@/components/terminals/TerminalAuthModal";
 import userEvent from "@testing-library/user-event";
 import * as cashiersApi from "@/lib/api/cashiers";
+import * as shiftsApi from "@/lib/api/shifts";
+
+// Mock next/navigation
+const mockPush = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: mockPush,
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+  }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 // Mock the cashiers API hooks
 vi.mock("@/lib/api/cashiers", () => ({
   useCashiers: vi.fn(),
   useAuthenticateCashier: vi.fn(),
+}));
+
+// Mock the shifts API hooks
+vi.mock("@/lib/api/shifts", () => ({
+  useActiveShift: vi.fn(),
+  useShiftStart: vi.fn(),
 }));
 
 describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
@@ -45,7 +66,26 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
 
     // Default mock implementation for useAuthenticateCashier
     vi.mocked(cashiersApi.useAuthenticateCashier).mockReturnValue({
-      mutateAsync: vi.fn().mockResolvedValue({ success: true }),
+      mutateAsync: vi
+        .fn()
+        .mockResolvedValue({ success: true, cashier_id: "cashier-1" }),
+      isPending: false,
+      isError: false,
+      error: null,
+      reset: vi.fn(),
+    } as any);
+
+    // Default mock implementation for useActiveShift
+    vi.mocked(shiftsApi.useActiveShift).mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: null,
+      isError: false,
+    } as any);
+
+    // Default mock implementation for useShiftStart
+    vi.mocked(shiftsApi.useShiftStart).mockReturnValue({
+      mutateAsync: vi.fn().mockResolvedValue({ shift_id: "shift-1" }),
       isPending: false,
       isError: false,
       error: null,
