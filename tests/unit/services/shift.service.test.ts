@@ -18,6 +18,8 @@ import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../../backend/src/utils/public-id";
+import { toUTC, toStoreTime } from "../../../backend/src/utils/timezone.utils";
+import { subDays, addHours, format } from "date-fns";
 import {
   createUser,
   createCompany,
@@ -1330,7 +1332,7 @@ describe("ShiftService - initiateClosing", () => {
         data: {
           store_id: testStore.store_id,
           shift_id: shift.shift_id,
-          cashier_id: testCashier.cashier_id,
+          cashier_id: testCashierUser.user_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           subtotal: new Prisma.Decimal(25.0),
           tax: new Prisma.Decimal(0),
@@ -1344,7 +1346,7 @@ describe("ShiftService - initiateClosing", () => {
         data: {
           store_id: testStore.store_id,
           shift_id: shift.shift_id,
-          cashier_id: testCashier.cashier_id,
+          cashier_id: testCashierUser.user_id,
           pos_terminal_id: testTerminal.pos_terminal_id,
           subtotal: new Prisma.Decimal(25.0),
           tax: new Prisma.Decimal(0),
@@ -1601,7 +1603,7 @@ describe("ShiftService - calculateExpectedCash", () => {
       data: {
         store_id: testStore.store_id,
         shift_id: shift.shift_id,
-        cashier_id: testCashier.cashier_id,
+        cashier_id: testCashierUser.user_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         subtotal: new Prisma.Decimal(30.0),
         tax: new Prisma.Decimal(0),
@@ -1615,7 +1617,7 @@ describe("ShiftService - calculateExpectedCash", () => {
       data: {
         store_id: testStore.store_id,
         shift_id: shift.shift_id,
-        cashier_id: testCashier.cashier_id,
+        cashier_id: testCashierUser.user_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         subtotal: new Prisma.Decimal(20.0),
         tax: new Prisma.Decimal(0),
@@ -1714,7 +1716,7 @@ describe("ShiftService - calculateExpectedCash", () => {
       data: {
         store_id: testStore.store_id,
         shift_id: shift.shift_id,
-        cashier_id: testCashier.cashier_id,
+        cashier_id: testCashierUser.user_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         subtotal: new Prisma.Decimal(50.0),
         tax: new Prisma.Decimal(0),
@@ -1728,7 +1730,7 @@ describe("ShiftService - calculateExpectedCash", () => {
       data: {
         store_id: testStore.store_id,
         shift_id: shift.shift_id,
-        cashier_id: testCashier.cashier_id,
+        cashier_id: testCashierUser.user_id,
         pos_terminal_id: testTerminal.pos_terminal_id,
         subtotal: new Prisma.Decimal(30.0),
         tax: new Prisma.Decimal(0),
@@ -3055,7 +3057,7 @@ describe("ShiftService - generateShiftReport", () => {
           ...createTransaction({
             store_id: testStore.store_id,
             shift_id: shift.shift_id,
-            cashier_id: testCashier.cashier_id,
+            cashier_id: testCashierUser.user_id,
             pos_terminal_id: isolatedTerminal.pos_terminal_id,
             total: 50.0,
           }),
@@ -3085,7 +3087,7 @@ describe("ShiftService - generateShiftReport", () => {
           ...createTransaction({
             store_id: testStore.store_id,
             shift_id: shift.shift_id,
-            cashier_id: testCashier.cashier_id,
+            cashier_id: testCashierUser.user_id,
             pos_terminal_id: isolatedTerminal.pos_terminal_id,
             total: 100.0,
           }),
@@ -3265,6 +3267,257 @@ describe("ShiftService - generateShiftReport", () => {
       ).rejects.toMatchObject({
         code: ShiftErrorCode.SHIFT_NOT_FOUND,
       });
+    });
+  });
+
+  describe("Shift Number Calculation (Story 4.92)", () => {
+    it("4.92-UNIT-001: should return 1 for first shift of day", async () => {
+      // GIVEN: A terminal with no shifts today
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Shift Number Test ${Date.now()}`,
+          device_id: `device-shift-num-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      // WHEN: Calculating shift number
+      const shiftNumber = await shiftService.calculateShiftNumber(
+        isolatedTerminal.pos_terminal_id,
+        testStore.timezone,
+      );
+
+      // THEN: Should return 1 (first shift of day)
+      expect(shiftNumber).toBe(1);
+    });
+
+    it("4.92-UNIT-002: should increment sequentially for subsequent shifts", async () => {
+      // GIVEN: A terminal with 2 shifts already started today
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Shift Increment Test ${Date.now()}`,
+          device_id: `device-shift-inc-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      // Create 2 shifts that started today
+      const shift1 = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: testStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: testCashier.cashier_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            status: "OPEN",
+          }),
+          shift_number: 1,
+          opened_at: new Date(), // Today
+        },
+      });
+      createdShiftIds.push(shift1.shift_id);
+
+      const shift2 = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: testStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: testCashier.cashier_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            status: "CLOSED",
+          }),
+          shift_number: 2,
+          opened_at: new Date(), // Today
+        },
+      });
+      createdShiftIds.push(shift2.shift_id);
+
+      // WHEN: Calculating shift number
+      const shiftNumber = await shiftService.calculateShiftNumber(
+        isolatedTerminal.pos_terminal_id,
+        testStore.timezone,
+      );
+
+      // THEN: Should return 3 (next shift number)
+      expect(shiftNumber).toBe(3);
+    });
+
+    it("4.92-UNIT-003: shift belongs to day it started, not day it ended", async () => {
+      // GIVEN: A shift that started on Dec 3 at 11:00 PM and ended on Dec 4 at 1:00 AM
+      const isolatedTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: testStore.store_id,
+          name: `Terminal Day Assignment Test ${Date.now()}`,
+          device_id: `device-day-assign-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(isolatedTerminal.pos_terminal_id);
+
+      // Create a shift that started yesterday (Dec 3) at 11 PM
+      // Build "yesterday" at 23:00 in testStore.timezone, then convert to UTC
+      const todayInStoreTz = toStoreTime(new Date(), testStore.timezone);
+      const yesterdayInStoreTz = subDays(todayInStoreTz, 1);
+      const yesterdayAt23InStoreTz =
+        format(yesterdayInStoreTz, "yyyy-MM-dd") + " 23:00:00";
+      const openedAtUTC = toUTC(yesterdayAt23InStoreTz, testStore.timezone);
+      const closedAtUTC = addHours(openedAtUTC, 2); // Closed 2 hours later (1 AM next day)
+
+      const crossDayShift = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: testStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: testCashier.cashier_id,
+            pos_terminal_id: isolatedTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            status: "CLOSED",
+          }),
+          shift_number: 1,
+          opened_at: openedAtUTC, // Started yesterday at 23:00 in store timezone
+          closed_at: closedAtUTC, // Closed 2 hours later (1 AM next day in store timezone)
+        },
+      });
+      createdShiftIds.push(crossDayShift.shift_id);
+
+      // WHEN: Calculating shift number for today
+      const shiftNumber = await shiftService.calculateShiftNumber(
+        isolatedTerminal.pos_terminal_id,
+        testStore.timezone,
+      );
+
+      // THEN: Should return 1 (yesterday's shift doesn't count, this is first shift of today)
+      expect(shiftNumber).toBe(1);
+    });
+
+    it("4.92-UNIT-004: should handle timezone correctly for date calculations", async () => {
+      // GIVEN: A store in a different timezone (America/Denver)
+      const denverStore = await prisma.store.create({
+        data: {
+          company_id: testCompany.company_id,
+          name: `Denver Store ${Date.now()}`,
+          timezone: "America/Denver",
+          status: "ACTIVE",
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        },
+      });
+      createdStoreIds.push(denverStore.store_id);
+
+      const denverTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: denverStore.store_id,
+          name: `Denver Terminal ${Date.now()}`,
+          device_id: `device-denver-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(denverTerminal.pos_terminal_id);
+
+      // WHEN: Calculating shift number using Denver timezone
+      const shiftNumber = await shiftService.calculateShiftNumber(
+        denverTerminal.pos_terminal_id,
+        denverStore.timezone,
+      );
+
+      // THEN: Should return 1 (first shift)
+      expect(shiftNumber).toBe(1);
+    });
+
+    it("4.92-UNIT-005: should handle timezone boundary edge case correctly", async () => {
+      // GIVEN: A store in a different timezone (America/Denver)
+      const denverStore = await prisma.store.create({
+        data: {
+          company_id: testCompany.company_id,
+          name: `Denver Store Boundary ${Date.now()}`,
+          timezone: "America/Denver",
+          status: "ACTIVE",
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        },
+      });
+      createdStoreIds.push(denverStore.store_id);
+
+      const denverTerminal = await prisma.pOSTerminal.create({
+        data: {
+          store_id: denverStore.store_id,
+          name: `Denver Terminal Boundary ${Date.now()}`,
+          device_id: `device-denver-boundary-${Date.now()}`,
+        },
+      });
+      createdTerminalIds.push(denverTerminal.pos_terminal_id);
+
+      // Create a cashier for the Denver store
+      const denverCashier = await prisma.cashier.create({
+        data: await createCashier({
+          store_id: denverStore.store_id,
+          created_by: testCashierUser.user_id,
+        }),
+      });
+      createdCashierIds.push(denverCashier.cashier_id);
+
+      // Get current time and convert to Denver timezone
+      const now = new Date();
+      const nowInDenver = toStoreTime(now, denverStore.timezone);
+
+      // Create a shift that started TODAY at 01:00 AM in Denver timezone
+      const todayEarlyDenver = new Date(nowInDenver);
+      todayEarlyDenver.setHours(1, 0, 0, 0);
+      const firstShiftUTC = toUTC(todayEarlyDenver, denverStore.timezone);
+
+      const firstShift = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: denverStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: denverCashier.cashier_id,
+            pos_terminal_id: denverTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            status: "CLOSED",
+          }),
+          opened_at: firstShiftUTC,
+        },
+      });
+      createdShiftIds.push(firstShift.shift_id);
+
+      // Create a shift that started YESTERDAY at 11 PM in Denver timezone
+      // This tests the boundary case - even though in UTC this might cross to today,
+      // in Denver timezone it's yesterday and should NOT be counted for today
+      const yesterdayLateDenver = new Date(nowInDenver);
+      yesterdayLateDenver.setDate(yesterdayLateDenver.getDate() - 1);
+      yesterdayLateDenver.setHours(23, 0, 0, 0);
+      const yesterdayShiftUTC = toUTC(
+        yesterdayLateDenver,
+        denverStore.timezone,
+      );
+
+      const boundaryShift = await prisma.shift.create({
+        data: {
+          ...createShift({
+            store_id: denverStore.store_id,
+            opened_by: testShiftManagerUser.user_id,
+            cashier_id: denverCashier.cashier_id,
+            pos_terminal_id: denverTerminal.pos_terminal_id,
+            opening_cash: new Prisma.Decimal(100.0),
+            status: "CLOSED",
+          }),
+          opened_at: yesterdayShiftUTC,
+        },
+      });
+      createdShiftIds.push(boundaryShift.shift_id);
+
+      // WHEN: Calculating shift number using Denver timezone
+      // The service should correctly attribute shifts based on Denver local date,
+      // not UTC date. The yesterday 11 PM shift should NOT be counted for today.
+      const shiftNumber = await shiftService.calculateShiftNumber(
+        denverTerminal.pos_terminal_id,
+        denverStore.timezone,
+      );
+
+      // THEN: Should return 2 (the first shift at 01:00 today Denver counts as shift 1,
+      // and the next shift will be shift 2. The boundary shift at 11 PM yesterday
+      // should NOT be counted because it started yesterday in Denver timezone)
+      expect(shiftNumber).toBe(2);
     });
   });
 });

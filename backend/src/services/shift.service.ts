@@ -11,6 +11,8 @@ import { OpenShiftInput } from "../schemas/shift.schema";
 import { rbacService } from "./rbac.service";
 import { ShiftReportData } from "../types/shift-report.types";
 import { getRedisClient } from "../utils/redis";
+import { toStoreTime, toUTC } from "../utils/timezone.utils";
+import { format, startOfDay, addDays } from "date-fns";
 
 /**
  * Audit context for logging operations
@@ -263,6 +265,257 @@ export class ShiftService {
     });
 
     return activeShift;
+  }
+
+  /**
+   * Calculate shift number for a terminal
+   * Shift number is determined by counting shifts that STARTED on the current calendar day
+   * for this terminal (using store timezone), then adding 1.
+   *
+   * @param terminalId - POS terminal UUID
+   * @param storeTimezone - Store timezone (IANA format, e.g., "America/Denver")
+   * @returns Next shift number (1 for first shift of day, 2 for second, etc.)
+   */
+  async calculateShiftNumber(
+    terminalId: string,
+    storeTimezone: string,
+  ): Promise<number> {
+    // Get current UTC time
+    const now = new Date();
+
+    // Convert to store timezone to get current date in store's timezone
+    const storeTime = toStoreTime(now, storeTimezone);
+
+    // Get start of day in store timezone (00:00:00)
+    const startOfDayStore = startOfDay(storeTime);
+    // Get start of next day in store timezone (00:00:00 next day)
+    const startOfNextDayStore = startOfDay(addDays(storeTime, 1));
+
+    // Convert store timezone day boundaries to UTC for database query
+    const startOfDayUTC = toUTC(startOfDayStore, storeTimezone);
+    const startOfNextDayUTC = toUTC(startOfNextDayStore, storeTimezone);
+
+    // Count shifts that started today (in store timezone) for this terminal
+    // Shift belongs to the day it STARTED (opened_at), not when it ended
+    // Use < startOfNextDayUTC to ensure we capture all shifts from the current day
+    const shiftCount = await prisma.shift.count({
+      where: {
+        pos_terminal_id: terminalId,
+        opened_at: {
+          gte: startOfDayUTC,
+          lt: startOfNextDayUTC,
+        },
+      },
+    });
+
+    // Next shift number is count + 1
+    return shiftCount + 1;
+  }
+
+  /**
+   * Start a shift for a terminal (used in terminal authentication flow)
+   * Creates a new shift with calculated shift_number and returns shift details.
+   *
+   * @param terminalId - POS terminal UUID
+   * @param cashierId - Cashier UUID
+   * @param auditContext - Audit context for logging
+   * @returns Created shift with shift_number
+   * @throws ShiftServiceError if validation fails or active shift exists
+   */
+  async startShift(
+    terminalId: string,
+    cashierId: string,
+    auditContext: AuditContext,
+  ): Promise<Prisma.ShiftGetPayload<{}>> {
+    // Get terminal to access store_id and store timezone
+    const terminal = await prisma.pOSTerminal.findUnique({
+      where: { pos_terminal_id: terminalId },
+      include: {
+        store: {
+          select: {
+            store_id: true,
+            timezone: true,
+          },
+        },
+      },
+    });
+
+    if (!terminal) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.TERMINAL_NOT_FOUND,
+        `Terminal with ID ${terminalId} not found`,
+      );
+    }
+
+    // Validate store access (RLS check)
+    await this.validateStoreAccess(terminal.store_id, auditContext.userId);
+
+    // Validate cashier exists and is active
+    await this.validateCashier(cashierId);
+
+    // Check for existing active shift on the POS terminal
+    const activeShift = await this.checkActiveShift(terminalId);
+    if (activeShift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_ALREADY_ACTIVE,
+        `An active shift already exists for POS terminal ${terminalId}`,
+        {
+          existing_shift_id: activeShift.shift_id,
+          existing_shift_status: activeShift.status,
+          existing_shift_opened_at: activeShift.opened_at,
+        },
+      );
+    }
+
+    // Calculate shift number using store timezone
+    const shiftNumber = await this.calculateShiftNumber(
+      terminalId,
+      terminal.store.timezone,
+    );
+
+    // Create shift and audit log in a transaction for atomicity
+    const shift = await prisma.$transaction(async (tx) => {
+      // Create shift record with shift_number
+      const newShift = await tx.shift.create({
+        data: {
+          store_id: terminal.store_id,
+          opened_by: auditContext.userId,
+          cashier_id: cashierId,
+          pos_terminal_id: terminalId,
+          opening_cash: 0, // Default to 0, can be updated via starting-cash endpoint
+          status: ShiftStatus.OPEN,
+          opened_at: new Date(),
+          shift_number: shiftNumber,
+        },
+      });
+
+      // Create audit log entry (non-blocking - don't fail if audit fails)
+      try {
+        await tx.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "SHIFT_STARTED",
+            table_name: "shifts",
+            record_id: newShift.shift_id,
+            new_values: {
+              shift_id: newShift.shift_id,
+              store_id: newShift.store_id,
+              opened_by: newShift.opened_by,
+              cashier_id: newShift.cashier_id,
+              pos_terminal_id: newShift.pos_terminal_id,
+              opening_cash: newShift.opening_cash.toString(),
+              status: newShift.status,
+              opened_at: newShift.opened_at.toISOString(),
+              shift_number: newShift.shift_number,
+            } as Record<string, any>,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Shift started by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")}) - Shift #${shiftNumber}`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the shift creation
+        console.error(
+          "Failed to create audit log for shift start:",
+          auditError,
+        );
+      }
+
+      return newShift;
+    });
+
+    return shift;
+  }
+
+  /**
+   * Update starting cash for a shift
+   * Validates that the cashier owns the shift and updates starting_cash.
+   *
+   * @param shiftId - Shift UUID
+   * @param cashierId - Cashier UUID (must own the shift)
+   * @param startingCash - Starting cash amount (non-negative number or zero)
+   * @param auditContext - Audit context for logging
+   * @returns Updated shift
+   * @throws ShiftServiceError if validation fails
+   */
+  async updateStartingCash(
+    shiftId: string,
+    cashierId: string,
+    startingCash: number,
+    auditContext: AuditContext,
+  ): Promise<Prisma.ShiftGetPayload<{}>> {
+    // Validate starting_cash is non-negative
+    if (startingCash < 0) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.INVALID_OPENING_CASH,
+        "Starting cash must be a non-negative number or zero",
+      );
+    }
+
+    // Get shift and validate it exists
+    const shift = await prisma.shift.findUnique({
+      where: { shift_id: shiftId },
+    });
+
+    if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found`,
+      );
+    }
+
+    // Validate store access (RLS check)
+    await this.validateStoreAccess(shift.store_id, auditContext.userId);
+
+    // Validate cashier owns the shift
+    if (shift.cashier_id !== cashierId) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        "Cashier does not own this shift",
+      );
+    }
+
+    // Update shift and audit log in a transaction for atomicity
+    const updatedShift = await prisma.$transaction(async (tx) => {
+      // Update shift record
+      const updated = await tx.shift.update({
+        where: { shift_id: shiftId },
+        data: {
+          opening_cash: startingCash,
+        },
+      });
+
+      // Create audit log entry (non-blocking - don't fail if audit fails)
+      try {
+        await tx.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "SHIFT_STARTING_CASH_UPDATED",
+            table_name: "shifts",
+            record_id: updated.shift_id,
+            old_values: {
+              opening_cash: shift.opening_cash.toString(),
+            } as Record<string, any>,
+            new_values: {
+              opening_cash: updated.opening_cash.toString(),
+            } as Record<string, any>,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Starting cash updated by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")}) - New amount: $${startingCash.toFixed(2)}`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the update
+        console.error(
+          "Failed to create audit log for starting cash update:",
+          auditError,
+        );
+      }
+
+      return updated;
+    });
+
+    return updatedShift;
   }
 
   /**

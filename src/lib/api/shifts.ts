@@ -340,6 +340,58 @@ export async function reconcileCash(
   );
 }
 
+/**
+ * Start a shift for a terminal
+ * Story 4.92: Terminal Shift Page
+ */
+export async function startShift(
+  terminalId: string,
+  cashierId: string,
+): Promise<ApiResponse<ShiftResponse & { shift_number: number | null }>> {
+  return apiRequest<
+    ApiResponse<ShiftResponse & { shift_number: number | null }>
+  >(`/api/terminals/${terminalId}/shifts/start`, {
+    method: "POST",
+    body: JSON.stringify({ cashier_id: cashierId }),
+  });
+}
+
+/**
+ * Get active shift for a terminal
+ * Story 4.92: Terminal Shift Page
+ */
+export async function getActiveShift(
+  terminalId: string,
+): Promise<
+  ApiResponse<(ShiftResponse & { shift_number: number | null }) | null>
+> {
+  return apiRequest<
+    ApiResponse<(ShiftResponse & { shift_number: number | null }) | null>
+  >(`/api/terminals/${terminalId}/shifts/active`, {
+    method: "GET",
+  });
+}
+
+/**
+ * Update starting cash for a shift
+ * Story 4.92: Terminal Shift Page
+ */
+export async function updateStartingCash(
+  shiftId: string,
+  cashierId: string,
+  startingCash: number,
+): Promise<ApiResponse<ShiftResponse & { shift_number: number | null }>> {
+  return apiRequest<
+    ApiResponse<ShiftResponse & { shift_number: number | null }>
+  >(`/api/shifts/${shiftId}/starting-cash`, {
+    method: "PUT",
+    body: JSON.stringify({
+      cashier_id: cashierId,
+      starting_cash: startingCash,
+    }),
+  });
+}
+
 // ============ TanStack Query Keys ============
 
 /**
@@ -357,6 +409,9 @@ export const shiftKeys = {
   details: () => [...shiftKeys.all, "detail"] as const,
   detail: (shiftId: string | undefined) =>
     [...shiftKeys.details(), shiftId] as const,
+  active: () => [...shiftKeys.all, "active"] as const,
+  activeByTerminal: (terminalId: string | undefined) =>
+    [...shiftKeys.active(), terminalId] as const,
 };
 
 // ============ TanStack Query Hooks ============
@@ -484,5 +539,87 @@ export function useShiftDetail(
     refetchOnWindowFocus: true,
     staleTime: 30000, // Consider data fresh for 30 seconds
     select: (response) => response.data,
+  });
+}
+
+/**
+ * Hook to start a shift for a terminal
+ * Story 4.92: Terminal Shift Page
+ */
+export function useShiftStart() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      terminalId,
+      cashierId,
+    }: {
+      terminalId: string;
+      cashierId: string;
+    }) => startShift(terminalId, cashierId),
+    onSuccess: (_, variables) => {
+      // Invalidate active shift query for this terminal
+      queryClient.invalidateQueries({
+        queryKey: shiftKeys.activeByTerminal(variables.terminalId),
+      });
+      // Invalidate shift list queries
+      queryClient.invalidateQueries({ queryKey: shiftKeys.lists() });
+    },
+  });
+}
+
+/**
+ * Hook to get active shift for a terminal
+ * Story 4.92: Terminal Shift Page
+ */
+export function useActiveShift(
+  terminalId: string | null,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: shiftKeys.activeByTerminal(terminalId ?? undefined),
+    queryFn: () => getActiveShift(terminalId!),
+    enabled: options?.enabled !== false && terminalId !== null,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    staleTime: 10000, // Consider data fresh for 10 seconds (more frequent for active shift)
+    select: (response) => response.data,
+  });
+}
+
+/**
+ * Hook to update starting cash for a shift
+ * Story 4.92: Terminal Shift Page
+ */
+export function useUpdateStartingCash() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      shiftId,
+      cashierId,
+      startingCash,
+    }: {
+      shiftId: string;
+      cashierId: string;
+      startingCash: number;
+    }) => updateStartingCash(shiftId, cashierId, startingCash),
+    onSuccess: (response, variables) => {
+      // Extract terminalId from response
+      const terminalId = response.data?.pos_terminal_id;
+
+      // Invalidate shift detail query
+      queryClient.invalidateQueries({
+        queryKey: shiftKeys.detail(variables.shiftId),
+      });
+      // Invalidate shift list queries
+      queryClient.invalidateQueries({ queryKey: shiftKeys.lists() });
+      // Invalidate active shift query for the terminal if terminalId is available
+      if (terminalId) {
+        queryClient.invalidateQueries({
+          queryKey: shiftKeys.activeByTerminal(terminalId),
+        });
+      }
+    },
   });
 }

@@ -22,6 +22,8 @@ import {
   validateApproveVarianceInput,
   validateShiftId,
   validateShiftQueryInput,
+  validateStartShiftInput,
+  validateUpdateStartingCashInput,
 } from "../schemas/shift.schema";
 import { ZodError } from "zod";
 import { ShiftStatus } from "@prisma/client";
@@ -1474,6 +1476,443 @@ export async function shiftRoutes(fastify: FastifyInstance) {
             message: "An unexpected error occurred",
           },
         });
+      }
+    },
+  );
+
+  /**
+   * POST /api/terminals/:terminalId/shifts/start
+   * Start a new shift for a terminal (used in terminal authentication flow)
+   * Creates a shift with calculated shift_number
+   * Protected route - requires SHIFT_OPEN permission
+   * Story 4.92: Terminal Shift Page
+   */
+  fastify.post(
+    "/api/terminals/:terminalId/shifts/start",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.SHIFT_OPEN),
+      ],
+      schema: {
+        description:
+          "Start a new shift for a terminal with calculated shift number",
+        tags: ["shifts"],
+        params: {
+          type: "object",
+          required: ["terminalId"],
+          properties: {
+            terminalId: {
+              type: "string",
+              format: "uuid",
+              description: "POS Terminal UUID",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          required: ["cashier_id"],
+          properties: {
+            cashier_id: {
+              type: "string",
+              format: "uuid",
+              description: "Cashier UUID",
+            },
+          },
+        },
+        response: {
+          201: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  shift_id: { type: "string", format: "uuid" },
+                  store_id: { type: "string", format: "uuid" },
+                  opened_by: { type: "string", format: "uuid" },
+                  cashier_id: { type: "string", format: "uuid" },
+                  pos_terminal_id: {
+                    type: "string",
+                    format: "uuid",
+                    nullable: true,
+                  },
+                  opened_at: { type: "string", format: "date-time" },
+                  opening_cash: { type: "number" },
+                  status: { type: "string", enum: ["OPEN"] },
+                  shift_number: { type: "number", nullable: true },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                  details: { type: "object" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as any).user as UserIdentity;
+        const { terminalId } = request.params as { terminalId: string };
+        const body = validateStartShiftInput(request.body);
+        const auditContext = getAuditContext(request, user);
+
+        const shift = await shiftService.startShift(
+          terminalId,
+          body.cashier_id,
+          auditContext,
+        );
+
+        reply.code(201);
+        return {
+          success: true,
+          data: {
+            shift_id: shift.shift_id,
+            store_id: shift.store_id,
+            opened_by: shift.opened_by,
+            cashier_id: shift.cashier_id,
+            pos_terminal_id: shift.pos_terminal_id,
+            opened_at: shift.opened_at.toISOString(),
+            opening_cash: shift.opening_cash.toNumber(),
+            status: shift.status,
+            shift_number: shift.shift_number,
+          },
+        };
+      } catch (error: unknown) {
+        if (error instanceof ZodError) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: error.issues[0].message,
+            },
+          };
+        }
+
+        if (error instanceof ShiftServiceError) {
+          const statusCode =
+            error.code === ShiftErrorCode.SHIFT_ALREADY_ACTIVE ||
+            error.code === ShiftErrorCode.TERMINAL_NOT_FOUND ||
+            error.code === ShiftErrorCode.CASHIER_NOT_FOUND
+              ? 400
+              : 500;
+
+          reply.code(statusCode);
+          return {
+            success: false,
+            error: {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+            },
+          };
+        }
+
+        fastify.log.error({ error }, "Error starting shift");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to start shift",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/terminals/:terminalId/shifts/active
+   * Get active shift for a terminal
+   * Protected route - requires SHIFT_READ permission
+   * Story 4.92: Terminal Shift Page
+   */
+  fastify.get(
+    "/api/terminals/:terminalId/shifts/active",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.SHIFT_READ),
+      ],
+      schema: {
+        description: "Get active shift for a terminal",
+        tags: ["shifts"],
+        params: {
+          type: "object",
+          required: ["terminalId"],
+          properties: {
+            terminalId: {
+              type: "string",
+              format: "uuid",
+              description: "POS Terminal UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  shift_id: { type: "string", format: "uuid" },
+                  store_id: { type: "string", format: "uuid" },
+                  opened_by: { type: "string", format: "uuid" },
+                  cashier_id: { type: "string", format: "uuid" },
+                  pos_terminal_id: {
+                    type: "string",
+                    format: "uuid",
+                    nullable: true,
+                  },
+                  opened_at: { type: "string", format: "date-time" },
+                  opening_cash: { type: "number" },
+                  status: { type: "string" },
+                  shift_number: { type: "number", nullable: true },
+                },
+                nullable: true,
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as any).user as UserIdentity;
+        const { terminalId } = request.params as { terminalId: string };
+
+        // Validate terminal exists and user has access
+        const terminal = await prisma.pOSTerminal.findUnique({
+          where: { pos_terminal_id: terminalId },
+          select: { store_id: true },
+        });
+
+        if (!terminal) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "TERMINAL_NOT_FOUND",
+              message: `Terminal with ID ${terminalId} not found`,
+            },
+          };
+        }
+
+        // Validate store access (RLS check)
+        await shiftService.validateStoreAccess(terminal.store_id, user.id);
+
+        const activeShift = await shiftService.checkActiveShift(terminalId);
+
+        reply.code(200);
+        return {
+          success: true,
+          data: activeShift
+            ? {
+                shift_id: activeShift.shift_id,
+                store_id: activeShift.store_id,
+                opened_by: activeShift.opened_by,
+                cashier_id: activeShift.cashier_id,
+                pos_terminal_id: activeShift.pos_terminal_id,
+                opened_at: activeShift.opened_at.toISOString(),
+                opening_cash: activeShift.opening_cash.toNumber(),
+                status: activeShift.status,
+                shift_number: activeShift.shift_number,
+              }
+            : null,
+        };
+      } catch (error: unknown) {
+        if (error instanceof ShiftServiceError) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+            },
+          };
+        }
+
+        fastify.log.error({ error }, "Error getting active shift");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to get active shift",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /api/shifts/:shiftId/starting-cash
+   * Update starting cash for a shift
+   * Protected route - requires SHIFT_OPEN permission
+   * Story 4.92: Terminal Shift Page
+   */
+  fastify.put(
+    "/api/shifts/:shiftId/starting-cash",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.SHIFT_OPEN),
+      ],
+      schema: {
+        description: "Update starting cash for a shift",
+        tags: ["shifts"],
+        params: {
+          type: "object",
+          required: ["shiftId"],
+          properties: {
+            shiftId: {
+              type: "string",
+              format: "uuid",
+              description: "Shift UUID",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          required: ["starting_cash", "cashier_id"],
+          properties: {
+            starting_cash: {
+              type: "number",
+              minimum: 0,
+              description: "Starting cash amount (non-negative number or zero)",
+            },
+            cashier_id: {
+              type: "string",
+              format: "uuid",
+              description: "Cashier UUID (must own the shift)",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  shift_id: { type: "string", format: "uuid" },
+                  store_id: { type: "string", format: "uuid" },
+                  opened_by: { type: "string", format: "uuid" },
+                  cashier_id: { type: "string", format: "uuid" },
+                  pos_terminal_id: {
+                    type: "string",
+                    format: "uuid",
+                    nullable: true,
+                  },
+                  opened_at: { type: "string", format: "date-time" },
+                  opening_cash: { type: "number" },
+                  status: { type: "string" },
+                  shift_number: { type: "number", nullable: true },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                  details: { type: "object" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as any).user as UserIdentity;
+        const { shiftId } = request.params as { shiftId: string };
+        const body = validateUpdateStartingCashInput(request.body);
+        const auditContext = getAuditContext(request, user);
+
+        const shift = await shiftService.updateStartingCash(
+          shiftId,
+          body.cashier_id,
+          body.starting_cash,
+          auditContext,
+        );
+
+        reply.code(200);
+        return {
+          success: true,
+          data: {
+            shift_id: shift.shift_id,
+            store_id: shift.store_id,
+            opened_by: shift.opened_by,
+            cashier_id: shift.cashier_id,
+            pos_terminal_id: shift.pos_terminal_id,
+            opened_at: shift.opened_at.toISOString(),
+            opening_cash: shift.opening_cash.toNumber(),
+            status: shift.status,
+            shift_number: shift.shift_number,
+          },
+        };
+      } catch (error: unknown) {
+        if (error instanceof ZodError) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: error.issues[0].message,
+            },
+          };
+        }
+
+        if (error instanceof ShiftServiceError) {
+          const statusCode =
+            error.code === ShiftErrorCode.SHIFT_NOT_FOUND ||
+            error.code === ShiftErrorCode.INVALID_OPENING_CASH
+              ? 400
+              : 500;
+
+          reply.code(statusCode);
+          return {
+            success: false,
+            error: {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+            },
+          };
+        }
+
+        fastify.log.error({ error }, "Error updating starting cash");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update starting cash",
+          },
+        };
       }
     },
   );
