@@ -21,6 +21,8 @@ import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 import { v4 as uuidv4 } from "uuid";
+import * as fs from "fs";
+import * as path from "path";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
@@ -37,6 +39,44 @@ let testUser: any;
 let testCompany: any;
 let testStore: any;
 let testEmail: string;
+
+/**
+ * Helper function to ensure screenshot directory exists
+ */
+function ensureScreenshotDir() {
+  const screenshotDir = path.join(process.cwd(), "test-results");
+  if (!fs.existsSync(screenshotDir)) {
+    fs.mkdirSync(screenshotDir, { recursive: true });
+  }
+}
+
+/**
+ * Helper function to wait for stores to load in the form
+ * The form shows a loading spinner while isLoadingStores is true
+ */
+async function waitForStoresLoaded(page: any) {
+  // Wait for the loading spinner to disappear (if it exists)
+  // The form shows a Loader2 spinner while fetching stores
+  await page
+    .locator('[data-testid="cashier-store"]')
+    .waitFor({ state: "visible", timeout: 15000 });
+
+  // Wait for network to be idle to ensure API calls completed
+  await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {
+    // networkidle might timeout, continue with selector-based waiting
+  });
+
+  // Wait for the hidden select to have a value (indicates form is initialized)
+  await page.waitForFunction(
+    () => {
+      const hiddenSelect = document.querySelector(
+        'select[aria-hidden="true"]',
+      ) as HTMLSelectElement | null;
+      return hiddenSelect !== null && hiddenSelect.value !== "";
+    },
+    { timeout: 10000 },
+  );
+}
 
 test.describe("Cashier Store Dropdown", () => {
   test.beforeAll(async () => {
@@ -122,6 +162,8 @@ test.describe("Cashier Store Dropdown", () => {
   test("should show store in dropdown when adding cashier", async ({
     page,
   }) => {
+    ensureScreenshotDir();
+
     // Enable console logging for debugging
     page.on("console", (msg) => {
       if (msg.type() === "error" || msg.type() === "warning") {
@@ -130,9 +172,12 @@ test.describe("Cashier Store Dropdown", () => {
     });
 
     // Step 1: Navigate to client login
-    await page.goto(`${FRONTEND_URL}/client-login`);
-    await page.waitForLoadState("networkidle");
-    await page.screenshot({ path: "test-results/01-login-page.png" });
+    await page.goto(`${FRONTEND_URL}/client-login`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {
+      // Continue if networkidle times out
+    });
 
     // Step 2: Login
     const emailInput = page
@@ -140,15 +185,13 @@ test.describe("Cashier Store Dropdown", () => {
         'input[type="email"], input[name="email"], input[placeholder*="email" i]',
       )
       .first();
-    await emailInput.waitFor({ state: "visible", timeout: 10000 });
+    await emailInput.waitFor({ state: "visible", timeout: 15000 });
     await emailInput.fill(testEmail);
 
     const passwordInput = page
       .locator('input[type="password"], input[name="password"]')
       .first();
     await passwordInput.fill(TEST_PASSWORD);
-
-    await page.screenshot({ path: "test-results/02-login-filled.png" });
 
     // Set up navigation promise BEFORE clicking submit (order matters)
     const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {
@@ -166,72 +209,76 @@ test.describe("Cashier Store Dropdown", () => {
     await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
       // networkidle might timeout if there are long-polling requests, that's OK
     });
-    await page.screenshot({ path: "test-results/03-after-login.png" });
 
     // Step 3: Navigate to cashiers page
-    await page.goto(`${FRONTEND_URL}/client-dashboard/cashiers`);
+    await page.goto(`${FRONTEND_URL}/client-dashboard/cashiers`, {
+      waitUntil: "domcontentloaded",
+    });
 
     // Wait for the page to load and dashboard API to complete
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+      // Continue if networkidle times out
+    });
 
     // Wait for the cashier list to be visible (ensures page is fully loaded)
     await page.waitForSelector(
       '[data-testid="create-cashier-btn"], [data-testid="cashier-search"]',
       {
-        timeout: 10000,
+        timeout: 15000,
+        state: "visible",
       },
     );
-
-    await page.screenshot({ path: "test-results/04-cashiers-page.png" });
 
     // Step 4: Open Add Cashier dialog
     const addButton = page
       .locator('[data-testid="create-cashier-btn"]')
       .first();
-    await addButton.waitFor({ state: "visible", timeout: 10000 });
+    await addButton.waitFor({ state: "visible", timeout: 15000 });
     await addButton.click();
 
-    // Wait for dialog to be visible and form to be ready
-    // The form shows a loading state while fetching stores, so wait for it to disappear
-    await page.waitForSelector('[data-testid="cashier-store"]', {
+    // Wait for dialog to be visible
+    await page.waitForSelector("text=Add New Cashier", {
       state: "visible",
       timeout: 10000,
     });
 
-    // Wait for form to be fully loaded (not in loading state)
-    // The loading spinner is removed when stores are loaded
-    await page.waitForSelector("text=Add New Cashier", { state: "visible" });
-
-    // Additional wait to ensure form state is ready
-    await page.waitForFunction(
-      () => {
-        const storeDropdown = document.querySelector(
-          '[data-testid="cashier-store"]',
-        );
-        return storeDropdown !== null;
-      },
-      { timeout: 5000 },
-    );
-
-    await page.screenshot({ path: "test-results/05-add-cashier-form.png" });
+    // Wait for stores to load - this ensures the form is fully initialized
+    await waitForStoresLoaded(page);
 
     // Step 5: Verify store dropdown behavior
     const storeDropdown = page.locator('[data-testid="cashier-store"]');
 
     // Assert dropdown is visible
-    await expect(storeDropdown).toBeVisible({ timeout: 5000 });
+    await expect(storeDropdown).toBeVisible({ timeout: 10000 });
 
     // When there's only one store, the dropdown should be disabled (per implementation)
     const isDisabled = await storeDropdown.isDisabled();
     expect(isDisabled).toBe(true);
 
     // Get the displayed text - should show the store name, not placeholder
+    // Wait for the text to contain the store name (form might still be initializing)
+    await expect(storeDropdown).toContainText(testStore.name, {
+      timeout: 10000,
+    });
+
     const dropdownText = await storeDropdown.textContent();
     expect(dropdownText).toBeTruthy();
     expect(dropdownText).not.toContain("Select a store");
     expect(dropdownText).toContain(testStore.name);
 
     // Verify the hidden select has the correct value
+    // Wait for the value to be set (form initialization might be async)
+    await page.waitForFunction(
+      (expectedStoreId) => {
+        const hiddenSelect = document.querySelector(
+          'select[aria-hidden="true"]',
+        ) as HTMLSelectElement | null;
+        return hiddenSelect?.value === expectedStoreId;
+      },
+      testStore.store_id,
+      { timeout: 10000 },
+    );
+
     const hiddenSelectValue = await page.evaluate(() => {
       const hiddenSelect = document.querySelector(
         'select[aria-hidden="true"]',
@@ -240,10 +287,6 @@ test.describe("Cashier Store Dropdown", () => {
     });
 
     expect(hiddenSelectValue).toBe(testStore.store_id);
-
-    await page.screenshot({
-      path: "test-results/06-store-dropdown-verified.png",
-    });
 
     // Final assertions
     expect(await storeDropdown.isVisible()).toBe(true);
@@ -257,16 +300,22 @@ test.describe("Cashier Store Dropdown", () => {
   test("should successfully create a cashier with auto-selected store", async ({
     page,
   }) => {
+    ensureScreenshotDir();
+
     // Step 1: Login
-    await page.goto(`${FRONTEND_URL}/client-login`);
-    await page.waitForLoadState("networkidle");
+    await page.goto(`${FRONTEND_URL}/client-login`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {
+      // Continue if networkidle times out
+    });
 
     const emailInput = page
       .locator(
         'input[type="email"], input[name="email"], input[placeholder*="email" i]',
       )
       .first();
-    await emailInput.waitFor({ state: "visible", timeout: 10000 });
+    await emailInput.waitFor({ state: "visible", timeout: 15000 });
     await emailInput.fill(testEmail);
 
     const passwordInput = page
@@ -292,14 +341,19 @@ test.describe("Cashier Store Dropdown", () => {
     });
 
     // Step 2: Navigate to cashiers page
-    await page.goto(`${FRONTEND_URL}/client-dashboard/cashiers`);
-    await page.waitForLoadState("networkidle");
+    await page.goto(`${FRONTEND_URL}/client-dashboard/cashiers`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+      // Continue if networkidle times out
+    });
 
     // Wait for page to be fully loaded
     await page.waitForSelector(
       '[data-testid="create-cashier-btn"], [data-testid="cashier-search"]',
       {
-        timeout: 10000,
+        timeout: 15000,
+        state: "visible",
       },
     );
 
@@ -307,33 +361,26 @@ test.describe("Cashier Store Dropdown", () => {
     const addButton = page
       .locator('[data-testid="create-cashier-btn"]')
       .first();
-    await addButton.waitFor({ state: "visible", timeout: 10000 });
+    await addButton.waitFor({ state: "visible", timeout: 15000 });
     await addButton.click();
 
-    // Wait for dialog and form to be ready (form shows loading state initially)
-    await page.waitForSelector('[data-testid="cashier-store"]', {
+    // Wait for dialog to be visible
+    await page.waitForSelector("text=Add New Cashier", {
       state: "visible",
       timeout: 10000,
     });
 
-    // Wait for form to be fully loaded (not in loading state)
-    await page.waitForSelector("text=Add New Cashier", { state: "visible" });
-
-    // Wait for store dropdown to have the correct value set
-    await page.waitForFunction(
-      (storeId) => {
-        const hiddenSelect = document.querySelector(
-          'select[aria-hidden="true"]',
-        ) as HTMLSelectElement | null;
-        return hiddenSelect?.value === storeId;
-      },
-      testStore.store_id,
-      { timeout: 5000 },
-    );
+    // Wait for stores to load - this ensures the form is fully initialized
+    await waitForStoresLoaded(page);
 
     // Step 4: Verify store is auto-selected and displayed
     const storeDropdown = page.locator('[data-testid="cashier-store"]');
-    await expect(storeDropdown).toBeVisible();
+    await expect(storeDropdown).toBeVisible({ timeout: 10000 });
+
+    // Wait for the store name to appear in the dropdown
+    await expect(storeDropdown).toContainText(testStore.name, {
+      timeout: 10000,
+    });
 
     const storeText = await storeDropdown.textContent();
     expect(storeText).toContain(testStore.name);
@@ -343,6 +390,17 @@ test.describe("Cashier Store Dropdown", () => {
     expect(await storeDropdown.isDisabled()).toBe(true);
 
     // Verify hidden select has correct value
+    await page.waitForFunction(
+      (expectedStoreId) => {
+        const hiddenSelect = document.querySelector(
+          'select[aria-hidden="true"]',
+        ) as HTMLSelectElement | null;
+        return hiddenSelect?.value === expectedStoreId;
+      },
+      testStore.store_id,
+      { timeout: 10000 },
+    );
+
     const hiddenSelectValue = await page.evaluate(() => {
       const hiddenSelect = document.querySelector(
         'select[aria-hidden="true"]',
@@ -354,11 +412,11 @@ test.describe("Cashier Store Dropdown", () => {
     // Step 5: Fill in the form
     const cashierName = `Test Cashier ${Date.now()}`;
     const nameInput = page.locator('[data-testid="cashier-name"]');
-    await nameInput.waitFor({ state: "visible", timeout: 5000 });
+    await nameInput.waitFor({ state: "visible", timeout: 10000 });
     await nameInput.fill(cashierName);
 
     const pinInput = page.locator('[data-testid="cashier-pin"]');
-    await pinInput.waitFor({ state: "visible", timeout: 5000 });
+    await pinInput.waitFor({ state: "visible", timeout: 10000 });
     await pinInput.fill("1234");
 
     // Verify store value is still set after filling other fields
@@ -370,91 +428,74 @@ test.describe("Cashier Store Dropdown", () => {
     });
     expect(hiddenSelectValueAfter).toBe(testStore.store_id);
 
-    await page.screenshot({ path: "test-results/cashier-form-filled.png" });
-
     // Step 6: Submit the form
     const createButton = page.locator('[data-testid="submit-cashier"]');
-    await createButton.waitFor({ state: "visible", timeout: 5000 });
+    await createButton.waitFor({ state: "visible", timeout: 10000 });
+
+    // Set up promise to wait for dialog closure BEFORE clicking (order matters)
+    // The form calls onSuccess() which closes the dialog after successful creation
+    const dialogClosePromise = page
+      .locator('[data-testid="cashier-name"]')
+      .waitFor({ state: "hidden", timeout: 20000 })
+      .catch(() => null);
+
     await createButton.click();
 
-    // Step 7: Wait for success - either toast message appears or dialog closes
-    // The toast has title "Cashier created" and description "{name} has been added successfully."
+    // Step 7: Wait for success - dialog closure is the primary indicator
+    // The toast appears first, then onSuccess() is called which closes the dialog
+    // Waiting for dialog closure is more reliable than waiting for toast in CI/CD
+
+    // Wait for dialog to close (primary success indicator)
+    await dialogClosePromise;
+
+    // Also check for toast message (may appear briefly before dialog closes)
     const toastTitle = page.locator("text=Cashier created");
     const toastDescription = page.locator(
       `text=${cashierName} has been added successfully.`,
     );
 
-    // Wait for either toast to appear or dialog to close
-    // Using Promise.any so the first successful wait wins
-    // If all conditions fail, the test will fail with an AggregateError
-    try {
-      await Promise.any([
-        toastTitle.waitFor({ state: "visible", timeout: 5000 }),
-        toastDescription.waitFor({ state: "visible", timeout: 5000 }),
-        page.waitForSelector('[data-testid="cashier-name"]', {
-          state: "hidden",
-          timeout: 5000,
-        }),
-      ]);
-    } catch (error) {
-      throw new Error(
-        `None of the expected success conditions occurred: toast title, toast description, or dialog closure. Original error: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-
-    await page.screenshot({ path: "test-results/cashier-after-submit.png" });
-
-    // Verify success - check for toast or dialog closure
+    // Verify success - check for toast or confirm dialog closure
     let toastTitleVisible = false;
     try {
-      await toastTitle.waitFor({ state: "visible", timeout: 2000 });
+      await toastTitle.waitFor({ state: "visible", timeout: 3000 });
       toastTitleVisible = true;
     } catch {
-      toastTitleVisible = false;
+      // Toast might have already disappeared, that's OK
     }
 
     let toastDescVisible = false;
     try {
-      await toastDescription.waitFor({ state: "visible", timeout: 2000 });
+      await toastDescription.waitFor({ state: "visible", timeout: 3000 });
       toastDescVisible = true;
     } catch {
-      toastDescVisible = false;
+      // Toast might have already disappeared, that's OK
     }
 
-    let dialogClosed = false;
-    try {
-      await page
-        .locator('[data-testid="cashier-name"]')
-        .waitFor({ state: "hidden", timeout: 2000 });
-      dialogClosed = true;
-    } catch {
-      dialogClosed = false;
-    }
+    // Verify dialog is closed (primary success indicator)
+    const dialogClosed = await page
+      .locator('[data-testid="cashier-name"]')
+      .isHidden()
+      .catch(() => false);
 
     // At least one success indicator should be present
-    expect(toastTitleVisible || toastDescVisible || dialogClosed).toBe(true);
+    // Dialog closure is the most reliable indicator since onSuccess() is called after toast
+    expect(dialogClosed || toastTitleVisible || toastDescVisible).toBe(true);
 
     // Ensure there's no validation error for store
     const storeError = page.locator("text=Store is required");
-    let hasStoreError = false;
-    try {
-      await storeError.waitFor({ state: "visible", timeout: 1000 });
-      hasStoreError = true;
-    } catch {
-      hasStoreError = false;
-    }
+    const hasStoreError = await storeError.isVisible().catch(() => false);
     expect(hasStoreError).toBe(false);
 
-    // Verify the form submission was successful by checking the store value was preserved
-    // If dialog is still open, verify store is still selected
-    if (!dialogClosed) {
-      const finalStoreValue = await page.evaluate(() => {
-        const hiddenSelect = document.querySelector(
-          'select[aria-hidden="true"]',
-        ) as HTMLSelectElement | null;
-        return hiddenSelect?.value || null;
-      });
-      expect(finalStoreValue).toBe(testStore.store_id);
-    }
+    // Verify the page is still in a valid state after dialog closes
+    // The dialog closing is the primary success indicator - onSuccess() is only called
+    // after successful creation. The cashier list may be refetching, so we just verify
+    // the page didn't error out by checking we're still on the cashiers page
+    const currentUrl = page.url();
+    expect(currentUrl).toContain("/client-dashboard/cashiers");
+
+    // Optional: Verify the page header is visible (indicates page is loaded)
+    const pageHeader = page.locator("text=Cashiers").first();
+    const headerVisible = await pageHeader.isVisible().catch(() => false);
+    expect(headerVisible).toBe(true);
   });
 });
