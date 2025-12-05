@@ -167,7 +167,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     });
   });
 
-  it("[P0] 4.9-COMPONENT-013: should display Cancel and Submit buttons", () => {
+  it("[P0] 4.9-COMPONENT-013: should display Cancel and Start Shift buttons", () => {
     // GIVEN: Component is rendered
     renderWithProviders(
       <TerminalAuthModal
@@ -184,11 +184,11 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
       screen.getByTestId("terminal-auth-cancel-button"),
     ).toBeInTheDocument();
     expect(screen.getByText(/cancel/i)).toBeInTheDocument();
-    // THEN: Submit button should be visible
+    // THEN: Start Shift button should be visible (shows "Resume Shift" if active shift exists)
     expect(
       screen.getByTestId("terminal-auth-submit-button"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/submit/i)).toBeInTheDocument();
+    expect(screen.getByText(/start shift/i)).toBeInTheDocument();
   });
 
   it("[P1] 4.9-COMPONENT-014: should validate that cashier name is required", async () => {

@@ -129,38 +129,38 @@ export async function seedRBAC() {
       },
     });
 
-    // CLIENT_USER - COMPANY scope (users who can log in via client-login and access client dashboard)
+    // CLIENT_USER - COMPANY scope (secure login for accessing the client dashboard where cashiers operate terminals)
     const clientUserRole = await prisma.role.upsert({
       where: { code: "CLIENT_USER" },
       update: {
         scope: "COMPANY",
         description:
-          "Client user with read-only access to view owned companies and stores",
+          "Secure login for accessing the client dashboard where cashiers start/end shifts and operate terminals",
         is_system_role: true,
       },
       create: {
         code: "CLIENT_USER",
         scope: "COMPANY",
         description:
-          "Client user with read-only access to view owned companies and stores",
+          "Secure login for accessing the client dashboard where cashiers start/end shifts and operate terminals",
         is_system_role: true,
       },
     });
 
-    // CASHIER - STORE scope (cashiers who operate terminals and handle transactions)
+    // CASHIER - STORE scope (cashiers who operate terminals, start/end shifts, and handle transactions)
     const cashierRole = await prisma.role.upsert({
       where: { code: "CASHIER" },
       update: {
         scope: "STORE",
         description:
-          "Cashier with access to operate terminals and handle transactions at assigned stores",
+          "Cashier with access to start/end shifts, process transactions, and view shift reports at assigned stores",
         is_system_role: true,
       },
       create: {
         code: "CASHIER",
         scope: "STORE",
         description:
-          "Cashier with access to operate terminals and handle transactions at assigned stores",
+          "Cashier with access to start/end shifts, process transactions, and view shift reports at assigned stores",
         is_system_role: true,
       },
     });
@@ -456,12 +456,18 @@ export async function seedRBAC() {
     }
     console.log("✅ CLIENT_USER: Permissions mapped");
 
-    // CASHIER: Basic shift and transaction operations for cashiers at terminals
+    // CASHIER: Shift operations and transaction processing for cashiers at terminals
+    // Cashiers can start/end shifts, process transactions, and view their shift reports
     const cashierPermissions = [
       PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
+      // Shift Operations - CASHIER can open and close their own shifts
+      PERMISSIONS.SHIFT_OPEN,
+      PERMISSIONS.SHIFT_CLOSE,
       PERMISSIONS.SHIFT_READ,
+      // Transaction Operations
       PERMISSIONS.TRANSACTION_CREATE,
       PERMISSIONS.TRANSACTION_READ,
+      // Reports
       PERMISSIONS.REPORT_SHIFT,
     ];
 

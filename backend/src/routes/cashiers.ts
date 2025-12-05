@@ -3,6 +3,7 @@ import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
 import { cashierService, AuditContext } from "../services/cashier.service";
+import { cashierSessionService } from "../services/cashier-session.service";
 import { z } from "zod";
 
 /**
@@ -49,12 +50,14 @@ const updateCashierSchema = z.object({
 
 /**
  * Zod schema for cashier authentication
+ * Supports optional terminal_id for creating a cashier session
  */
 const authenticateCashierSchema = z
   .object({
     name: z.string().optional(),
     employee_id: z.string().optional(),
     pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits"),
+    terminal_id: z.string().uuid("terminal_id must be a valid UUID").optional(),
   })
   .refine((data) => data.name || data.employee_id, {
     message: "Either name or employee_id must be provided",
@@ -555,10 +558,17 @@ export async function cashierRoutes(fastify: FastifyInstance) {
    * POST /api/stores/:storeId/cashiers/authenticate
    * Authenticate cashier by name or employee_id and PIN
    *
-   * @security No authentication required (public endpoint for terminal access)
+   * When terminal_id is provided, creates a Cashier Session Token for terminal operations.
+   * This implements the enterprise Cashier Session Token pattern:
+   * - CLIENT_USER must be authenticated (JWT cookie)
+   * - Cashier authenticates via PIN
+   * - Session token is created and returned for terminal operations
+   *
+   * @security Requires CLIENT_DASHBOARD_ACCESS permission (authenticated via JWT)
    * Rate limit: 5 attempts per minute per store (prevents brute force attacks)
-   * @body { name?, employee_id?, pin }
-   * @returns { cashier_id, employee_id, name } on success
+   * @body { name?, employee_id?, pin, terminal_id? }
+   * @returns { cashier_id, employee_id, name, session? } on success
+   *          session is included when terminal_id is provided
    */
   fastify.post(
     "/api/stores/:storeId/cashiers/authenticate",
@@ -583,26 +593,52 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           },
         },
       },
-      preHandler: [validateAuthenticateCashierBody],
-      // Note: No authMiddleware - this is a public endpoint for terminal authentication
+      preHandler: [
+        validateAuthenticateCashierBody,
+        authMiddleware, // Requires authenticated CLIENT_USER
+        permissionMiddleware(PERMISSIONS.CLIENT_DASHBOARD_ACCESS),
+      ],
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
+        const user = (request as unknown as { user: UserIdentity }).user;
         const { storeId } = request.params as { storeId: string };
-        const { name, employee_id, pin } = (request as any).validatedBody;
-        const auditContext = getAuditContext(request, null);
+        const { name, employee_id, pin, terminal_id } = (request as any)
+          .validatedBody;
+        const auditContext = getAuditContext(request, user);
 
-        const result = await cashierService.authenticateCashier(
+        // First authenticate the cashier via PIN
+        const authResult = await cashierService.authenticateCashier(
           storeId,
           { name, employee_id },
           pin,
           auditContext,
         );
 
+        // If terminal_id is provided, create a cashier session
+        let sessionData = null;
+        if (terminal_id) {
+          const session = await cashierSessionService.createSession({
+            cashierId: authResult.cashier_id,
+            terminalId: terminal_id,
+            storeId: storeId,
+            authenticatedBy: user.id,
+          });
+
+          sessionData = {
+            session_id: session.session_id,
+            session_token: session.session_token,
+            expires_at: session.expires_at,
+          };
+        }
+
         reply.code(200);
         return {
           success: true,
-          data: result,
+          data: {
+            ...authResult,
+            session: sessionData,
+          },
         };
       } catch (error: unknown) {
         const message =

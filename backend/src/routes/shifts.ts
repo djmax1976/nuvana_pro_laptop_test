@@ -8,6 +8,12 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
+import {
+  cashierSessionWithPermission,
+  validateTerminalMatch,
+  RequestWithCashierSession,
+} from "../middleware/cashier-session.middleware";
+import { cashierSessionService } from "../services/cashier-session.service";
 import { PERMISSIONS } from "../constants/permissions";
 import {
   shiftService,
@@ -22,7 +28,6 @@ import {
   validateApproveVarianceInput,
   validateShiftId,
   validateShiftQueryInput,
-  validateStartShiftInput,
   validateUpdateStartingCashInput,
 } from "../schemas/shift.schema";
 import { ZodError } from "zod";
@@ -1484,7 +1489,18 @@ export async function shiftRoutes(fastify: FastifyInstance) {
    * POST /api/terminals/:terminalId/shifts/start
    * Start a new shift for a terminal (used in terminal authentication flow)
    * Creates a shift with calculated shift_number
-   * Protected route - requires SHIFT_OPEN permission
+   *
+   * Security Model (Enterprise Cashier Session Token Pattern):
+   * 1. authMiddleware - validates CLIENT_USER JWT cookie (web session)
+   * 2. cashierSessionWithPermission(SHIFT_OPEN) - validates:
+   *    a. X-Cashier-Session header contains valid session token
+   *    b. Session is not expired
+   *    c. CASHIER role has SHIFT_OPEN permission
+   * 3. validateTerminalMatch - ensures session terminal matches route terminal
+   *
+   * This implements dual-auth: both web login AND cashier PIN required.
+   * Authorization uses CASHIER's permissions, not CLIENT_USER's.
+   *
    * Story 4.92: Terminal Shift Page
    */
   fastify.post(
@@ -1492,7 +1508,8 @@ export async function shiftRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         authMiddleware,
-        permissionMiddleware(PERMISSIONS.SHIFT_OPEN),
+        cashierSessionWithPermission(PERMISSIONS.SHIFT_OPEN),
+        validateTerminalMatch,
       ],
       schema: {
         description:
@@ -1565,14 +1582,23 @@ export async function shiftRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const user = (request as any).user as UserIdentity;
+        const cashierSession = (request as RequestWithCashierSession)
+          .cashierSession!;
         const { terminalId } = request.params as { terminalId: string };
-        const body = validateStartShiftInput(request.body);
         const auditContext = getAuditContext(request, user);
 
+        // Use cashier_id from validated session (not from request body)
+        // This ensures the cashier who authenticated via PIN is the one starting the shift
         const shift = await shiftService.startShift(
           terminalId,
-          body.cashier_id,
+          cashierSession.cashierId,
           auditContext,
+        );
+
+        // Link the session to the shift for audit trail
+        await cashierSessionService.linkToShift(
+          cashierSession.sessionId,
+          shift.shift_id,
         );
 
         reply.code(201);
@@ -1621,7 +1647,14 @@ export async function shiftRoutes(fastify: FastifyInstance) {
           };
         }
 
-        fastify.log.error({ error }, "Error starting shift");
+        // Log detailed error for debugging
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        fastify.log.error(
+          { error, errorMessage, errorStack },
+          "Error starting shift",
+        );
         reply.code(500);
         return {
           success: false,
@@ -1763,7 +1796,16 @@ export async function shiftRoutes(fastify: FastifyInstance) {
   /**
    * PUT /api/shifts/:shiftId/starting-cash
    * Update starting cash for a shift
-   * Protected route - requires SHIFT_OPEN permission
+   *
+   * Security Model (Enterprise Cashier Session Token Pattern):
+   * 1. authMiddleware - validates CLIENT_USER JWT cookie (web session)
+   * 2. cashierSessionWithPermission(SHIFT_OPEN) - validates:
+   *    a. X-Cashier-Session header contains valid session token
+   *    b. Session is not expired
+   *    c. CASHIER role has SHIFT_OPEN permission (updating cash is part of opening)
+   *
+   * The cashier_id from the session is used to verify shift ownership.
+   *
    * Story 4.92: Terminal Shift Page
    */
   fastify.put(
@@ -1771,7 +1813,7 @@ export async function shiftRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         authMiddleware,
-        permissionMiddleware(PERMISSIONS.SHIFT_OPEN),
+        cashierSessionWithPermission(PERMISSIONS.SHIFT_OPEN),
       ],
       schema: {
         description: "Update starting cash for a shift",
@@ -1848,13 +1890,16 @@ export async function shiftRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const user = (request as any).user as UserIdentity;
+        const cashierSession = (request as RequestWithCashierSession)
+          .cashierSession!;
         const { shiftId } = request.params as { shiftId: string };
         const body = validateUpdateStartingCashInput(request.body);
         const auditContext = getAuditContext(request, user);
 
+        // Use cashier_id from session for verification (body.cashier_id ignored)
         const shift = await shiftService.updateStartingCash(
           shiftId,
-          body.cashier_id,
+          cashierSession.cashierId,
           body.starting_cash,
           auditContext,
         );
