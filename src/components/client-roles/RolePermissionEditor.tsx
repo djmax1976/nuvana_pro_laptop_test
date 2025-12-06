@@ -62,29 +62,32 @@ interface RolePermissionEditorProps {
 /**
  * Get a friendly display name for a role code
  */
+// Safe lookup maps for role display names and category icons
+const ROLE_DISPLAY_NAMES = new Map<string, string>([
+  ["STORE_MANAGER", "Store Manager"],
+  ["SHIFT_MANAGER", "Shift Manager"],
+  ["CASHIER", "Cashier"],
+]);
+
+const CATEGORY_ICONS = new Map<string, string>([
+  ["SHIFTS", "clock"],
+  ["TRANSACTIONS", "credit-card"],
+  ["INVENTORY", "package"],
+  ["LOTTERY", "ticket"],
+  ["REPORTS", "bar-chart"],
+  ["EMPLOYEES", "users"],
+  ["STORE", "building"],
+]);
+
 function getRoleDisplayName(code: string): string {
-  const names: Record<string, string> = {
-    STORE_MANAGER: "Store Manager",
-    SHIFT_MANAGER: "Shift Manager",
-    CASHIER: "Cashier",
-  };
-  return names[code] || code.replace(/_/g, " ");
+  return ROLE_DISPLAY_NAMES.get(code) ?? code.replace(/_/g, " ");
 }
 
 /**
  * Get icon for a category
  */
 function getCategoryIcon(category: string): string {
-  const icons: Record<string, string> = {
-    SHIFTS: "clock",
-    TRANSACTIONS: "credit-card",
-    INVENTORY: "package",
-    LOTTERY: "ticket",
-    REPORTS: "bar-chart",
-    EMPLOYEES: "users",
-    STORE: "building",
-  };
-  return icons[category] || "folder";
+  return CATEGORY_ICONS.get(category) ?? "folder";
 }
 
 export function RolePermissionEditor({
@@ -131,7 +134,7 @@ export function RolePermissionEditor({
 
   // Group permissions by category
   const groupedPermissions = useMemo(() => {
-    if (!role) return {};
+    if (!role) return new Map<string, PermissionWithState[]>();
     return groupPermissionsByCategory(role.permissions);
   }, [role]);
 
@@ -347,37 +350,39 @@ export function RolePermissionEditor({
       )}
 
       {/* Permission categories */}
-      {Object.entries(groupedPermissions).map(([category, permissions]) => (
-        <Card key={category} data-testid={`permission-category-${category}`}>
-          <CardHeader>
-            <CardTitle className="text-base">
-              {getCategoryDisplayName(category)}
-            </CardTitle>
-            <CardDescription>
-              {permissions.length} permission
-              {permissions.length !== 1 ? "s" : ""} in this category
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {permissions.map((permission) => (
-                <PermissionToggle
-                  key={permission.permission_id}
-                  permission={permission}
-                  checked={
-                    localPermissions.get(permission.permission_id) ??
-                    permission.is_enabled
-                  }
-                  onCheckedChange={(checked) =>
-                    handleToggle(permission.permission_id, checked)
-                  }
-                  disabled={isMutating}
-                />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+      {Array.from(groupedPermissions.entries()).map(
+        ([category, permissions]) => (
+          <Card key={category} data-testid={`permission-category-${category}`}>
+            <CardHeader>
+              <CardTitle className="text-base">
+                {getCategoryDisplayName(category)}
+              </CardTitle>
+              <CardDescription>
+                {permissions.length} permission
+                {permissions.length !== 1 ? "s" : ""} in this category
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {permissions.map((permission) => (
+                  <PermissionToggle
+                    key={permission.permission_id}
+                    permission={permission}
+                    checked={
+                      localPermissions.get(permission.permission_id) ??
+                      permission.is_enabled
+                    }
+                    onCheckedChange={(checked) =>
+                      handleToggle(permission.permission_id, checked)
+                    }
+                    disabled={isMutating}
+                  />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ),
+      )}
 
       {/* Reset confirmation dialog */}
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>

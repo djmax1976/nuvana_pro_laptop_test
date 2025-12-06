@@ -857,12 +857,12 @@ export function useRemoveRoleFromCompany() {
  * @returns Display name for the scope
  */
 export function getScopeDisplayName(scope: string): string {
-  const scopeNames: Record<string, string> = {
-    SYSTEM: "System",
-    COMPANY: "Company",
-    STORE: "Store",
-  };
-  return scopeNames[scope] || scope;
+  const scopeNames = new Map<string, string>([
+    ["SYSTEM", "System"],
+    ["COMPANY", "Company"],
+    ["STORE", "Store"],
+  ]);
+  return scopeNames.get(scope) ?? scope;
 }
 
 /**
@@ -871,12 +871,12 @@ export function getScopeDisplayName(scope: string): string {
  * @returns CSS class for badge color
  */
 export function getScopeBadgeColor(scope: string): string {
-  const scopeColors: Record<string, string> = {
-    SYSTEM: "bg-red-100 text-red-800",
-    COMPANY: "bg-blue-100 text-blue-800",
-    STORE: "bg-green-100 text-green-800",
-  };
-  return scopeColors[scope] || "bg-gray-100 text-gray-800";
+  const scopeColors = new Map<string, string>([
+    ["SYSTEM", "bg-red-100 text-red-800"],
+    ["COMPANY", "bg-blue-100 text-blue-800"],
+    ["STORE", "bg-green-100 text-green-800"],
+  ]);
+  return scopeColors.get(scope) ?? "bg-gray-100 text-gray-800";
 }
 
 /**
