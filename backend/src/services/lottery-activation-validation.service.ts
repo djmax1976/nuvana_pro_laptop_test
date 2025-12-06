@@ -13,9 +13,9 @@
 
 import { LotteryPackStatus } from "@prisma/client";
 
-// UUID v4 regex pattern
+// UUID v4 regex pattern (version digit must be 4)
 const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export interface ValidationResult {
   valid: boolean;

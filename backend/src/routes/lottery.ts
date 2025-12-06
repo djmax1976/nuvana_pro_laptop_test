@@ -720,18 +720,6 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Validate pack status is RECEIVED (only RECEIVED packs can be activated)
-        if (pack.status !== "RECEIVED") {
-          reply.code(400);
-          return {
-            success: false,
-            error: {
-              code: "INVALID_PACK_STATUS",
-              message: `Pack cannot be activated. Current status is ${pack.status}. Only packs with RECEIVED status can be activated.`,
-            },
-          };
-        }
-
         // Validate store_id matches authenticated user's store (RLS enforcement)
         // System admins can access any store
         if (!hasSystemScope) {
@@ -751,15 +739,55 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           }
         }
 
-        // Update pack status to ACTIVE in transaction to ensure atomicity
+        // Atomically update pack status to ACTIVE only if status is RECEIVED
+        // This prevents TOCTOU race conditions by combining verification and update
         const updatedPack = await prisma.$transaction(async (tx) => {
-          // Update pack status to ACTIVE and set activated_at timestamp
-          const activatedPack = await tx.lotteryPack.update({
-            where: { pack_id: params.packId },
+          // Use updateMany with status condition to atomically verify and update
+          const updateResult = await tx.lotteryPack.updateMany({
+            where: {
+              pack_id: params.packId,
+              status: "RECEIVED",
+            },
             data: {
               status: "ACTIVE",
               activated_at: new Date(),
             },
+          });
+
+          // If no rows were affected, the pack status changed concurrently
+          if (updateResult.count === 0) {
+            // Fetch current pack status to provide accurate error message
+            const currentPack = await tx.lotteryPack.findUnique({
+              where: { pack_id: params.packId },
+              select: { status: true },
+            });
+
+            if (!currentPack) {
+              // Pack was deleted concurrently
+              reply.code(404);
+              throw {
+                success: false,
+                error: {
+                  code: "PACK_NOT_FOUND",
+                  message: "Lottery pack not found",
+                },
+              };
+            }
+
+            // Pack status changed - return 409 Conflict
+            reply.code(409);
+            throw {
+              success: false,
+              error: {
+                code: "CONCURRENT_MODIFICATION",
+                message: `Pack status changed concurrently. Current status is ${currentPack.status}. Only packs with RECEIVED status can be activated.`,
+              },
+            };
+          }
+
+          // Fetch the updated pack with relationships
+          const activatedPack = await tx.lotteryPack.findUnique({
+            where: { pack_id: params.packId },
             include: {
               game: {
                 select: {
@@ -782,6 +810,18 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               },
             },
           });
+
+          if (!activatedPack) {
+            // This should never happen, but handle it defensively
+            reply.code(404);
+            throw {
+              success: false,
+              error: {
+                code: "PACK_NOT_FOUND",
+                message: "Lottery pack not found after update",
+              },
+            };
+          }
 
           // Create audit log entry (non-blocking - don't fail if audit fails)
           try {
@@ -833,6 +873,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           },
         };
       } catch (error: any) {
+        // If error is a structured error response (from concurrent modification or not found),
+        // return it directly
+        if (error && typeof error === "object" && error.success === false) {
+          return error;
+        }
+
         fastify.log.error({ error }, "Error activating lottery pack");
 
         // Generic error response

@@ -27,6 +27,7 @@ import {
   createLotteryPack,
   createLotteryBin,
 } from "../support/factories/lottery.factory";
+import { createJWTAccessToken } from "../support/factories";
 import { createCompany, createStore, createUser } from "../support/helpers";
 import { withBypassClient } from "../support/prisma-bypass";
 
@@ -460,13 +461,12 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     );
   });
 
-  test("6.3-API-006a: [P0] SECURITY - should reject user with different permission", async ({
-    storeManagerApiRequest,
+  test("6.3-API-006a: [P0] SECURITY - should reject user without LOTTERY_PACK_ACTIVATE permission", async ({
+    request,
+    backendUrl,
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a Store Manager but without LOTTERY_PACK_ACTIVATE permission
-    // Note: This test assumes permission middleware checks specific permission
-    // If the fixture provides the permission, this test validates the middleware works
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
     });
@@ -477,6 +477,46 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const store = await createStore(prismaClient, {
       company_id: company.company_id,
     });
+    const user = await createUser(prismaClient);
+
+    // Assign STORE_MANAGER role to user (without LOTTERY_PACK_ACTIVATE permission)
+    const role = await prismaClient.role.findUnique({
+      where: { code: "STORE_MANAGER" },
+    });
+    if (!role) {
+      throw new Error(
+        "STORE_MANAGER role not found in database. Run database seed first.",
+      );
+    }
+
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: role.role_id,
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      });
+    });
+
+    // Create JWT token with STORE_MANAGER role but WITHOUT LOTTERY_PACK_ACTIVATE permission
+    const token = createJWTAccessToken({
+      user_id: user.user_id,
+      email: user.email,
+      roles: ["STORE_MANAGER"],
+      permissions: [
+        "STORE_READ",
+        "SHIFT_OPEN",
+        "SHIFT_CLOSE",
+        "SHIFT_READ",
+        "SHIFT_REPORT_VIEW",
+        "INVENTORY_READ",
+        "TRANSACTION_READ",
+        // Note: LOTTERY_PACK_ACTIVATE is intentionally omitted
+      ],
+    });
+
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: store.store_id,
@@ -486,17 +526,27 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
       status: "RECEIVED",
     });
 
-    // WHEN: Attempting to activate pack (permission check happens in middleware)
-    const response = await storeManagerApiRequest.put(
-      `/api/lottery/packs/${pack.pack_id}/activate`,
+    // WHEN: Attempting to activate pack without required permission
+    const response = await request.put(
+      `${backendUrl}/api/lottery/packs/${pack.pack_id}/activate`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `access_token=${token}`,
+        },
+      },
     );
 
-    // THEN: Request should succeed if user has permission, or fail with 403 if not
-    // This test validates permission middleware is working
+    // THEN: Request is rejected with 403 Forbidden
     expect(
-      [200, 403],
-      "Should return 200 if permitted or 403 if not",
-    ).toContain(response.status());
+      response.status(),
+      "Should return 403 for user without LOTTERY_PACK_ACTIVATE permission",
+    ).toBe(403);
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
+      "PERMISSION_DENIED",
+    );
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -732,8 +782,8 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
   test("6.3-API-011: [P0] ERROR - should return 404 for non-existent pack", async ({
     storeManagerApiRequest,
   }) => {
-    // GIVEN: I am authenticated as a Store Manager
-    const nonExistentPackId = "00000000-0000-0000-0000-000000000000";
+    // GIVEN: I am authenticated as a Store Manager with a valid but non-existent UUID
+    const nonExistentPackId = "123e4567-e89b-12d3-a456-426614174000";
 
     // WHEN: Attempting to activate a non-existent pack
     const response = await storeManagerApiRequest.put(
@@ -916,13 +966,15 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
       "store",
       "bin",
     ];
+    const allowedUnderscoreFields: string[] = [];
     const responseFields = Object.keys(body.data);
 
-    // All fields in response should be in allowed list
+    // All fields in response should be in allowed list or explicitly whitelisted underscore fields
     responseFields.forEach((field) => {
       expect(
-        allowedFields.includes(field) || field.startsWith("_"),
-        `Field ${field} should be in allowed list or be a private field`,
+        allowedFields.includes(field) ||
+          allowedUnderscoreFields.includes(field),
+        `Field ${field} should be in allowed list or explicitly whitelisted in allowedUnderscoreFields`,
       ).toBe(true);
     });
 
