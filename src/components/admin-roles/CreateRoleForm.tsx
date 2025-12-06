@@ -10,7 +10,11 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useCreateRole, useAllPermissions } from "@/lib/api/admin-roles";
+import {
+  useCreateRole,
+  useAllPermissions,
+  Permission,
+} from "@/lib/api/admin-roles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -112,17 +116,19 @@ export function CreateRoleForm() {
   });
 
   // Group permissions by category
+  // Group permissions using Map for safe dynamic access
   const groupedPermissions = allPermissions
-    ? allPermissions.reduce(
-        (acc, perm) => {
-          const category = getPermissionCategory(perm.code);
-          if (!acc[category]) acc[category] = [];
-          acc[category].push(perm);
-          return acc;
-        },
-        {} as Record<string, typeof allPermissions>,
-      )
-    : {};
+    ? allPermissions.reduce((acc, perm) => {
+        const category = getPermissionCategory(perm.code);
+        const existing = acc.get(category);
+        if (existing) {
+          existing.push(perm);
+        } else {
+          acc.set(category, [perm]);
+        }
+        return acc;
+      }, new Map<string, Permission[]>())
+    : new Map<string, Permission[]>();
 
   // Toggle permission
   const togglePermission = (permissionId: string) => {
@@ -328,7 +334,7 @@ export function CreateRoleForm() {
                 <div className="grid gap-6 md:grid-cols-2">
                   {Object.entries(PERMISSION_CATEGORIES).map(
                     ([category, config]) => {
-                      const categoryPerms = groupedPermissions[category];
+                      const categoryPerms = groupedPermissions.get(category);
                       if (!categoryPerms || categoryPerms.length === 0)
                         return null;
 

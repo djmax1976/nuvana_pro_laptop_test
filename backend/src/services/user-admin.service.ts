@@ -359,13 +359,63 @@ export class UserAdminService {
 
                 companyIdForRole = roleAssignment.company_id;
                 storeIdForRole = roleAssignment.store_id;
-              } else {
-                // For other roles, use provided company_id
-                companyIdForRole = roleAssignment.company_id || null;
-                // Store ID only for STORE scope roles
-                if (roleAssignment.scope_type === "STORE") {
-                  storeIdForRole = roleAssignment.store_id || null;
+              } else if (role.scope === "STORE") {
+                // ALL STORE-scoped roles require company_id and store_id
+                // This ensures STORE_MANAGER, SHIFT_MANAGER, CASHIER, etc. are always assigned to a specific store
+                if (!roleAssignment.company_id || !roleAssignment.store_id) {
+                  throw new Error(
+                    `Company ID and Store ID are required for STORE-scoped role '${role.code}'. A store-level role must be assigned to a specific store.`,
+                  );
                 }
+
+                // Re-validate store exists, belongs to company, and is active
+                // This validation happens inside the transaction to prevent race conditions
+                const store = await tx.store.findUnique({
+                  where: { store_id: roleAssignment.store_id },
+                  select: { company_id: true, status: true },
+                });
+
+                if (!store) {
+                  throw new Error(
+                    `Store with ID ${roleAssignment.store_id} not found`,
+                  );
+                }
+
+                if (store.company_id !== roleAssignment.company_id) {
+                  throw new Error(
+                    "Store does not belong to the specified company. This is a security violation.",
+                  );
+                }
+
+                if (store.status !== "ACTIVE") {
+                  throw new Error(
+                    `Cannot assign ${role.code} to an inactive store`,
+                  );
+                }
+
+                // Re-validate company exists and is active
+                const company = await tx.company.findUnique({
+                  where: { company_id: roleAssignment.company_id },
+                  select: { company_id: true, status: true },
+                });
+
+                if (!company) {
+                  throw new Error(
+                    `Company with ID ${roleAssignment.company_id} not found`,
+                  );
+                }
+
+                if (company.status !== "ACTIVE") {
+                  throw new Error(
+                    `Cannot assign ${role.code} to an inactive company`,
+                  );
+                }
+
+                companyIdForRole = roleAssignment.company_id;
+                storeIdForRole = roleAssignment.store_id;
+              } else {
+                // For COMPANY-scoped roles, use provided company_id (no store_id needed)
+                companyIdForRole = roleAssignment.company_id || null;
               }
             }
 
@@ -734,9 +784,11 @@ export class UserAdminService {
         throw new Error(`Company with ID ${company_id} not found`);
       }
     } else if (scope_type === "STORE") {
-      // STORE scope - requires company_id and store_id
+      // STORE scope - requires company_id and store_id for ALL store-scoped roles
       if (!company_id || !store_id) {
-        throw new Error("STORE scope requires company_id and store_id");
+        throw new Error(
+          `Company ID and Store ID are required for STORE-scoped role '${role.code}'. A store-level role must be assigned to a specific store.`,
+        );
       }
 
       // Basic existence checks (full validation happens in transaction)
@@ -804,10 +856,10 @@ export class UserAdminService {
               throw new Error(`Company with ID ${company_id} not found`);
             }
 
-            // For CLIENT_USER role, ensure company is active
-            if (role.code === "CLIENT_USER" && company.status !== "ACTIVE") {
+            // ALL STORE-scoped roles require active company
+            if (company.status !== "ACTIVE") {
               throw new Error(
-                "Cannot assign CLIENT_USER to an inactive company",
+                `Cannot assign ${role.code} to an inactive company`,
               );
             }
 
@@ -822,12 +874,16 @@ export class UserAdminService {
             }
 
             if (store.company_id !== company_id) {
-              throw new Error("Store does not belong to the specified company");
+              throw new Error(
+                "Store does not belong to the specified company. This is a security violation.",
+              );
             }
 
-            // For CLIENT_USER role, ensure store is active
-            if (role.code === "CLIENT_USER" && store.status !== "ACTIVE") {
-              throw new Error("Cannot assign CLIENT_USER to an inactive store");
+            // ALL STORE-scoped roles require active store
+            if (store.status !== "ACTIVE") {
+              throw new Error(
+                `Cannot assign ${role.code} to an inactive store`,
+              );
             }
           }
 

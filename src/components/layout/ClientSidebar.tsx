@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useClientAuth } from "@/contexts/ClientAuthContext";
+import { useMenuPermissions } from "@/hooks/useMenuPermissions";
 import {
   LayoutDashboard,
   Clock,
@@ -26,15 +28,6 @@ interface NavItem {
 }
 
 /**
- * Client Dashboard Navigation Items
- * Restricted to client-appropriate features only
- * Excludes: Clients, Companies, Users, Stores (system-level management)
- *
- * Note: "Roles & Permissions" is conditionally rendered based on CLIENT_ROLE_MANAGE permission
- */
-const CLIENT_ROLE_MANAGE_PERMISSION = "CLIENT_ROLE_MANAGE";
-
-/**
  * Generate a stable testid from a title string
  * Replaces all whitespace with hyphens, removes/replaces special characters,
  * and converts to lowercase for consistent testid generation
@@ -55,100 +48,103 @@ interface ClientSidebarProps {
 }
 
 /**
- * Client-specific sidebar component
- * Only shows navigation items appropriate for client users
- * No access to system-level management features
+ * All possible navigation items for the client dashboard
+ * Visibility is controlled by the useMenuPermissions hook based on user permissions
+ */
+const ALL_NAV_ITEMS: NavItem[] = [
+  // Dashboard - Core navigation
+  {
+    title: "Dashboard",
+    href: "/client-dashboard",
+    icon: LayoutDashboard,
+    exact: true,
+  },
+  // Shift Management: View and manage individual shifts, open new shifts, and reconcile cash
+  {
+    title: "Shift Management",
+    href: "/client-dashboard/shifts",
+    icon: Clock,
+  },
+  // Daily Summary: View day reconciliations, daily summaries, and shift totals for a given day
+  {
+    title: "Daily Summary",
+    href: "/client-dashboard/shift-and-day",
+    icon: CalendarDays,
+  },
+  // Inventory: View and manage store inventory
+  {
+    title: "Inventory",
+    href: "/client-dashboard/inventory",
+    icon: Package,
+  },
+  // Lottery: Manage lottery packs and reconciliation
+  {
+    title: "Lottery",
+    href: "/client-dashboard/lottery",
+    icon: Ticket,
+  },
+  // Employees: Manage store employees
+  {
+    title: "Employees",
+    href: "/client-dashboard/employees",
+    icon: Users,
+  },
+  // Cashiers: Manage cashier accounts
+  {
+    title: "Cashiers",
+    href: "/client-dashboard/cashiers",
+    icon: UserCheck,
+  },
+  // Roles & Permissions: Customize role permissions (CLIENT_ROLE_MANAGE required)
+  {
+    title: "Roles & Permissions",
+    href: "/client-dashboard/roles",
+    icon: Shield,
+  },
+  // Reports: View various reports
+  {
+    title: "Reports",
+    href: "/client-dashboard/reports",
+    icon: BarChart3,
+  },
+  // AI Assistant: AI-powered assistance
+  {
+    title: "AI Assistant",
+    href: "/client-dashboard/ai",
+    icon: Bot,
+  },
+  // Settings: Account and store settings
+  {
+    title: "Settings",
+    href: "/client-dashboard/settings",
+    icon: Settings,
+  },
+];
+
+/**
+ * Client-specific sidebar component with permission-based menu visibility
  *
- * SECURITY: The "Roles & Permissions" link is only rendered for users
- * with CLIENT_ROLE_MANAGE permission to prevent unauthorized access.
- * Server-side route guards in /api/client/roles enforce the same permission.
+ * Shows navigation items based on the user's assigned permissions.
+ * Menu items are filtered using the centralized menu-permissions configuration.
+ *
+ * SECURITY NOTE:
+ * This is UI-level filtering for better UX. Backend APIs independently
+ * enforce authorization - users cannot access restricted features
+ * even if they manipulate the UI.
+ *
+ * @see src/config/menu-permissions.ts for permission mappings
+ * @see src/hooks/useMenuPermissions.ts for filtering logic
  */
 export function ClientSidebar({ className, onNavigate }: ClientSidebarProps) {
   const pathname = usePathname();
   const { permissions } = useClientAuth();
+  const { filterNavItems } = useMenuPermissions(permissions);
 
-  // Base navigation items (always visible to client users)
-  const baseNavItems: NavItem[] = [
-    {
-      title: "Dashboard",
-      href: "/client-dashboard",
-      icon: LayoutDashboard,
-      exact: true,
-    },
-    // Shift Management: View and manage individual shifts, open new shifts, and reconcile cash
-    {
-      title: "Shift Management",
-      href: "/client-dashboard/shifts",
-      icon: Clock,
-    },
-    // Daily Summary: View day reconciliations, daily summaries, and shift totals for a given day
-    {
-      title: "Daily Summary",
-      href: "/client-dashboard/shift-and-day",
-      icon: CalendarDays,
-    },
-    {
-      title: "Inventory",
-      href: "/client-dashboard/inventory",
-      icon: Package,
-    },
-    {
-      title: "Lottery",
-      href: "/client-dashboard/lottery",
-      icon: Ticket,
-    },
-    {
-      title: "Employees",
-      href: "/client-dashboard/employees",
-      icon: Users,
-    },
-    {
-      title: "Cashiers",
-      href: "/client-dashboard/cashiers",
-      icon: UserCheck,
-    },
-  ];
-
-  // Conditionally include "Roles & Permissions" only if user has CLIENT_ROLE_MANAGE permission
-  const hasRoleManagePermission = permissions.includes(
-    CLIENT_ROLE_MANAGE_PERMISSION,
-  );
-
-  // Additional navigation items (permission-based)
-  const additionalNavItems: NavItem[] = [];
-  if (hasRoleManagePermission) {
-    additionalNavItems.push({
-      title: "Roles & Permissions",
-      href: "/client-dashboard/roles",
-      icon: Shield,
-    });
-  }
-
-  // Common navigation items (always visible)
-  const commonNavItems: NavItem[] = [
-    {
-      title: "Reports",
-      href: "/client-dashboard/reports",
-      icon: BarChart3,
-    },
-    {
-      title: "AI Assistant",
-      href: "/client-dashboard/ai",
-      icon: Bot,
-    },
-    {
-      title: "Settings",
-      href: "/client-dashboard/settings",
-      icon: Settings,
-    },
-  ];
-
-  // Combine all navigation items
-  const clientNavItems = [
-    ...baseNavItems,
-    ...additionalNavItems,
-    ...commonNavItems,
-  ];
+  // Filter navigation items based on user permissions
+  // Memoized to prevent recalculation on every render
+  const visibleNavItems = useMemo(() => {
+    return filterNavItems(ALL_NAV_ITEMS);
+  }, [filterNavItems]);
 
   return (
     <div
@@ -161,8 +157,11 @@ export function ClientSidebar({ className, onNavigate }: ClientSidebarProps) {
       <div className="flex h-16 items-center border-b px-6">
         <h2 className="text-heading-3 font-bold text-foreground">My Store</h2>
       </div>
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {clientNavItems.map((item) => {
+      <nav
+        className="flex-1 space-y-1 px-3 py-4"
+        data-testid="client-sidebar-nav"
+      >
+        {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const isActive = item.exact
             ? pathname === item.href
@@ -189,3 +188,9 @@ export function ClientSidebar({ className, onNavigate }: ClientSidebarProps) {
     </div>
   );
 }
+
+/**
+ * Export ALL_NAV_ITEMS for testing purposes
+ * This allows tests to verify filtering logic against the full item set
+ */
+export { ALL_NAV_ITEMS };

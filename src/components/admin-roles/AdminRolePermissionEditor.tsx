@@ -170,24 +170,28 @@ export function AdminRolePermissionEditor({
     }
   }, [role, hasChanges]);
 
-  // Group permissions by category
+  // Group permissions by category using Map for safe dynamic access
   const groupedPermissions = useMemo(() => {
-    if (!allPermissions) return {};
+    if (!allPermissions) return new Map<string, Permission[]>();
 
-    const groups: Record<string, Permission[]> = {};
+    const groups = new Map<string, Permission[]>();
 
     for (const perm of allPermissions) {
       const category = getPermissionCategory(perm.code);
-      if (!groups[category]) {
-        groups[category] = [];
+      const existing = groups.get(category);
+      if (existing) {
+        existing.push(perm);
+      } else {
+        groups.set(category, [perm]);
       }
-      groups[category].push(perm);
     }
 
     // Sort permissions within each category
-    for (const category of Object.keys(groups)) {
-      groups[category].sort((a, b) => a.code.localeCompare(b.code));
-    }
+    groups.forEach((perms) => {
+      perms.sort((a: Permission, b: Permission) =>
+        a.code.localeCompare(b.code),
+      );
+    });
 
     return groups;
   }, [allPermissions]);
@@ -208,7 +212,7 @@ export function AdminRolePermissionEditor({
 
   // Select all in category
   const selectAllInCategory = (category: string) => {
-    const categoryPerms = groupedPermissions[category] || [];
+    const categoryPerms = groupedPermissions.get(category) ?? [];
     setSelectedPermissions((prev) => {
       const newSet = new Set(prev);
       categoryPerms.forEach((p) => newSet.add(p.permission_id));
@@ -219,7 +223,7 @@ export function AdminRolePermissionEditor({
 
   // Deselect all in category
   const deselectAllInCategory = (category: string) => {
-    const categoryPerms = groupedPermissions[category] || [];
+    const categoryPerms = groupedPermissions.get(category) ?? [];
     setSelectedPermissions((prev) => {
       const newSet = new Set(prev);
       categoryPerms.forEach((p) => newSet.delete(p.permission_id));
@@ -230,13 +234,13 @@ export function AdminRolePermissionEditor({
 
   // Check if all in category are selected
   const isAllSelectedInCategory = (category: string): boolean => {
-    const categoryPerms = groupedPermissions[category] || [];
+    const categoryPerms = groupedPermissions.get(category) ?? [];
     return categoryPerms.every((p) => selectedPermissions.has(p.permission_id));
   };
 
   // Check if some in category are selected
   const isSomeSelectedInCategory = (category: string): boolean => {
-    const categoryPerms = groupedPermissions[category] || [];
+    const categoryPerms = groupedPermissions.get(category) ?? [];
     return (
       categoryPerms.some((p) => selectedPermissions.has(p.permission_id)) &&
       !isAllSelectedInCategory(category)
@@ -418,7 +422,7 @@ export function AdminRolePermissionEditor({
       {/* Permission categories */}
       <div className="grid gap-4 md:grid-cols-2">
         {Object.entries(PERMISSION_CATEGORIES).map(([category, config]) => {
-          const categoryPerms = groupedPermissions[category];
+          const categoryPerms = groupedPermissions.get(category);
           if (!categoryPerms || categoryPerms.length === 0) return null;
 
           const allSelected = isAllSelectedInCategory(category);
@@ -493,8 +497,8 @@ export function AdminRolePermissionEditor({
         })}
 
         {/* Other permissions (if any don't match categories) */}
-        {groupedPermissions["OTHER"] &&
-          groupedPermissions["OTHER"].length > 0 && (
+        {groupedPermissions.get("OTHER") &&
+          (groupedPermissions.get("OTHER")?.length ?? 0) > 0 && (
             <Card data-testid="category-OTHER">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Other</CardTitle>
@@ -503,35 +507,37 @@ export function AdminRolePermissionEditor({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                {groupedPermissions["OTHER"].map((perm) => (
-                  <div
-                    key={perm.permission_id}
-                    className="flex items-start gap-2"
-                    data-testid={`permission-${perm.code}`}
-                  >
-                    <Checkbox
-                      id={perm.permission_id}
-                      checked={selectedPermissions.has(perm.permission_id)}
-                      onCheckedChange={() =>
-                        togglePermission(perm.permission_id)
-                      }
-                      className="mt-0.5"
-                    />
-                    <label
-                      htmlFor={perm.permission_id}
-                      className="flex-1 cursor-pointer"
+                {(groupedPermissions.get("OTHER") ?? []).map(
+                  (perm: Permission) => (
+                    <div
+                      key={perm.permission_id}
+                      className="flex items-start gap-2"
+                      data-testid={`permission-${perm.code}`}
                     >
-                      <div className="text-sm font-medium leading-none">
-                        {perm.code.replace(/_/g, " ")}
-                      </div>
-                      {perm.description && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {perm.description}
-                        </p>
-                      )}
-                    </label>
-                  </div>
-                ))}
+                      <Checkbox
+                        id={perm.permission_id}
+                        checked={selectedPermissions.has(perm.permission_id)}
+                        onCheckedChange={() =>
+                          togglePermission(perm.permission_id)
+                        }
+                        className="mt-0.5"
+                      />
+                      <label
+                        htmlFor={perm.permission_id}
+                        className="flex-1 cursor-pointer"
+                      >
+                        <div className="text-sm font-medium leading-none">
+                          {perm.code.replace(/_/g, " ")}
+                        </div>
+                        {perm.description && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {perm.description}
+                          </p>
+                        )}
+                      </label>
+                    </div>
+                  ),
+                )}
               </CardContent>
             </Card>
           )}

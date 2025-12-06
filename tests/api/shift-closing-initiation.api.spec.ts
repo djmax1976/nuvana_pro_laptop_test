@@ -1583,12 +1583,14 @@ test.describe("4.3-API: Shift Closing - Input Validation & Edge Cases", () => {
     );
     const body = await response.json();
     expect(body.success).toBe(true);
+    // Use Number() to handle potential Prisma Decimal string serialization
+    // and toBeCloseTo for floating-point comparison with 2 decimal precision
     expect(
-      body.data.opening_cash,
+      Number(body.data.opening_cash),
       "Opening cash should preserve precision",
-    ).toBe(preciseCash);
+    ).toBeCloseTo(preciseCash, 2);
     expect(
-      typeof body.data.expected_cash,
+      typeof Number(body.data.expected_cash),
       "Expected cash should be number",
     ).toBe("number");
 

@@ -315,24 +315,23 @@ export function useInvalidateClientRoles() {
 // ============ Permission Category Helpers ============
 
 /**
- * Group permissions by category for UI display
+ * Group permissions by category for UI display using Map for safe dynamic access
  * @param permissions - Array of permissions
- * @returns Record of permissions grouped by category
+ * @returns Map of permissions grouped by category
  */
 export function groupPermissionsByCategory(
   permissions: PermissionWithState[],
-): Record<string, PermissionWithState[]> {
-  return permissions.reduce(
-    (groups, permission) => {
-      const category = permission.category;
-      if (!groups[category]) {
-        groups[category] = [];
-      }
-      groups[category].push(permission);
-      return groups;
-    },
-    {} as Record<string, PermissionWithState[]>,
-  );
+): Map<string, PermissionWithState[]> {
+  return permissions.reduce((groups, permission) => {
+    const category = permission.category;
+    const existing = groups.get(category);
+    if (existing) {
+      existing.push(permission);
+    } else {
+      groups.set(category, [permission]);
+    }
+    return groups;
+  }, new Map<string, PermissionWithState[]>());
 }
 
 /**
@@ -346,21 +345,23 @@ export function hasClientOverrides(
   return permissions.some((p) => p.is_client_override);
 }
 
+// Safe lookup map for category display names
+const CATEGORY_DISPLAY_NAMES = new Map<string, string>([
+  ["SHIFTS", "Shift Operations"],
+  ["TRANSACTIONS", "Transactions"],
+  ["INVENTORY", "Inventory"],
+  ["LOTTERY", "Lottery"],
+  ["REPORTS", "Reports"],
+  ["EMPLOYEES", "Employee Management"],
+  ["STORE", "Store"],
+  ["OTHER", "Other"],
+]);
+
 /**
  * Get the display name for a permission category
  * @param categoryKey - Category key (e.g., "SHIFTS", "TRANSACTIONS")
  * @returns Display name for the category
  */
 export function getCategoryDisplayName(categoryKey: string): string {
-  const categoryNames: Record<string, string> = {
-    SHIFTS: "Shift Operations",
-    TRANSACTIONS: "Transactions",
-    INVENTORY: "Inventory",
-    LOTTERY: "Lottery",
-    REPORTS: "Reports",
-    EMPLOYEES: "Employee Management",
-    STORE: "Store",
-    OTHER: "Other",
-  };
-  return categoryNames[categoryKey] || categoryKey;
+  return CATEGORY_DISPLAY_NAMES.get(categoryKey) ?? categoryKey;
 }

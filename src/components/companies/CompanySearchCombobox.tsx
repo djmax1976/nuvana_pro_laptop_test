@@ -6,7 +6,7 @@ import { useCompanies, type Company } from "@/lib/api/companies";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, Clock } from "lucide-react";
 
 interface CompanySearchComboboxProps {
   value?: string;
@@ -15,13 +15,16 @@ interface CompanySearchComboboxProps {
   placeholder?: string;
   disabled?: boolean;
   error?: string;
+  /** Test ID for the input element */
+  testId?: string;
 }
 
 /**
  * CompanySearchCombobox component
  * Searchable dropdown for selecting companies with debounced search
  * Features:
- * - Debounced search (500ms) to minimize API calls
+ * - Shows recent companies (top 10) on focus before typing
+ * - Debounced search (500ms) to minimize API calls when typing
  * - Keyboard navigation (arrow keys, enter, escape)
  * - Shows loading state during search
  * - Displays company name and status
@@ -31,9 +34,10 @@ export function CompanySearchCombobox({
   value,
   onValueChange,
   label = "Company",
-  placeholder = "Search companies...",
+  placeholder = "Search or select a company...",
   disabled = false,
   error,
+  testId,
 }: CompanySearchComboboxProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
@@ -44,23 +48,40 @@ export function CompanySearchCombobox({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch companies based on search query
-  // Only fetch if search query is at least 2 characters
-  // Filter to ACTIVE companies only for store creation
-  const shouldFetch = debouncedSearch.trim().length >= 2;
-  const { data: companiesData, isLoading } = useCompanies(
-    {
-      search: debouncedSearch || undefined,
-      status: "ACTIVE",
-      limit: 50,
-    },
-    { enabled: shouldFetch },
-  );
+  // Determine if we're in search mode (2+ characters typed)
+  const isSearchMode = debouncedSearch.trim().length >= 2;
 
-  const companies = useMemo(
-    () => companiesData?.data || [],
-    [companiesData?.data],
-  );
+  // Fetch recent companies (shown on focus when no search query)
+  // Fetches top 10 most recently active companies
+  const { data: recentCompaniesData, isLoading: isLoadingRecent } =
+    useCompanies(
+      {
+        status: "ACTIVE",
+        limit: 10,
+      },
+      { enabled: isOpen && !isSearchMode },
+    );
+
+  // Fetch companies based on search query (only when searching)
+  // Filter to ACTIVE companies only for store creation
+  const { data: searchCompaniesData, isLoading: isLoadingSearch } =
+    useCompanies(
+      {
+        search: debouncedSearch || undefined,
+        status: "ACTIVE",
+        limit: 50,
+      },
+      { enabled: isSearchMode },
+    );
+
+  // Determine which companies to display and loading state
+  const isLoading = isSearchMode ? isLoadingSearch : isLoadingRecent;
+  const companies = useMemo(() => {
+    if (isSearchMode) {
+      return searchCompaniesData?.data || [];
+    }
+    return recentCompaniesData?.data || [];
+  }, [isSearchMode, searchCompaniesData?.data, recentCompaniesData?.data]);
 
   // Load selected company on mount if value is provided
   useEffect(() => {
@@ -72,6 +93,22 @@ export function CompanySearchCombobox({
       }
     }
   }, [value, companies, selectedCompany]);
+
+  // Track if the value was ever set externally (controlled mode)
+  const wasValueSet = useRef(false);
+  useEffect(() => {
+    if (value) {
+      wasValueSet.current = true;
+    }
+  }, [value]);
+
+  // Reset internal state when value prop is cleared externally (controlled mode only)
+  useEffect(() => {
+    if (!value && selectedCompany && wasValueSet.current) {
+      setSelectedCompany(null);
+      setSearchQuery("");
+    }
+  }, [value, selectedCompany]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -180,6 +217,7 @@ export function CompanySearchCombobox({
               ? `company-option-${highlightedIndex}`
               : undefined
           }
+          data-testid={testId}
         />
 
         <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
@@ -198,61 +236,74 @@ export function CompanySearchCombobox({
           id="company-listbox"
           role="listbox"
           className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-popover shadow-md"
+          data-testid={testId ? `${testId}-dropdown` : undefined}
         >
-          {searchQuery.trim().length < 2 ? (
-            <div className="p-4 text-center text-sm text-muted-foreground">
-              Type at least 2 characters to search
-            </div>
-          ) : isLoading ? (
+          {isLoading ? (
             <div className="flex items-center justify-center p-4 text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Searching companies...
+              {isSearchMode
+                ? "Searching companies..."
+                : "Loading recent companies..."}
             </div>
           ) : companies.length === 0 ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
-              No active companies found matching &quot;{debouncedSearch}&quot;
+              {isSearchMode
+                ? `No active companies found matching "${debouncedSearch}"`
+                : "No companies available"}
             </div>
           ) : (
-            <ul className="py-1">
-              {companies.map((company, index) => {
-                const isSelected =
-                  selectedCompany?.company_id === company.company_id;
-                const isHighlighted = highlightedIndex === index;
+            <>
+              {/* Show header for recent companies when not searching */}
+              {!isSearchMode && (
+                <div className="flex items-center gap-2 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                  <Clock className="h-3 w-3" />
+                  Recent Companies
+                </div>
+              )}
+              <ul className="py-1">
+                {companies.map((company, index) => {
+                  const isSelected =
+                    selectedCompany?.company_id === company.company_id;
+                  const isHighlighted = highlightedIndex === index;
 
-                return (
-                  <li
-                    key={company.company_id}
-                    id={`company-option-${index}`}
-                    role="option"
-                    aria-selected={isSelected}
-                    onClick={() => handleSelectCompany(company)}
-                    onMouseEnter={() => setHighlightedIndex(index)}
-                    className={cn(
-                      "relative flex cursor-pointer select-none items-center px-3 py-2 text-sm outline-none transition-colors",
-                      isHighlighted && "bg-accent",
-                      isSelected && "font-medium",
-                    )}
-                  >
-                    <div className="flex flex-1 items-center gap-2">
-                      <span>{company.name}</span>
-                      {company.status !== "ACTIVE" && (
-                        <span className="text-xs text-muted-foreground">
-                          ({company.status})
-                        </span>
+                  return (
+                    <li
+                      key={company.company_id}
+                      id={`company-option-${index}`}
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => handleSelectCompany(company)}
+                      onMouseEnter={() => setHighlightedIndex(index)}
+                      className={cn(
+                        "relative flex cursor-pointer select-none items-center px-3 py-2 text-sm outline-none transition-colors",
+                        isHighlighted && "bg-accent",
+                        isSelected && "font-medium",
                       )}
-                    </div>
-                    {isSelected && <Check className="h-4 w-4" />}
-                  </li>
-                );
-              })}
-            </ul>
+                      data-testid={
+                        testId ? `${testId}-option-${index}` : undefined
+                      }
+                    >
+                      <div className="flex flex-1 items-center gap-2">
+                        <span>{company.name}</span>
+                        {company.status !== "ACTIVE" && (
+                          <span className="text-xs text-muted-foreground">
+                            ({company.status})
+                          </span>
+                        )}
+                      </div>
+                      {isSelected && <Check className="h-4 w-4" />}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
         </div>
       )}
 
       <p className="text-xs text-muted-foreground">
-        Type at least 2 characters to search by company name, owner name, or
-        owner email
+        Click to see recent companies, or type to search by name, owner, or
+        email
       </p>
     </div>
   );

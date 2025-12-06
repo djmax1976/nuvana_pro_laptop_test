@@ -185,16 +185,19 @@ export function CompanyRoleAssignment() {
     }
   };
 
-  // Group roles by scope
-  const rolesByScope = assignableRoles?.reduce<
-    Record<string, RoleWithDetails[]>
-  >((acc, role) => {
-    if (!acc[role.scope]) {
-      acc[role.scope] = [];
-    }
-    acc[role.scope].push(role);
-    return acc;
-  }, {});
+  // Group roles by scope using Map for safe dynamic access
+  const rolesByScope = assignableRoles?.reduce<Map<string, RoleWithDetails[]>>(
+    (acc, role) => {
+      const existing = acc.get(role.scope);
+      if (existing) {
+        existing.push(role);
+      } else {
+        acc.set(role.scope, [role]);
+      }
+      return acc;
+    },
+    new Map(),
+  );
 
   // Loading state
   if (isLoadingCompanies || isLoadingRoles) {
@@ -354,7 +357,7 @@ export function CompanyRoleAssignment() {
                 <Shield className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>Select a company to manage its available roles</p>
               </div>
-            ) : !rolesByScope || Object.keys(rolesByScope).length === 0 ? (
+            ) : !rolesByScope || rolesByScope.size === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <Shield className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p>No assignable roles available</p>
@@ -362,7 +365,7 @@ export function CompanyRoleAssignment() {
             ) : (
               <div className="space-y-6">
                 {(["COMPANY", "STORE"] as const).map((scope) => {
-                  const scopeRoles = rolesByScope[scope] || [];
+                  const scopeRoles = rolesByScope.get(scope) ?? [];
                   if (scopeRoles.length === 0) return null;
 
                   const allSelected = scopeRoles.every((r) =>

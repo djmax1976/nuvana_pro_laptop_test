@@ -118,6 +118,12 @@ describe("Terminal Management Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset mock implementations to default resolved values
+    // This is critical for test isolation - previous tests may have changed to mockRejectedValue
+    mockCreateMutation.mutateAsync.mockResolvedValue({});
+    mockUpdateMutation.mutateAsync.mockResolvedValue({});
+    mockDeleteMutation.mutateAsync.mockResolvedValue({});
+
     vi.mocked(storesApi.useCreateStore).mockReturnValue({
       mutateAsync: vi.fn().mockResolvedValue(mockStore),
       isLoading: false,
@@ -1302,7 +1308,7 @@ describe("Terminal Management Component", () => {
       expect(callArgs.data.connection_config).toBeUndefined();
     });
 
-    it.skip("[P1] Should show success toast after creating terminal with connection config", async () => {
+    it("[P1] Should show success toast after creating terminal with connection config", async () => {
       // GIVEN: Form is rendered and create dialog is open
       const user = userEvent.setup();
       renderWithProviders(
@@ -1333,6 +1339,7 @@ describe("Terminal Management Component", () => {
         expect(screen.getByLabelText(/Base URL/i)).toBeInTheDocument();
       });
 
+      // Fill API connection config fields - use same pattern as P0 test
       const baseUrlInput = screen.getByLabelText(/Base URL/i);
       await user.type(baseUrlInput, "https://api.test.com");
       await user.tab(); // Blur baseUrl field to trigger onConfigChange
@@ -1341,12 +1348,13 @@ describe("Terminal Management Component", () => {
       await user.type(apiKeyInput, "test-key");
       await user.tab(); // Blur apiKey field to trigger onConfigChange
 
-      // Wait a bit for the config to be set via onBlur
+      // Wait for React state update to propagate after blur events
+      // The onBlur handlers call setConnectionConfig which updates state asynchronously
       await waitFor(
         () => {
-          // Config should be set via onBlur
+          // Config should be set via onBlur - nothing to check here but timeout allows state to settle
         },
-        { timeout: 1000 },
+        { timeout: 500 },
       );
 
       const createButton = screen.getByRole("button", {
@@ -1356,22 +1364,23 @@ describe("Terminal Management Component", () => {
 
       // THEN: Create mutation should be called with connection config
       await waitFor(() => {
-        expect(mockCreateMutation.mutateAsync).toHaveBeenCalled();
-        const callArgs = mockCreateMutation.mutateAsync.mock.calls[0][0];
-        expect(callArgs.data.connection_type).toBe("API");
-        expect(callArgs.data.connection_config).toBeDefined();
-        expect(callArgs.data.connection_config).toMatchObject({
-          baseUrl: "https://api.test.com",
-          apiKey: "test-key",
+        expect(mockCreateMutation.mutateAsync).toHaveBeenCalledWith({
+          storeId: mockStore.store_id,
+          data: expect.objectContaining({
+            name: "Test Terminal",
+            connection_type: "API",
+            connection_config: expect.objectContaining({
+              baseUrl: "https://api.test.com",
+              apiKey: "test-key",
+            }),
+          }),
         });
       });
 
       // AND: Success toast should be shown
-      await waitFor(() => {
-        expect(mockToast).toHaveBeenCalledWith({
-          title: "Success",
-          description: "Terminal created successfully",
-        });
+      expect(mockToast).toHaveBeenCalledWith({
+        title: "Success",
+        description: "Terminal created successfully",
       });
     });
   });
@@ -1509,23 +1518,17 @@ describe("Terminal Management Component", () => {
       });
 
       // WHEN: User enters invalid URL format
-      await user.type(screen.getByLabelText(/Base URL/i), "not-a-valid-url");
-      await user.type(screen.getByLabelText(/API Key/i), "test-key");
+      const baseUrlInput = screen.getByLabelText(/Base URL/i);
+      await user.type(baseUrlInput, "not-a-valid-url");
+      // Trigger blur to activate validation - validation happens onBlur in ConnectionConfigForm
+      await user.tab();
 
-      const createButton = screen.getByRole("button", {
-        name: /Create Terminal/i,
-      });
-      await user.click(createButton);
-
-      // THEN: Validation error should be displayed or form should not submit
+      // THEN: Validation error should be displayed inline
       await waitFor(() => {
-        const urlInput = screen.getByLabelText(/Base URL/i);
-        const validationMessage = (urlInput as HTMLInputElement)
-          .validationMessage;
-        const errorToast = screen.queryByText(/invalid|error/i);
+        // The component shows inline validation error "baseUrl must be a valid URL"
         expect(
-          validationMessage || errorToast || mockToast.mock.calls.length > 0,
-        ).toBeTruthy();
+          screen.getByText(/baseUrl must be a valid URL/i),
+        ).toBeInTheDocument();
       });
     });
   });

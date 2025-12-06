@@ -144,8 +144,8 @@ test.describe("Store Creation with Login and Terminals", () => {
 
     expect(userRole).toBeDefined();
     expect(userRole?.role.code).toBe("CLIENT_USER");
-    // CLIENT_USER role has COMPANY scope per RBAC design
-    expect(userRole?.role.scope).toBe("COMPANY");
+    // CLIENT_USER role has STORE scope per RBAC design (store login credential)
+    expect(userRole?.role.scope).toBe("STORE");
     // UserRole should have store_id set for store-scoped assignments
     expect(userRole?.store_id).toBe(body.store_id);
   });

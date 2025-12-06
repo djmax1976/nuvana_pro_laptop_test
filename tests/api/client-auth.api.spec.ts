@@ -1879,12 +1879,14 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
       return;
     }
 
-    // Assign STORE_MANAGER role to user with company scope
+    // Assign STORE_MANAGER role to user with store scope
+    // STORE_MANAGER is a STORE-scoped role and MUST have store_id set for proper isolation
     await prismaClient.userRole.create({
       data: {
         user_id: storeManager.user_id,
         role_id: storeManagerRole.role_id,
         company_id: company.company_id,
+        store_id: store.store_id, // Required for STORE-scoped roles
       },
     });
 
@@ -1944,7 +1946,9 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
     prismaClient,
     backendUrl,
   }) => {
-    // GIVEN: A user with company-level role assignment (company_id set, store_id null)
+    // GIVEN: A user with COMPANY-scoped role assignment (CORPORATE_ADMIN)
+    // Company-scoped roles can see ALL stores in their assigned company
+    // Note: STORE-scoped roles (like STORE_MANAGER) can only see their assigned store
     const password = "Manager123!";
     const passwordHash = await bcrypt.hash(password, 10);
 
@@ -1981,12 +1985,13 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
       },
     });
 
-    // Get STORE_MANAGER role
-    const storeManagerRole = await prismaClient.role.findUnique({
-      where: { code: "STORE_MANAGER" },
+    // Get CLIENT_OWNER role - this is a COMPANY-scoped role with CLIENT_DASHBOARD_ACCESS
+    // COMPANY-scoped roles can see all stores in their assigned company
+    const clientOwnerRole = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
     });
 
-    if (!storeManagerRole) {
+    if (!clientOwnerRole) {
       // Cleanup and skip
       await prismaClient.user.delete({ where: { user_id: manager.user_id } });
       await prismaClient.store.delete({ where: { store_id: store1.store_id } });
@@ -1995,24 +2000,25 @@ test.describe("2.9-API: Client Dashboard - Permission-Based Access", () => {
         where: { company_id: company.company_id },
       });
       await prismaClient.user.delete({ where: { user_id: owner.user_id } });
-      console.log("STORE_MANAGER role not seeded, skipping test");
+      console.log("CLIENT_OWNER role not seeded, skipping test");
       return;
     }
 
-    // Assign role at COMPANY level (store_id is null)
+    // Assign CLIENT_OWNER role at COMPANY level (store_id is null)
+    // CLIENT_OWNER has scope = "COMPANY" and CLIENT_DASHBOARD_ACCESS permission
     await prismaClient.userRole.create({
       data: {
         user_id: manager.user_id,
-        role_id: storeManagerRole.role_id,
+        role_id: clientOwnerRole.role_id,
         company_id: company.company_id,
-        // store_id is null - Company-level assignment
+        // store_id is null - Company-level assignment (correct for COMPANY-scoped roles)
       },
     });
 
     const token = createJWTAccessToken({
       user_id: manager.user_id,
       email: manager.email,
-      roles: ["STORE_MANAGER"],
+      roles: ["CLIENT_OWNER"],
       permissions: ["CLIENT_DASHBOARD_ACCESS", "STORE_READ"],
     });
 
