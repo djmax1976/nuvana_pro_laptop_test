@@ -78,6 +78,7 @@ export const createLotteryPack = async (
     serial_end?: string;
     status?: LotteryPackStatus;
     current_bin_id?: string;
+    received_at?: Date;
   },
 ) => {
   const packNumber = overrides.pack_number || faker.string.numeric(6);
@@ -86,6 +87,16 @@ export const createLotteryPack = async (
     overrides.serial_end ||
     String((parseInt(serialStart) + 99) % 1000000).padStart(6, "0");
 
+  const status = overrides.status || LotteryPackStatus.RECEIVED;
+
+  // Database constraint requires received_at when status is RECEIVED
+  const received_at =
+    overrides.received_at !== undefined
+      ? overrides.received_at
+      : status === LotteryPackStatus.RECEIVED
+        ? new Date()
+        : null;
+
   return await prisma.lotteryPack.create({
     data: {
       game_id: overrides.game_id,
@@ -93,8 +104,9 @@ export const createLotteryPack = async (
       pack_number: packNumber,
       serial_start: serialStart,
       serial_end: serialEnd,
-      status: overrides.status || LotteryPackStatus.RECEIVED,
+      status,
       current_bin_id: overrides.current_bin_id || null,
+      received_at,
     },
   });
 };
