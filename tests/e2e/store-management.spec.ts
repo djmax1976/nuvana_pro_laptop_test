@@ -405,8 +405,14 @@ test.describe("Store Management E2E", () => {
       const storeLogin = await pollForStoreLogin(10000, 200);
       expect(storeLogin).not.toBeNull();
 
+      // Re-fetch the store to get the updated store_login_user_id
+      // (the initial createdStore was fetched before the login was linked)
+      const updatedStore = await prisma.store.findUnique({
+        where: { store_id: createdStore.store_id },
+      });
+
       // Verify store has login linked
-      expect(createdStore.store_login_user_id).toBe(storeLogin.user_id);
+      expect(updatedStore?.store_login_user_id).toBe(storeLogin.user_id);
 
       // Cleanup: Delete login's user roles, login user, and store
       if (storeLogin) {
