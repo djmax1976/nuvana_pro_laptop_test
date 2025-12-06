@@ -357,17 +357,36 @@ test.describe("Store Management E2E", () => {
       expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
     ]);
 
-    // Verify store was created
-    const createdStore = await prisma.store.findFirst({
+    // Small delay to ensure database transaction is fully committed
+    await page.waitForTimeout(500);
+
+    // Verify store was created (with retry for eventual consistency)
+    let createdStore = await prisma.store.findFirst({
       where: { name: newStoreName },
     });
+
+    // Retry if not found immediately (database propagation)
+    if (!createdStore) {
+      await page.waitForTimeout(1000);
+      createdStore = await prisma.store.findFirst({
+        where: { name: newStoreName },
+      });
+    }
     expect(createdStore).not.toBeNull();
 
-    // Verify store login was created
+    // Verify store login was created (with retry)
     if (createdStore) {
-      const storeLogin = await prisma.user.findFirst({
-        where: { email: uniqueEmail },
+      let storeLogin = await prisma.user.findFirst({
+        where: { email: uniqueEmail.toLowerCase() },
       });
+
+      // Retry if not found immediately
+      if (!storeLogin) {
+        await page.waitForTimeout(1000);
+        storeLogin = await prisma.user.findFirst({
+          where: { email: uniqueEmail.toLowerCase() },
+        });
+      }
       expect(storeLogin).not.toBeNull();
 
       // Verify store has login linked
