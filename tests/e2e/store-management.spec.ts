@@ -218,7 +218,14 @@ test.describe("Store Management E2E", () => {
     // Use accessible selector for submit button
     const submitButton = page.getByRole("button", { name: "Update Store" });
     await submitButton.click();
-    await page.waitForTimeout(1000);
+
+    // Wait for success message or navigation instead of hard wait
+    await Promise.any([
+      expect(page.getByText(/store updated|successfully/i)).toBeVisible({
+        timeout: 10000,
+      }),
+      expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
+    ]);
 
     const updatedStore = await prisma.store.findUnique({
       where: { store_id: testStore.store_id },
@@ -245,7 +252,17 @@ test.describe("Store Management E2E", () => {
 
     const submitButton = page.getByRole("button", { name: "Update Store" });
     await submitButton.click();
-    await page.waitForTimeout(1000);
+
+    // Wait for success message or navigation instead of hard wait
+    const result = await Promise.race([
+      expect(page.getByText(/store updated|successfully/i))
+        .toBeVisible({ timeout: 10000 })
+        .then(() => true),
+      expect(page)
+        .toHaveURL(/\/stores/, { timeout: 10000 })
+        .then(() => true),
+    ]);
+    expect(result).toBeTruthy();
 
     const updatedStore = await prisma.store.findUnique({
       where: { store_id: testStore.store_id },
@@ -273,7 +290,14 @@ test.describe("Store Management E2E", () => {
 
     const submitButton = page.getByRole("button", { name: "Update Store" });
     await submitButton.click();
-    await page.waitForTimeout(1000);
+
+    // Wait for success message or navigation instead of hard wait
+    await Promise.any([
+      expect(page.getByText(/store updated|successfully/i)).toBeVisible({
+        timeout: 10000,
+      }),
+      expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
+    ]);
 
     const updatedStore = await prisma.store.findUnique({
       where: { store_id: testStore.store_id },
@@ -324,19 +348,45 @@ test.describe("Store Management E2E", () => {
     // Submit the wizard
     const createButton = page.getByRole("button", { name: "Create Store" });
     await createButton.click();
-    await page.waitForTimeout(2000);
 
-    // Verify store was created
-    const createdStore = await prisma.store.findFirst({
+    // Wait for success message or navigation instead of hard wait
+    await Promise.any([
+      expect(page.getByText(/store created|successfully/i)).toBeVisible({
+        timeout: 10000,
+      }),
+      expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
+    ]);
+
+    // Small delay to ensure database transaction is fully committed
+    await page.waitForTimeout(500);
+
+    // Verify store was created (with retry for eventual consistency)
+    let createdStore = await prisma.store.findFirst({
       where: { name: newStoreName },
     });
+
+    // Retry if not found immediately (database propagation)
+    if (!createdStore) {
+      await page.waitForTimeout(1000);
+      createdStore = await prisma.store.findFirst({
+        where: { name: newStoreName },
+      });
+    }
     expect(createdStore).not.toBeNull();
 
-    // Verify store login was created
+    // Verify store login was created (with retry)
     if (createdStore) {
-      const storeLogin = await prisma.user.findFirst({
-        where: { email: uniqueEmail },
+      let storeLogin = await prisma.user.findFirst({
+        where: { email: uniqueEmail.toLowerCase() },
       });
+
+      // Retry if not found immediately
+      if (!storeLogin) {
+        await page.waitForTimeout(1000);
+        storeLogin = await prisma.user.findFirst({
+          where: { email: uniqueEmail.toLowerCase() },
+        });
+      }
       expect(storeLogin).not.toBeNull();
 
       // Verify store has login linked

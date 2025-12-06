@@ -626,7 +626,12 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
       // WHEN: Clicking to sort ascending
       await header.click();
       await superadminPage.waitForLoadState("load");
-      await superadminPage.waitForTimeout(500);
+      // Wait for table to update by checking first cell is visible
+      const firstCellAfterSort = superadminPage
+        .locator("tbody tr")
+        .first()
+        .locator(`td:nth-child(${columnIndex})`);
+      await expect(firstCellAfterSort).toBeVisible({ timeout: 5000 });
 
       // THEN: Values should be sorted ascending
       const ascendingValues = await getColumnCellValues(
@@ -645,7 +650,13 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
       // WHEN: Clicking again to sort descending
       await header.click();
       await superadminPage.waitForLoadState("load");
-      await superadminPage.waitForTimeout(500);
+      // Wait for table to update by checking first cell is visible
+      const firstCellAfterDesc = superadminPage
+        .locator("tbody")
+        .locator("tr")
+        .first()
+        .locator(`td:nth-child(${columnIndex})`);
+      await expect(firstCellAfterDesc).toBeVisible({ timeout: 5000 });
 
       // THEN: Values should be sorted descending
       const descendingValues = await getColumnCellValues(
@@ -665,7 +676,13 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
       // WHEN: Clicking again to clear sort (return to default)
       await header.click();
       await superadminPage.waitForLoadState("load");
-      await superadminPage.waitForTimeout(500);
+      // Wait for table to update by checking first cell is visible
+      const firstCellAfterDefault = superadminPage
+        .locator("tbody")
+        .locator("tr")
+        .first()
+        .locator(`td:nth-child(${columnIndex})`);
+      await expect(firstCellAfterDefault).toBeVisible({ timeout: 5000 });
 
       // THEN: Order should return to initial/default
       const defaultValues = await getColumnCellValues(columnIndex, columnName);

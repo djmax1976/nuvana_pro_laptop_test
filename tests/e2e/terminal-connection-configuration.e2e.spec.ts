@@ -426,9 +426,9 @@ test.describe("Terminal Connection Configuration E2E", () => {
     } else {
       // If no browser validation, check that success toast didn't appear immediately
       // (form validation should prevent submission)
-      await page.waitForTimeout(1000);
+      // Wait for form to remain in error state (no success message)
       const successText = page.getByText(/Terminal created successfully/i);
-      await expect(successText).not.toBeVisible({ timeout: 2000 });
+      await expect(successText).not.toBeVisible({ timeout: 5000 });
     }
   });
 
@@ -454,8 +454,15 @@ test.describe("Terminal Connection Configuration E2E", () => {
     // Use unauthenticated page (no cookies)
     await page.goto(`/stores/${store.store_id}/edit`);
 
-    // Wait a moment for redirect to complete
-    await page.waitForTimeout(2000);
+    // Wait for redirect to complete (either login page or error message)
+    try {
+      await page.waitForURL(/\/login|\/auth/, { timeout: 10000 });
+    } catch {
+      // If URL wait times out, check for error message text instead
+      await expect(
+        page.getByText(/unauthorized|forbidden|login|sign in/i),
+      ).toBeVisible({ timeout: 10000 });
+    }
 
     // THEN: User should be redirected to login or see 401/403 error
     // Check for login page or error message
@@ -526,8 +533,15 @@ test.describe("Terminal Connection Configuration E2E", () => {
     // Try to submit and verify XSS is not executed
     await page.getByRole("button", { name: /Create Terminal/i }).click();
 
-    // Wait a moment to see if alert appears (it shouldn't)
-    await page.waitForTimeout(500);
+    // Wait for form submission to complete (either success or validation error)
+    await Promise.race([
+      expect(page.getByText(/terminal created|successfully/i))
+        .toBeVisible({ timeout: 5000 })
+        .catch(() => null),
+      expect(page.getByText(/validation|error/i))
+        .toBeVisible({ timeout: 5000 })
+        .catch(() => null),
+    ]);
 
     // No alert should have appeared (XSS prevented)
     // This is verified by the fact that the test continues without alert interruption

@@ -104,29 +104,37 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page.locator('textarea[name="message"]').fill("Test message");
 
+    const submitButton = page.getByRole("button", { name: /Send Message/i });
+
     // Set up route interception BEFORE clicking submit
     // Use full URL pattern to intercept cross-origin request to backend
+    // Use a longer delay to reliably catch the loading state in CI
+    let resolveRoute: () => void;
+    const routePromise = new Promise<void>((resolve) => {
+      resolveRoute = resolve;
+    });
+
     await page.route("**/api/contact", async (route) => {
-      // Add delay to allow checking button state during submission
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // Wait for test to verify loading state before fulfilling
+      await routePromise;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ success: true }),
       });
     });
-
-    const submitButton = page.getByRole("button", { name: /Send Message/i });
     await expect(submitButton).toBeEnabled();
 
-    // WHEN: User submits form - click and immediately check for loading state
+    // WHEN: User submits form - click and check for loading state
     const clickPromise = submitButton.click();
 
     // THEN: Button should show "Sending..." text while request is in flight
-    // Use a short timeout since we need to catch the transient state
     const sendingButton = page.getByRole("button", { name: /Sending/i });
-    await expect(sendingButton).toBeVisible({ timeout: 3000 });
+    await expect(sendingButton).toBeVisible({ timeout: 5000 });
     await expect(sendingButton).toBeDisabled();
+
+    // Release the route to complete the request
+    resolveRoute!();
 
     // Wait for click action and response to complete
     await clickPromise;

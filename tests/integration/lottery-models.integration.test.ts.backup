@@ -1,0 +1,298 @@
+/**
+ * Integration Tests: Lottery Models - Database Operations
+ *
+ * Tests database schema, foreign key constraints, and Prisma Client queries:
+ * - Table creation via migration
+ * - Model creation with all required fields
+ * - Foreign key constraints
+ * - Relationship queries
+ * - Enum enforcement at database level
+ *
+ * Story: 6.1 - Lottery Game and Pack Data Models
+ * Priority: P0 (Critical - Database Operations)
+ *
+ * These tests validate database schema and Prisma Client operations.
+ */
+
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { PrismaClient, LotteryGameStatus, LotteryPackStatus } from "@prisma/client";
+import { createLotteryGame, createLotteryPack, createLotteryBin } from "../support/factories/lottery.factory";
+
+const prisma = new PrismaClient();
+
+// Test data
+let testUser: any;
+let testCompany: any;
+let testStore: any;
+let testGame: any;
+
+beforeAll(async () => {
+  // Create test user first (separate creation for proper tracking)
+  testUser = await prisma.user.create({
+    data: {
+      email: `test-${Date.now()}@test.com`,
+      name: "Test User",
+      public_id: `USR${Date.now()}`,
+    },
+  });
+
+  // Create test company using the tracked user's user_id
+  testCompany = await prisma.company.create({
+    data: {
+      name: "Test Company",
+      owner_user_id: testUser.user_id,
+      public_id: `COM${Date.now()}`,
+    },
+  });
+
+  testStore = await prisma.store.create({
+    data: {
+      company_id: testCompany.company_id,
+      name: "Test Store",
+      public_id: `STR${Date.now()}`,
+    },
+  });
+
+  testGame = await createLotteryGame({ name: "Test Game" });
+});
+
+afterAll(async () => {
+  // Cleanup in reverse order of creation to respect foreign key constraints
+  try {
+    // Delete lottery-related records first (no FK dependencies)
+    await prisma.lotteryPack.deleteMany({});
+    await prisma.lotteryBin.deleteMany({});
+    await prisma.lotteryGame.deleteMany({});
+    
+    // Delete store before company (store depends on company)
+    if (testStore) {
+      try {
+        await prisma.store.delete({ where: { store_id: testStore.store_id } });
+      } catch (error: any) {
+        // Ignore not-found errors during cleanup
+        if (error?.code !== 'P2025') throw error;
+      }
+    }
+    
+    // Delete company before user (company depends on user)
+    if (testCompany) {
+      try {
+        await prisma.company.delete({ where: { company_id: testCompany.company_id } });
+      } catch (error: any) {
+        // Ignore not-found errors during cleanup
+        if (error?.code !== 'P2025') throw error;
+      }
+    }
+    
+    // Delete user last (no dependencies)
+    if (testUser) {
+      try {
+        await prisma.user.delete({ where: { user_id: testUser.user_id } });
+      } catch (error: any) {
+        // Ignore not-found errors during cleanup
+        if (error?.code !== 'P2025') throw error;
+      }
+    }
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+describe("6.1-INTEGRATION: Table Creation", () => {
+  it("6.1-INTEGRATION-001: should create lottery_games table", async () => {
+    // Verify table exists by querying it
+    const games = await prisma.lotteryGame.findMany();
+    expect(Array.isArray(games)).toBe(true);
+  });
+
+  it("6.1-INTEGRATION-002: should create lottery_packs table", async () => {
+    const packs = await prisma.lotteryPack.findMany();
+    expect(Array.isArray(packs)).toBe(true);
+  });
+
+  it("6.1-INTEGRATION-003: should create lottery_bins table", async () => {
+    const bins = await prisma.lotteryBin.findMany();
+    expect(Array.isArray(bins)).toBe(true);
+  });
+});
+
+describe("6.1-INTEGRATION: Model Creation", () => {
+  it("6.1-INTEGRATION-004: should create LotteryGame with all required fields", async () => {
+    const game = await createLotteryGame({
+      name: "Integration Test Game",
+      description: "Test description",
+      price: 5.0,
+      status: LotteryGameStatus.ACTIVE,
+    });
+
+    expect(game.game_id).toBeDefined();
+    expect(game.name).toBe("Integration Test Game");
+    expect(game.description).toBe("Test description");
+    expect(game.price).toBe(5.0);
+    expect(game.status).toBe(LotteryGameStatus.ACTIVE);
+    expect(game.created_at).toBeInstanceOf(Date);
+    expect(game.updated_at).toBeInstanceOf(Date);
+  });
+
+  it("6.1-INTEGRATION-005: should auto-generate UUID for game_id", async () => {
+    const game = await createLotteryGame();
+    expect(game.game_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  });
+
+  it("6.1-INTEGRATION-006: should default status to ACTIVE", async () => {
+    const game = await createLotteryGame({ status: undefined as any });
+    expect(game.status).toBe(LotteryGameStatus.ACTIVE);
+  });
+
+  it("6.1-INTEGRATION-007: should create LotteryPack with all required fields", async () => {
+    const pack = await createLotteryPack({
+      game_id: testGame.game_id,
+      store_id: testStore.store_id,
+      pack_number: "PACK001",
+      serial_start: "000001",
+      serial_end: "000100",
+      status: LotteryPackStatus.RECEIVED,
+    });
+
+    expect(pack.pack_id).toBeDefined();
+    expect(pack.game_id).toBe(testGame.game_id);
+    expect(pack.store_id).toBe(testStore.store_id);
+    expect(pack.pack_number).toBe("PACK001");
+    expect(pack.serial_start).toBe("000001");
+    expect(pack.serial_end).toBe("000100");
+    expect(pack.status).toBe(LotteryPackStatus.RECEIVED);
+  });
+
+  it("6.1-INTEGRATION-008: should default status to RECEIVED", async () => {
+    const pack = await createLotteryPack({
+      game_id: testGame.game_id,
+      store_id: testStore.store_id,
+    });
+    expect(pack.status).toBe(LotteryPackStatus.RECEIVED);
+  });
+
+  it("6.1-INTEGRATION-009: should create LotteryBin with all required fields", async () => {
+    const bin = await createLotteryBin({
+      store_id: testStore.store_id,
+      name: "Test Bin",
+      location: "Warehouse A",
+    });
+
+    expect(bin.bin_id).toBeDefined();
+    expect(bin.store_id).toBe(testStore.store_id);
+    expect(bin.name).toBe("Test Bin");
+    expect(bin.location).toBe("Warehouse A");
+  });
+});
+
+describe("6.1-INTEGRATION: Foreign Key Constraints", () => {
+  it("6.1-INTEGRATION-010: should reject LotteryPack with invalid game_id", async () => {
+    const invalidGameId = "00000000-0000-0000-0000-000000000000";
+    
+    await expect(
+      createLotteryPack({
+        game_id: invalidGameId,
+        store_id: testStore.store_id,
+      })
+    ).rejects.toThrow();
+  });
+
+  it("6.1-INTEGRATION-011: should reject LotteryPack with invalid store_id", async () => {
+    const invalidStoreId = "00000000-0000-0000-0000-000000000000";
+    
+    await expect(
+      createLotteryPack({
+        game_id: testGame.game_id,
+        store_id: invalidStoreId,
+      })
+    ).rejects.toThrow();
+  });
+});
+
+describe("6.1-INTEGRATION: Relationships", () => {
+  it("6.1-INTEGRATION-012: should query LotteryGame with packs relation", async () => {
+    const pack = await createLotteryPack({
+      game_id: testGame.game_id,
+      store_id: testStore.store_id,
+    });
+
+    const game = await prisma.lotteryGame.findUnique({
+      where: { game_id: testGame.game_id },
+      include: { packs: true },
+    });
+
+    expect(game).toBeDefined();
+    expect(game?.packs).toBeDefined();
+    expect(game?.packs.length).toBeGreaterThan(0);
+    
+    const foundPack = game?.packs.find(p => p.pack_id === pack.pack_id);
+    expect(foundPack).toBeDefined();
+    expect(foundPack?.pack_id).toBe(pack.pack_id);
+  });
+
+  it("6.1-INTEGRATION-013: should query LotteryPack with game and store relations", async () => {
+    const pack = await createLotteryPack({
+      game_id: testGame.game_id,
+      store_id: testStore.store_id,
+    });
+
+    const packWithRelations = await prisma.lotteryPack.findUnique({
+      where: { pack_id: pack.pack_id },
+      include: { game: true, store: true },
+    });
+
+    expect(packWithRelations?.game).toBeDefined();
+    expect(packWithRelations?.game.game_id).toBe(testGame.game_id);
+    expect(packWithRelations?.store).toBeDefined();
+    expect(packWithRelations?.store.store_id).toBe(testStore.store_id);
+  });
+
+  it("6.1-INTEGRATION-014: should query LotteryPack with bin relation (nullable)", async () => {
+    const bin = await createLotteryBin({
+      store_id: testStore.store_id,
+    });
+
+    const pack = await createLotteryPack({
+      game_id: testGame.game_id,
+      store_id: testStore.store_id,
+      current_bin_id: bin.bin_id,
+    });
+
+    const packWithBin = await prisma.lotteryPack.findUnique({
+      where: { pack_id: pack.pack_id },
+      include: { bin: true },
+    });
+
+    expect(packWithBin?.bin).toBeDefined();
+    expect(packWithBin?.bin?.bin_id).toBe(bin.bin_id);
+  });
+});
+
+describe("6.1-INTEGRATION: Enum Enforcement", () => {
+  it("6.1-INTEGRATION-015: should reject invalid LotteryGameStatus value", async () => {
+    await expect(
+      prisma.lotteryGame.create({
+        data: {
+          name: "Test",
+          status: "INVALID_STATUS" as any,
+        },
+      })
+    ).rejects.toThrow();
+  });
+
+  it("6.1-INTEGRATION-016: should reject invalid LotteryPackStatus value", async () => {
+    await expect(
+      prisma.lotteryPack.create({
+        data: {
+          game_id: testGame.game_id,
+          store_id: testStore.store_id,
+          pack_number: "TEST",
+          serial_start: "000001",
+          serial_end: "000100",
+          status: "INVALID_STATUS" as any,
+        },
+      })
+    ).rejects.toThrow();
+  });
+});
+
