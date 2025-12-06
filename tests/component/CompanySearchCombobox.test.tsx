@@ -27,10 +27,10 @@ vi.mock("@/hooks/useDebounce", () => ({
  * PURPOSE: Test the searchable company dropdown component
  *
  * SCOPE:
- * - Search input behavior
- * - Debounced API calls
- * - Minimum 2 character requirement
- * - Dropdown display logic
+ * - Recent companies shown on focus (before typing)
+ * - Search input behavior with debounced API calls
+ * - Minimum 2 character requirement for search mode
+ * - Dropdown display logic (recent vs search results)
  * - Selection handling
  * - Keyboard navigation
  * - Accessibility (ARIA attributes)
@@ -63,6 +63,32 @@ const mockCompanies: Company[] = [
   },
 ];
 
+// Additional mock for recent companies (top 10)
+const mockRecentCompanies: Company[] = [
+  {
+    company_id: "company-3",
+    owner_user_id: "user-3",
+    owner_name: "Recent Owner",
+    owner_email: "recent@company.com",
+    name: "Recent Company One",
+    address: null,
+    status: "ACTIVE",
+    created_at: "2024-01-15T00:00:00Z",
+    updated_at: "2024-01-15T00:00:00Z",
+  },
+  {
+    company_id: "company-4",
+    owner_user_id: "user-4",
+    owner_name: "Another Owner",
+    owner_email: "another@company.com",
+    name: "Recent Company Two",
+    address: null,
+    status: "ACTIVE",
+    created_at: "2024-01-14T00:00:00Z",
+    updated_at: "2024-01-14T00:00:00Z",
+  },
+];
+
 const mockCompaniesResponse: ListCompaniesResponse = {
   data: mockCompanies,
   meta: {
@@ -74,6 +100,57 @@ const mockCompaniesResponse: ListCompaniesResponse = {
     has_previous_page: false,
   },
 };
+
+const mockRecentCompaniesResponse: ListCompaniesResponse = {
+  data: mockRecentCompanies,
+  meta: {
+    page: 1,
+    limit: 10,
+    total_items: 2,
+    total_pages: 1,
+    has_next_page: false,
+    has_previous_page: false,
+  },
+};
+
+/**
+ * Helper to mock useCompanies for both recent and search queries
+ * The component makes two separate calls:
+ * 1. Recent companies: { status: "ACTIVE", limit: 10 } when dropdown is open and not searching
+ * 2. Search companies: { search: "...", status: "ACTIVE", limit: 50 } when 2+ chars typed
+ */
+function setupCompanyMocks(options?: {
+  recentData?: ListCompaniesResponse | undefined;
+  recentLoading?: boolean;
+  searchData?: ListCompaniesResponse | undefined;
+  searchLoading?: boolean;
+}) {
+  const {
+    recentData = mockRecentCompaniesResponse,
+    recentLoading = false,
+    searchData = mockCompaniesResponse,
+    searchLoading = false,
+  } = options || {};
+
+  vi.mocked(companiesApi.useCompanies).mockImplementation((params, opts) => {
+    // Search query (2+ chars) - limit is 50
+    if (params?.search || params?.limit === 50) {
+      return {
+        data: searchData,
+        isLoading: searchLoading,
+        isError: false,
+        error: null,
+      } as any;
+    }
+    // Recent companies (no search, limit 10)
+    return {
+      data: opts?.enabled === false ? undefined : recentData,
+      isLoading: recentLoading,
+      isError: false,
+      error: null,
+    } as any;
+  });
+}
 
 describe("CompanySearchCombobox", () => {
   const mockOnValueChange = vi.fn();
@@ -88,33 +165,23 @@ describe("CompanySearchCombobox", () => {
 
   describe("Rendering", () => {
     it("should render with default props", () => {
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: undefined,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
       expect(screen.getByRole("combobox")).toBeInTheDocument();
       expect(
-        screen.getByPlaceholderText("Search companies..."),
+        screen.getByPlaceholderText("Search or select a company..."),
       ).toBeInTheDocument();
       expect(
         screen.getByText(
-          "Type at least 2 characters to search by company name, owner name, or owner email",
+          "Click to see recent companies, or type to search by name, owner, or email",
         ),
       ).toBeInTheDocument();
     });
 
     it("should render with custom label and placeholder", () => {
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: undefined,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(
         <CompanySearchCombobox
@@ -131,12 +198,7 @@ describe("CompanySearchCombobox", () => {
     });
 
     it("should be disabled when disabled prop is true", () => {
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: undefined,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(
         <CompanySearchCombobox
@@ -149,12 +211,7 @@ describe("CompanySearchCombobox", () => {
     });
 
     it("should display error message when error prop is provided", () => {
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: undefined,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(
         <CompanySearchCombobox
@@ -167,45 +224,138 @@ describe("CompanySearchCombobox", () => {
         screen.getByText("Company selection is required"),
       ).toBeInTheDocument();
     });
+
+    it("should render with testId prop for testing", () => {
+      setupCompanyMocks();
+
+      render(
+        <CompanySearchCombobox
+          onValueChange={mockOnValueChange}
+          testId="my-company-select"
+        />,
+      );
+
+      expect(screen.getByTestId("my-company-select")).toBeInTheDocument();
+    });
   });
 
   // =============================================================================
-  // SECTION 2: SEARCH BEHAVIOR
+  // SECTION 2: RECENT COMPANIES (on focus, before typing)
   // =============================================================================
 
-  describe("Search Behavior", () => {
-    it("should show minimum character message when input is less than 2 characters", async () => {
+  describe("Recent Companies", () => {
+    it("should show recent companies when input is focused without typing", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: undefined,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
+
+      render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
+
+      const input = screen.getByRole("combobox");
+      await user.click(input);
+
+      // Dropdown should open with recent companies
+      await waitFor(() => {
+        expect(screen.getByRole("listbox")).toBeInTheDocument();
+        expect(screen.getByText("Recent Companies")).toBeInTheDocument();
+        expect(screen.getByText("Recent Company One")).toBeInTheDocument();
+        expect(screen.getByText("Recent Company Two")).toBeInTheDocument();
+      });
+    });
+
+    it("should show recent companies when typing less than 2 characters", async () => {
+      const user = userEvent.setup();
+      setupCompanyMocks();
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
       const input = screen.getByRole("combobox");
       await user.type(input, "A");
 
-      // Dropdown should open
+      // Dropdown should show recent companies (not "type 2 chars" message)
       await waitFor(() => {
         expect(screen.getByRole("listbox")).toBeInTheDocument();
+        expect(screen.getByText("Recent Companies")).toBeInTheDocument();
+        expect(screen.getByText("Recent Company One")).toBeInTheDocument();
       });
-
-      // Should show minimum character message
-      expect(
-        screen.getByText("Type at least 2 characters to search"),
-      ).toBeInTheDocument();
     });
 
-    it("should fetch companies when 2 or more characters are typed", async () => {
+    it("should show loading state while fetching recent companies", async () => {
       const user = userEvent.setup();
-      const mockUseCompanies = vi.fn().mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
+      setupCompanyMocks({ recentLoading: true });
+
+      render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
+
+      const input = screen.getByRole("combobox");
+      await user.click(input);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText("Loading recent companies..."),
+        ).toBeInTheDocument();
+      });
+    });
+
+    it("should show empty state when no recent companies available", async () => {
+      const user = userEvent.setup();
+      setupCompanyMocks({
+        recentData: { ...mockRecentCompaniesResponse, data: [] },
+      });
+
+      render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
+
+      const input = screen.getByRole("combobox");
+      await user.click(input);
+
+      await waitFor(() => {
+        expect(screen.getByText("No companies available")).toBeInTheDocument();
+      });
+    });
+
+    it("should allow selecting from recent companies", async () => {
+      const user = userEvent.setup();
+      setupCompanyMocks();
+
+      render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
+
+      const input = screen.getByRole("combobox");
+      await user.click(input);
+
+      await waitFor(() => {
+        expect(screen.getByText("Recent Company One")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText("Recent Company One"));
+
+      expect(mockOnValueChange).toHaveBeenCalledWith(
+        "company-3",
+        expect.objectContaining({ name: "Recent Company One" }),
+      );
+    });
+  });
+
+  // =============================================================================
+  // SECTION 3: SEARCH BEHAVIOR
+  // =============================================================================
+
+  describe("Search Behavior", () => {
+    it("should switch to search mode when 2 or more characters are typed", async () => {
+      const user = userEvent.setup();
+      const mockUseCompanies = vi.fn().mockImplementation((params, opts) => {
+        if (params?.search || params?.limit === 50) {
+          return {
+            data: mockCompaniesResponse,
+            isLoading: false,
+            isError: false,
+            error: null,
+          };
+        }
+        return {
+          data:
+            opts?.enabled === false ? undefined : mockRecentCompaniesResponse,
+          isLoading: false,
+          isError: false,
+          error: null,
+        };
       });
       vi.mocked(companiesApi.useCompanies).mockImplementation(mockUseCompanies);
 
@@ -227,16 +377,17 @@ describe("CompanySearchCombobox", () => {
           }),
         );
       });
+
+      // Should show search results, not recent companies header
+      await waitFor(() => {
+        expect(screen.queryByText("Recent Companies")).not.toBeInTheDocument();
+        expect(screen.getByText("Acme Corporation")).toBeInTheDocument();
+      });
     });
 
     it("should display search results in dropdown", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
@@ -249,14 +400,9 @@ describe("CompanySearchCombobox", () => {
       });
     });
 
-    it("should show loading state while fetching", async () => {
+    it("should show loading state while searching", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: undefined,
-        isLoading: true,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks({ searchLoading: true });
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
@@ -268,14 +414,11 @@ describe("CompanySearchCombobox", () => {
       });
     });
 
-    it("should show empty state when no results found", async () => {
+    it("should show empty state when no search results found", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: { ...mockCompaniesResponse, data: [] },
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks({
+        searchData: { ...mockCompaniesResponse, data: [] },
+      });
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
@@ -291,18 +434,13 @@ describe("CompanySearchCombobox", () => {
   });
 
   // =============================================================================
-  // SECTION 3: SELECTION BEHAVIOR
+  // SECTION 4: SELECTION BEHAVIOR
   // =============================================================================
 
   describe("Selection Behavior", () => {
-    it("should call onValueChange when company is selected", async () => {
+    it("should call onValueChange when company is selected from search", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
@@ -323,12 +461,7 @@ describe("CompanySearchCombobox", () => {
 
     it("should update input value when company is selected", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
@@ -348,12 +481,7 @@ describe("CompanySearchCombobox", () => {
 
     it("should close dropdown after selection", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
@@ -373,12 +501,7 @@ describe("CompanySearchCombobox", () => {
 
     it("should clear selection when user modifies search after selection", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
@@ -399,18 +522,13 @@ describe("CompanySearchCombobox", () => {
   });
 
   // =============================================================================
-  // SECTION 4: KEYBOARD NAVIGATION
+  // SECTION 5: KEYBOARD NAVIGATION
   // =============================================================================
 
   describe("Keyboard Navigation", () => {
     it("should open dropdown on Arrow Down key", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
@@ -433,12 +551,7 @@ describe("CompanySearchCombobox", () => {
 
     it("should close dropdown on Escape key", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
@@ -458,12 +571,7 @@ describe("CompanySearchCombobox", () => {
 
     it("should select company on Enter key when highlighted", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
@@ -482,21 +590,42 @@ describe("CompanySearchCombobox", () => {
         expect.objectContaining({ name: "Acme Corporation" }),
       );
     });
+
+    it("should navigate through recent companies with Arrow keys", async () => {
+      const user = userEvent.setup();
+      setupCompanyMocks();
+
+      render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
+
+      const input = screen.getByRole("combobox");
+      await user.click(input);
+
+      await waitFor(() => {
+        expect(screen.getByRole("listbox")).toBeInTheDocument();
+        expect(screen.getByText("Recent Company One")).toBeInTheDocument();
+      });
+
+      // Navigate down to second item
+      await user.keyboard("{ArrowDown}");
+
+      // Press Enter to select second item
+      await user.keyboard("{Enter}");
+
+      expect(mockOnValueChange).toHaveBeenCalledWith(
+        "company-4",
+        expect.objectContaining({ name: "Recent Company Two" }),
+      );
+    });
   });
 
   // =============================================================================
-  // SECTION 5: ACCESSIBILITY
+  // SECTION 6: ACCESSIBILITY
   // =============================================================================
 
   describe("Accessibility", () => {
     it("should have proper ARIA attributes", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
@@ -513,14 +642,9 @@ describe("CompanySearchCombobox", () => {
       });
     });
 
-    it("should have proper role attributes on dropdown elements", async () => {
+    it("should have proper role attributes on dropdown elements with search results", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
       render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
 
@@ -539,20 +663,52 @@ describe("CompanySearchCombobox", () => {
         });
       });
     });
+
+    it("should have proper role attributes on dropdown with recent companies", async () => {
+      const user = userEvent.setup();
+      setupCompanyMocks();
+
+      render(<CompanySearchCombobox onValueChange={mockOnValueChange} />);
+
+      const input = screen.getByRole("combobox");
+      await user.click(input);
+
+      await waitFor(() => {
+        const listbox = screen.getByRole("listbox");
+        expect(listbox).toBeInTheDocument();
+
+        const options = screen.getAllByRole("option");
+        expect(options).toHaveLength(2); // Two recent companies
+        options.forEach((option) => {
+          expect(option).toHaveAttribute("aria-selected");
+        });
+      });
+    });
   });
 
   // =============================================================================
-  // SECTION 6: EDGE CASES
+  // SECTION 7: EDGE CASES
   // =============================================================================
 
   describe("Edge Cases", () => {
     it("should handle special characters in search", async () => {
       const user = userEvent.setup();
-      const mockUseCompanies = vi.fn().mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
+      const mockUseCompanies = vi.fn().mockImplementation((params, opts) => {
+        if (params?.search || params?.limit === 50) {
+          return {
+            data: mockCompaniesResponse,
+            isLoading: false,
+            isError: false,
+            error: null,
+          };
+        }
+        return {
+          data:
+            opts?.enabled === false ? undefined : mockRecentCompaniesResponse,
+          isLoading: false,
+          isError: false,
+          error: null,
+        };
       });
       vi.mocked(companiesApi.useCompanies).mockImplementation(mockUseCompanies);
 
@@ -571,13 +727,24 @@ describe("CompanySearchCombobox", () => {
       });
     });
 
-    it("should trim whitespace from search query", async () => {
+    it("should trim whitespace from search query for search mode determination", async () => {
       const user = userEvent.setup();
-      const mockUseCompanies = vi.fn().mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
+      const mockUseCompanies = vi.fn().mockImplementation((params, opts) => {
+        if (params?.search || params?.limit === 50) {
+          return {
+            data: mockCompaniesResponse,
+            isLoading: false,
+            isError: false,
+            error: null,
+          };
+        }
+        return {
+          data:
+            opts?.enabled === false ? undefined : mockRecentCompaniesResponse,
+          isLoading: false,
+          isError: false,
+          error: null,
+        };
       });
       vi.mocked(companiesApi.useCompanies).mockImplementation(mockUseCompanies);
 
@@ -586,7 +753,7 @@ describe("CompanySearchCombobox", () => {
       const input = screen.getByRole("combobox");
       await user.type(input, "  Acme  ");
 
-      // Should pass trimmed value to API
+      // Should pass raw value to API but determine search mode by trimmed value
       await waitFor(() => {
         expect(mockUseCompanies).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -599,14 +766,9 @@ describe("CompanySearchCombobox", () => {
 
     it("should close dropdown when clicking outside", async () => {
       const user = userEvent.setup();
-      vi.mocked(companiesApi.useCompanies).mockReturnValue({
-        data: mockCompaniesResponse,
-        isLoading: false,
-        isError: false,
-        error: null,
-      } as any);
+      setupCompanyMocks();
 
-      const { container } = render(
+      render(
         <div>
           <CompanySearchCombobox onValueChange={mockOnValueChange} />
           <div data-testid="outside">Outside Element</div>
@@ -625,6 +787,27 @@ describe("CompanySearchCombobox", () => {
 
       await waitFor(() => {
         expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      });
+    });
+
+    it("should show dropdown testId when testId prop is provided", async () => {
+      const user = userEvent.setup();
+      setupCompanyMocks();
+
+      render(
+        <CompanySearchCombobox
+          onValueChange={mockOnValueChange}
+          testId="my-company-combobox"
+        />,
+      );
+
+      const input = screen.getByRole("combobox");
+      await user.click(input);
+
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("my-company-combobox-dropdown"),
+        ).toBeInTheDocument();
       });
     });
   });

@@ -129,20 +129,23 @@ export async function seedRBAC() {
       },
     });
 
-    // CLIENT_USER - COMPANY scope (secure login for accessing the client dashboard where cashiers operate terminals)
+    // CLIENT_USER - STORE scope (store login credential for physical terminal authentication)
+    // This is a machine/location credential that authenticates a physical device at a specific store.
+    // It grants access ONLY to the assigned store's MyStore Dashboard - never cross-store access.
+    // Individual cashiers then use their CASHIER role to start/end shifts on that terminal.
     const clientUserRole = await prisma.role.upsert({
       where: { code: "CLIENT_USER" },
       update: {
-        scope: "COMPANY",
+        scope: "STORE",
         description:
-          "Secure login for accessing the client dashboard where cashiers start/end shifts and operate terminals",
+          "Store login credential for physical terminal authentication - grants access only to assigned store's dashboard",
         is_system_role: true,
       },
       create: {
         code: "CLIENT_USER",
-        scope: "COMPANY",
+        scope: "STORE",
         description:
-          "Secure login for accessing the client dashboard where cashiers start/end shifts and operate terminals",
+          "Store login credential for physical terminal authentication - grants access only to assigned store's dashboard",
         is_system_role: true,
       },
     });

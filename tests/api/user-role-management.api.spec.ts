@@ -1109,6 +1109,381 @@ test.describe("2.8-API: User Management API - Business Logic Rules", () => {
   });
 });
 
+test.describe("2.8-API: User Management API - STORE-Scoped Role Store Assignment", () => {
+  test("2.8-API-042: [P0] POST /api/admin/users - should require store_id when creating user with STORE_MANAGER role", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Valid user data and STORE_MANAGER role (which is STORE-scoped)
+    const userData = createUserRequest();
+
+    // Create owner and company for the store
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Store Company Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Test Store Company",
+        status: "ACTIVE",
+        owner_user_id: ownerUser.user_id,
+      }),
+    });
+
+    const storeManagerRole = await prismaClient.role.findFirst({
+      where: { code: "STORE_MANAGER" },
+    });
+    if (!storeManagerRole) {
+      throw new Error("STORE_MANAGER role not found in database");
+    }
+
+    // WHEN: Creating user with STORE_MANAGER role but NO store_id
+    const response = await superadminApiRequest.post("/api/admin/users", {
+      email: userData.email,
+      name: userData.name,
+      roles: [
+        {
+          role_id: storeManagerRole.role_id,
+          scope_type: "STORE",
+          company_id: company.company_id,
+          // store_id is missing - this should fail
+        },
+      ],
+    });
+
+    // THEN: Validation error is returned - STORE-scoped roles require store assignment
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.message).toMatch(
+      /store.*required|company.*store.*required/i,
+    );
+  });
+
+  test("2.8-API-043: [P0] POST /api/admin/users - should require store_id when creating user with SHIFT_MANAGER role", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Valid user data and SHIFT_MANAGER role (which is STORE-scoped)
+    const userData = createUserRequest();
+
+    // Create owner and company for the store
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Shift Company Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Test Shift Company",
+        status: "ACTIVE",
+        owner_user_id: ownerUser.user_id,
+      }),
+    });
+
+    const shiftManagerRole = await prismaClient.role.findFirst({
+      where: { code: "SHIFT_MANAGER" },
+    });
+    if (!shiftManagerRole) {
+      throw new Error("SHIFT_MANAGER role not found in database");
+    }
+
+    // WHEN: Creating user with SHIFT_MANAGER role but NO store_id
+    const response = await superadminApiRequest.post("/api/admin/users", {
+      email: userData.email,
+      name: userData.name,
+      roles: [
+        {
+          role_id: shiftManagerRole.role_id,
+          scope_type: "STORE",
+          company_id: company.company_id,
+          // store_id is missing - this should fail
+        },
+      ],
+    });
+
+    // THEN: Validation error is returned - STORE-scoped roles require store assignment
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.message).toMatch(
+      /store.*required|company.*store.*required/i,
+    );
+  });
+
+  test("2.8-API-044: [P0] POST /api/admin/users - should require store_id when creating user with CASHIER role", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Valid user data and CASHIER role (which is STORE-scoped)
+    const userData = createUserRequest();
+
+    // Create owner and company for the store
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Cashier Company Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Test Cashier Company",
+        status: "ACTIVE",
+        owner_user_id: ownerUser.user_id,
+      }),
+    });
+
+    const cashierRole = await prismaClient.role.findFirst({
+      where: { code: "CASHIER" },
+    });
+    if (!cashierRole) {
+      throw new Error("CASHIER role not found in database");
+    }
+
+    // WHEN: Creating user with CASHIER role but NO store_id
+    const response = await superadminApiRequest.post("/api/admin/users", {
+      email: userData.email,
+      name: userData.name,
+      roles: [
+        {
+          role_id: cashierRole.role_id,
+          scope_type: "STORE",
+          company_id: company.company_id,
+          // store_id is missing - this should fail
+        },
+      ],
+    });
+
+    // THEN: Validation error is returned - STORE-scoped roles require store assignment
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.message).toMatch(
+      /store.*required|company.*store.*required/i,
+    );
+  });
+
+  test("2.8-API-045: [P0] POST /api/admin/users - should successfully create user with STORE_MANAGER role when store_id provided", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Valid user data, company, store, and STORE_MANAGER role
+    const userData = createUserRequest();
+
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Store Manager Company Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Store Manager Test Company",
+        status: "ACTIVE",
+        owner_user_id: ownerUser.user_id,
+      }),
+    });
+    const store = await prismaClient.store.create({
+      data: {
+        ...createStore({
+          name: "Store Manager Test Store",
+          status: "ACTIVE",
+          timezone: "America/New_York",
+        }),
+        company_id: company.company_id,
+      },
+    });
+
+    const storeManagerRole = await prismaClient.role.findFirst({
+      where: { code: "STORE_MANAGER" },
+    });
+    if (!storeManagerRole) {
+      throw new Error("STORE_MANAGER role not found in database");
+    }
+
+    // WHEN: Creating user with STORE_MANAGER role WITH store_id
+    const response = await superadminApiRequest.post("/api/admin/users", {
+      email: userData.email,
+      name: userData.name,
+      roles: [
+        {
+          role_id: storeManagerRole.role_id,
+          scope_type: "STORE",
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      ],
+    });
+
+    // THEN: User is created successfully
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty("user_id");
+
+    // AND: Role assignment includes the store_id
+    const userRole = await prismaClient.userRole.findFirst({
+      where: {
+        user_id: body.data.user_id,
+        role_id: storeManagerRole.role_id,
+      },
+    });
+    expect(userRole).not.toBeNull();
+    expect(userRole?.company_id).toBe(company.company_id);
+    expect(userRole?.store_id).toBe(store.store_id);
+  });
+
+  test("2.8-API-046: [P0] POST /api/admin/users/:userId/roles - should require store_id when assigning STORE_MANAGER role", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: An existing user and STORE_MANAGER role
+    const user = await prismaClient.user.create({
+      data: createAdminUser(),
+    });
+
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Company Owner for Role Assignment" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Role Assignment Test Company",
+        status: "ACTIVE",
+        owner_user_id: ownerUser.user_id,
+      }),
+    });
+
+    const storeManagerRole = await prismaClient.role.findFirst({
+      where: { code: "STORE_MANAGER" },
+    });
+    if (!storeManagerRole) {
+      throw new Error("STORE_MANAGER role not found in database");
+    }
+
+    // WHEN: Assigning STORE_MANAGER role WITHOUT store_id
+    const response = await superadminApiRequest.post(
+      `/api/admin/users/${user.user_id}/roles`,
+      {
+        role_id: storeManagerRole.role_id,
+        scope_type: "STORE",
+        company_id: company.company_id,
+        // store_id is missing
+      },
+    );
+
+    // THEN: Validation error is returned
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.message).toMatch(
+      /store.*required|company.*store.*required/i,
+    );
+  });
+
+  test("2.8-API-047: [P0] POST /api/admin/users - should reject STORE_MANAGER assignment to inactive store", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Valid user data, company, INACTIVE store, and STORE_MANAGER role
+    const userData = createUserRequest();
+
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Inactive Store Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Inactive Store Company",
+        status: "ACTIVE",
+        owner_user_id: ownerUser.user_id,
+      }),
+    });
+    const store = await prismaClient.store.create({
+      data: {
+        ...createStore({
+          name: "Inactive Store",
+          status: "INACTIVE", // Store is INACTIVE
+          timezone: "America/New_York",
+        }),
+        company_id: company.company_id,
+      },
+    });
+
+    const storeManagerRole = await prismaClient.role.findFirst({
+      where: { code: "STORE_MANAGER" },
+    });
+    if (!storeManagerRole) {
+      throw new Error("STORE_MANAGER role not found in database");
+    }
+
+    // WHEN: Creating user with STORE_MANAGER role for an INACTIVE store
+    const response = await superadminApiRequest.post("/api/admin/users", {
+      email: userData.email,
+      name: userData.name,
+      roles: [
+        {
+          role_id: storeManagerRole.role_id,
+          scope_type: "STORE",
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      ],
+    });
+
+    // THEN: Validation error is returned - cannot assign to inactive store
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.message).toMatch(/inactive.*store/i);
+  });
+
+  test("2.8-API-048: [P0] POST /api/admin/users - should reject STORE_MANAGER assignment to inactive company", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Valid user data, INACTIVE company, active store, and STORE_MANAGER role
+    const userData = createUserRequest();
+
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Inactive Company Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Inactive Company",
+        status: "INACTIVE", // Company is INACTIVE
+        owner_user_id: ownerUser.user_id,
+      }),
+    });
+    const store = await prismaClient.store.create({
+      data: {
+        ...createStore({
+          name: "Store Under Inactive Company",
+          status: "ACTIVE",
+          timezone: "America/New_York",
+        }),
+        company_id: company.company_id,
+      },
+    });
+
+    const storeManagerRole = await prismaClient.role.findFirst({
+      where: { code: "STORE_MANAGER" },
+    });
+    if (!storeManagerRole) {
+      throw new Error("STORE_MANAGER role not found in database");
+    }
+
+    // WHEN: Creating user with STORE_MANAGER role for a store under INACTIVE company
+    const response = await superadminApiRequest.post("/api/admin/users", {
+      email: userData.email,
+      name: userData.name,
+      roles: [
+        {
+          role_id: storeManagerRole.role_id,
+          scope_type: "STORE",
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      ],
+    });
+
+    // THEN: Validation error is returned - cannot assign to inactive company
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.message).toMatch(/inactive.*company/i);
+  });
+});
+
 test.describe("2.8-API: User Management API - User Deletion Operations", () => {
   test("2.8-API-032: [P0] DELETE /api/admin/users/:userId - should delete inactive user successfully", async ({
     superadminApiRequest,

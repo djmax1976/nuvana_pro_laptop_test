@@ -46,19 +46,13 @@ vi.mock("@/lib/api/companies", () => ({
     mockUseCompanies(params, options),
 }));
 
-// Mock the stores API module
-let mockUseCreateStore: any;
-let mockUseUpdateStore: any;
-vi.mock("@/lib/api/stores", () => ({
-  useCreateStore: () => mockUseCreateStore(),
-  useUpdateStore: () => mockUseUpdateStore(),
-}));
-
-// Mock StoreForm component to simplify testing
-vi.mock("@/components/stores/StoreForm", () => ({
-  StoreForm: ({ companyId }: { companyId: string }) => (
+// Mock CreateStoreWizard component to isolate page-level rendering tests
+// This follows testing pyramid principles: page tests focus on conditional rendering,
+// not on wizard implementation details (which has its own test file)
+vi.mock("@/components/stores/CreateStoreWizard", () => ({
+  CreateStoreWizard: ({ companyId }: { companyId: string }) => (
     <div data-testid="store-form" data-company-id={companyId}>
-      StoreForm for company {companyId}
+      CreateStoreWizard for company {companyId}
     </div>
   ),
 }));
@@ -68,6 +62,12 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({
     toast: vi.fn(),
   }),
+}));
+
+// Mock useDebounce hook for CompanySearchCombobox
+// Returns value immediately for synchronous testing
+vi.mock("@/hooks/useDebounce", () => ({
+  useDebounce: vi.fn((value: string) => value),
 }));
 
 describe("NewStorePage Component - Conditional Rendering", () => {
@@ -81,14 +81,6 @@ describe("NewStorePage Component - Conditional Rendering", () => {
     });
     vi.clearAllMocks();
     mockSearchParams = null;
-
-    // Default mocks
-    mockUseCreateStore = vi.fn(() => ({
-      mutateAsync: vi.fn(),
-    }));
-    mockUseUpdateStore = vi.fn(() => ({
-      mutateAsync: vi.fn(),
-    }));
   });
 
   const renderWithQueryClient = (component: React.ReactElement) => {
@@ -199,7 +191,7 @@ describe("NewStorePage Component - Conditional Rendering", () => {
     // GIVEN: URL has NO companyId query param
     mockSearchParams = new URLSearchParams();
 
-    // AND: API returns companies list
+    // AND: API returns companies list for both recent (on focus) and search queries
     const mockCompanies = [
       {
         company_id: "company-1",
@@ -217,23 +209,38 @@ describe("NewStorePage Component - Conditional Rendering", () => {
       },
     ];
 
-    mockUseCompanies = vi.fn(() => ({
-      data: { data: mockCompanies, meta: { total: 2, limit: 20, offset: 0 } },
-      isLoading: false,
-      error: null,
-    }));
+    // CompanySearchCombobox makes two types of queries:
+    // 1. Recent companies (limit: 10) on focus when not searching
+    // 2. Search companies (limit: 50, with search param) when typing 2+ chars
+    mockUseCompanies = vi.fn((params: any, options: any) => {
+      // If disabled, return no data
+      if (options?.enabled === false) {
+        return { data: undefined, isLoading: false, error: null };
+      }
+      // Return companies for both recent and search queries
+      return {
+        data: {
+          data: mockCompanies,
+          meta: { total: 2, limit: params?.limit || 20, offset: 0 },
+        },
+        isLoading: false,
+        error: null,
+      };
+    });
 
     // WHEN: Component renders
     renderWithQueryClient(<NewStorePage />);
 
-    // AND: User types in the company selector (minimum 2 characters required)
+    // AND: User clicks on the company selector to show recent companies
     const selectTrigger = screen.getByRole("combobox");
-    await userEvent.type(selectTrigger, "Co");
+    await userEvent.click(selectTrigger);
 
-    // AND: Wait for company options to appear and user selects a company
+    // AND: Wait for company options to appear (recent companies shown on focus)
     await waitFor(() => {
       expect(screen.getByText("Company Alpha")).toBeInTheDocument();
     });
+
+    // AND: User selects a company
     await userEvent.click(screen.getByText("Company Alpha"));
 
     // THEN: StoreForm is rendered with selected companyId

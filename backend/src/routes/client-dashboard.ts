@@ -98,7 +98,10 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
 
         // Also get stores where user is assigned via user_roles (for store employees)
         // This allows STORE_MANAGER, CASHIER, etc. to see their assigned stores
-        // We get ALL role assignments (store-level or company-level) to capture both scenarios
+        // We get ALL role assignments WITH role scope to properly filter access:
+        // - STORE-scoped roles: only see assigned store(s)
+        // - COMPANY-scoped roles: see all stores in assigned company
+        // - SYSTEM-scoped roles: handled separately (superadmin)
         const userRoleAssignments = await prisma.userRole.findMany({
           where: {
             user_id: user.id,
@@ -107,15 +110,29 @@ export async function clientDashboardRoutes(fastify: FastifyInstance) {
           select: {
             store_id: true,
             company_id: true,
+            role: {
+              select: {
+                scope: true,
+              },
+            },
           },
         });
 
+        // STORE-scoped roles: only grant access to specifically assigned stores
+        // This prevents CLIENT_USER (store login) from seeing all stores in company
         const assignedStoreIds = userRoleAssignments
           .filter((r) => r.store_id !== null)
           .map((r) => r.store_id as string);
 
+        // COMPANY-scoped roles: grant access to all stores in the company
+        // Only include company_id if the role has COMPANY or SYSTEM scope
+        // STORE-scoped roles should NOT grant company-wide access even if company_id is set
         const assignedCompanyIds = userRoleAssignments
-          .filter((r) => r.company_id !== null)
+          .filter(
+            (r) =>
+              r.company_id !== null &&
+              (r.role.scope === "COMPANY" || r.role.scope === "SYSTEM"),
+          )
           .map((r) => r.company_id as string);
 
         // Get companies the user is assigned to (not owned)
