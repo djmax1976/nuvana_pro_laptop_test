@@ -159,6 +159,32 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               },
             },
           },
+          409: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -172,6 +198,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         store_id?: string;
         bin_id?: string;
       };
+
+      // Normalize string fields by trimming whitespace
+      // This ensures consistent behavior across duplicate checks, validations, and database writes
+      const normalizedPackNumber = body.pack_number.trim();
+      const normalizedSerialStart = body.serial_start.trim();
+      const normalizedSerialEnd = body.serial_end.trim();
 
       try {
         // Extract IP address and user agent for audit logging
@@ -250,7 +282,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         // Validate serial range (serial_start should be <= serial_end)
         // Note: Serial numbers are strings, so we compare them as strings
         // This is a basic validation - more complex validation may be needed based on barcode format
-        if (body.serial_start > body.serial_end) {
+        if (normalizedSerialStart > normalizedSerialEnd) {
           reply.code(400);
           return {
             success: false,
@@ -324,7 +356,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             where: {
               store_id_pack_number: {
                 store_id: storeId,
-                pack_number: body.pack_number,
+                pack_number: normalizedPackNumber,
               },
             },
           });
@@ -338,9 +370,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             data: {
               game_id: body.game_id,
               store_id: storeId,
-              pack_number: body.pack_number.trim(),
-              serial_start: body.serial_start.trim(),
-              serial_end: body.serial_end.trim(),
+              pack_number: normalizedPackNumber,
+              serial_start: normalizedSerialStart,
+              serial_end: normalizedSerialEnd,
               status: "RECEIVED",
               current_bin_id: body.bin_id || null,
               received_at: new Date(),
@@ -391,7 +423,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 } as Record<string, any>,
                 ip_address: ipAddress,
                 user_agent: userAgent,
-                reason: `Lottery pack received by ${user.email} (roles: ${user.roles.join(", ")}) - Pack #${body.pack_number}`,
+                reason: `Lottery pack received by ${user.email} (roles: ${user.roles.join(", ")}) - Pack #${normalizedPackNumber}`,
               },
             });
           } catch (auditError) {
@@ -431,7 +463,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             success: false,
             error: {
               code: "DUPLICATE_PACK_NUMBER",
-              message: `Pack number ${body.pack_number} already exists for this store`,
+              message: `Pack number ${normalizedPackNumber} already exists for this store`,
             },
           };
         }
@@ -446,7 +478,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             success: false,
             error: {
               code: "DUPLICATE_PACK_NUMBER",
-              message: `Pack number ${body.pack_number} already exists for this store`,
+              message: `Pack number ${normalizedPackNumber} already exists for this store`,
             },
           };
         }
