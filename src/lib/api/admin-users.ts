@@ -296,8 +296,11 @@ export function useCreateUser() {
   return useMutation({
     mutationFn: (data: CreateUserInput) => createUser(data),
     onSuccess: () => {
-      // Invalidate users list to refetch after creation
-      queryClient.invalidateQueries({ queryKey: adminUserKeys.lists() });
+      // Invalidate all user list queries (with any params) to refetch after creation
+      queryClient.invalidateQueries({
+        queryKey: adminUserKeys.all,
+        refetchType: "all",
+      });
     },
   });
 }
@@ -318,13 +321,11 @@ export function useUpdateUserStatus() {
       data: UpdateUserStatusInput;
     }) => updateUserStatus(userId, data),
     onSuccess: (response) => {
-      // Invalidate both list and detail queries
-      queryClient.invalidateQueries({ queryKey: adminUserKeys.lists() });
-      if (response.data?.user_id) {
-        queryClient.invalidateQueries({
-          queryKey: adminUserKeys.detail(response.data.user_id),
-        });
-      }
+      // Invalidate all user queries to ensure fresh data
+      queryClient.invalidateQueries({
+        queryKey: adminUserKeys.all,
+        refetchType: "all",
+      });
     },
   });
 }
@@ -344,11 +345,11 @@ export function useAssignRole() {
       userId: string;
       roleAssignment: AssignRoleRequest;
     }) => assignRole(userId, roleAssignment),
-    onSuccess: (_response, variables) => {
-      // Invalidate both list and detail queries for the user
-      queryClient.invalidateQueries({ queryKey: adminUserKeys.lists() });
+    onSuccess: () => {
+      // Invalidate all user queries to ensure fresh data
       queryClient.invalidateQueries({
-        queryKey: adminUserKeys.detail(variables.userId),
+        queryKey: adminUserKeys.all,
+        refetchType: "all",
       });
     },
   });
@@ -369,11 +370,11 @@ export function useRevokeRole() {
       userId: string;
       userRoleId: string;
     }) => revokeRole(userId, userRoleId),
-    onSuccess: (_response, variables) => {
-      // Invalidate both list and detail queries for the user
-      queryClient.invalidateQueries({ queryKey: adminUserKeys.lists() });
+    onSuccess: () => {
+      // Invalidate all user queries to ensure fresh data
       queryClient.invalidateQueries({
-        queryKey: adminUserKeys.detail(variables.userId),
+        queryKey: adminUserKeys.all,
+        refetchType: "all",
       });
     },
   });
@@ -389,8 +390,11 @@ export function useDeleteUser() {
   return useMutation({
     mutationFn: (userId: string) => deleteUser(userId),
     onSuccess: () => {
-      // Invalidate users list to refetch after deletion
-      queryClient.invalidateQueries({ queryKey: adminUserKeys.lists() });
+      // Invalidate all user queries to ensure fresh data
+      queryClient.invalidateQueries({
+        queryKey: adminUserKeys.all,
+        refetchType: "all",
+      });
     },
   });
 }

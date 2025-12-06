@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface LoginFormProps {
   onSuccess?: () => void;
@@ -19,16 +20,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   const router = useRouter();
-
-  // Define explicit set of allowed roles
-  const ALLOWED_ROLES = [
-    "CLIENT_OWNER",
-    "CLIENT_USER",
-    "STORE_MANAGER",
-    "SHIFT_MANAGER",
-    "CASHIER",
-    "SUPERADMIN",
-  ] as const;
+  const { login, userRole, isStoreUser } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,99 +28,15 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
     setError(null);
 
     try {
-      const backendUrl =
-        process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      // Use AuthContext login which updates React state AND localStorage
+      await login(email, password);
 
-      const response = await fetch(`${backendUrl}/api/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include", // Important for httpOnly cookies
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error?.message || data.message || "Login failed");
-      }
-
-      // Get user role and client user flag for routing
-      // Backend returns { success: true, data: { user: { ... } } }
-      const userData = data.data?.user || data.user;
-      const userRole = userData?.user_role;
-      const isClientUser = userData?.is_client_user === true;
-
-      // Validate userRole against explicit set of allowed roles
-      const isValidRole =
-        userRole &&
-        typeof userRole === "string" &&
-        ALLOWED_ROLES.includes(userRole as any);
-      if (!isValidRole) {
-        // Log minimal non-PII info in production, detailed info in development
-        if (process.env.NODE_ENV === "development") {
-          console.error("[LoginForm] Role validation failed:", {
-            userRole,
-            allowedRoles: ALLOWED_ROLES,
-            userData: userData,
-          });
-        } else {
-          console.error("[LoginForm] Role validation failed:", {
-            userRole,
-            allowedRoles: ALLOWED_ROLES,
-            userId: userData?.id
-              ? `user_${userData.id.substring(0, 8)}...`
-              : "unknown",
-          });
-        }
-
-        toast({
-          title: "Authentication Error",
-          description:
-            "Your account has an invalid role. Please contact support.",
-          variant: "destructive",
-        });
-
-        // Clear any partial auth state
-        localStorage.removeItem("auth_session");
-        localStorage.removeItem("client_auth_session");
-
-        // Redirect to login page (safe fallback)
-        setTimeout(() => {
-          router.push("/login");
-        }, 2000);
-
-        setError("Invalid user role. Redirecting to login...");
-        setIsLoading(false);
-        return;
-      }
-
-      // Determine if user should go to mystore (terminal dashboard)
-      // Only store-level roles go to /mystore: CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER
-      // CLIENT_OWNER goes to /dashboard (client owner dashboard)
-      const isStoreUser = [
-        "CLIENT_USER",
-        "STORE_MANAGER",
-        "SHIFT_MANAGER",
-        "CASHIER",
-      ].includes(userRole);
-
-      // Store basic user info for UI (not for auth - that's in httpOnly cookies)
-      // Always use single source of truth: "auth_session" with role information
-      // Clear both keys to prevent stale/conflicting entries
-      localStorage.removeItem("auth_session");
-      localStorage.removeItem("client_auth_session");
-      localStorage.setItem(
-        "auth_session",
-        JSON.stringify({
-          user: userData,
-          authenticated: true,
-          isClientUser: isClientUser,
-          isStoreUser: isStoreUser,
-          userRole: userRole,
-        }),
-      );
+      // After successful login, get the role from the updated auth context
+      // We need to refetch from localStorage since the hook state won't be updated yet in this render
+      const authSession = localStorage.getItem("auth_session");
+      const sessionData = authSession ? JSON.parse(authSession) : null;
+      const currentUserRole = sessionData?.userRole;
+      const currentIsStoreUser = sessionData?.isStoreUser;
 
       // Call success callback or redirect based on user type
       if (onSuccess) {
@@ -138,16 +46,28 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         // - Store-level users (CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER) go to /mystore
         // - CLIENT_OWNER goes to /client-dashboard (client owner dashboard)
         // - Admin users (SUPERADMIN) go to /dashboard (admin dashboard)
-        if (isStoreUser) {
+        if (currentIsStoreUser) {
           router.push("/mystore");
-        } else if (userRole === "CLIENT_OWNER") {
+        } else if (currentUserRole === "CLIENT_OWNER") {
           router.push("/client-dashboard");
         } else {
           router.push("/dashboard");
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+      const errorMessage =
+        err instanceof Error ? err.message : "An error occurred";
+      setError(errorMessage);
+
+      // Show toast for specific errors
+      if (errorMessage.includes("invalid role")) {
+        toast({
+          title: "Authentication Error",
+          description:
+            "Your account has an invalid role. Please contact support.",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsLoading(false);
     }

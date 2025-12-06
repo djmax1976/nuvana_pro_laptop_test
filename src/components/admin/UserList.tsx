@@ -250,7 +250,10 @@ export function UserList() {
 
   // Handle successful user edit
   const handleUserUpdated = () => {
-    queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    queryClient.invalidateQueries({
+      queryKey: ["admin-users"],
+      refetchType: "all",
+    });
   };
 
   // Handle delete click

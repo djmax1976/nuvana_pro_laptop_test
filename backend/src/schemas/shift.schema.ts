@@ -236,13 +236,18 @@ export function safeValidateStartShiftInput(data: unknown) {
 /**
  * Update Starting Cash Request Schema
  * Validates the request body for PUT /api/shifts/:shiftId/starting-cash
+ *
+ * Note: cashier_id is NOT included here - it's extracted from the validated
+ * X-Cashier-Session token by the cashierSessionWithPermission middleware.
+ * This follows the enterprise cashier session pattern where the authenticated
+ * cashier's identity comes from the session, not the request body.
+ *
  * Story 4.92: Terminal Shift Page
  */
 export const UpdateStartingCashSchema = z.object({
   starting_cash: z
     .number()
     .nonnegative("starting_cash must be a non-negative number or zero"),
-  cashier_id: z.string().uuid("cashier_id must be a valid UUID"),
 });
 
 /**

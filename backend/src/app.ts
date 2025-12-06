@@ -234,7 +234,7 @@ app.register(cors, {
   origin: process.env.CORS_ORIGIN?.split(",") || ["http://localhost:3000"],
   credentials: true, // Required for cookies to work with CORS
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-cashier-session"],
   exposedHeaders: ["Content-Type", "Authorization"],
   preflightContinue: false, // Ensure Fastify handles OPTIONS requests
 });

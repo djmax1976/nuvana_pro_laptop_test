@@ -287,31 +287,74 @@ test.describe("Store Management E2E", () => {
     });
   });
 
-  test("[P0] Should create a new store", async ({ page }) => {
+  test("[P0] Should create a new store with login via wizard", async ({
+    page,
+  }) => {
     // Navigate directly to create store with companyId to skip company selection
     await page.goto(
       `http://localhost:3000/stores/new?companyId=${testCompany.company_id}`,
     );
     await page.waitForLoadState("load");
 
+    // Step 1: Store Information
     const newStoreName = `New E2E Store ${Date.now()}`;
     const nameInput = page.getByLabel("Store Name");
     await expect(nameInput).toBeVisible({ timeout: 10000 });
     await nameInput.fill(newStoreName);
 
-    // Status defaults to ACTIVE, no need to change it
+    // Status defaults to ACTIVE, timezone defaults to America/New_York
 
-    const submitButton = page.getByRole("button", { name: "Create Store" });
-    await submitButton.click();
-    await page.waitForTimeout(1000);
+    // Click Next to go to Step 2 (using data-testid to avoid matching Next.js Dev Tools button)
+    const nextButton = page.getByTestId("next-button");
+    await expect(nextButton).toBeVisible({ timeout: 5000 });
+    await nextButton.click();
 
+    // Step 2: Store Login and Terminals
+    // Wait for login email field to be visible
+    const loginEmailInput = page.getByLabel("Login Email");
+    await expect(loginEmailInput).toBeVisible({ timeout: 10000 });
+
+    const uniqueEmail = `storelogin-${Date.now()}@e2e-test.com`;
+    await loginEmailInput.fill(uniqueEmail);
+
+    const loginPasswordInput = page.getByLabel("Login Password");
+    await expect(loginPasswordInput).toBeVisible({ timeout: 5000 });
+    await loginPasswordInput.fill("SecureE2EPassword123!");
+
+    // Submit the wizard
+    const createButton = page.getByRole("button", { name: "Create Store" });
+    await createButton.click();
+    await page.waitForTimeout(2000);
+
+    // Verify store was created
     const createdStore = await prisma.store.findFirst({
       where: { name: newStoreName },
     });
     expect(createdStore).not.toBeNull();
 
-    // Cleanup
+    // Verify store login was created
     if (createdStore) {
+      const storeLogin = await prisma.user.findFirst({
+        where: { email: uniqueEmail },
+      });
+      expect(storeLogin).not.toBeNull();
+
+      // Verify store has login linked
+      expect(createdStore.store_login_user_id).toBe(storeLogin?.user_id);
+
+      // Cleanup: Delete login's user roles, login user, and store
+      if (storeLogin) {
+        await prisma.userRole.deleteMany({
+          where: { user_id: storeLogin.user_id },
+        });
+        await prisma.store.update({
+          where: { store_id: createdStore.store_id },
+          data: { store_login_user_id: null },
+        });
+        await prisma.user.delete({
+          where: { user_id: storeLogin.user_id },
+        });
+      }
       await prisma.store.delete({
         where: { store_id: createdStore.store_id },
       });
