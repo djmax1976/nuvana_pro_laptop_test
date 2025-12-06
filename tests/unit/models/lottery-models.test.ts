@@ -242,10 +242,22 @@ describe("6.1-UNIT: LotteryPackStatus Enum", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("6.1-UNIT: LotteryGame Type Definition", () => {
+  // Mock game object with all required fields for type validation
+  const mockGame = {
+    game_id: "test-game-id",
+    name: "Test Game",
+    status: LotteryGameStatus.ACTIVE,
+    description: "Test description",
+    price: { toNumber: () => 2.0 }, // Prisma Decimal mock
+    created_at: new Date(),
+    updated_at: new Date(),
+    packs: [],
+  };
+
   it("6.1-UNIT-010: should have game_id field of type string", () => {
     // GIVEN: LotteryGame type is available
     // WHEN: Checking game_id field type
-    const game: { game_id: string } = {} as any;
+    const game: { game_id: string } = mockGame;
 
     // THEN: game_id is string type
     expect(typeof game.game_id, "game_id should be string type").toBe("string");
@@ -254,7 +266,7 @@ describe("6.1-UNIT: LotteryGame Type Definition", () => {
   it("6.1-UNIT-011: should have name field of type string", () => {
     // GIVEN: LotteryGame type is available
     // WHEN: Checking name field type
-    const game: { name: string } = {} as any;
+    const game: { name: string } = mockGame;
 
     // THEN: name is string type
     expect(typeof game.name, "name should be string type").toBe("string");
@@ -263,7 +275,7 @@ describe("6.1-UNIT: LotteryGame Type Definition", () => {
   it("6.1-UNIT-012: should have status field of type LotteryGameStatus", () => {
     // GIVEN: LotteryGame type is available
     // WHEN: Checking status field type
-    const game: { status: LotteryGameStatus } = {} as any;
+    const game: { status: LotteryGameStatus } = mockGame;
 
     // THEN: status is string type and valid enum value
     expect(typeof game.status, "status should be string type").toBe("string");
@@ -280,7 +292,7 @@ describe("6.1-UNIT: LotteryGame Type Definition", () => {
   it("6.1-UNIT-028: should have description field of type string | null (optional)", () => {
     // GIVEN: LotteryGame type is available
     // WHEN: Checking description field type
-    const game: { description: string | null } = {} as any;
+    const game: { description: string | null } = mockGame;
 
     // THEN: description is string or null type (optional field)
     expect(
@@ -293,7 +305,7 @@ describe("6.1-UNIT: LotteryGame Type Definition", () => {
     // GIVEN: LotteryGame type is available
     // WHEN: Checking price field type
     // Note: Prisma Decimal type is represented as Decimal.js object in TypeScript
-    const game: { price: any | null } = {} as any;
+    const game: { price: any | null } = mockGame;
 
     // THEN: price is Decimal or null type (optional field)
     expect(
@@ -305,7 +317,7 @@ describe("6.1-UNIT: LotteryGame Type Definition", () => {
   it("6.1-UNIT-030: should have created_at field of type Date", () => {
     // GIVEN: LotteryGame type is available
     // WHEN: Checking created_at field type
-    const game: { created_at: Date } = {} as any;
+    const game: { created_at: Date } = mockGame;
 
     // THEN: created_at is Date type
     expect(game.created_at, "created_at should be Date type").toBeInstanceOf(
@@ -316,7 +328,7 @@ describe("6.1-UNIT: LotteryGame Type Definition", () => {
   it("6.1-UNIT-031: should have updated_at field of type Date", () => {
     // GIVEN: LotteryGame type is available
     // WHEN: Checking updated_at field type
-    const game: { updated_at: Date } = {} as any;
+    const game: { updated_at: Date } = mockGame;
 
     // THEN: updated_at is Date type
     expect(game.updated_at, "updated_at should be Date type").toBeInstanceOf(
@@ -330,10 +342,31 @@ describe("6.1-UNIT: LotteryGame Type Definition", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("6.1-UNIT: LotteryPack Type Definition", () => {
+  // Mock pack object with all required fields for type validation
+  const mockPack = {
+    pack_id: "test-pack-id",
+    game_id: "test-game-id",
+    store_id: "test-store-id",
+    pack_number: "PACK-001",
+    serial_start: "184303159650093783374530",
+    serial_end: "184303159650093783374680",
+    status: LotteryPackStatus.RECEIVED,
+    current_bin_id: null as string | null,
+    received_at: new Date(),
+    activated_at: null as Date | null,
+    depleted_at: null as Date | null,
+    returned_at: null as Date | null,
+    created_at: new Date(),
+    updated_at: new Date(),
+    game: { game_id: "test-game-id", name: "Test Game" },
+    store: { store_id: "test-store-id", name: "Test Store" },
+    bin: null,
+  };
+
   it("6.1-UNIT-013: should have pack_id field of type string", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking pack_id field type
-    const pack: { pack_id: string } = {} as any;
+    const pack: { pack_id: string } = mockPack;
 
     // THEN: pack_id is string type
     expect(typeof pack.pack_id, "pack_id should be string type").toBe("string");
@@ -342,7 +375,7 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
   it("6.1-UNIT-014: should have serial_start and serial_end fields of type string", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking serial_start and serial_end field types
-    const pack: { serial_start: string; serial_end: string } = {} as any;
+    const pack: { serial_start: string; serial_end: string } = mockPack;
 
     // THEN: Both fields are string type
     expect(typeof pack.serial_start, "serial_start should be string type").toBe(
@@ -356,7 +389,7 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
   it("6.1-UNIT-015: should have status field of type LotteryPackStatus", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking status field type
-    const pack: { status: LotteryPackStatus } = {} as any;
+    const pack: { status: LotteryPackStatus } = mockPack;
 
     // THEN: status is string type and valid enum value
     expect(typeof pack.status, "status should be string type").toBe("string");
@@ -374,7 +407,7 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
   it("6.1-UNIT-032: should have game_id field of type string", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking game_id field type
-    const pack: { game_id: string } = {} as any;
+    const pack: { game_id: string } = mockPack;
 
     // THEN: game_id is string type
     expect(typeof pack.game_id, "game_id should be string type").toBe("string");
@@ -383,7 +416,7 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
   it("6.1-UNIT-033: should have store_id field of type string", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking store_id field type
-    const pack: { store_id: string } = {} as any;
+    const pack: { store_id: string } = mockPack;
 
     // THEN: store_id is string type
     expect(typeof pack.store_id, "store_id should be string type").toBe(
@@ -394,7 +427,7 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
   it("6.1-UNIT-034: should have pack_number field of type string", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking pack_number field type
-    const pack: { pack_number: string } = {} as any;
+    const pack: { pack_number: string } = mockPack;
 
     // THEN: pack_number is string type
     expect(typeof pack.pack_number, "pack_number should be string type").toBe(
@@ -405,7 +438,7 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
   it("6.1-UNIT-035: should have current_bin_id field of type string | null (optional)", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking current_bin_id field type
-    const pack: { current_bin_id: string | null } = {} as any;
+    const pack: { current_bin_id: string | null } = mockPack;
 
     // THEN: current_bin_id is string or null type (optional field)
     expect(
@@ -417,7 +450,7 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
   it("6.1-UNIT-036: should have received_at field of type Date | null (optional)", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking received_at field type
-    const pack: { received_at: Date | null } = {} as any;
+    const pack: { received_at: Date | null } = mockPack;
 
     // THEN: received_at is Date or null type (optional field)
     expect(
@@ -429,7 +462,7 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
   it("6.1-UNIT-037: should have activated_at field of type Date | null (optional)", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking activated_at field type
-    const pack: { activated_at: Date | null } = {} as any;
+    const pack: { activated_at: Date | null } = mockPack;
 
     // THEN: activated_at is Date or null type (optional field)
     expect(
@@ -441,7 +474,7 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
   it("6.1-UNIT-038: should have depleted_at field of type Date | null (optional)", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking depleted_at field type
-    const pack: { depleted_at: Date | null } = {} as any;
+    const pack: { depleted_at: Date | null } = mockPack;
 
     // THEN: depleted_at is Date or null type (optional field)
     expect(
@@ -453,7 +486,7 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
   it("6.1-UNIT-039: should have returned_at field of type Date | null (optional)", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking returned_at field type
-    const pack: { returned_at: Date | null } = {} as any;
+    const pack: { returned_at: Date | null } = mockPack;
 
     // THEN: returned_at is Date or null type (optional field)
     expect(
@@ -465,7 +498,7 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
   it("6.1-UNIT-040: should have created_at field of type Date", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking created_at field type
-    const pack: { created_at: Date } = {} as any;
+    const pack: { created_at: Date } = mockPack;
 
     // THEN: created_at is Date type
     expect(pack.created_at, "created_at should be Date type").toBeInstanceOf(
@@ -476,7 +509,7 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
   it("6.1-UNIT-041: should have updated_at field of type Date", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking updated_at field type
-    const pack: { updated_at: Date } = {} as any;
+    const pack: { updated_at: Date } = mockPack;
 
     // THEN: updated_at is Date type
     expect(pack.updated_at, "updated_at should be Date type").toBeInstanceOf(
@@ -490,10 +523,22 @@ describe("6.1-UNIT: LotteryPack Type Definition", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("6.1-UNIT: LotteryBin Type Definition", () => {
+  // Mock bin object with all required fields for type validation
+  const mockBin = {
+    bin_id: "test-bin-id",
+    store_id: "test-store-id",
+    name: "Test Bin",
+    location: "Counter 1",
+    created_at: new Date(),
+    updated_at: new Date(),
+    store: { store_id: "test-store-id", name: "Test Store" },
+    packs: [],
+  };
+
   it("6.1-UNIT-016: should have bin_id field of type string", () => {
     // GIVEN: LotteryBin type is available
     // WHEN: Checking bin_id field type
-    const bin: { bin_id: string } = {} as any;
+    const bin: { bin_id: string } = mockBin;
 
     // THEN: bin_id is string type
     expect(typeof bin.bin_id, "bin_id should be string type").toBe("string");
@@ -502,7 +547,7 @@ describe("6.1-UNIT: LotteryBin Type Definition", () => {
   it("6.1-UNIT-017: should have name field of type string", () => {
     // GIVEN: LotteryBin type is available
     // WHEN: Checking name field type
-    const bin: { name: string } = {} as any;
+    const bin: { name: string } = mockBin;
 
     // THEN: name is string type
     expect(typeof bin.name, "name should be string type").toBe("string");
@@ -511,7 +556,7 @@ describe("6.1-UNIT: LotteryBin Type Definition", () => {
   it("6.1-UNIT-042: should have store_id field of type string", () => {
     // GIVEN: LotteryBin type is available
     // WHEN: Checking store_id field type
-    const bin: { store_id: string } = {} as any;
+    const bin: { store_id: string } = mockBin;
 
     // THEN: store_id is string type
     expect(typeof bin.store_id, "store_id should be string type").toBe(
@@ -522,7 +567,7 @@ describe("6.1-UNIT: LotteryBin Type Definition", () => {
   it("6.1-UNIT-043: should have location field of type string | null (optional)", () => {
     // GIVEN: LotteryBin type is available
     // WHEN: Checking location field type
-    const bin: { location: string | null } = {} as any;
+    const bin: { location: string | null } = mockBin;
 
     // THEN: location is string or null type (optional field)
     expect(
@@ -534,7 +579,7 @@ describe("6.1-UNIT: LotteryBin Type Definition", () => {
   it("6.1-UNIT-044: should have created_at field of type Date", () => {
     // GIVEN: LotteryBin type is available
     // WHEN: Checking created_at field type
-    const bin: { created_at: Date } = {} as any;
+    const bin: { created_at: Date } = mockBin;
 
     // THEN: created_at is Date type
     expect(bin.created_at, "created_at should be Date type").toBeInstanceOf(
@@ -545,7 +590,7 @@ describe("6.1-UNIT: LotteryBin Type Definition", () => {
   it("6.1-UNIT-045: should have updated_at field of type Date", () => {
     // GIVEN: LotteryBin type is available
     // WHEN: Checking updated_at field type
-    const bin: { updated_at: Date } = {} as any;
+    const bin: { updated_at: Date } = mockBin;
 
     // THEN: updated_at is Date type
     expect(bin.updated_at, "updated_at should be Date type").toBeInstanceOf(
@@ -559,10 +604,32 @@ describe("6.1-UNIT: LotteryBin Type Definition", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("6.1-UNIT: Relationship Types", () => {
+  // Mock objects for relationship type validation
+  const mockGame = {
+    game_id: "test-game-id",
+    name: "Test Game",
+    status: LotteryGameStatus.ACTIVE,
+    packs: [],
+  };
+
+  const mockPack = {
+    pack_id: "test-pack-id",
+    game: { game_id: "test-game-id", name: "Test Game" },
+    store: { store_id: "test-store-id", name: "Test Store" },
+    bin: null as { bin_id: string; name: string } | null,
+  };
+
+  const mockBin = {
+    bin_id: "test-bin-id",
+    name: "Test Bin",
+    store: { store_id: "test-store-id", name: "Test Store" },
+    packs: [],
+  };
+
   it("6.1-UNIT-018: LotteryGame should have packs relation type", () => {
     // GIVEN: LotteryGame type is available
     // WHEN: Checking packs relation type
-    const game: { packs: any[] } = {} as any;
+    const game: { packs: any[] } = mockGame;
 
     // THEN: packs is array type (one-to-many relationship)
     expect(Array.isArray(game.packs), "packs should be an array").toBe(true);
@@ -571,7 +638,7 @@ describe("6.1-UNIT: Relationship Types", () => {
   it("6.1-UNIT-019: LotteryPack should have game relation type", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking game relation type
-    const pack: { game: any } = {} as any;
+    const pack: { game: any } = mockPack;
 
     // THEN: game is object type (many-to-one relationship)
     expect(pack.game, "game should be defined").toBeDefined();
@@ -581,7 +648,7 @@ describe("6.1-UNIT: Relationship Types", () => {
   it("6.1-UNIT-020: LotteryPack should have store relation type", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking store relation type
-    const pack: { store: any } = {} as any;
+    const pack: { store: any } = mockPack;
 
     // THEN: store is object type (many-to-one relationship)
     expect(pack.store, "store should be defined").toBeDefined();
@@ -591,7 +658,7 @@ describe("6.1-UNIT: Relationship Types", () => {
   it("6.1-UNIT-021: LotteryPack should have bin relation type (nullable)", () => {
     // GIVEN: LotteryPack type is available
     // WHEN: Checking bin relation type
-    const pack: { bin: any | null } = {} as any;
+    const pack: { bin: any | null } = mockPack;
 
     // THEN: bin is object or null type (nullable many-to-one relationship)
     expect(
@@ -603,7 +670,7 @@ describe("6.1-UNIT: Relationship Types", () => {
   it("6.1-UNIT-046: LotteryBin should have store relation type", () => {
     // GIVEN: LotteryBin type is available
     // WHEN: Checking store relation type
-    const bin: { store: any } = {} as any;
+    const bin: { store: any } = mockBin;
 
     // THEN: store is object type (many-to-one relationship)
     expect(bin.store, "store should be defined").toBeDefined();
@@ -613,7 +680,7 @@ describe("6.1-UNIT: Relationship Types", () => {
   it("6.1-UNIT-047: LotteryBin should have packs relation type", () => {
     // GIVEN: LotteryBin type is available
     // WHEN: Checking packs relation type
-    const bin: { packs: any[] } = {} as any;
+    const bin: { packs: any[] } = mockBin;
 
     // THEN: packs is array type (one-to-many relationship)
     expect(Array.isArray(bin.packs), "packs should be an array").toBe(true);

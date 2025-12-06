@@ -357,40 +357,62 @@ test.describe("Store Management E2E", () => {
       expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
     ]);
 
-    // Small delay to ensure database transaction is fully committed
-    await page.waitForTimeout(500);
+    // Poll database until store is created (with timeout and interval)
+    const pollForStore = async (
+      timeout: number = 10000,
+      interval: number = 200,
+    ) => {
+      const startTime = Date.now();
+      while (Date.now() - startTime < timeout) {
+        const store = await prisma.store.findFirst({
+          where: { name: newStoreName },
+        });
+        if (store) {
+          return store;
+        }
+        await new Promise((resolve) => setTimeout(resolve, interval));
+      }
+      throw new Error(
+        `Store with name "${newStoreName}" not found in database after ${timeout}ms`,
+      );
+    };
 
-    // Verify store was created (with retry for eventual consistency)
-    let createdStore = await prisma.store.findFirst({
-      where: { name: newStoreName },
-    });
-
-    // Retry if not found immediately (database propagation)
-    if (!createdStore) {
-      await page.waitForTimeout(1000);
-      createdStore = await prisma.store.findFirst({
-        where: { name: newStoreName },
-      });
-    }
+    // Verify store was created (with polling for eventual consistency)
+    const createdStore = await pollForStore(10000, 200);
     expect(createdStore).not.toBeNull();
 
-    // Verify store login was created (with retry)
+    // Verify store login was created (with polling)
     if (createdStore) {
-      let storeLogin = await prisma.user.findFirst({
-        where: { email: uniqueEmail.toLowerCase() },
-      });
+      const pollForStoreLogin = async (
+        timeout: number = 10000,
+        interval: number = 200,
+      ) => {
+        const startTime = Date.now();
+        while (Date.now() - startTime < timeout) {
+          const login = await prisma.user.findFirst({
+            where: { email: uniqueEmail.toLowerCase() },
+          });
+          if (login) {
+            return login;
+          }
+          await new Promise((resolve) => setTimeout(resolve, interval));
+        }
+        throw new Error(
+          `Store login with email "${uniqueEmail.toLowerCase()}" not found in database after ${timeout}ms`,
+        );
+      };
 
-      // Retry if not found immediately
-      if (!storeLogin) {
-        await page.waitForTimeout(1000);
-        storeLogin = await prisma.user.findFirst({
-          where: { email: uniqueEmail.toLowerCase() },
-        });
-      }
+      const storeLogin = await pollForStoreLogin(10000, 200);
       expect(storeLogin).not.toBeNull();
 
+      // Re-fetch the store to get the updated store_login_user_id
+      // (the initial createdStore was fetched before the login was linked)
+      const updatedStore = await prisma.store.findUnique({
+        where: { store_id: createdStore.store_id },
+      });
+
       // Verify store has login linked
-      expect(createdStore.store_login_user_id).toBe(storeLogin?.user_id);
+      expect(updatedStore?.store_login_user_id).toBe(storeLogin.user_id);
 
       // Cleanup: Delete login's user roles, login user, and store
       if (storeLogin) {
