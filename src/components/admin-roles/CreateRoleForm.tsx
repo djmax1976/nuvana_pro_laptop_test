@@ -127,7 +127,7 @@ export function CreateRoleForm() {
           acc.set(category, [perm]);
         }
         return acc;
-      }, new Map<string, typeof allPermissions>())
+      }, new Map<string, Permission[]>())
     : new Map<string, Permission[]>();
 
   // Toggle permission

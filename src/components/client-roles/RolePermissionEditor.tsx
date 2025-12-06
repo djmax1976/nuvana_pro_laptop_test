@@ -62,32 +62,15 @@ interface RolePermissionEditorProps {
 /**
  * Get a friendly display name for a role code
  */
-// Safe lookup maps for role display names and category icons
+// Safe lookup map for role display names
 const ROLE_DISPLAY_NAMES = new Map<string, string>([
   ["STORE_MANAGER", "Store Manager"],
   ["SHIFT_MANAGER", "Shift Manager"],
   ["CASHIER", "Cashier"],
 ]);
 
-const CATEGORY_ICONS = new Map<string, string>([
-  ["SHIFTS", "clock"],
-  ["TRANSACTIONS", "credit-card"],
-  ["INVENTORY", "package"],
-  ["LOTTERY", "ticket"],
-  ["REPORTS", "bar-chart"],
-  ["EMPLOYEES", "users"],
-  ["STORE", "building"],
-]);
-
 function getRoleDisplayName(code: string): string {
   return ROLE_DISPLAY_NAMES.get(code) ?? code.replace(/_/g, " ");
-}
-
-/**
- * Get icon for a category
- */
-function getCategoryIcon(category: string): string {
-  return CATEGORY_ICONS.get(category) ?? "folder";
 }
 
 export function RolePermissionEditor({

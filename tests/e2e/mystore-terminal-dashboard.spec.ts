@@ -116,7 +116,8 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
       }),
     });
 
-    // Assign CLIENT_USER role to the user for the company
+    // Assign CLIENT_USER role to the user for the store
+    // CLIENT_USER has STORE scope, so store_id is required for RLS to work correctly
     const clientUserRole = await prisma.role.findUnique({
       where: { code: "CLIENT_USER" },
     });
@@ -126,6 +127,7 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
           user_id: clientUser.user_id,
           role_id: clientUserRole.role_id,
           company_id: company.company_id,
+          store_id: store.store_id,
         },
       });
     }
