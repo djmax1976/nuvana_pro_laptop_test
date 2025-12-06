@@ -527,4 +527,324 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       }
     },
   );
+
+  /**
+   * PUT /api/lottery/packs/:packId/activate
+   * Activate a lottery pack (change status from RECEIVED to ACTIVE)
+   * Protected route - requires LOTTERY_PACK_ACTIVATE permission
+   */
+  fastify.put(
+    "/api/lottery/packs/:packId/activate",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_ACTIVATE),
+      ],
+      schema: {
+        description: "Activate a lottery pack",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["packId"],
+          properties: {
+            packId: {
+              type: "string",
+              format: "uuid",
+              description: "Lottery pack UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  pack_id: { type: "string", format: "uuid" },
+                  game_id: { type: "string", format: "uuid" },
+                  pack_number: { type: "string" },
+                  serial_start: { type: "string" },
+                  serial_end: { type: "string" },
+                  status: { type: "string", enum: ["ACTIVE"] },
+                  activated_at: { type: "string", format: "date-time" },
+                  game: {
+                    type: "object",
+                    properties: {
+                      game_id: { type: "string", format: "uuid" },
+                      name: { type: "string" },
+                    },
+                  },
+                  store: {
+                    type: "object",
+                    properties: {
+                      store_id: { type: "string", format: "uuid" },
+                      name: { type: "string" },
+                    },
+                  },
+                  bin: {
+                    type: "object",
+                    nullable: true,
+                    properties: {
+                      bin_id: { type: "string", format: "uuid" },
+                      name: { type: "string" },
+                      location: { type: "string", nullable: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { packId: string };
+
+      try {
+        // Extract IP address and user agent for audit logging
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        // Get user roles to determine store access
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        // Validate pack exists and fetch with relationships
+        const pack = await prisma.lotteryPack.findUnique({
+          where: { pack_id: params.packId },
+          include: {
+            game: {
+              select: {
+                game_id: true,
+                name: true,
+              },
+            },
+            store: {
+              select: {
+                store_id: true,
+                name: true,
+              },
+            },
+            bin: {
+              select: {
+                bin_id: true,
+                name: true,
+                location: true,
+              },
+            },
+          },
+        });
+
+        if (!pack) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "PACK_NOT_FOUND",
+              message: "Lottery pack not found",
+            },
+          };
+        }
+
+        // Validate pack status is RECEIVED (only RECEIVED packs can be activated)
+        if (pack.status !== "RECEIVED") {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "INVALID_PACK_STATUS",
+              message: `Pack cannot be activated. Current status is ${pack.status}. Only packs with RECEIVED status can be activated.`,
+            },
+          };
+        }
+
+        // Validate store_id matches authenticated user's store (RLS enforcement)
+        // System admins can access any store
+        if (!hasSystemScope) {
+          const userStoreRole = userRoles.find(
+            (role) => role.scope === "STORE" && role.store_id === pack.store_id,
+          );
+          if (!userStoreRole) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "FORBIDDEN",
+                message:
+                  "You can only activate packs for your assigned store. Pack belongs to a different store (RLS violation)",
+              },
+            };
+          }
+        }
+
+        // Update pack status to ACTIVE in transaction to ensure atomicity
+        const updatedPack = await prisma.$transaction(async (tx) => {
+          // Update pack status to ACTIVE and set activated_at timestamp
+          const activatedPack = await tx.lotteryPack.update({
+            where: { pack_id: params.packId },
+            data: {
+              status: "ACTIVE",
+              activated_at: new Date(),
+            },
+            include: {
+              game: {
+                select: {
+                  game_id: true,
+                  name: true,
+                },
+              },
+              store: {
+                select: {
+                  store_id: true,
+                  name: true,
+                },
+              },
+              bin: {
+                select: {
+                  bin_id: true,
+                  name: true,
+                  location: true,
+                },
+              },
+            },
+          });
+
+          // Create audit log entry (non-blocking - don't fail if audit fails)
+          try {
+            await tx.auditLog.create({
+              data: {
+                user_id: user.id,
+                action: "PACK_ACTIVATED",
+                table_name: "lottery_packs",
+                record_id: activatedPack.pack_id,
+                new_values: {
+                  pack_id: activatedPack.pack_id,
+                  game_id: activatedPack.game_id,
+                  store_id: activatedPack.store_id,
+                  pack_number: activatedPack.pack_number,
+                  status: activatedPack.status,
+                  previous_status: "RECEIVED",
+                  activated_at: activatedPack.activated_at?.toISOString(),
+                } as Record<string, any>,
+                ip_address: ipAddress,
+                user_agent: userAgent,
+                reason: `Lottery pack activated by ${user.email} (roles: ${user.roles.join(", ")}) - Pack #${activatedPack.pack_number}`,
+              },
+            });
+          } catch (auditError) {
+            // Log the audit failure but don't fail the pack activation
+            fastify.log.error(
+              { error: auditError },
+              "Failed to create audit log for pack activation",
+            );
+          }
+
+          return activatedPack;
+        });
+
+        reply.code(200);
+        return {
+          success: true,
+          data: {
+            pack_id: updatedPack.pack_id,
+            game_id: updatedPack.game_id,
+            pack_number: updatedPack.pack_number,
+            serial_start: updatedPack.serial_start,
+            serial_end: updatedPack.serial_end,
+            status: updatedPack.status,
+            activated_at: updatedPack.activated_at?.toISOString() || null,
+            game: updatedPack.game,
+            store: updatedPack.store,
+            bin: updatedPack.bin || null,
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error activating lottery pack");
+
+        // Generic error response
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to activate lottery pack",
+          },
+        };
+      }
+    },
+  );
 }
