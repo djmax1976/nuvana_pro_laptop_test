@@ -286,11 +286,11 @@ export function useUpdateCompany() {
       companyId: string;
       data: UpdateCompanyInput;
     }) => updateCompany(companyId, data),
-    onSuccess: (data) => {
-      // Invalidate both list and detail queries
-      queryClient.invalidateQueries({ queryKey: companyKeys.lists() });
+    onSuccess: () => {
+      // Invalidate all company queries to ensure lists and details refresh
       queryClient.invalidateQueries({
-        queryKey: companyKeys.detail(data.company_id),
+        queryKey: companyKeys.all,
+        refetchType: "all",
       });
     },
   });
@@ -306,8 +306,11 @@ export function useDeleteCompany() {
   return useMutation({
     mutationFn: (companyId: string) => deleteCompany(companyId),
     onSuccess: () => {
-      // Invalidate companies list to refetch after deletion
-      queryClient.invalidateQueries({ queryKey: companyKeys.lists() });
+      // Invalidate all company queries to ensure lists refresh
+      queryClient.invalidateQueries({
+        queryKey: companyKeys.all,
+        refetchType: "all",
+      });
     },
   });
 }

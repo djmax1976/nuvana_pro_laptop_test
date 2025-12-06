@@ -35,15 +35,19 @@ import {
   useCreateTerminal,
   useUpdateTerminal,
   useDeleteTerminal,
+  useStoreLogin,
+  useCreateStoreLogin,
+  useUpdateStoreLogin,
   type Store,
   type Terminal,
   type TerminalWithStatus,
+  type StoreLogin,
 } from "@/lib/api/stores";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Trash2, Edit2 } from "lucide-react";
+import { Plus, Trash2, Edit2, Loader2, Eye, EyeOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -393,6 +397,14 @@ export function EditStoreModal({
                 )}
               />
 
+              {/* Store Login Section */}
+              {store && (
+                <StoreLoginSection
+                  storeId={store.store_id}
+                  storeName={store.name}
+                />
+              )}
+
               {/* Terminal Management Section */}
               {store && <TerminalManagementSection storeId={store.store_id} />}
 
@@ -426,6 +438,294 @@ export function EditStoreModal({
         destructive={pendingStatus === "INACTIVE" || pendingStatus === "CLOSED"}
       />
     </>
+  );
+}
+
+/**
+ * Store Login Section Component
+ * Allows viewing, creating, and updating the store login credential
+ */
+function StoreLoginSection({
+  storeId,
+  storeName,
+}: {
+  storeId: string;
+  storeName: string;
+}) {
+  const { toast } = useToast();
+  const [isEditing, setIsEditing] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const { data: storeLogin, isLoading, refetch } = useStoreLogin(storeId);
+  const createLoginMutation = useCreateStoreLogin();
+  const updateLoginMutation = useUpdateStoreLogin();
+
+  // Reset form when login data loads
+  useEffect(() => {
+    if (storeLogin) {
+      setEmail(storeLogin.email);
+      setPassword("");
+    }
+  }, [storeLogin]);
+
+  const handleSave = async () => {
+    if (!email.trim()) {
+      toast({
+        title: "Error",
+        description: "Email is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // For new logins, password is required
+    if (!storeLogin && (!password || password.length < 8)) {
+      toast({
+        title: "Error",
+        description: "Password must be at least 8 characters",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // For updates with password, validate length
+    if (storeLogin && password && password.length > 0 && password.length < 8) {
+      toast({
+        title: "Error",
+        description: "Password must be at least 8 characters",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      if (storeLogin) {
+        // Update existing login
+        await updateLoginMutation.mutateAsync({
+          storeId,
+          data: {
+            email: email.trim(),
+            ...(password ? { password } : {}),
+          },
+        });
+        toast({
+          title: "Success",
+          description: "Store login updated successfully",
+        });
+      } else {
+        // Create new login
+        await createLoginMutation.mutateAsync({
+          storeId,
+          data: {
+            email: email.trim(),
+            password,
+          },
+        });
+        toast({
+          title: "Success",
+          description: "Store login created successfully",
+        });
+      }
+      setIsEditing(false);
+      setPassword("");
+      refetch();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to save store login. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setIsEditing(false);
+    setEmail(storeLogin?.email || "");
+    setPassword("");
+    setShowPassword(false);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle>Store Login</CardTitle>
+          {!isEditing && (
+            <Button
+              type="button"
+              size="sm"
+              variant={storeLogin ? "outline" : "default"}
+              onClick={() => setIsEditing(true)}
+              disabled={isLoading}
+              data-testid={
+                storeLogin ? "edit-login-button" : "add-login-button"
+              }
+            >
+              {storeLogin ? (
+                <>
+                  <Edit2 className="h-4 w-4 mr-2" />
+                  Edit
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Login
+                </>
+              )}
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading login info...
+          </div>
+        ) : isEditing ? (
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">
+                Login Name
+              </label>
+              <p className="text-sm mt-1">{storeName}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                The login name is the store name
+              </p>
+            </div>
+            <div>
+              <label htmlFor="login-email" className="text-sm font-medium">
+                Email
+              </label>
+              <Input
+                id="login-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="storelogin@example.com"
+                className="mt-1"
+                disabled={isSaving}
+                data-testid="login-email-input"
+              />
+            </div>
+            <div>
+              <label htmlFor="login-password" className="text-sm font-medium">
+                {storeLogin
+                  ? "New Password (leave blank to keep current)"
+                  : "Password"}
+              </label>
+              <div className="relative mt-1">
+                <Input
+                  id="login-password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={
+                    storeLogin
+                      ? "Leave blank to keep current"
+                      : "Enter password (min 8 characters)"
+                  }
+                  disabled={isSaving}
+                  data-testid="login-password-input"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                  onClick={() => setShowPassword(!showPassword)}
+                  disabled={isSaving}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Eye className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Password must be at least 8 characters
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={handleCancel}
+                disabled={isSaving}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={isSaving}
+                data-testid="save-login-button"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : storeLogin ? (
+                  "Update Login"
+                ) : (
+                  "Create Login"
+                )}
+              </Button>
+            </div>
+          </div>
+        ) : storeLogin ? (
+          <div className="space-y-2">
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">
+                Name
+              </label>
+              <p className="text-sm">{storeLogin.name}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">
+                Email
+              </label>
+              <p className="text-sm">{storeLogin.email}</p>
+            </div>
+            {storeLogin.status && (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">
+                  Status
+                </label>
+                <div className="text-sm mt-1">
+                  <Badge
+                    variant={
+                      storeLogin.status === "ACTIVE" ? "default" : "secondary"
+                    }
+                    className={
+                      storeLogin.status === "ACTIVE"
+                        ? "bg-green-500 hover:bg-green-600"
+                        : ""
+                    }
+                  >
+                    {storeLogin.status}
+                  </Badge>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No store login configured. Click &quot;Add Login&quot; to create
+            one.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -237,14 +237,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ email, password }),
     });
 
-    const data = await response.json();
+    const responseData = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.message || "Login failed");
+      throw new Error(
+        responseData.error?.message || responseData.message || "Login failed",
+      );
+    }
+
+    // Backend returns { success: true, data: { user: {...} } }
+    const userData = responseData.data?.user || responseData.user;
+
+    if (!userData) {
+      throw new Error("Invalid response from server - no user data");
     }
 
     // Determine isStoreUser from roles
-    const roles = data.user?.roles || [];
+    const roles = userData.roles || [];
     const detectedIsStoreUser = roles.some((r: string) =>
       STORE_ROLES.includes(r),
     );
@@ -254,27 +263,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(
       "auth_session",
       JSON.stringify({
-        user: data.user,
+        user: userData,
         authenticated: true,
-        isClientUser: data.user?.is_client_user === true,
+        isClientUser: userData.is_client_user === true,
         isStoreUser: detectedIsStoreUser,
-        userRole: data.user?.user_role,
+        userRole: userData.user_role,
       }),
     );
 
     // Restore user's theme preference immediately before setting user state
     // This ensures next-themes can read the correct theme on initialization
-    const userThemeKey = `nuvana-theme-${data.user.id}`;
-    const savedTheme = localStorage.getItem(userThemeKey);
-    if (savedTheme && (savedTheme === "dark" || savedTheme === "light")) {
-      // Set the theme in the key that next-themes reads
-      localStorage.setItem("nuvana-theme", savedTheme);
+    if (userData.id) {
+      const userThemeKey = `nuvana-theme-${userData.id}`;
+      const savedTheme = localStorage.getItem(userThemeKey);
+      if (savedTheme && (savedTheme === "dark" || savedTheme === "light")) {
+        // Set the theme in the key that next-themes reads
+        localStorage.setItem("nuvana-theme", savedTheme);
+      }
     }
 
-    setUser(data.user);
-    setIsClientUser(data.user?.is_client_user === true);
+    setUser(userData);
+    setIsClientUser(userData.is_client_user === true);
     setIsStoreUser(detectedIsStoreUser);
-    setUserRole(data.user?.user_role || null);
+    setUserRole(userData.user_role || null);
     // ThemeSync will call setTheme() to ensure next-themes internal state is updated
   };
 

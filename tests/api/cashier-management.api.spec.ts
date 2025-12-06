@@ -1176,6 +1176,52 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     ).toMatch(/name|employee_id|identifier/i);
   });
 
+  test("4.91-API-SEC-005a: [P0] POST /api/stores/:storeId/cashiers/authenticate - should enforce CLIENT_DASHBOARD_ACCESS permission", async ({
+    regularUserApiRequest,
+    clientUserApiRequest,
+    clientUser,
+  }) => {
+    // GIVEN: I am authenticated but do NOT have CLIENT_DASHBOARD_ACCESS permission
+    // regularUser has only SHIFT_READ and INVENTORY_READ permissions (no CLIENT_DASHBOARD_ACCESS)
+    // AND: A cashier exists for the store
+    const cashierData = createCashierRequest({
+      store_id: clientUser.store_id,
+      pin: "1234",
+    });
+    await clientUserApiRequest.post(
+      `/api/stores/${clientUser.store_id}/cashiers`,
+      {
+        name: cashierData.name,
+        pin: cashierData.pin,
+        hired_on: cashierData.hired_on,
+      },
+    );
+
+    // WHEN: Attempting to authenticate cashier without CLIENT_DASHBOARD_ACCESS permission
+    const response = await regularUserApiRequest.post(
+      `/api/stores/${clientUser.store_id}/cashiers/authenticate`,
+      {
+        name: cashierData.name,
+        pin: "1234",
+      },
+    );
+
+    // THEN: Request is rejected with 403 Forbidden
+    expect(
+      response.status(),
+      "Should return 403 for missing CLIENT_DASHBOARD_ACCESS permission",
+    ).toBe(403);
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error, "Error object should be present").toBeDefined();
+    expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
+      "PERMISSION_DENIED",
+    );
+    expect(body.error.message, "Error should mention permission").toMatch(
+      /permission|forbidden|access/i,
+    );
+  });
+
   test("4.91-API-SEC-006: [P0] GET /api/stores/:storeId/cashiers - should enforce CASHIER_READ permission", async ({
     regularUserApiRequest,
     regularUser,

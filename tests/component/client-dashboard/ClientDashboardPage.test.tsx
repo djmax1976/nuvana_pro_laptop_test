@@ -1,16 +1,13 @@
 /**
  * @test-level Component
- * @justification Component tests for ClientDashboardPage - validates "Start Shift" button display, permission checks, and dialog opening
+ * @justification Component tests for ClientDashboardPage - validates dashboard display and data loading
  * @story 4-8-cashier-shift-start-flow
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
+import { renderWithProviders, screen } from "../../support/test-utils";
 import ClientDashboardPage from "@/app/(client-dashboard)/client-dashboard/page";
 import * as clientDashboardApi from "@/lib/api/client-dashboard";
-import * as shiftsApi from "@/lib/api/shifts";
-import * as storesApi from "@/lib/api/stores";
-import userEvent from "@testing-library/user-event";
 
 // Mock Next.js navigation
 vi.mock("next/navigation", () => ({
@@ -29,8 +26,8 @@ vi.mock("next/navigation", () => ({
 // Mock ClientAuthContext
 const mockUser = {
   id: "550e8400-e29b-41d4-a716-446655440001",
-  email: "cashier@test.com",
-  name: "Test Cashier",
+  email: "owner@test.com",
+  name: "Test Owner",
   is_client_user: true,
 };
 
@@ -42,23 +39,6 @@ vi.mock("@/contexts/ClientAuthContext", () => ({
 // Mock API hooks
 vi.mock("@/lib/api/client-dashboard", () => ({
   useClientDashboard: vi.fn(),
-}));
-
-vi.mock("@/lib/api/shifts", () => ({
-  useOpenShift: vi.fn(),
-  useInvalidateShifts: vi.fn(),
-}));
-
-vi.mock("@/lib/api/stores", () => ({
-  useStoreTerminals: vi.fn(),
-}));
-
-// Mock toast hook
-const mockToast = vi.fn();
-vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({
-    toast: (...args: any[]) => mockToast(...args),
-  }),
 }));
 
 describe("4.8-COMPONENT: ClientDashboardPage Component", () => {
@@ -103,7 +83,6 @@ describe("4.8-COMPONENT: ClientDashboardPage Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockToast.mockClear();
     mockUseClientAuth.mockReturnValue({
       user: mockUser,
       permissions: [],
@@ -117,172 +96,106 @@ describe("4.8-COMPONENT: ClientDashboardPage Component", () => {
     vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue(
       mockQuery as any,
     );
-    vi.mocked(shiftsApi.useInvalidateShifts).mockReturnValue({
-      invalidateList: vi.fn(),
-      invalidateDetail: vi.fn(),
-      invalidateAll: vi.fn(),
-    } as any);
-    vi.mocked(shiftsApi.useOpenShift).mockReturnValue({
-      mutateAsync: vi.fn(),
-      isPending: false,
-      isError: false,
-      error: null,
-    } as any);
   });
 
-  it("[P0] 4.8-COMPONENT-018: should display 'Start Shift' button for users with SHIFT_OPEN permission", () => {
-    // GIVEN: User has SHIFT_OPEN permission
-    mockUseClientAuth.mockReturnValue({
-      user: mockUser,
-      permissions: ["SHIFT_OPEN"],
-      isLoading: false,
-      isAuthenticated: true,
-      isClientUser: true,
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: vi.fn(),
-    });
-
+  it("[P0] should display welcome message with user name", () => {
+    // GIVEN: User is logged in
     renderWithProviders(<ClientDashboardPage />);
 
-    // THEN: "Start Shift" button should be visible
-    expect(screen.getByTestId("start-shift-button")).toBeInTheDocument();
-    expect(screen.getByText(/start shift/i)).toBeInTheDocument();
+    // THEN: Welcome message should include user name
+    expect(screen.getByText(/welcome back/i)).toBeInTheDocument();
+    expect(screen.getByText(/Test Owner/i)).toBeInTheDocument();
   });
 
-  it("[P0] 4.8-COMPONENT-019: should NOT display 'Start Shift' button for users without SHIFT_OPEN permission", () => {
-    // GIVEN: User does NOT have SHIFT_OPEN permission
-    mockUseClientAuth.mockReturnValue({
-      user: mockUser,
-      permissions: [], // No SHIFT_OPEN permission
-      isLoading: false,
-      isAuthenticated: true,
-      isClientUser: true,
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: vi.fn(),
-    });
-
+  it("[P0] should display dashboard stats", () => {
+    // GIVEN: Dashboard data is loaded
     renderWithProviders(<ClientDashboardPage />);
 
-    // THEN: "Start Shift" button should NOT be visible
-    expect(screen.queryByTestId("start-shift-button")).not.toBeInTheDocument();
+    // THEN: Stats should be displayed
+    expect(screen.getByTestId("stat-active-stores")).toBeInTheDocument();
+    expect(screen.getByTestId("stat-total-employees")).toBeInTheDocument();
+    expect(screen.getByTestId("stat-companies")).toBeInTheDocument();
+    expect(screen.getByTestId("stat-activity")).toBeInTheDocument();
   });
 
-  it("[P0] 4.8-COMPONENT-020: should display both 'Start Shift' and 'Open Shift' buttons for Store Managers", () => {
-    // GIVEN: User has both SHIFT_OPEN and SHIFT_MANAGE permissions (Store Manager)
-    mockUseClientAuth.mockReturnValue({
-      user: mockUser,
-      permissions: ["SHIFT_OPEN", "SHIFT_MANAGE"],
-      isLoading: false,
-      isAuthenticated: true,
-      isClientUser: true,
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: vi.fn(),
-    });
-
+  it("[P0] should display companies section", () => {
+    // GIVEN: Dashboard data with companies is loaded
     renderWithProviders(<ClientDashboardPage />);
 
-    // THEN: Both buttons should be visible
-    expect(screen.getByTestId("start-shift-button")).toBeInTheDocument();
-    expect(screen.getByTestId("open-shift-button")).toBeInTheDocument();
-    expect(screen.getByText(/start shift/i)).toBeInTheDocument();
-    expect(screen.getByText(/open shift/i)).toBeInTheDocument();
+    // THEN: Companies section should be displayed with company name
+    const companiesSection = screen.getByTestId("companies-section");
+    expect(companiesSection).toBeInTheDocument();
+    expect(screen.getAllByText("Test Company").length).toBeGreaterThan(0);
   });
 
-  it("[P0] 4.8-COMPONENT-021: should open CashierShiftStartDialog when 'Start Shift' button is clicked", async () => {
-    // GIVEN: User has SHIFT_OPEN permission and clicks "Start Shift"
-    const user = userEvent.setup();
-    mockUseClientAuth.mockReturnValue({
-      user: mockUser,
-      permissions: ["SHIFT_OPEN"],
-      isLoading: false,
-      isAuthenticated: true,
-      isClientUser: true,
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: vi.fn(),
-    });
+  it("[P0] should display stores section", () => {
+    // GIVEN: Dashboard data with stores is loaded
+    renderWithProviders(<ClientDashboardPage />);
 
-    // Mock terminal query
-    vi.mocked(storesApi.useStoreTerminals).mockReturnValue({
-      data: [
-        {
-          pos_terminal_id: "550e8400-e29b-41d4-a716-446655440011",
-          name: "Terminal 1",
-          has_active_shift: false,
-        },
-      ],
-      isLoading: false,
+    // THEN: Stores section should be displayed with store name
+    expect(screen.getByTestId("stores-section")).toBeInTheDocument();
+    expect(screen.getByText("Test Store")).toBeInTheDocument();
+  });
+
+  it("[P1] should show loading state when data is loading", () => {
+    // GIVEN: Dashboard data is loading
+    vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue({
+      data: undefined,
+      isLoading: true,
       isError: false,
       error: null,
     } as any);
 
     renderWithProviders(<ClientDashboardPage />);
 
-    // WHEN: "Start Shift" button is clicked
-    const startShiftButton = screen.getByTestId("start-shift-button");
-    await user.click(startShiftButton);
-
-    // THEN: CashierShiftStartDialog should open
-    await waitFor(() => {
-      expect(
-        screen.getByRole("heading", { name: /start shift/i }),
-      ).toBeInTheDocument();
-      expect(screen.getByTestId("terminal-select")).toBeInTheDocument();
-    });
+    // THEN: Loading message should be displayed
+    expect(screen.getByText(/loading your dashboard/i)).toBeInTheDocument();
   });
 
-  it("[P0] 4.8-COMPONENT-022: should disable 'Start Shift' button when no store is available", () => {
-    // GIVEN: User has SHIFT_OPEN permission but no stores
-    mockUseClientAuth.mockReturnValue({
-      user: mockUser,
-      permissions: ["SHIFT_OPEN"],
+  it("[P1] should show error state when data fails to load", () => {
+    // GIVEN: Dashboard data failed to load
+    vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue({
+      data: undefined,
       isLoading: false,
-      isAuthenticated: true,
-      isClientUser: true,
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: vi.fn(),
-    });
+      isError: true,
+      error: { message: "Network error" },
+    } as any);
 
+    renderWithProviders(<ClientDashboardPage />);
+
+    // THEN: Error message should be displayed
+    expect(screen.getByText(/failed to load dashboard/i)).toBeInTheDocument();
+  });
+
+  it("[P1] should display empty state message when no companies exist", () => {
+    // GIVEN: No companies exist
     vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue({
       ...mockQuery,
       data: {
         ...mockDashboardData,
-        stores: [], // No stores
+        companies: [],
       },
     } as any);
 
     renderWithProviders(<ClientDashboardPage />);
 
-    // THEN: "Start Shift" button should be disabled
-    const startShiftButton = screen.getByTestId("start-shift-button");
-    expect(startShiftButton).toBeDisabled();
+    // THEN: Empty state message should be displayed
+    expect(screen.getByText(/no companies found/i)).toBeInTheDocument();
   });
 
-  it("[P1] 4.8-COMPONENT-023: should link 'Open Shift' button to /client-dashboard/shifts", () => {
-    // GIVEN: User has SHIFT_MANAGE permission
-    mockUseClientAuth.mockReturnValue({
-      user: mockUser,
-      permissions: ["SHIFT_OPEN", "SHIFT_MANAGE"],
-      isLoading: false,
-      isAuthenticated: true,
-      isClientUser: true,
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: vi.fn(),
-    });
+  it("[P1] should display empty state message when no stores exist", () => {
+    // GIVEN: No stores exist
+    vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue({
+      ...mockQuery,
+      data: {
+        ...mockDashboardData,
+        stores: [],
+      },
+    } as any);
 
     renderWithProviders(<ClientDashboardPage />);
 
-    // THEN: "Open Shift" button should link to shifts page
-    const openShiftButton = screen.getByTestId("open-shift-button");
-    expect(openShiftButton).toBeInTheDocument();
-    expect(openShiftButton.closest("a")).toHaveAttribute(
-      "href",
-      "/client-dashboard/shifts",
-    );
+    // THEN: Empty state message should be displayed
+    expect(screen.getByText(/no stores found/i)).toBeInTheDocument();
   });
 });

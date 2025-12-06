@@ -1526,17 +1526,9 @@ export async function shiftRoutes(fastify: FastifyInstance) {
             },
           },
         },
-        body: {
-          type: "object",
-          required: ["cashier_id"],
-          properties: {
-            cashier_id: {
-              type: "string",
-              format: "uuid",
-              description: "Cashier UUID",
-            },
-          },
-        },
+        // Note: No body required - cashier_id is extracted from the validated
+        // X-Cashier-Session token by cashierSessionWithPermission middleware.
+        // This ensures the authenticated cashier is the one starting the shift.
         response: {
           201: {
             type: "object",
@@ -1831,19 +1823,17 @@ export async function shiftRoutes(fastify: FastifyInstance) {
         },
         body: {
           type: "object",
-          required: ["starting_cash", "cashier_id"],
+          required: ["starting_cash"],
           properties: {
             starting_cash: {
               type: "number",
               minimum: 0,
               description: "Starting cash amount (non-negative number or zero)",
             },
-            cashier_id: {
-              type: "string",
-              format: "uuid",
-              description: "Cashier UUID (must own the shift)",
-            },
           },
+          // Note: cashier_id is NOT in body - it's extracted from the validated
+          // X-Cashier-Session token by cashierSessionWithPermission middleware.
+          // This ensures the authenticated cashier is verified against shift ownership.
         },
         response: {
           200: {

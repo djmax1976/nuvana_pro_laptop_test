@@ -63,7 +63,10 @@ export function StoreList({ companyId }: StoreListProps) {
 
   // Handle successful store edit
   const handleStoreUpdated = () => {
-    queryClient.invalidateQueries({ queryKey: ["stores"] });
+    queryClient.invalidateQueries({
+      queryKey: ["stores"],
+      refetchType: "all",
+    });
   };
 
   // Handle status toggle request

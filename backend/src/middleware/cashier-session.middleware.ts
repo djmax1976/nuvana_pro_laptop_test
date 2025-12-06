@@ -92,6 +92,27 @@ export async function cashierSessionMiddleware(
     });
   }
 
+  // Validate that cashier relation exists and has required fields
+  if (!result.session.cashier) {
+    return reply.code(401).send({
+      success: false,
+      error: {
+        code: "CASHIER_SESSION_INVALID",
+        message: "Cashier session is missing cashier data",
+      },
+    });
+  }
+
+  if (!result.session.cashier.name) {
+    return reply.code(401).send({
+      success: false,
+      error: {
+        code: "CASHIER_SESSION_INVALID",
+        message: "Cashier session is missing cashier name",
+      },
+    });
+  }
+
   // Attach session data to request for use in route handlers
   request.cashierSession = {
     sessionId: result.session.session_id,
@@ -151,6 +172,27 @@ export function cashierSessionWithPermission(
         error: {
           code: "CASHIER_SESSION_INVALID",
           message: result.error || "Invalid or expired cashier session",
+        },
+      });
+    }
+
+    // Validate that cashier relation exists and has required fields
+    if (!result.session.cashier) {
+      return reply.code(401).send({
+        success: false,
+        error: {
+          code: "CASHIER_SESSION_INVALID",
+          message: "Cashier session is missing cashier data",
+        },
+      });
+    }
+
+    if (!result.session.cashier.name) {
+      return reply.code(401).send({
+        success: false,
+        error: {
+          code: "CASHIER_SESSION_INVALID",
+          message: "Cashier session is missing cashier name",
         },
       });
     }

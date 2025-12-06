@@ -56,6 +56,40 @@ export interface Store {
 }
 
 /**
+ * Store login credential info (CLIENT_USER for store dashboard access)
+ */
+export interface StoreLogin {
+  user_id: string;
+  email: string;
+  name: string;
+  status?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/**
+ * @deprecated Use StoreLogin instead. This alias exists for backward compatibility.
+ */
+export type StoreManager = StoreLogin;
+
+/**
+ * Terminal creation input (for wizard)
+ */
+export interface TerminalInput {
+  name: string;
+  device_id?: string;
+  connection_type?: "NETWORK" | "API" | "WEBHOOK" | "FILE" | "MANUAL";
+  vendor_type?:
+    | "GENERIC"
+    | "SQUARE"
+    | "CLOVER"
+    | "TOAST"
+    | "LIGHTSPEED"
+    | "CUSTOM";
+  connection_config?: Record<string, unknown>;
+}
+
+/**
  * Create store input
  */
 export interface CreateStoreInput {
@@ -64,6 +98,41 @@ export interface CreateStoreInput {
   timezone?: string; // IANA timezone format
   status?: StoreStatus;
 }
+
+/**
+ * Extended create store input (with store login and terminals)
+ */
+export interface CreateStoreWithLoginInput extends CreateStoreInput {
+  manager?: {
+    email: string;
+    password: string;
+  };
+  terminals?: TerminalInput[];
+}
+
+/**
+ * @deprecated Use CreateStoreWithLoginInput instead
+ */
+export type CreateStoreWithManagerInput = CreateStoreWithLoginInput;
+
+/**
+ * Extended store response (with store login and terminals)
+ */
+export interface CreateStoreWithLoginResponse extends Store {
+  manager?: StoreLogin | null;
+  terminals?: Array<{
+    pos_terminal_id: string;
+    name: string;
+    device_id: string | null;
+    connection_type: string;
+    vendor_type: string;
+  }>;
+}
+
+/**
+ * @deprecated Use CreateStoreWithLoginResponse instead
+ */
+export type CreateStoreWithManagerResponse = CreateStoreWithLoginResponse;
 
 /**
  * Update store input
@@ -88,11 +157,12 @@ export interface ListStoresResponse {
 }
 
 /**
- * API error response
+ * API error response - supports both flat and nested error structures
  */
 export interface ApiError {
-  error: string;
-  message: string;
+  error?: string | { code?: string; message?: string };
+  message?: string;
+  success?: boolean;
 }
 
 /**
@@ -175,9 +245,15 @@ async function apiRequest<T>(
       message: `HTTP ${response.status}: ${response.statusText}`,
     }));
 
-    throw new Error(
-      errorData.message || errorData.error || "API request failed",
-    );
+    // Extract error message from various possible response structures
+    // Backend may return: { message: "..." } or { error: { message: "..." } }
+    const errorMessage =
+      errorData.message ||
+      (typeof errorData.error === "object" && errorData.error?.message) ||
+      (typeof errorData.error === "string" && errorData.error) ||
+      "API request failed";
+
+    throw new Error(errorMessage);
   }
 
   return response.json();
@@ -436,10 +512,11 @@ export function useCreateStore() {
       companyId: string;
       data: CreateStoreInput;
     }) => createStore(companyId, data),
-    onSuccess: (data) => {
+    onSuccess: () => {
       // Invalidate ALL store queries to ensure lists refresh
       queryClient.invalidateQueries({
         queryKey: storeKeys.all,
+        refetchType: "all",
       });
     },
   });
@@ -460,10 +537,11 @@ export function useUpdateStore() {
       storeId: string;
       data: UpdateStoreInput;
     }) => updateStore(storeId, data),
-    onSuccess: (data) => {
+    onSuccess: () => {
       // Invalidate ALL store queries to ensure lists and details refresh
       queryClient.invalidateQueries({
         queryKey: storeKeys.all,
+        refetchType: "all",
       });
     },
   });
@@ -534,13 +612,11 @@ export function useUpdateStoreConfiguration() {
       storeId: string;
       config: StoreConfigurationInput;
     }) => updateStoreConfiguration(storeId, config),
-    onSuccess: (data) => {
-      // Invalidate both list and detail queries
+    onSuccess: () => {
+      // Invalidate ALL store queries to ensure lists and details refresh
       queryClient.invalidateQueries({
-        queryKey: storeKeys.detail(data.store_id),
-      });
-      queryClient.invalidateQueries({
-        queryKey: storeKeys.list(data.company_id),
+        queryKey: storeKeys.all,
+        refetchType: "all",
       });
     },
   });
@@ -565,6 +641,7 @@ export function useDeleteStore() {
       // Invalidate ALL store queries to ensure lists refresh
       queryClient.invalidateQueries({
         queryKey: storeKeys.all,
+        refetchType: "all",
       });
     },
   });
@@ -791,10 +868,12 @@ export function useCreateTerminal() {
       // Invalidate terminals query for the store
       queryClient.invalidateQueries({
         queryKey: [...storeKeys.details(), variables.storeId, "terminals"],
+        refetchType: "all",
       });
       // Also invalidate store details to refresh terminal count if needed
       queryClient.invalidateQueries({
         queryKey: storeKeys.detail(variables.storeId),
+        refetchType: "all",
       });
     },
   });
@@ -821,6 +900,7 @@ export function useUpdateTerminal() {
       // Invalidate terminals query for the store
       queryClient.invalidateQueries({
         queryKey: [...storeKeys.details(), variables.storeId, "terminals"],
+        refetchType: "all",
       });
     },
   });
@@ -845,11 +925,273 @@ export function useDeleteTerminal() {
       // Invalidate terminals query for the store
       queryClient.invalidateQueries({
         queryKey: [...storeKeys.details(), variables.storeId, "terminals"],
+        refetchType: "all",
       });
       // Also invalidate store details to refresh terminal count if needed
       queryClient.invalidateQueries({
         queryKey: storeKeys.detail(variables.storeId),
+        refetchType: "all",
       });
     },
   });
 }
+
+// ============ Store Login API Functions ============
+
+/**
+ * Get store login credential
+ * @param storeId - Store UUID
+ * @returns Store login info or null if no login credential exists
+ */
+export async function getStoreLogin(
+  storeId: string,
+): Promise<StoreLogin | null> {
+  if (!storeId) {
+    throw new Error("Store ID is required");
+  }
+
+  try {
+    return await apiRequest<StoreLogin>(`/api/stores/${storeId}/login`, {
+      method: "GET",
+    });
+  } catch (error: any) {
+    // Return null if no login found (404)
+    if (error.message?.includes("does not have a login")) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * @deprecated Use getStoreLogin instead
+ */
+export const getStoreManager = getStoreLogin;
+
+/**
+ * Create store login credential
+ * @param storeId - Store UUID
+ * @param data - Login creation data (email, password)
+ * @returns Created login info
+ */
+export async function createStoreLogin(
+  storeId: string,
+  data: { email: string; password: string },
+): Promise<StoreLogin> {
+  if (!storeId) {
+    throw new Error("Store ID is required");
+  }
+
+  if (!data.email || data.email.trim().length === 0) {
+    throw new Error("Email is required");
+  }
+
+  if (!data.password || data.password.length < 8) {
+    throw new Error("Password must be at least 8 characters");
+  }
+
+  return apiRequest<StoreLogin>(`/api/stores/${storeId}/login`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * @deprecated Use createStoreLogin instead
+ */
+export const createStoreManager = createStoreLogin;
+
+/**
+ * Update store login credential
+ * @param storeId - Store UUID
+ * @param data - Login update data (email and/or password)
+ * @returns Updated login info
+ */
+export async function updateStoreLogin(
+  storeId: string,
+  data: { email?: string; password?: string },
+): Promise<StoreLogin> {
+  if (!storeId) {
+    throw new Error("Store ID is required");
+  }
+
+  if (!data.email && !data.password) {
+    throw new Error("At least one of email or password must be provided");
+  }
+
+  return apiRequest<StoreLogin>(`/api/stores/${storeId}/login`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * @deprecated Use updateStoreLogin instead
+ */
+export const updateStoreManager = updateStoreLogin;
+
+/**
+ * Hook to fetch store login credential
+ * @param storeId - Store UUID
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with login data
+ */
+export function useStoreLogin(
+  storeId: string | undefined,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: [...storeKeys.details(), storeId || "", "login"],
+    queryFn: () => getStoreLogin(storeId!),
+    enabled: options?.enabled !== false && !!storeId,
+    refetchOnMount: true,
+  });
+}
+
+/**
+ * @deprecated Use useStoreLogin instead
+ */
+export const useStoreManager = useStoreLogin;
+
+/**
+ * Hook to create store login credential
+ * @returns Mutation for creating store login
+ */
+export function useCreateStoreLogin() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      storeId,
+      data,
+    }: {
+      storeId: string;
+      data: { email: string; password: string };
+    }) => createStoreLogin(storeId, data),
+    onSuccess: (_, variables) => {
+      // Invalidate login query
+      queryClient.invalidateQueries({
+        queryKey: [...storeKeys.details(), variables.storeId, "login"],
+        refetchType: "all",
+      });
+      // Also invalidate store details
+      queryClient.invalidateQueries({
+        queryKey: storeKeys.detail(variables.storeId),
+        refetchType: "all",
+      });
+    },
+  });
+}
+
+/**
+ * @deprecated Use useCreateStoreLogin instead
+ */
+export const useCreateStoreManager = useCreateStoreLogin;
+
+/**
+ * Hook to update store login credential
+ * @returns Mutation for updating store login
+ */
+export function useUpdateStoreLogin() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      storeId,
+      data,
+    }: {
+      storeId: string;
+      data: { email?: string; password?: string };
+    }) => updateStoreLogin(storeId, data),
+    onSuccess: (_, variables) => {
+      // Invalidate login query
+      queryClient.invalidateQueries({
+        queryKey: [...storeKeys.details(), variables.storeId, "login"],
+        refetchType: "all",
+      });
+    },
+  });
+}
+
+/**
+ * @deprecated Use useUpdateStoreLogin instead
+ */
+export const useUpdateStoreManager = useUpdateStoreLogin;
+
+// ============ Extended Store Creation with Login and Terminals ============
+
+/**
+ * Create a new store with optional store login and terminals
+ * @param companyId - Company UUID
+ * @param data - Extended store creation data
+ * @returns Created store with login and terminals
+ */
+export async function createStoreWithLogin(
+  companyId: string,
+  data: CreateStoreWithLoginInput,
+): Promise<CreateStoreWithLoginResponse> {
+  if (!companyId) {
+    throw new Error("Company ID is required");
+  }
+
+  if (!data.name || data.name.trim().length === 0) {
+    throw new Error("Store name is required");
+  }
+
+  if (data.name.length > 255) {
+    throw new Error("Store name must be 255 characters or less");
+  }
+
+  if (data.timezone && !validateTimezone(data.timezone)) {
+    throw new Error(
+      "Timezone must be in IANA format (e.g., America/New_York, Europe/London)",
+    );
+  }
+
+  if (data.location_json) {
+    validateLocationJson(data.location_json);
+  }
+
+  return apiRequest<CreateStoreWithLoginResponse>(
+    `/api/companies/${companyId}/stores`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+/**
+ * @deprecated Use createStoreWithLogin instead
+ */
+export const createStoreWithManager = createStoreWithLogin;
+
+/**
+ * Hook to create a new store with optional store login and terminals
+ * @returns TanStack Query mutation for creating a store with login
+ */
+export function useCreateStoreWithLogin() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      companyId,
+      data,
+    }: {
+      companyId: string;
+      data: CreateStoreWithLoginInput;
+    }) => createStoreWithLogin(companyId, data),
+    onSuccess: () => {
+      // Invalidate ALL store queries to ensure lists refresh
+      queryClient.invalidateQueries({
+        queryKey: storeKeys.all,
+        refetchType: "all",
+      });
+    },
+  });
+}
+
+/**
+ * @deprecated Use useCreateStoreWithLogin instead
+ */
+export const useCreateStoreWithManager = useCreateStoreWithLogin;

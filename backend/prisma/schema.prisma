@@ -41,6 +41,7 @@ model User {
   cashiers_created        Cashier[]              @relation("CashierCreatedBy")
   cashiers_updated        Cashier[]              @relation("CashierUpdatedBy")
   cashier_sessions_auth   CashierSession[]       @relation("CashierSessionAuthenticator")
+  store_logins            Store[]                @relation("StoreLogin") // Stores where this user is the store login credential
 
   @@index([email])
   @@index([status])
@@ -70,20 +71,22 @@ model Company {
 }
 
 model Store {
-  store_id      String        @id @default(uuid()) @db.Uuid
-  company_id    String        @db.Uuid
-  name          String        @db.VarChar(255)
-  location_json Json?
-  timezone      String        @default("America/New_York") @db.VarChar(50)
-  status        String        @default("ACTIVE") @db.VarChar(50)
-  created_at    DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
-  configuration Json?
-  public_id     String        @unique @db.VarChar(30)
+  store_id             String        @id @default(uuid()) @db.Uuid
+  company_id           String        @db.Uuid
+  name                 String        @db.VarChar(255)
+  location_json        Json?
+  timezone             String        @default("America/New_York") @db.VarChar(50)
+  status               String        @default("ACTIVE") @db.VarChar(50)
+  created_at           DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
+  configuration        Json?
+  public_id            String        @unique @db.VarChar(30)
+  store_login_user_id String?      @db.Uuid // Optional FK to User - the CLIENT_USER login credential for this store's dashboard
   pos_terminals    POSTerminal[]
   shifts           Shift[]
   cashiers         Cashier[]
   company          Company          @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  store_login      User?            @relation("StoreLogin", fields: [store_login_user_id], references: [user_id], onDelete: SetNull)
   transactions     Transaction[]
   user_roles       UserRole[]
   cashier_sessions CashierSession[]
@@ -91,6 +94,7 @@ model Store {
   @@index([company_id])
   @@index([status])
   @@index([public_id])
+  @@index([store_login_user_id])
   @@map("stores")
 }
 

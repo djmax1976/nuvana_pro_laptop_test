@@ -5,11 +5,13 @@ import { PERMISSIONS } from "../constants/permissions";
 import { storeService } from "../services/store.service";
 import { rbacService } from "../services/rbac.service";
 import crypto from "crypto";
+import bcrypt from "bcrypt";
 import {
   safeValidateCreateTerminalInput,
   safeValidateUpdateTerminalInput,
 } from "../schemas/terminal.schema";
 import { prisma } from "../utils/db";
+import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 
 /**
  * Validate IANA timezone using Intl.DateTimeFormat
@@ -323,6 +325,72 @@ export async function storeRoutes(fastify: FastifyInstance) {
               enum: ["ACTIVE", "INACTIVE", "CLOSED"],
               description: "Store status (defaults to ACTIVE)",
             },
+            manager: {
+              type: "object",
+              description:
+                "Optional store login credential (CLIENT_USER) to create",
+              properties: {
+                email: {
+                  type: "string",
+                  format: "email",
+                  maxLength: 255,
+                  description: "Store login email address",
+                },
+                password: {
+                  type: "string",
+                  minLength: 8,
+                  maxLength: 255,
+                  description: "Store login password (min 8 characters)",
+                },
+              },
+              required: ["email", "password"],
+            },
+            terminals: {
+              type: "array",
+              description: "Optional terminals to create for this store",
+              items: {
+                type: "object",
+                required: ["name"],
+                properties: {
+                  name: {
+                    type: "string",
+                    minLength: 1,
+                    maxLength: 100,
+                    description: "Terminal name",
+                  },
+                  device_id: {
+                    type: "string",
+                    maxLength: 100,
+                    description: "Optional device ID (must be globally unique)",
+                  },
+                  connection_type: {
+                    type: "string",
+                    enum: ["NETWORK", "API", "WEBHOOK", "FILE", "MANUAL"],
+                    default: "MANUAL",
+                    description: "Connection type",
+                  },
+                  vendor_type: {
+                    type: "string",
+                    enum: [
+                      "GENERIC",
+                      "SQUARE",
+                      "CLOVER",
+                      "TOAST",
+                      "LIGHTSPEED",
+                      "CUSTOM",
+                    ],
+                    default: "GENERIC",
+                    description: "POS vendor type",
+                  },
+                  connection_config: {
+                    type: "object",
+                    description:
+                      "Connection configuration based on connection_type",
+                    additionalProperties: true,
+                  },
+                },
+              },
+            },
           },
         },
         response: {
@@ -340,6 +408,28 @@ export async function storeRoutes(fastify: FastifyInstance) {
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
               updated_at: { type: "string", format: "date-time" },
+              manager: {
+                type: "object",
+                nullable: true,
+                properties: {
+                  user_id: { type: "string", format: "uuid" },
+                  email: { type: "string" },
+                  name: { type: "string" },
+                },
+              },
+              terminals: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    pos_terminal_id: { type: "string", format: "uuid" },
+                    name: { type: "string" },
+                    device_id: { type: "string", nullable: true },
+                    connection_type: { type: "string" },
+                    vendor_type: { type: "string" },
+                  },
+                },
+              },
             },
           },
           400: {
@@ -392,6 +482,17 @@ export async function storeRoutes(fastify: FastifyInstance) {
           };
           timezone?: string;
           status?: "ACTIVE" | "INACTIVE" | "CLOSED";
+          manager?: {
+            email: string;
+            password: string;
+          };
+          terminals?: Array<{
+            name: string;
+            device_id?: string;
+            connection_type?: string;
+            vendor_type?: string;
+            connection_config?: Record<string, unknown>;
+          }>;
         };
         const user = (request as any).user as UserIdentity;
 
@@ -476,16 +577,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
           }
         }
 
-        // Create store (with validation from service)
-        const store = await storeService.createStore({
-          company_id: params.companyId,
-          name: body.name,
-          location_json: body.location_json,
-          timezone: body.timezone,
-          status: body.status,
-        });
-
-        // Log store creation to AuditLog (BLOCKING - if this fails, rollback)
+        // Get IP and user agent for audit logs
         const ipAddress =
           (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
           request.ip ||
@@ -493,30 +585,268 @@ export async function storeRoutes(fastify: FastifyInstance) {
           null;
         const userAgent = request.headers["user-agent"] || null;
 
-        try {
-          await prisma.auditLog.create({
+        // Validate manager data if provided
+        if (body.manager) {
+          // Validate email format
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(body.manager.email)) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Invalid store login email format",
+              },
+            };
+          }
+
+          // Check if email already exists
+          const existingUser = await prisma.user.findUnique({
+            where: { email: body.manager.email.toLowerCase().trim() },
+          });
+
+          if (existingUser) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Store login email already exists",
+              },
+            };
+          }
+
+          // Validate password strength
+          const passwordRegex =
+            /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+          if (!passwordRegex.test(body.manager.password)) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message:
+                  "Manager password must be at least 8 characters with uppercase, lowercase, number, and special character",
+              },
+            };
+          }
+        }
+
+        // Validate terminals if provided
+        if (body.terminals && body.terminals.length > 0) {
+          // Check for duplicate device_ids in the request
+          const deviceIds = body.terminals
+            .map((t) => t.device_id)
+            .filter((id) => id !== undefined && id !== null && id !== "");
+          const uniqueDeviceIds = new Set(deviceIds);
+          if (deviceIds.length !== uniqueDeviceIds.size) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Duplicate device_id in terminals list",
+              },
+            };
+          }
+
+          // Check if any device_ids already exist in database
+          if (deviceIds.length > 0) {
+            const existingTerminals = await prisma.pOSTerminal.findMany({
+              where: { device_id: { in: deviceIds as string[] } },
+              select: { device_id: true },
+            });
+            if (existingTerminals.length > 0) {
+              reply.code(400);
+              return {
+                success: false,
+                error: {
+                  code: "VALIDATION_ERROR",
+                  message: `Device ID(s) already exist: ${existingTerminals.map((t) => t.device_id).join(", ")}`,
+                },
+              };
+            }
+          }
+        }
+
+        // Get CLIENT_USER role if manager is being created
+        let clientUserRole = null;
+        if (body.manager) {
+          clientUserRole = await prisma.role.findFirst({
+            where: { code: "CLIENT_USER" },
+          });
+
+          if (!clientUserRole) {
+            reply.code(500);
+            return {
+              success: false,
+              error: {
+                code: "INTERNAL_ERROR",
+                message: "CLIENT_USER role not found in system",
+              },
+            };
+          }
+        }
+
+        // Create store, manager, and terminals in a single transaction
+        const result = await prisma.$transaction(async (tx) => {
+          // 1. Create store using service (which handles validation)
+          const store = await storeService.createStore({
+            company_id: params.companyId,
+            name: body.name,
+            location_json: body.location_json,
+            timezone: body.timezone,
+            status: body.status,
+          });
+
+          let createdManager = null;
+          let createdTerminals: Array<{
+            pos_terminal_id: string;
+            name: string;
+            device_id: string | null;
+            connection_type: string;
+            vendor_type: string;
+          }> = [];
+
+          // 2. Create store login if provided
+          if (body.manager && clientUserRole) {
+            const passwordHash = await bcrypt.hash(body.manager.password, 10);
+
+            // Create user with store name as user name
+            const newUser = await tx.user.create({
+              data: {
+                public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+                email: body.manager.email.toLowerCase().trim(),
+                name: body.name, // Use store name as user name
+                password_hash: passwordHash,
+                status: "ACTIVE",
+                is_client_user: true,
+              },
+            });
+
+            // Create user role with STORE scope
+            await tx.userRole.create({
+              data: {
+                user_id: newUser.user_id,
+                role_id: clientUserRole.role_id,
+                company_id: params.companyId,
+                store_id: store.store_id,
+                assigned_by: user.id,
+              },
+            });
+
+            // Update store with login reference
+            await tx.store.update({
+              where: { store_id: store.store_id },
+              data: { store_login_user_id: newUser.user_id },
+            });
+
+            createdManager = {
+              user_id: newUser.user_id,
+              email: newUser.email,
+              name: newUser.name,
+            };
+
+            // Audit log for store login creation
+            await tx.auditLog.create({
+              data: {
+                user_id: user.id,
+                action: "CREATE",
+                table_name: "users",
+                record_id: newUser.user_id,
+                new_values: {
+                  user_id: newUser.user_id,
+                  email: newUser.email,
+                  name: newUser.name,
+                  is_store_login: true,
+                  store_id: store.store_id,
+                  store_name: body.name,
+                } as any,
+                ip_address: ipAddress,
+                user_agent: userAgent,
+                reason: `Store login created with store ${body.name} by ${user.email}`,
+              },
+            });
+          }
+
+          // 3. Create terminals if provided
+          if (body.terminals && body.terminals.length > 0) {
+            for (const terminalData of body.terminals) {
+              const terminal = await tx.pOSTerminal.create({
+                data: {
+                  store_id: store.store_id,
+                  name: terminalData.name,
+                  device_id: terminalData.device_id || null,
+                  connection_type:
+                    (terminalData.connection_type as any) || "MANUAL",
+                  vendor_type: (terminalData.vendor_type as any) || "GENERIC",
+                  connection_config:
+                    (terminalData.connection_config as any) || {},
+                  terminal_status: "ACTIVE",
+                  sync_status: "NEVER",
+                },
+              });
+
+              createdTerminals.push({
+                pos_terminal_id: terminal.pos_terminal_id,
+                name: terminal.name,
+                device_id: terminal.device_id,
+                connection_type: terminal.connection_type,
+                vendor_type: terminal.vendor_type,
+              });
+
+              // Audit log for each terminal
+              await tx.auditLog.create({
+                data: {
+                  user_id: user.id,
+                  action: "CREATE",
+                  table_name: "pos_terminals",
+                  record_id: terminal.pos_terminal_id,
+                  new_values: {
+                    pos_terminal_id: terminal.pos_terminal_id,
+                    store_id: store.store_id,
+                    name: terminal.name,
+                    device_id: terminal.device_id,
+                    connection_type: terminal.connection_type,
+                  } as any,
+                  ip_address: ipAddress,
+                  user_agent: userAgent,
+                  reason: `Terminal created with store ${body.name} by ${user.email}`,
+                },
+              });
+            }
+          }
+
+          // 4. Audit log for store creation
+          await tx.auditLog.create({
             data: {
               user_id: user.id,
               action: "CREATE",
               table_name: "stores",
               record_id: store.store_id,
-              new_values: JSON.stringify(store) as any,
+              new_values: {
+                ...store,
+                manager_created: !!createdManager,
+                terminals_created: createdTerminals.length,
+              } as any,
               ip_address: ipAddress,
               user_agent: userAgent,
-              reason: `Store created by ${user.email} (roles: ${user.roles.join(", ")})`,
+              reason: `Store created by ${user.email} (roles: ${user.roles.join(", ")})${createdManager ? " with manager" : ""}${createdTerminals.length > 0 ? ` and ${createdTerminals.length} terminal(s)` : ""}`,
             },
           });
-        } catch (auditError) {
-          // If audit log fails, delete the store and fail the request
-          await prisma.store.delete({
-            where: { store_id: store.store_id },
-          });
-          throw new Error("Failed to create audit log - operation rolled back");
-        }
+
+          return {
+            store,
+            manager: createdManager,
+            terminals: createdTerminals,
+          };
+        });
 
         reply.code(201);
         return {
-          ...store,
+          ...result.store,
+          manager: result.manager,
+          terminals: result.terminals,
           request_metadata: {
             timestamp: new Date().toISOString(),
             request_id: request.id,
@@ -2870,6 +3200,792 @@ export async function storeRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to delete terminal",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/stores/:storeId/login
+   * Get the store's login credential (CLIENT_USER assigned to this store)
+   * Protected route - requires STORE_READ permission
+   */
+  fastify.get(
+    "/api/stores/:storeId/login",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.STORE_READ),
+      ],
+      schema: {
+        description:
+          "Get store login credential (CLIENT_USER assigned to this store)",
+        tags: ["stores"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              user_id: { type: "string", format: "uuid" },
+              email: { type: "string" },
+              name: { type: "string" },
+              status: { type: "string" },
+              created_at: { type: "string", format: "date-time" },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          500: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = request.params as { storeId: string };
+      const user = (request as any).user as UserIdentity;
+      try {
+        // Check if store exists
+        const store = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+          include: {
+            store_login: {
+              select: {
+                user_id: true,
+                email: true,
+                name: true,
+                status: true,
+                created_at: true,
+              },
+            },
+          },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
+          };
+        }
+
+        // Check company isolation
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        if (!hasSystemScope) {
+          const userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId || userCompanyId !== store.company_id) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message: "You can only access stores for your assigned company",
+              },
+            };
+          }
+        }
+
+        // Check if store has a login credential
+        if (!store.store_login) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store does not have a login credential assigned",
+            },
+          };
+        }
+
+        reply.code(200);
+        return store.store_login;
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error retrieving store login");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to retrieve store login",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * POST /api/stores/:storeId/login
+   * Create a CLIENT_USER as the store's login credential
+   * Protected route - requires STORE_CREATE permission
+   */
+  fastify.post(
+    "/api/stores/:storeId/login",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.STORE_CREATE),
+      ],
+      schema: {
+        description: "Create a CLIENT_USER as the store's login credential",
+        tags: ["stores"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          required: ["email", "password"],
+          properties: {
+            email: {
+              type: "string",
+              format: "email",
+              maxLength: 255,
+              description: "Store login email address",
+            },
+            password: {
+              type: "string",
+              minLength: 8,
+              maxLength: 255,
+              description: "Store login password (min 8 characters)",
+            },
+          },
+        },
+        response: {
+          201: {
+            type: "object",
+            properties: {
+              user_id: { type: "string", format: "uuid" },
+              email: { type: "string" },
+              name: { type: "string" },
+              status: { type: "string" },
+              created_at: { type: "string", format: "date-time" },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          409: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          500: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = request.params as { storeId: string };
+      const body = request.body as { email: string; password: string };
+      const user = (request as any).user as UserIdentity;
+      try {
+        // Check if store exists
+        const store = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+          include: {
+            company: true,
+          },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
+          };
+        }
+
+        // Check company isolation
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        if (!hasSystemScope) {
+          const userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId || userCompanyId !== store.company_id) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message:
+                  "You can only create store logins for stores in your assigned company",
+              },
+            };
+          }
+        }
+
+        // Check if store already has a login credential
+        if (store.store_login_user_id) {
+          reply.code(409);
+          return {
+            success: false,
+            error: {
+              code: "CONFLICT",
+              message:
+                "Store already has a login credential. Use PUT to update the existing login.",
+            },
+          };
+        }
+
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(body.email)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid email format",
+            },
+          };
+        }
+
+        // Check if email already exists
+        const existingUser = await prisma.user.findUnique({
+          where: { email: body.email.toLowerCase().trim() },
+        });
+
+        if (existingUser) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Email already exists",
+            },
+          };
+        }
+
+        // Validate password strength
+        const passwordRegex =
+          /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+        if (!passwordRegex.test(body.password)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message:
+                "Password must be at least 8 characters with uppercase, lowercase, number, and special character",
+            },
+          };
+        }
+
+        // Get CLIENT_USER role
+        const clientUserRole = await prisma.role.findFirst({
+          where: { code: "CLIENT_USER" },
+        });
+
+        if (!clientUserRole) {
+          reply.code(500);
+          return {
+            success: false,
+            error: {
+              code: "INTERNAL_ERROR",
+              message: "CLIENT_USER role not found in system",
+            },
+          };
+        }
+
+        // Create store login user in transaction
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        const result = await prisma.$transaction(async (tx) => {
+          // Hash password
+          const passwordHash = await bcrypt.hash(body.password, 10);
+
+          // Create user with store name as user name
+          const newUser = await tx.user.create({
+            data: {
+              public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+              email: body.email.toLowerCase().trim(),
+              name: store.name, // Use store name as user name
+              password_hash: passwordHash,
+              status: "ACTIVE",
+              is_client_user: true,
+            },
+          });
+
+          // Create user role with STORE scope
+          await tx.userRole.create({
+            data: {
+              user_id: newUser.user_id,
+              role_id: clientUserRole.role_id,
+              company_id: store.company_id,
+              store_id: store.store_id,
+              assigned_by: user.id,
+            },
+          });
+
+          // Update store with login reference
+          await tx.store.update({
+            where: { store_id: store.store_id },
+            data: { store_login_user_id: newUser.user_id },
+          });
+
+          // Create audit log
+          await tx.auditLog.create({
+            data: {
+              user_id: user.id,
+              action: "CREATE",
+              table_name: "users",
+              record_id: newUser.user_id,
+              new_values: {
+                user_id: newUser.user_id,
+                email: newUser.email,
+                name: newUser.name,
+                is_store_login: true,
+                store_id: store.store_id,
+                store_name: store.name,
+              } as any,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              reason: `Store login created for store ${store.name} by ${user.email}`,
+            },
+          });
+
+          return newUser;
+        });
+
+        reply.code(201);
+        return {
+          user_id: result.user_id,
+          email: result.email,
+          name: result.name,
+          status: result.status,
+          created_at: result.created_at,
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error creating store login");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to create store login",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /api/stores/:storeId/login
+   * Update the store's login email and/or password
+   * Protected route - requires STORE_UPDATE permission
+   */
+  fastify.put(
+    "/api/stores/:storeId/login",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.STORE_UPDATE),
+      ],
+      schema: {
+        description: "Update store login email and/or password",
+        tags: ["stores"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          properties: {
+            email: {
+              type: "string",
+              format: "email",
+              maxLength: 255,
+              description: "New store login email address",
+            },
+            password: {
+              type: "string",
+              minLength: 8,
+              maxLength: 255,
+              description: "New store login password (min 8 characters)",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              user_id: { type: "string", format: "uuid" },
+              email: { type: "string" },
+              name: { type: "string" },
+              status: { type: "string" },
+              created_at: { type: "string", format: "date-time" },
+              updated_at: { type: "string", format: "date-time" },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["code", "message"],
+              },
+            },
+            required: ["success", "error"],
+          },
+          500: {
+            type: "object",
+            properties: {
+              error: { type: "string" },
+              message: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = request.params as { storeId: string };
+      const body = request.body as { email?: string; password?: string };
+      const user = (request as any).user as UserIdentity;
+      try {
+        // Check if store exists and has a login credential
+        const store = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+          include: {
+            store_login: true,
+          },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
+          };
+        }
+
+        // Check company isolation
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        if (!hasSystemScope) {
+          const userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId || userCompanyId !== store.company_id) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message:
+                  "You can only update store logins for stores in your assigned company",
+              },
+            };
+          }
+        }
+
+        // Check if store has a login credential
+        if (!store.store_login) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message:
+                "Store does not have a login credential. Use POST to create one.",
+            },
+          };
+        }
+
+        // Validate at least one field is being updated
+        if (!body.email && !body.password) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "At least one of email or password must be provided",
+            },
+          };
+        }
+
+        // Build update data
+        const updateData: { email?: string; password_hash?: string } = {};
+        const oldValues: { email?: string } = {};
+        const newValues: { email?: string; password_changed?: boolean } = {};
+
+        // Validate and set email if provided
+        if (body.email) {
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(body.email)) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Invalid email format",
+              },
+            };
+          }
+
+          // Check if email already exists (different user)
+          const existingUser = await prisma.user.findUnique({
+            where: { email: body.email.toLowerCase().trim() },
+          });
+
+          if (
+            existingUser &&
+            existingUser.user_id !== store.store_login.user_id
+          ) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Email already exists",
+              },
+            };
+          }
+
+          oldValues.email = store.store_login.email;
+          updateData.email = body.email.toLowerCase().trim();
+          newValues.email = updateData.email;
+        }
+
+        // Validate and set password if provided
+        if (body.password) {
+          const passwordRegex =
+            /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+          if (!passwordRegex.test(body.password)) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message:
+                  "Password must be at least 8 characters with uppercase, lowercase, number, and special character",
+              },
+            };
+          }
+
+          updateData.password_hash = await bcrypt.hash(body.password, 10);
+          newValues.password_changed = true;
+        }
+
+        // Update store login in transaction
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        const result = await prisma.$transaction(async (tx) => {
+          // Update user
+          const updatedUser = await tx.user.update({
+            where: { user_id: store.store_login!.user_id },
+            data: updateData,
+          });
+
+          // Create audit log
+          await tx.auditLog.create({
+            data: {
+              user_id: user.id,
+              action: "UPDATE",
+              table_name: "users",
+              record_id: updatedUser.user_id,
+              old_values: oldValues as any,
+              new_values: newValues as any,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              reason: `Store login updated for store ${store.name} by ${user.email}`,
+            },
+          });
+
+          return updatedUser;
+        });
+
+        reply.code(200);
+        return {
+          user_id: result.user_id,
+          email: result.email,
+          name: result.name,
+          status: result.status,
+          created_at: result.created_at,
+          updated_at: result.updated_at,
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error updating store login");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update store login",
           },
         };
       }

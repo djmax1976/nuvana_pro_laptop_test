@@ -106,6 +106,7 @@ test.describe("CORS Configuration [P0]", () => {
     const allowedHeaders = response.headers()["access-control-allow-headers"];
     expect((allowedHeaders ?? "").toLowerCase()).toContain("content-type");
     expect((allowedHeaders ?? "").toLowerCase()).toContain("authorization");
+    expect((allowedHeaders ?? "").toLowerCase()).toContain("x-cashier-session");
   });
 });
 

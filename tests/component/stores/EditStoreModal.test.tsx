@@ -19,6 +19,9 @@ vi.mock("@/lib/api/stores", () => ({
   useCreateTerminal: vi.fn(),
   useUpdateTerminal: vi.fn(),
   useDeleteTerminal: vi.fn(),
+  useStoreLogin: vi.fn(),
+  useCreateStoreLogin: vi.fn(),
+  useUpdateStoreLogin: vi.fn(),
 }));
 
 // Mock toast hook
@@ -95,6 +98,32 @@ describe("2.5-COMPONENT: EditStoreModal Component", () => {
     isPending: false,
   };
 
+  // Store Login mocks
+  const mockStoreLogin = {
+    user_id: "login-user-id",
+    email: "storelogin@test.com",
+    name: "Test Store",
+    status: "ACTIVE",
+  };
+
+  const mockStoreLoginQuery = {
+    data: mockStoreLogin,
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+  };
+
+  const mockCreateStoreLoginMutation = {
+    mutateAsync: vi.fn().mockResolvedValue(mockStoreLogin),
+    isPending: false,
+  };
+
+  const mockUpdateStoreLoginMutation = {
+    mutateAsync: vi.fn().mockResolvedValue(mockStoreLogin),
+    isPending: false,
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(storesApi.useUpdateStore).mockReturnValue(
@@ -111,6 +140,15 @@ describe("2.5-COMPONENT: EditStoreModal Component", () => {
     );
     vi.mocked(storesApi.useDeleteTerminal).mockReturnValue(
       mockDeleteTerminalMutation as any,
+    );
+    vi.mocked(storesApi.useStoreLogin).mockReturnValue(
+      mockStoreLoginQuery as any,
+    );
+    vi.mocked(storesApi.useCreateStoreLogin).mockReturnValue(
+      mockCreateStoreLoginMutation as any,
+    );
+    vi.mocked(storesApi.useUpdateStoreLogin).mockReturnValue(
+      mockUpdateStoreLoginMutation as any,
     );
   });
 
@@ -717,6 +755,172 @@ describe("2.5-COMPONENT: EditStoreModal Component", () => {
           /Store Name/i,
         ) as HTMLInputElement;
         expect(resetNameInput.value).toBe(mockStore.name);
+      });
+    });
+  });
+
+  describe("Store Login Section", () => {
+    it("[P0] 2.5-COMPONENT-023: should display store login section", () => {
+      // GIVEN: Modal is open with store
+      const onOpenChange = vi.fn();
+      renderWithProviders(
+        <EditStoreModal
+          open={true}
+          onOpenChange={onOpenChange}
+          store={mockStore}
+        />,
+      );
+
+      // THEN: Store login section should be visible
+      expect(screen.getByText("Store Login")).toBeInTheDocument();
+    });
+
+    it("[P0] 2.5-COMPONENT-024: should display existing login info when login exists", () => {
+      // GIVEN: Modal is open with store that has a login
+      const onOpenChange = vi.fn();
+      renderWithProviders(
+        <EditStoreModal
+          open={true}
+          onOpenChange={onOpenChange}
+          store={mockStore}
+        />,
+      );
+
+      // THEN: Login info should be displayed
+      expect(screen.getByText("storelogin@test.com")).toBeInTheDocument();
+      expect(screen.getByText(mockStore.name)).toBeInTheDocument(); // Login name is store name
+    });
+
+    it("[P1] 2.5-COMPONENT-025: should show Add Login button when no login exists", () => {
+      // GIVEN: Store has no login
+      vi.mocked(storesApi.useStoreLogin).mockReturnValue({
+        data: null,
+        isLoading: false,
+        isError: false,
+        error: null,
+        refetch: vi.fn(),
+      } as any);
+
+      const onOpenChange = vi.fn();
+      renderWithProviders(
+        <EditStoreModal
+          open={true}
+          onOpenChange={onOpenChange}
+          store={mockStore}
+        />,
+      );
+
+      // THEN: Add Login button should be visible
+      expect(screen.getByTestId("add-login-button")).toBeInTheDocument();
+    });
+
+    it("[P1] 2.5-COMPONENT-026: should show Edit button when login exists", () => {
+      // GIVEN: Modal is open with store that has a login
+      const onOpenChange = vi.fn();
+      renderWithProviders(
+        <EditStoreModal
+          open={true}
+          onOpenChange={onOpenChange}
+          store={mockStore}
+        />,
+      );
+
+      // THEN: Edit button should be visible in login section
+      expect(screen.getByTestId("edit-login-button")).toBeInTheDocument();
+    });
+
+    it("[P1] 2.5-COMPONENT-027: should show loading state while fetching login", () => {
+      // GIVEN: Login is loading
+      vi.mocked(storesApi.useStoreLogin).mockReturnValue({
+        data: null,
+        isLoading: true,
+        isError: false,
+        error: null,
+        refetch: vi.fn(),
+      } as any);
+
+      const onOpenChange = vi.fn();
+      renderWithProviders(
+        <EditStoreModal
+          open={true}
+          onOpenChange={onOpenChange}
+          store={mockStore}
+        />,
+      );
+
+      // THEN: Loading state should be visible
+      expect(screen.getByText(/Loading login info/i)).toBeInTheDocument();
+    });
+
+    it("[P1] 2.5-COMPONENT-028: should show no login message when no login exists", () => {
+      // GIVEN: Store has no login
+      vi.mocked(storesApi.useStoreLogin).mockReturnValue({
+        data: null,
+        isLoading: false,
+        isError: false,
+        error: null,
+        refetch: vi.fn(),
+      } as any);
+
+      const onOpenChange = vi.fn();
+      renderWithProviders(
+        <EditStoreModal
+          open={true}
+          onOpenChange={onOpenChange}
+          store={mockStore}
+        />,
+      );
+
+      // THEN: No login message should be visible
+      expect(
+        screen.getByText(/No store login configured/i),
+      ).toBeInTheDocument();
+    });
+
+    it("[P0] 2.5-COMPONENT-029: should open edit form when Edit button is clicked", async () => {
+      // GIVEN: Modal is open with login
+      const user = userEvent.setup();
+      const onOpenChange = vi.fn();
+      renderWithProviders(
+        <EditStoreModal
+          open={true}
+          onOpenChange={onOpenChange}
+          store={mockStore}
+        />,
+      );
+
+      // WHEN: User clicks Edit button in login section
+      const editButton = screen.getByTestId("edit-login-button");
+      await user.click(editButton);
+
+      // THEN: Edit form should be visible
+      await waitFor(() => {
+        expect(screen.getByTestId("login-email-input")).toBeInTheDocument();
+        expect(screen.getByTestId("login-password-input")).toBeInTheDocument();
+      });
+    });
+
+    it("[P0] 2.5-COMPONENT-030: should show login name as store name in edit form", async () => {
+      // GIVEN: Modal is open with login
+      const user = userEvent.setup();
+      const onOpenChange = vi.fn();
+      renderWithProviders(
+        <EditStoreModal
+          open={true}
+          onOpenChange={onOpenChange}
+          store={mockStore}
+        />,
+      );
+
+      // WHEN: User clicks Edit button
+      const editButton = screen.getByTestId("edit-login-button");
+      await user.click(editButton);
+
+      // THEN: Login name should show as store name (not editable)
+      await waitFor(() => {
+        expect(
+          screen.getByText(/The login name is the store name/i),
+        ).toBeInTheDocument();
       });
     });
   });

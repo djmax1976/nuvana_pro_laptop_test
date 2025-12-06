@@ -452,7 +452,6 @@ export async function updateStartingCash(
     },
     body: JSON.stringify({
       starting_cash: startingCash,
-      cashier_id: "", // Ignored by backend - uses session cashier_id
     }),
   });
 
