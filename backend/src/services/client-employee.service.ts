@@ -369,11 +369,13 @@ export class ClientEmployeeService {
     }
 
     // Build where clause for user roles - employees have STORE scope roles in client's stores
+    // Exclude CLIENT_USER role as it's for store dashboard login, not employees
     const userRoleWhere: Prisma.UserRoleWhereInput = {
       store_id: { in: targetStoreIds },
       user_id: { not: clientUserId }, // Exclude the client user themselves
       role: {
         scope: "STORE", // Only employees with STORE scope roles
+        code: { not: "CLIENT_USER" }, // Exclude store login credentials from employee list
       },
     };
 
@@ -580,7 +582,8 @@ export class ClientEmployeeService {
 
   /**
    * Get available STORE scope roles for dropdown
-   * @returns Array of roles with STORE scope
+   * Excludes CLIENT_USER as it's for store dashboard login, not employee assignment
+   * @returns Array of assignable STORE scope roles
    */
   async getStoreRoles(): Promise<
     Array<{
@@ -591,7 +594,10 @@ export class ClientEmployeeService {
   > {
     try {
       const roles = await prisma.role.findMany({
-        where: { scope: "STORE" },
+        where: {
+          scope: "STORE",
+          code: { not: "CLIENT_USER" }, // Exclude store login credentials from assignable roles
+        },
         select: {
           role_id: true,
           code: true,

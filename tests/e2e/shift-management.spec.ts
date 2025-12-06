@@ -159,8 +159,18 @@ async function navigateToShiftsPage(page: any) {
       .catch(() => null),
   ]);
 
-  // Additional wait to ensure the component has fully rendered
-  await page.waitForTimeout(500);
+  // Wait for actual content to be visible instead of hard wait
+  await Promise.race([
+    expect(page.locator('[data-testid="shift-list-table"]'))
+      .toBeVisible({ timeout: 5000 })
+      .catch(() => null),
+    expect(page.locator('[data-testid="shift-list-empty"]'))
+      .toBeVisible({ timeout: 5000 })
+      .catch(() => null),
+    expect(page.locator('[data-testid="shift-list-error"]'))
+      .toBeVisible({ timeout: 5000 })
+      .catch(() => null),
+  ]);
 }
 
 /**
@@ -383,15 +393,14 @@ test.describe("4.7-E2E: Shift Management UI", () => {
 
     // Wait for dropdown to open and select "Open" option
     // Use the SelectItem with value="OPEN" to be more specific
-    await clientOwnerPage.waitForTimeout(500); // Wait for dropdown animation
     const openOption = clientOwnerPage
       .locator('[role="option"]:has-text("Open")')
       .first();
     await expect(openOption).toBeVisible({ timeout: 10000 });
     await openOption.click();
 
-    // Wait for dropdown to close
-    await clientOwnerPage.waitForTimeout(300);
+    // Wait for dropdown to close (wait for option to disappear)
+    await expect(openOption).not.toBeVisible({ timeout: 5000 });
 
     // Click Apply Filters button and wait for API response
     const applyButton = clientOwnerPage.getByRole("button", {
@@ -602,7 +611,12 @@ test.describe("4.7-E2E: Shift Management UI", () => {
         .catch(() => null),
     ]);
 
-    await clientOwnerPage.waitForTimeout(1000);
+    // Wait for table content to be visible instead of hard wait
+    await expect(
+      clientOwnerPage
+        .locator('[data-testid="shift-list-table"]')
+        .or(clientOwnerPage.locator('[data-testid="shift-list-empty"]')),
+    ).toBeVisible({ timeout: 10000 });
 
     // Verify shift1 (from accessible store) is visible
     const shift1Row = clientOwnerPage.locator(
@@ -751,7 +765,12 @@ test.describe("4.7-E2E: Shift Management UI", () => {
         .catch(() => null),
     ]);
 
-    await clientOwnerPage.waitForTimeout(1000);
+    // Wait for table content to be visible instead of hard wait
+    await expect(
+      clientOwnerPage
+        .locator('[data-testid="shift-list-table"]')
+        .or(clientOwnerPage.locator('[data-testid="shift-list-empty"]')),
+    ).toBeVisible({ timeout: 10000 });
 
     // Get the shift row and verify XSS is escaped
     const shiftRows = clientOwnerPage.locator(

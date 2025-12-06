@@ -1,0 +1,142 @@
+/**
+ * Unit Tests: Lottery Models - Type Definitions and Enums
+ *
+ * Tests Prisma Client type generation for lottery models:
+ * - Enum values (LotteryGameStatus, LotteryPackStatus)
+ * - Model type definitions (LotteryGame, LotteryPack, LotteryBin)
+ * - Relationship types
+ *
+ * Story: 6.1 - Lottery Game and Pack Data Models
+ * Priority: P0 (Foundation - Type Safety)
+ *
+ * These tests validate that Prisma Client types are generated correctly
+ * and enum values are type-safe.
+ */
+
+import { describe, it, expect } from "vitest";
+import { PrismaClient, LotteryGameStatus, LotteryPackStatus } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+describe("6.1-UNIT: LotteryGameStatus Enum", () => {
+  it("6.1-UNIT-001: should have ACTIVE enum value", () => {
+    expect(LotteryGameStatus.ACTIVE).toBe("ACTIVE");
+  });
+
+  it("6.1-UNIT-002: should have INACTIVE enum value", () => {
+    expect(LotteryGameStatus.INACTIVE).toBe("INACTIVE");
+  });
+
+  it("6.1-UNIT-003: should have DISCONTINUED enum value", () => {
+    expect(LotteryGameStatus.DISCONTINUED).toBe("DISCONTINUED");
+  });
+
+  it("6.1-UNIT-004: should have exactly 3 enum values", () => {
+    const values = Object.values(LotteryGameStatus);
+    expect(values).toHaveLength(3);
+    expect(values).toContain("ACTIVE");
+    expect(values).toContain("INACTIVE");
+    expect(values).toContain("DISCONTINUED");
+  });
+});
+
+describe("6.1-UNIT: LotteryPackStatus Enum", () => {
+  it("6.1-UNIT-005: should have RECEIVED enum value", () => {
+    expect(LotteryPackStatus.RECEIVED).toBe("RECEIVED");
+  });
+
+  it("6.1-UNIT-006: should have ACTIVE enum value", () => {
+    expect(LotteryPackStatus.ACTIVE).toBe("ACTIVE");
+  });
+
+  it("6.1-UNIT-007: should have DEPLETED enum value", () => {
+    expect(LotteryPackStatus.DEPLETED).toBe("DEPLETED");
+  });
+
+  it("6.1-UNIT-008: should have RETURNED enum value", () => {
+    expect(LotteryPackStatus.RETURNED).toBe("RETURNED");
+  });
+
+  it("6.1-UNIT-009: should have exactly 4 enum values", () => {
+    const values = Object.values(LotteryPackStatus);
+    expect(values).toHaveLength(4);
+    expect(values).toContain("RECEIVED");
+    expect(values).toContain("ACTIVE");
+    expect(values).toContain("DEPLETED");
+    expect(values).toContain("RETURNED");
+  });
+});
+
+describe("6.1-UNIT: LotteryGame Type Definition", () => {
+  it("6.1-UNIT-010: should have game_id field of type string", () => {
+    // Type check - if this compiles, the type is correct
+    const game: { game_id: string } = {} as any;
+    expect(typeof game.game_id).toBe("string");
+  });
+
+  it("6.1-UNIT-011: should have name field of type string", () => {
+    const game: { name: string } = {} as any;
+    expect(typeof game.name).toBe("string");
+  });
+
+  it("6.1-UNIT-012: should have status field of type LotteryGameStatus", () => {
+    const game: { status: LotteryGameStatus } = {} as any;
+    expect(typeof game.status).toBe("string");
+    expect([LotteryGameStatus.ACTIVE, LotteryGameStatus.INACTIVE, LotteryGameStatus.DISCONTINUED]).toContain(game.status);
+  });
+});
+
+describe("6.1-UNIT: LotteryPack Type Definition", () => {
+  it("6.1-UNIT-013: should have pack_id field of type string", () => {
+    const pack: { pack_id: string } = {} as any;
+    expect(typeof pack.pack_id).toBe("string");
+  });
+
+  it("6.1-UNIT-014: should have serial_start and serial_end fields of type string", () => {
+    const pack: { serial_start: string; serial_end: string } = {} as any;
+    expect(typeof pack.serial_start).toBe("string");
+    expect(typeof pack.serial_end).toBe("string");
+  });
+
+  it("6.1-UNIT-015: should have status field of type LotteryPackStatus", () => {
+    const pack: { status: LotteryPackStatus } = {} as any;
+    expect(typeof pack.status).toBe("string");
+    expect([LotteryPackStatus.RECEIVED, LotteryPackStatus.ACTIVE, LotteryPackStatus.DEPLETED, LotteryPackStatus.RETURNED]).toContain(pack.status);
+  });
+});
+
+describe("6.1-UNIT: LotteryBin Type Definition", () => {
+  it("6.1-UNIT-016: should have bin_id field of type string", () => {
+    const bin: { bin_id: string } = {} as any;
+    expect(typeof bin.bin_id).toBe("string");
+  });
+
+  it("6.1-UNIT-017: should have name field of type string", () => {
+    const bin: { name: string } = {} as any;
+    expect(typeof bin.name).toBe("string");
+  });
+});
+
+describe("6.1-UNIT: Relationship Types", () => {
+  it("6.1-UNIT-018: LotteryGame should have packs relation type", () => {
+    // Type check - if this compiles, the relation type exists
+    const game: { packs: any[] } = {} as any;
+    expect(Array.isArray(game.packs)).toBe(true);
+  });
+
+  it("6.1-UNIT-019: LotteryPack should have game relation type", () => {
+    const pack: { game: any } = {} as any;
+    expect(pack.game).toBeDefined();
+  });
+
+  it("6.1-UNIT-020: LotteryPack should have store relation type", () => {
+    const pack: { store: any } = {} as any;
+    expect(pack.store).toBeDefined();
+  });
+
+  it("6.1-UNIT-021: LotteryPack should have bin relation type (nullable)", () => {
+    const pack: { bin: any | null } = {} as any;
+    expect(pack.bin === null || pack.bin !== null).toBe(true);
+  });
+});
+

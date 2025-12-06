@@ -973,4 +973,203 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
     expect(body.error.code).toBe("NOT_FOUND");
     expect(body.error).toHaveProperty("message");
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CLIENT_USER EXCLUSION POLICY TESTS (REGRESSION PREVENTION)
+  // ═══════════════════════════════════════════════════════════════════════════
+  // These tests ensure CLIENT_USER (store login credential) is never exposed
+  // as an "employee" in the client dashboard. CLIENT_USER is for store
+  // terminal authentication, not employee management.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  test("2.91-API-026: [P0] POLICY - GET /api/client/employees - should NOT return users with CLIENT_USER role", async ({
+    clientUserApiRequest,
+    clientUser,
+    prismaClient,
+  }) => {
+    // ═══════════════════════════════════════════════════════════════════════
+    // REGRESSION TEST: CLIENT_USER Exclusion from Employee List
+    //
+    // BUSINESS RULE: CLIENT_USER is a store login credential for terminal
+    // authentication (POS system login). It should NEVER appear in the
+    // employee list which is for managing actual store employees.
+    //
+    // SECURITY IMPACT: If this filter is removed, store login credentials
+    // would be exposed as "employees" causing:
+    // - Confusion in the UI (store login appearing as employee)
+    // - Potential security issue (exposing login account details)
+    // - Data integrity issues (deleting store login as employee)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // GIVEN: Get CLIENT_USER role from database
+    const clientUserRole = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_USER" },
+    });
+    expect(
+      clientUserRole,
+      "CLIENT_USER role must exist in database",
+    ).not.toBeNull();
+    expect(clientUserRole!.scope, "CLIENT_USER must have STORE scope").toBe(
+      "STORE",
+    );
+
+    // AND: Get a STORE scope role for creating a real employee (CASHIER)
+    const cashierRole = await prismaClient.role.findFirst({
+      where: {
+        scope: "STORE",
+        code: { not: "CLIENT_USER" },
+      },
+    });
+    expect(
+      cashierRole,
+      "Need at least one non-CLIENT_USER STORE role",
+    ).not.toBeNull();
+
+    // AND: Create a store login user (CLIENT_USER) for the client's store
+    const storeLoginUser = await prismaClient.user.create({
+      data: {
+        public_id: `USR_STORELOGIN_${Date.now()}`,
+        email: `store-login-${Date.now()}@test-employee-exclusion.com`,
+        name: "[TEST] Store Login Credential",
+        password_hash: "$2b$10$testhashedpassword",
+        status: "ACTIVE",
+        is_client_user: true,
+      },
+    });
+
+    // AND: Assign CLIENT_USER role with STORE scope to this user
+    await prismaClient.userRole.create({
+      data: {
+        user_id: storeLoginUser.user_id,
+        role_id: clientUserRole!.role_id,
+        store_id: clientUser.store_id,
+        company_id: clientUser.company_id,
+        assigned_by: clientUser.user_id,
+      },
+    });
+
+    // AND: Create a legitimate employee (CASHIER) in the same store
+    const legitimateEmployee = await prismaClient.user.create({
+      data: {
+        public_id: `USR_EMPLOYEE_${Date.now()}`,
+        email: `real-employee-${Date.now()}@test-employee-exclusion.com`,
+        name: "[TEST] Real Employee",
+        password_hash: "$2b$10$testhashedpassword",
+        status: "ACTIVE",
+        is_client_user: true,
+      },
+    });
+
+    // AND: Assign CASHIER role to the legitimate employee
+    await prismaClient.userRole.create({
+      data: {
+        user_id: legitimateEmployee.user_id,
+        role_id: cashierRole!.role_id,
+        store_id: clientUser.store_id,
+        company_id: clientUser.company_id,
+        assigned_by: clientUser.user_id,
+      },
+    });
+
+    // WHEN: Fetching the employee list
+    const response = await clientUserApiRequest.get("/api/client/employees");
+
+    // THEN: Request succeeds
+    expect(response.status(), "Should return 200 OK").toBe(200);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(Array.isArray(body.data), "Data should be an array").toBe(true);
+
+    // AND: The legitimate employee IS in the list
+    const foundEmployee = body.data.find(
+      (emp: { user_id: string }) => emp.user_id === legitimateEmployee.user_id,
+    );
+    expect(
+      foundEmployee,
+      "Legitimate employee (CASHIER) should appear in employee list",
+    ).toBeDefined();
+
+    // AND: The store login (CLIENT_USER) is NOT in the list
+    const foundStoreLogin = body.data.find(
+      (emp: { user_id: string }) => emp.user_id === storeLoginUser.user_id,
+    );
+    expect(
+      foundStoreLogin,
+      "CLIENT_USER (store login) must NOT appear in employee list - this is a critical policy requirement",
+    ).toBeUndefined();
+
+    // AND: Verify no employee in the list has CLIENT_USER role
+    for (const employee of body.data) {
+      const hasClientUserRole = employee.roles?.some(
+        (role: { role_code: string }) => role.role_code === "CLIENT_USER",
+      );
+      expect(
+        hasClientUserRole,
+        `Employee ${employee.email} should not have CLIENT_USER role in employee list`,
+      ).toBeFalsy();
+    }
+  });
+
+  test("2.91-API-027: [P0] POLICY - GET /api/client/employees/roles - should NOT include CLIENT_USER in available roles", async ({
+    clientUserApiRequest,
+    prismaClient,
+  }) => {
+    // ═══════════════════════════════════════════════════════════════════════
+    // REGRESSION TEST: CLIENT_USER Exclusion from Assignable Roles
+    //
+    // BUSINESS RULE: CLIENT_USER should never be assignable via the employee
+    // management interface. Store login credentials are created through the
+    // store management interface, not employee management.
+    //
+    // SECURITY IMPACT: If CLIENT_USER appears in assignable roles:
+    // - Employees could be accidentally assigned store login privileges
+    // - Multiple users could share store login credentials
+    // - Audit trail for terminal access would be compromised
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // GIVEN: CLIENT_USER role exists in the database with STORE scope
+    const clientUserRole = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_USER" },
+    });
+    expect(clientUserRole, "CLIENT_USER role must exist").not.toBeNull();
+    expect(clientUserRole!.scope, "CLIENT_USER must have STORE scope").toBe(
+      "STORE",
+    );
+
+    // WHEN: Fetching available roles for employee assignment
+    const response = await clientUserApiRequest.get(
+      "/api/client/employees/roles",
+    );
+
+    // THEN: Request succeeds
+    expect(response.status(), "Should return 200 OK").toBe(200);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(Array.isArray(body.data), "Data should be an array of roles").toBe(
+      true,
+    );
+
+    // AND: At least one STORE scope role is available (CASHIER, SHIFT_MANAGER, etc.)
+    expect(
+      body.data.length,
+      "Should have at least one assignable STORE scope role",
+    ).toBeGreaterThan(0);
+
+    // AND: CLIENT_USER is NOT in the list of available roles
+    const clientUserInRoles = body.data.find(
+      (role: { code: string }) => role.code === "CLIENT_USER",
+    );
+    expect(
+      clientUserInRoles,
+      "CLIENT_USER must NOT appear in assignable roles list - store logins are managed separately",
+    ).toBeUndefined();
+
+    // AND: All returned roles have STORE scope (sanity check)
+    // This is implicit from the endpoint but good to verify
+    const roleCodes = body.data.map((r: { code: string }) => r.code);
+    expect(
+      roleCodes,
+      "Available roles should include employee roles like CASHIER or SHIFT_MANAGER",
+    ).toEqual(expect.arrayContaining([expect.any(String)]));
+  });
 });

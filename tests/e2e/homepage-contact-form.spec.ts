@@ -104,19 +104,20 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     await page.locator('input[name="email"]').fill("john.doe@test.com");
     await page.locator('textarea[name="message"]').fill("Test message");
 
+    const submitButton = page.getByRole("button", { name: /Send Message/i });
+
     // Set up route interception BEFORE clicking submit
     // Use full URL pattern to intercept cross-origin request to backend
+    // Small delay simulates network latency for testing loading states
     await page.route("**/api/contact", async (route) => {
-      // Add delay to allow checking button state during submission
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // Simulate network delay (100ms is sufficient for testing loading state)
+      await new Promise((resolve) => setTimeout(resolve, 100));
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ success: true }),
       });
     });
-
-    const submitButton = page.getByRole("button", { name: /Send Message/i });
     await expect(submitButton).toBeEnabled();
 
     // WHEN: User submits form - click and immediately check for loading state
