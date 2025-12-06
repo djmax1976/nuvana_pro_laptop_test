@@ -79,6 +79,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   serial_start: { type: "string" },
                   serial_end: { type: "string" },
                   status: { type: "string", enum: ["RECEIVED"] },
+                  current_bin_id: {
+                    type: "string",
+                    format: "uuid",
+                    nullable: true,
+                  },
                   received_at: { type: "string", format: "date-time" },
                   game: {
                     type: "object",
@@ -279,17 +284,43 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Validate serial range (serial_start should be <= serial_end)
-        // Note: Serial numbers are strings, so we compare them as strings
-        // This is a basic validation - more complex validation may be needed based on barcode format
-        if (normalizedSerialStart > normalizedSerialEnd) {
+        // Validate serial numbers are numeric-only (lottery serial barcodes are numeric)
+        const numericOnlyRegex = /^\d+$/;
+        if (!numericOnlyRegex.test(normalizedSerialStart)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "serial_start must contain only numeric characters",
+            },
+          };
+        }
+        if (!numericOnlyRegex.test(normalizedSerialEnd)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "serial_end must contain only numeric characters",
+            },
+          };
+        }
+
+        // Validate serial range using BigInt comparison
+        // Serial numbers can be very long (24+ digits), exceeding JavaScript's Number.MAX_SAFE_INTEGER
+        const serialStartBigInt = BigInt(normalizedSerialStart);
+        const serialEndBigInt = BigInt(normalizedSerialEnd);
+
+        // serial_start must be strictly less than serial_end (they cannot be equal)
+        if (serialStartBigInt >= serialEndBigInt) {
           reply.code(400);
           return {
             success: false,
             error: {
               code: "VALIDATION_ERROR",
               message:
-                "Invalid serial range: serial_start must be less than or equal to serial_end",
+                "Invalid serial range: serial_start must be less than serial_end",
             },
           };
         }
@@ -447,6 +478,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             serial_start: pack.serial_start,
             serial_end: pack.serial_end,
             status: pack.status,
+            current_bin_id: pack.current_bin_id || null,
             received_at: pack.received_at?.toISOString() || null,
             game: pack.game,
             store: pack.store,

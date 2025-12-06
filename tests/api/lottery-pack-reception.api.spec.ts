@@ -334,8 +334,10 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     expect(response.status(), "Should return 403 for RLS violation").toBe(403);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
+    // Permission middleware checks scope first and returns PERMISSION_DENIED
+    // if user doesn't have permission for the requested store scope
     expect(body.error.code, "Error code should indicate RLS violation").toBe(
-      "FORBIDDEN",
+      "PERMISSION_DENIED",
     );
   });
 
@@ -1315,5 +1317,285 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     expect(body.error.code, "Error code should indicate validation error").toBe(
       "VALIDATION_ERROR",
     );
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STRING NORMALIZATION TESTS (P0 - Data Integrity)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  test("6.2-API-032: [P0] should trim whitespace from pack_number", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Pack data with whitespace in pack_number
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game",
+    });
+
+    const packData = {
+      game_id: game.game_id,
+      pack_number: "  PACK-032  ", // Leading and trailing whitespace
+      serial_start: "184303159650093783374530",
+      serial_end: "184303159650093783374680",
+    };
+
+    // WHEN: Receiving pack with whitespace in pack_number
+    const response = await storeManagerApiRequest.post(
+      "/api/lottery/packs/receive",
+      packData,
+    );
+
+    // THEN: Pack is created with trimmed pack_number
+    expect(response.status(), "Should accept pack with whitespace").toBe(201);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(body.data.pack_number, "pack_number should be trimmed").toBe(
+      "PACK-032",
+    );
+
+    // AND: Pack in database has trimmed pack_number
+    const pack = await prismaClient.lotteryPack.findUnique({
+      where: { pack_id: body.data.pack_id },
+    });
+    expect(pack?.pack_number, "Database should store trimmed pack_number").toBe(
+      "PACK-032",
+    );
+  });
+
+  test("6.2-API-033: [P0] should trim whitespace from serial_start and serial_end", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Pack data with whitespace in serial numbers
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game",
+    });
+
+    const packData = {
+      game_id: game.game_id,
+      pack_number: "PACK-033",
+      serial_start: "  184303159650093783374530  ", // Leading and trailing whitespace
+      serial_end: "  184303159650093783374680  ", // Leading and trailing whitespace
+    };
+
+    // WHEN: Receiving pack with whitespace in serial numbers
+    const response = await storeManagerApiRequest.post(
+      "/api/lottery/packs/receive",
+      packData,
+    );
+
+    // THEN: Pack is created with trimmed serial numbers
+    expect(response.status(), "Should accept pack with whitespace").toBe(201);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(body.data.serial_start, "serial_start should be trimmed").toBe(
+      "184303159650093783374530",
+    );
+    expect(body.data.serial_end, "serial_end should be trimmed").toBe(
+      "184303159650093783374680",
+    );
+  });
+
+  test("6.2-API-034: [P0] should use user's store when store_id is not provided", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Pack data without store_id (should use user's store)
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game",
+    });
+
+    const packData = {
+      game_id: game.game_id,
+      pack_number: "PACK-034",
+      serial_start: "184303159650093783374530",
+      serial_end: "184303159650093783374680",
+      // store_id is not provided
+    };
+
+    // WHEN: Receiving pack without store_id
+    const response = await storeManagerApiRequest.post(
+      "/api/lottery/packs/receive",
+      packData,
+    );
+
+    // THEN: Pack is created with user's store
+    expect(response.status(), "Should create pack with user's store").toBe(201);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(body.data.store.store_id, "store_id should match user's store").toBe(
+      storeManagerUser.store_id,
+    );
+
+    // AND: Pack in database belongs to user's store
+    const pack = await prismaClient.lotteryPack.findUnique({
+      where: { pack_id: body.data.pack_id },
+      include: { store: true },
+    });
+    expect(pack?.store_id, "Pack should belong to user's store").toBe(
+      storeManagerUser.store_id,
+    );
+  });
+
+  test("6.2-API-035: [P0] should reject serial_start exceeding max length (100 chars)", async ({
+    storeManagerApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Pack data with serial_start exceeding 100 characters
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game",
+    });
+
+    const packData = {
+      game_id: game.game_id,
+      pack_number: "PACK-035",
+      serial_start: "1".repeat(101), // 101 characters (exceeds max)
+      serial_end: "184303159650093783374680",
+    };
+
+    // WHEN: Attempting to receive pack with serial_start exceeding max length
+    const response = await storeManagerApiRequest.post(
+      "/api/lottery/packs/receive",
+      packData,
+    );
+
+    // THEN: Request is rejected with 400 Bad Request
+    expect(
+      response.status(),
+      "Should return 400 for serial_start exceeding max length",
+    ).toBe(400);
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should indicate validation error").toBe(
+      "VALIDATION_ERROR",
+    );
+  });
+
+  test("6.2-API-036: [P0] should reject serial_end exceeding max length (100 chars)", async ({
+    storeManagerApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Pack data with serial_end exceeding 100 characters
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game",
+    });
+
+    const packData = {
+      game_id: game.game_id,
+      pack_number: "PACK-036",
+      serial_start: "184303159650093783374530",
+      serial_end: "1".repeat(101), // 101 characters (exceeds max)
+    };
+
+    // WHEN: Attempting to receive pack with serial_end exceeding max length
+    const response = await storeManagerApiRequest.post(
+      "/api/lottery/packs/receive",
+      packData,
+    );
+
+    // THEN: Request is rejected with 400 Bad Request
+    expect(
+      response.status(),
+      "Should return 400 for serial_end exceeding max length",
+    ).toBe(400);
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should indicate validation error").toBe(
+      "VALIDATION_ERROR",
+    );
+  });
+
+  test("6.2-API-037: [P0] should accept serial numbers at max length (100 chars)", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Pack data with serial numbers at exactly 100 characters
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game",
+    });
+
+    const serialStart = "1".repeat(100); // Exactly 100 characters
+    const serialEnd = "2".repeat(100); // Exactly 100 characters (greater than start)
+
+    const packData = {
+      game_id: game.game_id,
+      pack_number: "PACK-037",
+      serial_start: serialStart,
+      serial_end: serialEnd,
+    };
+
+    // WHEN: Receiving pack with serial numbers at max length
+    const response = await storeManagerApiRequest.post(
+      "/api/lottery/packs/receive",
+      packData,
+    );
+
+    // THEN: Pack is created successfully
+    expect(
+      response.status(),
+      "Should accept serial numbers at max length",
+    ).toBe(201);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(body.data.serial_start, "serial_start should match").toBe(
+      serialStart,
+    );
+    expect(body.data.serial_end, "serial_end should match").toBe(serialEnd);
+  });
+
+  test("6.2-API-038: [P0] should allow SYSTEM scope users to specify any store_id", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a SYSTEM scope user (Super Admin)
+    // AND: Multiple stores exist
+    const owner1 = await createUser(prismaClient);
+    const company1 = await createCompany(prismaClient, {
+      owner_user_id: owner1.user_id,
+    });
+    const store1 = await createStore(prismaClient, {
+      company_id: company1.company_id,
+      name: "Test Store 1",
+    });
+
+    const owner2 = await createUser(prismaClient);
+    const company2 = await createCompany(prismaClient, {
+      owner_user_id: owner2.user_id,
+    });
+    const store2 = await createStore(prismaClient, {
+      company_id: company2.company_id,
+      name: "Test Store 2",
+    });
+
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game",
+    });
+
+    const packData = {
+      game_id: game.game_id,
+      pack_number: "PACK-038",
+      serial_start: "184303159650093783374530",
+      serial_end: "184303159650093783374680",
+      store_id: store2.store_id, // Different store than admin's default
+    };
+
+    // WHEN: Receiving pack for a different store as SYSTEM scope user
+    const response = await superadminApiRequest.post(
+      "/api/lottery/packs/receive",
+      packData,
+    );
+
+    // THEN: Pack is created successfully (SYSTEM scope can access any store)
+    expect(response.status(), "SYSTEM scope should access any store").toBe(201);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(
+      body.data.store.store_id,
+      "store_id should match specified store",
+    ).toBe(store2.store_id);
   });
 });
