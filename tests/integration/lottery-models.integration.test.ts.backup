@@ -21,22 +21,26 @@ import { createLotteryGame, createLotteryPack, createLotteryBin } from "../suppo
 const prisma = new PrismaClient();
 
 // Test data
+let testUser: any;
 let testCompany: any;
 let testStore: any;
 let testGame: any;
 
 beforeAll(async () => {
-  // Create test company and store for foreign key relationships
+  // Create test user first (separate creation for proper tracking)
+  testUser = await prisma.user.create({
+    data: {
+      email: `test-${Date.now()}@test.com`,
+      name: "Test User",
+      public_id: `USR${Date.now()}`,
+    },
+  });
+
+  // Create test company using the tracked user's user_id
   testCompany = await prisma.company.create({
     data: {
       name: "Test Company",
-      owner_user_id: (await prisma.user.create({
-        data: {
-          email: `test-${Date.now()}@test.com`,
-          name: "Test User",
-          public_id: `USR${Date.now()}`,
-        },
-      })).user_id,
+      owner_user_id: testUser.user_id,
       public_id: `COM${Date.now()}`,
     },
   });
@@ -53,13 +57,45 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // Cleanup
-  await prisma.lotteryPack.deleteMany({});
-  await prisma.lotteryBin.deleteMany({});
-  await prisma.lotteryGame.deleteMany({});
-  if (testStore) await prisma.store.delete({ where: { store_id: testStore.store_id } });
-  if (testCompany) await prisma.company.delete({ where: { company_id: testCompany.company_id } });
-  await prisma.$disconnect();
+  // Cleanup in reverse order of creation to respect foreign key constraints
+  try {
+    // Delete lottery-related records first (no FK dependencies)
+    await prisma.lotteryPack.deleteMany({});
+    await prisma.lotteryBin.deleteMany({});
+    await prisma.lotteryGame.deleteMany({});
+    
+    // Delete store before company (store depends on company)
+    if (testStore) {
+      try {
+        await prisma.store.delete({ where: { store_id: testStore.store_id } });
+      } catch (error: any) {
+        // Ignore not-found errors during cleanup
+        if (error?.code !== 'P2025') throw error;
+      }
+    }
+    
+    // Delete company before user (company depends on user)
+    if (testCompany) {
+      try {
+        await prisma.company.delete({ where: { company_id: testCompany.company_id } });
+      } catch (error: any) {
+        // Ignore not-found errors during cleanup
+        if (error?.code !== 'P2025') throw error;
+      }
+    }
+    
+    // Delete user last (no dependencies)
+    if (testUser) {
+      try {
+        await prisma.user.delete({ where: { user_id: testUser.user_id } });
+      } catch (error: any) {
+        // Ignore not-found errors during cleanup
+        if (error?.code !== 'P2025') throw error;
+      }
+    }
+  } finally {
+    await prisma.$disconnect();
+  }
 });
 
 describe("6.1-INTEGRATION: Table Creation", () => {
@@ -188,7 +224,10 @@ describe("6.1-INTEGRATION: Relationships", () => {
     expect(game).toBeDefined();
     expect(game?.packs).toBeDefined();
     expect(game?.packs.length).toBeGreaterThan(0);
-    expect(game?.packs[0].pack_id).toBe(pack.pack_id);
+    
+    const foundPack = game?.packs.find(p => p.pack_id === pack.pack_id);
+    expect(foundPack).toBeDefined();
+    expect(foundPack?.pack_id).toBe(pack.pack_id);
   });
 
   it("6.1-INTEGRATION-013: should query LotteryPack with game and store relations", async () => {

@@ -455,12 +455,14 @@ test.describe("Terminal Connection Configuration E2E", () => {
     await page.goto(`/stores/${store.store_id}/edit`);
 
     // Wait for redirect to complete (either login page or error message)
-    await Promise.race([
-      expect(page).toHaveURL(/\/login|\/auth/, { timeout: 10000 }),
-      expect(
+    try {
+      await page.waitForURL(/\/login|\/auth/, { timeout: 10000 });
+    } catch {
+      // If URL wait times out, check for error message text instead
+      await expect(
         page.getByText(/unauthorized|forbidden|login|sign in/i),
-      ).toBeVisible({ timeout: 10000 }),
-    ]);
+      ).toBeVisible({ timeout: 10000 });
+    }
 
     // THEN: User should be redirected to login or see 401/403 error
     // Check for login page or error message

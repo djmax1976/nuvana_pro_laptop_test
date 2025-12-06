@@ -220,13 +220,11 @@ test.describe("Store Management E2E", () => {
     await submitButton.click();
 
     // Wait for success message or navigation instead of hard wait
-    await Promise.race([
-      expect(page.getByText(/store updated|successfully/i))
-        .toBeVisible({ timeout: 10000 })
-        .catch(() => null),
-      expect(page)
-        .toHaveURL(/\/stores/, { timeout: 10000 })
-        .catch(() => null),
+    await Promise.any([
+      expect(page.getByText(/store updated|successfully/i)).toBeVisible({
+        timeout: 10000,
+      }),
+      expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
     ]);
 
     const updatedStore = await prisma.store.findUnique({
@@ -256,14 +254,15 @@ test.describe("Store Management E2E", () => {
     await submitButton.click();
 
     // Wait for success message or navigation instead of hard wait
-    await Promise.race([
+    const result = await Promise.race([
       expect(page.getByText(/store updated|successfully/i))
         .toBeVisible({ timeout: 10000 })
-        .catch(() => null),
+        .then(() => true),
       expect(page)
         .toHaveURL(/\/stores/, { timeout: 10000 })
-        .catch(() => null),
+        .then(() => true),
     ]);
+    expect(result).toBeTruthy();
 
     const updatedStore = await prisma.store.findUnique({
       where: { store_id: testStore.store_id },
@@ -293,13 +292,11 @@ test.describe("Store Management E2E", () => {
     await submitButton.click();
 
     // Wait for success message or navigation instead of hard wait
-    await Promise.race([
-      expect(page.getByText(/store updated|successfully/i))
-        .toBeVisible({ timeout: 10000 })
-        .catch(() => null),
-      expect(page)
-        .toHaveURL(/\/stores/, { timeout: 10000 })
-        .catch(() => null),
+    await Promise.any([
+      expect(page.getByText(/store updated|successfully/i)).toBeVisible({
+        timeout: 10000,
+      }),
+      expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
     ]);
 
     const updatedStore = await prisma.store.findUnique({
@@ -353,13 +350,11 @@ test.describe("Store Management E2E", () => {
     await createButton.click();
 
     // Wait for success message or navigation instead of hard wait
-    await Promise.race([
-      expect(page.getByText(/store created|successfully/i))
-        .toBeVisible({ timeout: 10000 })
-        .catch(() => null),
-      expect(page)
-        .toHaveURL(/\/stores/, { timeout: 10000 })
-        .catch(() => null),
+    await Promise.any([
+      expect(page.getByText(/store created|successfully/i)).toBeVisible({
+        timeout: 10000,
+      }),
+      expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
     ]);
 
     // Verify store was created

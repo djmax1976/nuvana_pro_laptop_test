@@ -627,8 +627,8 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
       await header.click();
       await superadminPage.waitForLoadState("load");
       // Wait for table to update by checking first cell is visible
-      const firstCellAfterSort = tableBody
-        .locator("tr")
+      const firstCellAfterSort = superadminPage
+        .locator("tbody tr")
         .first()
         .locator(`td:nth-child(${columnIndex})`);
       await expect(firstCellAfterSort).toBeVisible({ timeout: 5000 });
@@ -651,7 +651,8 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
       await header.click();
       await superadminPage.waitForLoadState("load");
       // Wait for table to update by checking first cell is visible
-      const firstCellAfterDesc = tableBody
+      const firstCellAfterDesc = superadminPage
+        .locator("tbody")
         .locator("tr")
         .first()
         .locator(`td:nth-child(${columnIndex})`);
@@ -676,7 +677,8 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
       await header.click();
       await superadminPage.waitForLoadState("load");
       // Wait for table to update by checking first cell is visible
-      const firstCellAfterDefault = tableBody
+      const firstCellAfterDefault = superadminPage
+        .locator("tbody")
         .locator("tr")
         .first()
         .locator(`td:nth-child(${columnIndex})`);

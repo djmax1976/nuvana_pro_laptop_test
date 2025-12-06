@@ -37,6 +37,7 @@ import {
 const prisma = new PrismaClient();
 
 // Test data - isolated per test suite
+let testUser: any;
 let testCompany: any;
 let testStore: any;
 let testGame: any;
@@ -52,15 +53,13 @@ beforeAll(async () => {
   testCompany = await prisma.company.create({
     data: {
       name: "Test Company",
-      owner_user_id: (
-        await prisma.user.create({
-          data: {
-            email: `test-${Date.now()}@test.com`,
-            name: "Test User",
-            public_id: `USR${Date.now()}`,
-          },
-        })
-      ).user_id,
+      owner_user_id: (testUser = await prisma.user.create({
+        data: {
+          email: `test-${Date.now()}@test.com`,
+          name: "Test User",
+          public_id: `USR${Date.now()}`,
+        },
+      })).user_id,
       public_id: `COM${Date.now()}`,
     },
   });
@@ -73,8 +72,11 @@ beforeAll(async () => {
     },
   });
 
-  testGame = await createLotteryGame({ name: "Test Game", price: 2.0 });
-  testGame2 = await createLotteryGame({ name: "Test Game 2", price: 5.0 });
+  testGame = await createLotteryGame(prisma, { name: "Test Game", price: 2.0 });
+  testGame2 = await createLotteryGame(prisma, {
+    name: "Test Game 2",
+    price: 5.0,
+  });
 });
 
 beforeEach(async () => {
@@ -95,6 +97,8 @@ afterAll(async () => {
     await prisma.company.delete({
       where: { company_id: testCompany.company_id },
     });
+  if (testUser)
+    await prisma.user.delete({ where: { user_id: testUser.user_id } });
   await prisma.$disconnect();
 });
 
@@ -155,7 +159,7 @@ describe("6.1-INTEGRATION: Model Creation", () => {
     };
 
     // WHEN: Creating a LotteryGame
-    const game = await createLotteryGame(gameData);
+    const game = await createLotteryGame(prisma, gameData);
 
     // THEN: All fields are correctly set
     expect(game.game_id, "game_id should be defined").toBeDefined();
@@ -180,7 +184,7 @@ describe("6.1-INTEGRATION: Model Creation", () => {
   it("6.1-INTEGRATION-005: should auto-generate UUID for game_id", async () => {
     // GIVEN: No game_id provided
     // WHEN: Creating a LotteryGame
-    const game = await createLotteryGame();
+    const game = await createLotteryGame(prisma);
 
     // THEN: game_id is auto-generated as valid UUID
     expect(game.game_id, "game_id should be defined").toBeDefined();
@@ -193,7 +197,7 @@ describe("6.1-INTEGRATION: Model Creation", () => {
   it("6.1-INTEGRATION-006: should default status to ACTIVE", async () => {
     // GIVEN: No status provided
     // WHEN: Creating a LotteryGame without status
-    const game = await createLotteryGame({ status: undefined as any });
+    const game = await createLotteryGame(prisma, { status: undefined as any });
 
     // THEN: Status defaults to ACTIVE
     expect(game.status, "status should default to ACTIVE").toBe(
@@ -213,7 +217,7 @@ describe("6.1-INTEGRATION: Model Creation", () => {
     };
 
     // WHEN: Creating a LotteryPack
-    const pack = await createLotteryPack(packData);
+    const pack = await createLotteryPack(prisma, packData);
 
     // THEN: All fields are correctly set
     expect(pack.pack_id, "pack_id should be defined").toBeDefined();
@@ -240,7 +244,7 @@ describe("6.1-INTEGRATION: Model Creation", () => {
   it("6.1-INTEGRATION-008: should default status to RECEIVED", async () => {
     // GIVEN: No status provided
     // WHEN: Creating a LotteryPack without status
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
     });
@@ -260,7 +264,7 @@ describe("6.1-INTEGRATION: Model Creation", () => {
     };
 
     // WHEN: Creating a LotteryBin
-    const bin = await createLotteryBin(binData);
+    const bin = await createLotteryBin(prisma, binData);
 
     // THEN: All fields are correctly set
     expect(bin.bin_id, "bin_id should be defined").toBeDefined();
@@ -278,7 +282,7 @@ describe("6.1-INTEGRATION: Model Creation", () => {
   it("6.1-INTEGRATION-017: should auto-generate UUID for pack_id", async () => {
     // GIVEN: No pack_id provided
     // WHEN: Creating a LotteryPack
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
     });
@@ -294,7 +298,7 @@ describe("6.1-INTEGRATION: Model Creation", () => {
   it("6.1-INTEGRATION-018: should auto-generate UUID for bin_id", async () => {
     // GIVEN: No bin_id provided
     // WHEN: Creating a LotteryBin
-    const bin = await createLotteryBin({
+    const bin = await createLotteryBin(prisma, {
       store_id: testStore.store_id,
     });
 
@@ -319,7 +323,7 @@ describe("6.1-INTEGRATION: Foreign Key Constraints", () => {
     // WHEN: Attempting to create LotteryPack with invalid game_id
     // THEN: Foreign key constraint violation is thrown
     await expect(
-      createLotteryPack({
+      createLotteryPack(prisma, {
         game_id: invalidGameId,
         store_id: testStore.store_id,
       }),
@@ -334,7 +338,7 @@ describe("6.1-INTEGRATION: Foreign Key Constraints", () => {
     // WHEN: Attempting to create LotteryPack with invalid store_id
     // THEN: Foreign key constraint violation is thrown
     await expect(
-      createLotteryPack({
+      createLotteryPack(prisma, {
         game_id: testGame.game_id,
         store_id: invalidStoreId,
       }),
@@ -349,7 +353,7 @@ describe("6.1-INTEGRATION: Foreign Key Constraints", () => {
     // WHEN: Attempting to create LotteryPack with invalid current_bin_id
     // THEN: Foreign key constraint violation is thrown
     await expect(
-      createLotteryPack({
+      createLotteryPack(prisma, {
         game_id: testGame.game_id,
         store_id: testStore.store_id,
         current_bin_id: invalidBinId,
@@ -365,7 +369,7 @@ describe("6.1-INTEGRATION: Foreign Key Constraints", () => {
     // WHEN: Attempting to create LotteryBin with invalid store_id
     // THEN: Foreign key constraint violation is thrown
     await expect(
-      createLotteryBin({
+      createLotteryBin(prisma, {
         store_id: invalidStoreId,
       }),
       "Should reject invalid store_id with foreign key constraint error",
@@ -375,7 +379,7 @@ describe("6.1-INTEGRATION: Foreign Key Constraints", () => {
   it("6.1-INTEGRATION-021: should accept null current_bin_id (nullable foreign key)", async () => {
     // GIVEN: No current_bin_id provided (null)
     // WHEN: Creating a LotteryPack without current_bin_id
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       current_bin_id: undefined,
@@ -396,7 +400,7 @@ describe("6.1-INTEGRATION: Foreign Key Constraints", () => {
 describe("6.1-INTEGRATION: Relationships", () => {
   it("6.1-INTEGRATION-012: should query LotteryGame with packs relation", async () => {
     // GIVEN: A LotteryGame and a LotteryPack
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
     });
@@ -422,7 +426,7 @@ describe("6.1-INTEGRATION: Relationships", () => {
 
   it("6.1-INTEGRATION-013: should query LotteryPack with game and store relations", async () => {
     // GIVEN: A LotteryPack
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
     });
@@ -453,11 +457,11 @@ describe("6.1-INTEGRATION: Relationships", () => {
 
   it("6.1-INTEGRATION-014: should query LotteryPack with bin relation (nullable)", async () => {
     // GIVEN: A LotteryBin and a LotteryPack with bin assignment
-    const bin = await createLotteryBin({
+    const bin = await createLotteryBin(prisma, {
       store_id: testStore.store_id,
     });
 
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       current_bin_id: bin.bin_id,
@@ -478,11 +482,11 @@ describe("6.1-INTEGRATION: Relationships", () => {
 
   it("6.1-INTEGRATION-022: should query LotteryBin with packs relation", async () => {
     // GIVEN: A LotteryBin and a LotteryPack assigned to it
-    const bin = await createLotteryBin({
+    const bin = await createLotteryBin(prisma, {
       store_id: testStore.store_id,
     });
 
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       current_bin_id: bin.bin_id,
@@ -563,7 +567,7 @@ describe("6.1-INTEGRATION: Enum Enforcement", () => {
     // WHEN: Creating games with each valid status
     // THEN: All statuses are accepted
     for (const status of statuses) {
-      const game = await createLotteryGame({ status });
+      const game = await createLotteryGame(prisma, { status });
       expect(game.status, `Status ${status} should be accepted`).toBe(status);
     }
   });
@@ -580,7 +584,7 @@ describe("6.1-INTEGRATION: Enum Enforcement", () => {
     // WHEN: Creating packs with each valid status
     // THEN: All statuses are accepted
     for (const status of statuses) {
-      const pack = await createLotteryPack({
+      const pack = await createLotteryPack(prisma, {
         game_id: testGame.game_id,
         store_id: testStore.store_id,
         status,
@@ -601,7 +605,7 @@ describe("6.1-INTEGRATION: Security - SQL Injection Prevention", () => {
 
     // WHEN: Creating LotteryGame with SQL injection in name
     // THEN: Request is either rejected or safely handled (Prisma sanitizes)
-    const game = await createLotteryGame({ name: maliciousName });
+    const game = await createLotteryGame(prisma, { name: maliciousName });
 
     // AND: Database is intact (table still exists)
     const games = await prisma.lotteryGame.findMany();
@@ -619,7 +623,7 @@ describe("6.1-INTEGRATION: Security - SQL Injection Prevention", () => {
 
     // WHEN: Creating LotteryPack with SQL injection in pack_number
     // THEN: Request is either rejected or safely handled
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       pack_number: maliciousPackNumber,
@@ -642,7 +646,7 @@ describe("6.1-INTEGRATION: Security - SQL Injection Prevention", () => {
 
     // WHEN: Creating LotteryPack with SQL injection in serial_start
     // THEN: Request is either rejected or safely handled
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       serial_start: maliciousSerial,
@@ -782,7 +786,7 @@ describe("6.1-INTEGRATION: Business Logic - Serial Number Validation", () => {
     const serialEnd = "184303159650093783374680";
 
     // WHEN: Creating LotteryPack with numeric serials
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       serial_start: serialStart,
@@ -813,7 +817,7 @@ describe("6.1-INTEGRATION: Business Logic - Serial Number Validation", () => {
     // WHEN: Attempting to create LotteryPack with non-numeric serial
     // THEN: Business rule validation should reject (application-level check needed)
     // Note: Database accepts strings, but business logic should validate
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       serial_start: nonNumericSerial,
@@ -830,7 +834,7 @@ describe("6.1-INTEGRATION: Business Logic - Serial Number Validation", () => {
 
   it("6.1-INTEGRATION-036: BUSINESS - should validate serial range for $2 ticket (150 tickets)", async () => {
     // GIVEN: $2 ticket game (150 tickets per book)
-    const game2Dollar = await createLotteryGame({
+    const game2Dollar = await createLotteryGame(prisma, {
       name: "$2 Game",
       price: 2.0,
     });
@@ -838,7 +842,7 @@ describe("6.1-INTEGRATION: Business Logic - Serial Number Validation", () => {
     const serialEnd = "184303159650093783374680"; // 150 tickets (680 - 530 = 150)
 
     // WHEN: Creating pack with correct range for $2 ticket
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: game2Dollar.game_id,
       store_id: testStore.store_id,
       serial_start: serialStart,
@@ -856,7 +860,7 @@ describe("6.1-INTEGRATION: Business Logic - Serial Number Validation", () => {
 
   it("6.1-INTEGRATION-037: BUSINESS - should validate serial range for $5 ticket (60 tickets)", async () => {
     // GIVEN: $5 ticket game (60 tickets per book)
-    const game5Dollar = await createLotteryGame({
+    const game5Dollar = await createLotteryGame(prisma, {
       name: "$5 Game",
       price: 5.0,
     });
@@ -864,7 +868,7 @@ describe("6.1-INTEGRATION: Business Logic - Serial Number Validation", () => {
     const serialEnd = "186100042441230956377140"; // 60 tickets (140 - 80 = 60)
 
     // WHEN: Creating pack with correct range for $5 ticket
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: game5Dollar.game_id,
       store_id: testStore.store_id,
       serial_start: serialStart,
@@ -888,7 +892,7 @@ describe("6.1-INTEGRATION: Business Logic - Serial Number Validation", () => {
     // WHEN: Attempting to create pack with invalid range
     // THEN: Business rule validation should reject (application-level check needed)
     // Note: Database accepts it, but business logic should validate
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       serial_start: serialStart,
@@ -908,13 +912,13 @@ describe("6.1-INTEGRATION: Business Logic - Pack Number Uniqueness", () => {
   it("6.1-INTEGRATION-039: BUSINESS - should allow same pack_number for different games", async () => {
     // GIVEN: Two different games
     // WHEN: Creating packs with same pack_number but different games
-    const pack1 = await createLotteryPack({
+    const pack1 = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       pack_number: "179601151790232274945555", // Pack number embedded in serial
     });
 
-    const pack2 = await createLotteryPack({
+    const pack2 = await createLotteryPack(prisma, {
       game_id: testGame2.game_id,
       store_id: testStore.store_id,
       pack_number: "179601151790232274945555", // Same pack number, different game
@@ -938,7 +942,7 @@ describe("6.1-INTEGRATION: Business Logic - Pack Number Uniqueness", () => {
   it("6.1-INTEGRATION-040: BUSINESS - pack number should be unique per game (application-level validation needed)", async () => {
     // GIVEN: Same game, same pack_number
     // WHEN: Attempting to create second pack with same pack_number for same game
-    const pack1 = await createLotteryPack({
+    const pack1 = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       pack_number: "UNIQUE001",
@@ -946,7 +950,7 @@ describe("6.1-INTEGRATION: Business Logic - Pack Number Uniqueness", () => {
 
     // Database allows duplicates, but business logic should enforce uniqueness per game
     // This test documents the requirement for application-level validation
-    const pack2 = await createLotteryPack({
+    const pack2 = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       pack_number: "UNIQUE001", // Same pack number, same game
@@ -964,7 +968,7 @@ describe("6.1-INTEGRATION: Business Logic - Pack Number Uniqueness", () => {
 describe("6.1-INTEGRATION: Business Logic - Status Transitions", () => {
   it("6.1-INTEGRATION-041: BUSINESS - should allow RECEIVED → ACTIVE transition", async () => {
     // GIVEN: Pack in RECEIVED status
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       status: LotteryPackStatus.RECEIVED,
@@ -985,7 +989,7 @@ describe("6.1-INTEGRATION: Business Logic - Status Transitions", () => {
 
   it("6.1-INTEGRATION-042: BUSINESS - should allow ACTIVE → DEPLETED transition", async () => {
     // GIVEN: Pack in ACTIVE status
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       status: LotteryPackStatus.ACTIVE,
@@ -1006,7 +1010,7 @@ describe("6.1-INTEGRATION: Business Logic - Status Transitions", () => {
 
   it("6.1-INTEGRATION-043: BUSINESS - should allow ACTIVE → RETURNED transition", async () => {
     // GIVEN: Pack in ACTIVE status
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       status: LotteryPackStatus.ACTIVE,
@@ -1027,7 +1031,7 @@ describe("6.1-INTEGRATION: Business Logic - Status Transitions", () => {
 
   it("6.1-INTEGRATION-044: BUSINESS - should not allow DEPLETED → ACTIVE transition (application-level validation needed)", async () => {
     // GIVEN: Pack in DEPLETED status
-    const pack = await createLotteryPack({
+    const pack = await createLotteryPack(prisma, {
       game_id: testGame.game_id,
       store_id: testStore.store_id,
       status: LotteryPackStatus.DEPLETED,
@@ -1058,7 +1062,10 @@ describe("6.1-INTEGRATION: Business Logic - Price Validation", () => {
     // WHEN: Creating games with each valid price
     // THEN: All prices are accepted
     for (const price of validPrices) {
-      const game = await createLotteryGame({ name: `$${price} Game`, price });
+      const game = await createLotteryGame(prisma, {
+        name: `$${price} Game`,
+        price,
+      });
       expect(game.price, `Price $${price} should be accepted`).toBe(price);
     }
   });
@@ -1071,7 +1078,10 @@ describe("6.1-INTEGRATION: Business Logic - Price Validation", () => {
     // THEN: Database accepts it, but business logic should reject
     // Note: Database accepts any decimal, but business rule restricts to specific values
     for (const price of invalidPrices) {
-      const game = await createLotteryGame({ name: `$${price} Game`, price });
+      const game = await createLotteryGame(prisma, {
+        name: `$${price} Game`,
+        price,
+      });
       // Database accepts it, but business logic should validate
       // This test documents the requirement for application-level validation
       expect(
@@ -1084,7 +1094,7 @@ describe("6.1-INTEGRATION: Business Logic - Price Validation", () => {
   it("6.1-INTEGRATION-047: BUSINESS - should accept null price (optional field)", async () => {
     // GIVEN: No price provided (null/undefined)
     // WHEN: Creating game without price
-    const game = await createLotteryGame({ price: undefined });
+    const game = await createLotteryGame(prisma, { price: undefined });
 
     // THEN: Game is created with null price
     expect(game.price, "Price should be null when not provided").toBeNull();

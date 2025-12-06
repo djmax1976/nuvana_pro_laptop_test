@@ -9,13 +9,16 @@ CREATE TABLE "lottery_games" (
     "game_id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "name" VARCHAR(255) NOT NULL,
     "description" VARCHAR(500),
-    "price" DECIMAL(10,2),
+    "price" DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     "status" "LotteryGameStatus" NOT NULL DEFAULT 'ACTIVE',
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "lottery_games_pkey" PRIMARY KEY ("game_id")
 );
+
+-- Update any existing NULL prices to default value (safety measure for any pre-existing data)
+UPDATE "lottery_games" SET "price" = 0.00 WHERE "price" IS NULL;
 
 -- CreateTable
 CREATE TABLE "lottery_bins" (

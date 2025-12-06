@@ -14,15 +14,15 @@ import {
   LotteryPackStatus,
 } from "@prisma/client";
 
-const prisma = new PrismaClient();
-
 /**
  * Create a single LotteryGame with optional overrides
  *
+ * @param prisma - PrismaClient instance to use for database operations
  * @param overrides - Optional fields to override default values
  * @returns LotteryGame object for test use
  */
 export const createLotteryGame = async (
+  prisma: PrismaClient,
   overrides: Partial<{
     name: string;
     description: string;
@@ -46,13 +46,17 @@ export const createLotteryGame = async (
 /**
  * Create multiple LotteryGames
  *
+ * @param prisma - PrismaClient instance to use for database operations
  * @param count - Number of games to create
  * @returns Array of LotteryGame objects
  */
-export const createLotteryGames = async (count: number) => {
+export const createLotteryGames = async (
+  prisma: PrismaClient,
+  count: number,
+) => {
   const games = [];
   for (let i = 0; i < count; i++) {
-    games.push(await createLotteryGame());
+    games.push(await createLotteryGame(prisma));
   }
   return games;
 };
@@ -60,23 +64,27 @@ export const createLotteryGames = async (count: number) => {
 /**
  * Create a single LotteryPack with required game_id and store_id
  *
+ * @param prisma - PrismaClient instance to use for database operations
  * @param overrides - Required game_id and store_id, plus optional fields
  * @returns LotteryPack object for test use
  */
-export const createLotteryPack = async (overrides: {
-  game_id: string;
-  store_id: string;
-  pack_number?: string;
-  serial_start?: string;
-  serial_end?: string;
-  status?: LotteryPackStatus;
-  current_bin_id?: string;
-}) => {
+export const createLotteryPack = async (
+  prisma: PrismaClient,
+  overrides: {
+    game_id: string;
+    store_id: string;
+    pack_number?: string;
+    serial_start?: string;
+    serial_end?: string;
+    status?: LotteryPackStatus;
+    current_bin_id?: string;
+  },
+) => {
   const packNumber = overrides.pack_number || faker.string.numeric(6);
-  const serialStart =
-    overrides.serial_start || faker.string.numeric(6).padStart(6, "0");
+  const serialStart = overrides.serial_start || faker.string.numeric(6);
   const serialEnd =
-    overrides.serial_end || String(parseInt(serialStart) + 99).padStart(6, "0");
+    overrides.serial_end ||
+    String((parseInt(serialStart) + 99) % 1000000).padStart(6, "0");
 
   return await prisma.lotteryPack.create({
     data: {
@@ -94,11 +102,13 @@ export const createLotteryPack = async (overrides: {
 /**
  * Create multiple LotteryPacks
  *
+ * @param prisma - PrismaClient instance to use for database operations
  * @param count - Number of packs to create
  * @param overrides - Required game_id and store_id, plus optional fields
  * @returns Array of LotteryPack objects
  */
 export const createLotteryPacks = async (
+  prisma: PrismaClient,
   count: number,
   overrides: {
     game_id: string;
@@ -111,7 +121,7 @@ export const createLotteryPacks = async (
 ) => {
   const packs = [];
   for (let i = 0; i < count; i++) {
-    packs.push(await createLotteryPack(overrides));
+    packs.push(await createLotteryPack(prisma, overrides));
   }
   return packs;
 };
@@ -119,14 +129,18 @@ export const createLotteryPacks = async (
 /**
  * Create a single LotteryBin with required store_id
  *
+ * @param prisma - PrismaClient instance to use for database operations
  * @param overrides - Required store_id, plus optional fields
  * @returns LotteryBin object for test use
  */
-export const createLotteryBin = async (overrides: {
-  store_id: string;
-  name?: string;
-  location?: string;
-}) => {
+export const createLotteryBin = async (
+  prisma: PrismaClient,
+  overrides: {
+    store_id: string;
+    name?: string;
+    location?: string;
+  },
+) => {
   return await prisma.lotteryBin.create({
     data: {
       store_id: overrides.store_id,
@@ -139,11 +153,13 @@ export const createLotteryBin = async (overrides: {
 /**
  * Create multiple LotteryBins
  *
+ * @param prisma - PrismaClient instance to use for database operations
  * @param count - Number of bins to create
  * @param overrides - Required store_id, plus optional fields
  * @returns Array of LotteryBin objects
  */
 export const createLotteryBins = async (
+  prisma: PrismaClient,
   count: number,
   overrides: {
     store_id: string;
@@ -151,9 +167,12 @@ export const createLotteryBins = async (
     location?: string;
   },
 ) => {
-  const bins = [];
-  for (let i = 0; i < count; i++) {
-    bins.push(await createLotteryBin(overrides));
-  }
-  return bins;
+  const overridePromises = Array.from({ length: count }, (_, i) => {
+    const binOverrides = {
+      ...overrides,
+      name: overrides.name ? `${overrides.name}-${i}` : undefined,
+    };
+    return createLotteryBin(prisma, binOverrides);
+  });
+  return await Promise.all(overridePromises);
 };

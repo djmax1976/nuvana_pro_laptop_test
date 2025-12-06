@@ -573,6 +573,7 @@ model LotteryPack {
   @@index([status])
   @@index([pack_number])
   @@index([serial_start, serial_end])
+  @@unique([store_id, pack_number])
   @@map("lottery_packs")
 }
 

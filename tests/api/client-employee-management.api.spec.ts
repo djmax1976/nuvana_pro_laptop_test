@@ -1013,17 +1013,12 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
       "STORE",
     );
 
-    // AND: Get a STORE scope role for creating a real employee (CASHIER)
-    const cashierRole = await prismaClient.role.findFirst({
-      where: {
-        scope: "STORE",
-        code: { not: "CLIENT_USER" },
-      },
+    // AND: Get CASHIER role explicitly for creating a real employee
+    const cashierRole = await prismaClient.role.findUnique({
+      where: { code: "CASHIER" },
     });
-    expect(
-      cashierRole,
-      "Need at least one non-CLIENT_USER STORE role",
-    ).not.toBeNull();
+    expect(cashierRole, "CASHIER role must exist in database").not.toBeNull();
+    expect(cashierRole!.scope, "CASHIER must have STORE scope").toBe("STORE");
 
     // AND: Create a store login user (CLIENT_USER) for the client's store
     const storeLoginUser = await prismaClient.user.create({
@@ -1056,7 +1051,7 @@ test.describe("2.91-API: Client Employee Management - Employee CRUD Operations",
         name: "[TEST] Real Employee",
         password_hash: "$2b$10$testhashedpassword",
         status: "ACTIVE",
-        is_client_user: true,
+        is_client_user: false,
       },
     });
 
