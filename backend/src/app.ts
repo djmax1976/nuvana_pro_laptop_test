@@ -28,6 +28,7 @@ import { clientEmployeeRoutes } from "./routes/client-employees";
 import { clientRoleRoutes } from "./routes/client-roles";
 import { cashierRoutes } from "./routes/cashiers";
 import { adminRolesRoutes } from "./routes/admin-roles";
+import { lotteryRoutes } from "./routes/lottery";
 import { rlsPlugin } from "./middleware/rls.middleware";
 
 // Load environment variables
@@ -320,6 +321,9 @@ app.register(clientRoleRoutes);
 
 // Register cashier management routes
 app.register(cashierRoutes);
+
+// Register lottery management routes
+app.register(lotteryRoutes);
 
 // Root endpoint - API information and status
 app.get("/", async () => {
