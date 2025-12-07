@@ -574,24 +574,30 @@ export async function cashierRoutes(fastify: FastifyInstance) {
     "/api/stores/:storeId/cashiers/authenticate",
     {
       config: {
-        rateLimit: {
-          max: parseInt(
-            process.env.CASHIER_AUTH_RATE_LIMIT_MAX ||
-              (process.env.CI === "true" ? "100" : "5"),
-            10,
-          ), // 5 attempts per minute (100 in CI)
-          timeWindow: process.env.CASHIER_AUTH_RATE_LIMIT_WINDOW || "1 minute",
-          // Use storeId + IP address for rate limiting key (per-store rate limiting)
-          keyGenerator: (request: FastifyRequest) => {
-            const { storeId } = request.params as { storeId: string };
-            const ip =
-              (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
-              request.ip ||
-              request.socket.remoteAddress ||
-              "unknown";
-            return `cashier-auth:${storeId}:${ip}`;
-          },
-        },
+        // CI/Test: DISABLED to prevent false test failures
+        rateLimit:
+          process.env.CI === "true" || process.env.NODE_ENV === "test"
+            ? false // Disable rate limiting in test/CI environments
+            : {
+                max: parseInt(
+                  process.env.CASHIER_AUTH_RATE_LIMIT_MAX || "5",
+                  10,
+                ), // 5 attempts per minute
+                timeWindow:
+                  process.env.CASHIER_AUTH_RATE_LIMIT_WINDOW || "1 minute",
+                // Use storeId + IP address for rate limiting key (per-store rate limiting)
+                keyGenerator: (request: FastifyRequest) => {
+                  const { storeId } = request.params as { storeId: string };
+                  const ip =
+                    (request.headers["x-forwarded-for"] as string)?.split(
+                      ",",
+                    )[0] ||
+                    request.ip ||
+                    request.socket.remoteAddress ||
+                    "unknown";
+                  return `cashier-auth:${storeId}:${ip}`;
+                },
+              },
       },
       preHandler: [
         validateAuthenticateCashierBody,
