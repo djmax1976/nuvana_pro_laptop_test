@@ -52,6 +52,8 @@ export interface LotteryPackResponse {
     name: string;
     location: string | null;
   } | null;
+  // Calculated field (optional)
+  tickets_remaining?: number;
 }
 
 /**
@@ -59,6 +61,9 @@ export interface LotteryPackResponse {
  * Extended response for pack detail view with shift openings/closings
  */
 export interface LotteryPackDetailResponse extends LotteryPackResponse {
+  depleted_at?: string | null; // ISO 8601 - when pack became depleted
+  returned_at?: string | null; // ISO 8601 - when pack was returned
+  tickets_remaining?: number; // Calculated: (serial_end - serial_start + 1) - sold_count
   shift_openings?: Array<{
     opening_id: string;
     shift_id: string;
@@ -77,7 +82,6 @@ export interface LotteryPackDetailResponse extends LotteryPackResponse {
     variance_id: string | null;
     closed_at: string;
   }>;
-  tickets_remaining?: number; // Calculated: (serial_end - serial_start + 1) - sold_count
 }
 
 /**
