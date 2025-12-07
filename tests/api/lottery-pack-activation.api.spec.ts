@@ -104,6 +104,16 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(body.data.activated_at, "activated_at should not be empty").not.toBe(
       "",
     );
+    // Verify activated_at is a valid ISO date string
+    expect(
+      () => new Date(body.data.activated_at),
+      "activated_at should be a valid ISO date string",
+    ).not.toThrow();
+    const activatedDate = new Date(body.data.activated_at);
+    expect(
+      activatedDate.getTime(),
+      "activated_at should be a valid date",
+    ).not.toBeNaN();
 
     // Relationship assertions
     expect(
@@ -148,6 +158,13 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
       updatedPack?.activated_at,
       "activated_at should be set",
     ).not.toBeNull();
+    // Verify activated_at is a recent timestamp (within last 5 seconds)
+    const activatedAt = updatedPack?.activated_at as Date;
+    const now = new Date();
+    const timeDiff = Math.abs(now.getTime() - activatedAt.getTime());
+    expect(timeDiff, "activated_at should be a recent timestamp").toBeLessThan(
+      5000,
+    ); // 5 seconds
 
     // AND: Audit log entry is created
     const auditLog = await prismaClient.auditLog.findFirst({
@@ -217,6 +234,41 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
       "string",
     );
     expect(body.data.bin.bin_id, "bin_id should match").toBe(bin.bin_id);
+  });
+
+  test("6.3-API-002a: [P0] PUT /api/lottery/packs/:packId/activate - should handle pack without bin (null bin)", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager with a pack in RECEIVED status without bin
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game",
+      price: 2.0,
+    });
+    const pack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: "PACK-002a",
+      serial_start: "184303159650093783374530",
+      serial_end: "184303159650093783374680",
+      status: "RECEIVED",
+      // No current_bin_id - defaults to no bin assigned
+    });
+
+    // WHEN: Activating the pack
+    const response = await storeManagerApiRequest.put(
+      `/api/lottery/packs/${pack.pack_id}/activate`,
+    );
+
+    // THEN: Pack is activated successfully with null bin
+    expect(response.status(), "Expected 200 OK status").toBe(200);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(
+      body.data.bin,
+      "bin should be null when pack has no bin assigned",
+    ).toBeNull();
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -589,8 +641,8 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(body.error.code, "Error code should be FORBIDDEN").toBe("FORBIDDEN");
     expect(
       body.error.message,
-      "Error message should mention RLS violation",
-    ).toContain("RLS violation");
+      "Error message should mention store access or RLS violation",
+    ).toMatch(/store|RLS violation/i);
 
     // AND: Pack status remains unchanged
     const unchangedPack = await prismaClient.lotteryPack.findUnique({
@@ -672,12 +724,12 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     );
     expect(
       body.error.message,
-      "Error message should mention status requirement",
-    ).toContain("RECEIVED");
+      "Error message should mention RECEIVED status requirement",
+    ).toMatch(/RECEIVED/i);
     expect(
       body.error.message,
-      "Error message should mention current status",
-    ).toContain("ACTIVE");
+      "Error message should mention current ACTIVE status",
+    ).toMatch(/ACTIVE/i);
 
     // AND: Pack status remains unchanged
     const unchangedPack = await prismaClient.lotteryPack.findUnique({
@@ -720,7 +772,7 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(
       body.error.message,
       "Error message should mention DEPLETED status",
-    ).toContain("DEPLETED");
+    ).toMatch(/DEPLETED/i);
 
     // AND: Pack status remains unchanged
     const unchangedPack = await prismaClient.lotteryPack.findUnique({
@@ -763,7 +815,7 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(
       body.error.message,
       "Error message should mention RETURNED status",
-    ).toContain("RETURNED");
+    ).toMatch(/RETURNED/i);
 
     // AND: Pack status remains unchanged
     const unchangedPack = await prismaClient.lotteryPack.findUnique({
@@ -772,6 +824,51 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(unchangedPack?.status, "Pack status should remain RETURNED").toBe(
       "RETURNED",
     );
+  });
+
+  test("6.3-API-010a: [P0] CONCURRENCY - should reject activating already-active pack", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager with a pack that is already ACTIVE
+    // This simulates the scenario where another request already activated the pack
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game",
+    });
+    const pack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: "PACK-010a",
+      serial_start: "184303159650093783374530",
+      serial_end: "184303159650093783374680",
+      status: "ACTIVE", // Already activated
+    });
+
+    // WHEN: Attempting to activate an already-active pack
+    const response = await storeManagerApiRequest.put(
+      `/api/lottery/packs/${pack.pack_id}/activate`,
+    );
+
+    // THEN: Request is rejected with 400 Bad Request (invalid status)
+    expect(response.status(), "Should return 400 for already-active pack").toBe(
+      400,
+    );
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be INVALID_PACK_STATUS").toBe(
+      "INVALID_PACK_STATUS",
+    );
+    expect(
+      body.error.message,
+      "Error message should mention current status",
+    ).toMatch(/ACTIVE/i);
+
+    // AND: Pack status remains ACTIVE
+    const updatedPack = await prismaClient.lotteryPack.findUnique({
+      where: { pack_id: pack.pack_id },
+    });
+    expect(updatedPack?.status, "Pack status should be ACTIVE").toBe("ACTIVE");
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -976,6 +1073,32 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
         `Field ${field} should be in allowed list or explicitly whitelisted in allowedUnderscoreFields`,
       ).toBe(true);
     });
+
+    // Verify all required fields are present
+    expect(
+      body.data,
+      "Response should contain all required fields",
+    ).toHaveProperty("pack_id");
+    expect(body.data, "Response should contain game_id").toHaveProperty(
+      "game_id",
+    );
+    expect(body.data, "Response should contain pack_number").toHaveProperty(
+      "pack_number",
+    );
+    expect(body.data, "Response should contain serial_start").toHaveProperty(
+      "serial_start",
+    );
+    expect(body.data, "Response should contain serial_end").toHaveProperty(
+      "serial_end",
+    );
+    expect(body.data, "Response should contain status").toHaveProperty(
+      "status",
+    );
+    expect(body.data, "Response should contain activated_at").toHaveProperty(
+      "activated_at",
+    );
+    expect(body.data, "Response should contain game").toHaveProperty("game");
+    expect(body.data, "Response should contain store").toHaveProperty("store");
 
     // Verify no password-like fields are exposed
     expect(

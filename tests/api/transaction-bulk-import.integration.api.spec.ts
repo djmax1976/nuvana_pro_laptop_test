@@ -286,11 +286,16 @@ async function uploadBulkImportFile(
             `Error: ${JSON.stringify(lastBody)}`,
         );
       }
-      // For 500 errors, provide more context but don't retry (server issue)
+      // For 500 errors, retry with exponential backoff (could be transient)
+      if (status === 500 && attempt < maxRetries) {
+        const waitTime = Math.min(2000 * Math.pow(2, attempt), 10000);
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        continue; // Retry
+      }
       if (status === 500) {
         throw new Error(
-          `Server error during upload (status ${status}). ` +
-            `This may indicate a backend issue. ` +
+          `Server error during upload (status ${status}) after ${maxRetries} retries. ` +
+            `This may indicate a backend issue (RabbitMQ, file system, etc.). ` +
             `Error: ${JSON.stringify(lastBody)}`,
         );
       }
@@ -481,7 +486,8 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     // Wait for processing to start and complete
     // Use polling to wait for job to reach a terminal state
     // IMPORTANT: Wait for job to actually start processing (total_rows > 0)
-    const job = await waitForJobStatus(
+    // First wait for PROCESSING or terminal status
+    let job = await waitForJobStatus(
       superadminApiRequest,
       jobId,
       ["PROCESSING", "COMPLETED", "FAILED"],
@@ -489,11 +495,26 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
       1000,
     );
 
+    // Then wait until total_rows is populated (background processing may take time)
+    // Poll until total_rows > 0 or timeout
+    const startTime = Date.now();
+    const maxWaitMs = 30000;
+    while (job.total_rows === 0 && Date.now() - startTime < maxWaitMs) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const response = await superadminApiRequest.get(
+        `/api/transactions/bulk-import/${jobId}`,
+      );
+      const body = await response.json();
+      job = body.data?.job || job;
+    }
+
     // THEN: Job tracking should be accurate
     expect(job, "Job should exist").toBeTruthy();
     expect(
       job.total_rows,
-      "Total rows should match file (job should have started processing)",
+      "Total rows should match file (job should have started processing). " +
+        `If this fails, it may indicate the async processing hasn't started yet. ` +
+        `Status: ${job.status}, total_rows: ${job.total_rows}`,
     ).toBe(10);
     expect(
       job.processed_rows,

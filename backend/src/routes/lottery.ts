@@ -739,6 +739,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           }
         }
 
+        // Store initial pack status to distinguish between bad request and concurrent modification
+        const initialPackStatus = pack.status;
+
         // Atomically update pack status to ACTIVE only if status is RECEIVED
         // This prevents TOCTOU race conditions by combining verification and update
         const updatedPack = await prisma.$transaction(async (tx) => {
@@ -754,7 +757,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             },
           });
 
-          // If no rows were affected, the pack status changed concurrently
+          // If no rows were affected, determine if it's a bad request or concurrent modification
           if (updateResult.count === 0) {
             // Fetch current pack status to provide accurate error message
             const currentPack = await tx.lotteryPack.findUnique({
@@ -774,8 +777,19 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               };
             }
 
-            // Pack status is not RECEIVED - return 400 Bad Request
-            // (Could be initial state was wrong, or concurrent modification)
+            // If pack was previously in RECEIVED state, this is a concurrent modification
+            if (initialPackStatus === "RECEIVED") {
+              reply.code(409);
+              throw {
+                success: false,
+                error: {
+                  code: "CONCURRENT_MODIFICATION",
+                  message: `Pack status was changed concurrently. Pack was RECEIVED but is now ${currentPack.status}. Please retry the operation.`,
+                },
+              };
+            }
+
+            // Pack was never in RECEIVED state - this is a bad request
             reply.code(400);
             throw {
               success: false,

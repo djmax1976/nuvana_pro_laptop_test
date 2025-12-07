@@ -258,8 +258,9 @@ app.register(helmet, {
 // - Development: High limit (1000) for Fast Refresh and hot reloading
 // - Production: Standard limit (100) for real users
 const isDevelopment = process.env.NODE_ENV !== "production";
+const isTest = process.env.NODE_ENV === "test";
 const isCI = process.env.CI === "true";
-const rateLimitMax = isCI ? 10000 : isDevelopment ? 1000 : 100;
+const rateLimitMax = isCI || isTest ? 10000 : isDevelopment ? 1000 : 100;
 
 app.register(rateLimit, {
   max: rateLimitMax,
