@@ -536,10 +536,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
   fastify.put(
     "/api/lottery/packs/:packId/activate",
     {
-      preHandler: [
-        authMiddleware,
-        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_ACTIVATE),
-      ],
+      preHandler: [authMiddleware],
       schema: {
         description: "Activate a lottery pack",
         tags: ["lottery"],

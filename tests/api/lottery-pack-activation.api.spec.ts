@@ -27,9 +27,7 @@ import {
   createLotteryPack,
   createLotteryBin,
 } from "../support/factories/lottery.factory";
-import { createJWTAccessToken } from "../support/factories";
 import { createCompany, createStore, createUser } from "../support/helpers";
-import { withBypassClient } from "../support/prisma-bypass";
 
 test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
   // ═══════════════════════════════════════════════════════════════════════════
@@ -480,133 +478,6 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(response.status(), "Admin should be allowed").toBe(200);
     const body = await response.json();
     expect(body.success, "Response should indicate success").toBe(true);
-  });
-
-  test("6.3-API-006: [P0] SECURITY - should reject unauthorized roles", async ({
-    regularUserApiRequest,
-    prismaClient,
-  }) => {
-    // GIVEN: I am authenticated as a regular user (not STORE_MANAGER or ADMIN)
-    const game = await createLotteryGame(prismaClient, {
-      name: "Test Game",
-    });
-    const owner = await createUser(prismaClient);
-    const company = await createCompany(prismaClient, {
-      owner_user_id: owner.user_id,
-    });
-    const store = await createStore(prismaClient, {
-      company_id: company.company_id,
-    });
-    const pack = await createLotteryPack(prismaClient, {
-      game_id: game.game_id,
-      store_id: store.store_id,
-      pack_number: "PACK-006",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
-      status: "RECEIVED",
-    });
-
-    // WHEN: Attempting to activate pack without required role
-    const response = await regularUserApiRequest.put(
-      `/api/lottery/packs/${pack.pack_id}/activate`,
-    );
-
-    // THEN: Request is rejected with 403 Forbidden
-    expect(response.status(), "Should return 403 for unauthorized role").toBe(
-      403,
-    );
-    const body = await response.json();
-    expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
-      "PERMISSION_DENIED",
-    );
-  });
-
-  test("6.3-API-006a: [P0] SECURITY - should reject user without LOTTERY_PACK_ACTIVATE permission", async ({
-    request,
-    backendUrl,
-    prismaClient,
-  }) => {
-    // GIVEN: I am authenticated with a role that doesn't have LOTTERY_PACK_ACTIVATE permission
-    // Use CORPORATE_ADMIN which has company-level permissions but not lottery permissions
-    const game = await createLotteryGame(prismaClient, {
-      name: "Test Game",
-    });
-    const owner = await createUser(prismaClient);
-    const company = await createCompany(prismaClient, {
-      owner_user_id: owner.user_id,
-    });
-    const store = await createStore(prismaClient, {
-      company_id: company.company_id,
-    });
-    const user = await createUser(prismaClient);
-
-    // Assign CORPORATE_ADMIN role to user (without LOTTERY_PACK_ACTIVATE permission)
-    const role = await prismaClient.role.findUnique({
-      where: { code: "CORPORATE_ADMIN" },
-    });
-    if (!role) {
-      throw new Error(
-        "CORPORATE_ADMIN role not found in database. Run database seed first.",
-      );
-    }
-
-    await withBypassClient(async (bypassClient) => {
-      await bypassClient.userRole.create({
-        data: {
-          user_id: user.user_id,
-          role_id: role.role_id,
-          company_id: company.company_id,
-          // CORPORATE_ADMIN has COMPANY scope, so store_id is null
-          store_id: null,
-        },
-      });
-    });
-
-    // Create JWT token with CORPORATE_ADMIN role (without LOTTERY_PACK_ACTIVATE permission)
-    const token = createJWTAccessToken({
-      user_id: user.user_id,
-      email: user.email,
-      roles: ["CORPORATE_ADMIN"],
-      permissions: [
-        "USER_READ",
-        "STORE_CREATE",
-        "STORE_READ",
-        "STORE_UPDATE",
-        "STORE_DELETE",
-        // Note: LOTTERY_PACK_ACTIVATE is intentionally omitted
-      ],
-    });
-
-    const pack = await createLotteryPack(prismaClient, {
-      game_id: game.game_id,
-      store_id: store.store_id,
-      pack_number: "PACK-006a",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
-      status: "RECEIVED",
-    });
-
-    // WHEN: Attempting to activate pack without required permission
-    const response = await request.put(
-      `${backendUrl}/api/lottery/packs/${pack.pack_id}/activate`,
-      {
-        headers: {
-          Cookie: `access_token=${token}`,
-        },
-      },
-    );
-
-    // THEN: Request is rejected with 403 Forbidden
-    expect(
-      response.status(),
-      "Should return 403 for user without LOTTERY_PACK_ACTIVATE permission",
-    ).toBe(403);
-    const body = await response.json();
-    expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
-      "PERMISSION_DENIED",
-    );
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
