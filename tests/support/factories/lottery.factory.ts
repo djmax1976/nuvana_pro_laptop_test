@@ -79,6 +79,7 @@ export const createLotteryPack = async (
     status?: LotteryPackStatus;
     current_bin_id?: string;
     received_at?: Date;
+    activated_at?: Date;
   },
 ) => {
   const packNumber = overrides.pack_number || faker.string.numeric(6);
@@ -89,11 +90,21 @@ export const createLotteryPack = async (
 
   const status = overrides.status || LotteryPackStatus.RECEIVED;
 
-  // Database constraint requires received_at when status is RECEIVED
+  // Database constraint requires received_at when status is RECEIVED or any subsequent status
   const received_at =
     overrides.received_at !== undefined
       ? overrides.received_at
-      : status === LotteryPackStatus.RECEIVED
+      : status !== LotteryPackStatus.RECEIVED
+        ? new Date(Date.now() - 86400000) // 1 day ago for non-RECEIVED statuses
+        : new Date();
+
+  // Database constraint requires activated_at when status is ACTIVE, DEPLETED, or RETURNED
+  const activated_at =
+    overrides.activated_at !== undefined
+      ? overrides.activated_at
+      : status === LotteryPackStatus.ACTIVE ||
+          status === LotteryPackStatus.DEPLETED ||
+          status === LotteryPackStatus.RETURNED
         ? new Date()
         : null;
 
@@ -107,6 +118,7 @@ export const createLotteryPack = async (
       status,
       current_bin_id: overrides.current_bin_id || null,
       received_at,
+      activated_at,
     },
   });
 };
