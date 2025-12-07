@@ -104,12 +104,18 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(body.data.activated_at, "activated_at should not be empty").not.toBe(
       "",
     );
-    // Verify activated_at is a valid ISO date string
+    // Verify activated_at is a valid ISO date string (implementation returns toISOString())
     const activatedDate = new Date(body.data.activated_at);
     expect(
       activatedDate.getTime(),
       "activated_at should be a valid date",
     ).not.toBeNaN();
+    // Verify it's a recent timestamp (within last 5 seconds)
+    const now = new Date();
+    const timeDiff = Math.abs(now.getTime() - activatedDate.getTime());
+    expect(timeDiff, "activated_at should be a recent timestamp").toBeLessThan(
+      5000,
+    ); // 5 seconds
 
     // Relationship assertions
     expect(
@@ -156,11 +162,12 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     ).not.toBeNull();
     // Verify activated_at is a recent timestamp (within last 5 seconds)
     const activatedAt = updatedPack?.activated_at as Date;
-    const now = new Date();
-    const timeDiff = Math.abs(now.getTime() - activatedAt.getTime());
-    expect(timeDiff, "activated_at should be a recent timestamp").toBeLessThan(
-      5000,
-    ); // 5 seconds
+    const dbNow = new Date();
+    const dbTimeDiff = Math.abs(dbNow.getTime() - activatedAt.getTime());
+    expect(
+      dbTimeDiff,
+      "activated_at should be a recent timestamp",
+    ).toBeLessThan(5000); // 5 seconds
 
     // AND: Audit log entry is created
     const auditLog = await prismaClient.auditLog.findFirst({
@@ -261,10 +268,16 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(response.status(), "Expected 200 OK status").toBe(200);
     const body = await response.json();
     expect(body.success, "Response should indicate success").toBe(true);
+    // Implementation returns bin as null when not assigned (line 887: bin: updatedPack.bin || null)
     expect(
       body.data.bin,
       "bin should be null when pack has no bin assigned",
     ).toBeNull();
+    // Verify bin is explicitly null, not undefined
+    expect(
+      body.data.bin === null,
+      "bin should be explicitly null, not undefined",
+    ).toBe(true);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -637,8 +650,10 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(body.error.code, "Error code should be FORBIDDEN").toBe("FORBIDDEN");
     expect(
       body.error.message,
-      "Error message should mention store access or RLS violation",
-    ).toMatch(/store|RLS violation/i);
+      "Error message should match implementation exactly",
+    ).toBe(
+      "You can only activate packs for your assigned store. Pack belongs to a different store (RLS violation)",
+    );
 
     // AND: Pack status remains unchanged
     const unchangedPack = await prismaClient.lotteryPack.findUnique({
@@ -720,12 +735,12 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     );
     expect(
       body.error.message,
-      "Error message should mention RECEIVED status requirement",
-    ).toMatch(/RECEIVED/i);
+      "Error message should match implementation format",
+    ).toMatch(/Only packs with RECEIVED status can be activated/i);
     expect(
       body.error.message,
       "Error message should mention current ACTIVE status",
-    ).toMatch(/ACTIVE/i);
+    ).toMatch(/Current status is ACTIVE/i);
 
     // AND: Pack status remains unchanged
     const unchangedPack = await prismaClient.lotteryPack.findUnique({
@@ -767,8 +782,12 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     );
     expect(
       body.error.message,
-      "Error message should mention DEPLETED status",
-    ).toMatch(/DEPLETED/i);
+      "Error message should match implementation format",
+    ).toMatch(/Only packs with RECEIVED status can be activated/i);
+    expect(
+      body.error.message,
+      "Error message should mention current DEPLETED status",
+    ).toMatch(/Current status is DEPLETED/i);
 
     // AND: Pack status remains unchanged
     const unchangedPack = await prismaClient.lotteryPack.findUnique({
@@ -810,8 +829,12 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     );
     expect(
       body.error.message,
-      "Error message should mention RETURNED status",
-    ).toMatch(/RETURNED/i);
+      "Error message should match implementation format",
+    ).toMatch(/Only packs with RECEIVED status can be activated/i);
+    expect(
+      body.error.message,
+      "Error message should mention current RETURNED status",
+    ).toMatch(/Current status is RETURNED/i);
 
     // AND: Pack status remains unchanged
     const unchangedPack = await prismaClient.lotteryPack.findUnique({
@@ -904,12 +927,18 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
       typeof successBody.data.activated_at,
       "activated_at should be a string",
     ).toBe("string");
-    // Verify activated_at is a valid ISO date string
+    // Verify activated_at is a valid ISO date string (implementation returns toISOString())
     const activatedDate = new Date(successBody.data.activated_at);
     expect(
       activatedDate.getTime(),
       "activated_at should be a valid date",
     ).not.toBeNaN();
+    // Verify it's a recent timestamp (within last 5 seconds)
+    const now = new Date();
+    const timeDiff = Math.abs(now.getTime() - activatedDate.getTime());
+    expect(timeDiff, "activated_at should be a recent timestamp").toBeLessThan(
+      5000,
+    ); // 5 seconds
 
     // Validate failed response (concurrent modification)
     const failedResponse = responses.find((r) => r.status() === 409);
@@ -927,12 +956,16 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     ).toBe("CONCURRENT_MODIFICATION");
     expect(
       failedBody.error.message,
-      "Error message should mention concurrent modification",
-    ).toMatch(/concurrent/i);
+      "Error message should match implementation format",
+    ).toMatch(/Pack status was changed concurrently/i);
     expect(
       failedBody.error.message,
-      "Error message should mention the current status (ACTIVE)",
-    ).toMatch(/ACTIVE/i);
+      "Error message should mention pack was RECEIVED",
+    ).toMatch(/Pack was RECEIVED but is now ACTIVE/i);
+    expect(
+      failedBody.error.message,
+      "Error message should mention retry instruction",
+    ).toMatch(/Please retry the operation/i);
 
     // AND: Pack is ACTIVE (only activated once, not twice)
     const updatedPack = await prismaClient.lotteryPack.findUnique({
@@ -975,6 +1008,10 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(body.error.code, "Error code should be PACK_NOT_FOUND").toBe(
       "PACK_NOT_FOUND",
     );
+    expect(
+      body.error.message,
+      "Error message should match implementation",
+    ).toBe("Lottery pack not found");
   });
 
   test("6.3-API-012: [P0] VALIDATION - should reject invalid UUID format", async ({
@@ -1095,6 +1132,10 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(body.error.code, "Error code should be PACK_NOT_FOUND").toBe(
       "PACK_NOT_FOUND",
     );
+    expect(
+      body.error.message,
+      "Error message should match implementation",
+    ).toBe("Lottery pack not found");
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1273,9 +1314,45 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
       auditLog?.new_values,
       "new_values should contain activated_at",
     ).toHaveProperty("activated_at");
+    // Verify new_values contains all expected fields from implementation (line 849-856)
+    expect(
+      auditLog?.new_values,
+      "new_values should contain pack_id",
+    ).toHaveProperty("pack_id");
+    expect(
+      auditLog?.new_values,
+      "new_values should contain game_id",
+    ).toHaveProperty("game_id");
+    expect(
+      auditLog?.new_values,
+      "new_values should contain store_id",
+    ).toHaveProperty("store_id");
+    expect(
+      auditLog?.new_values,
+      "new_values should contain pack_number",
+    ).toHaveProperty("pack_number");
+    // Verify activated_at is a valid ISO string
+    const activatedAtValue = (auditLog?.new_values as any)?.activated_at;
+    expect(
+      typeof activatedAtValue,
+      "activated_at in audit log should be a string",
+    ).toBe("string");
+    const activatedAtDate = new Date(activatedAtValue);
+    expect(
+      activatedAtDate.getTime(),
+      "activated_at should be a valid ISO date string",
+    ).not.toBeNaN();
+    // Verify reason format matches implementation (line 860)
     expect(auditLog?.reason, "reason should contain user email").toContain(
       storeManagerUser.email,
     );
+    expect(auditLog?.reason, "reason should contain pack number").toContain(
+      pack.pack_number,
+    );
+    expect(
+      auditLog?.reason,
+      "reason should contain action description",
+    ).toMatch(/Lottery pack activated by/i);
 
     // Verify audit log data types
     expect(typeof auditLog?.user_id, "user_id should be a string").toBe(
