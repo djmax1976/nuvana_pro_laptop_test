@@ -930,21 +930,22 @@ export async function transactionRoutes(fastify: FastifyInstance) {
       bodyLimit: uploadBodyLimitBytes,
       // Upload-specific rate limiting: stricter than global limits
       // Configurable via env: UPLOAD_RATE_LIMIT_MAX (default: 5) and UPLOAD_RATE_LIMIT_WINDOW (default: "1 minute")
-      // CI/Test: Higher limit (100) to prevent false test failures from rate limiting
+      // CI/Test: DISABLED to prevent false test failures
       config: {
-        rateLimit: {
-          max: parseInt(
-            process.env.UPLOAD_RATE_LIMIT_MAX ||
-              (process.env.CI === "true" ? "100" : "5"),
-            10,
-          ), // 5 uploads per window (100 in CI)
-          timeWindow: process.env.UPLOAD_RATE_LIMIT_WINDOW || "1 minute",
-          // Use user ID for rate limiting key (more accurate than IP)
-          keyGenerator: (request: FastifyRequest) => {
-            const user = (request as any).user as UserIdentity | undefined;
-            return user?.id || request.ip || "anonymous";
-          },
-        },
+        rateLimit:
+          process.env.CI === "true" || process.env.NODE_ENV === "test"
+            ? false // Disable rate limiting in test/CI environments
+            : {
+                max: parseInt(process.env.UPLOAD_RATE_LIMIT_MAX || "5", 10),
+                timeWindow: process.env.UPLOAD_RATE_LIMIT_WINDOW || "1 minute",
+                // Use user ID for rate limiting key (more accurate than IP)
+                keyGenerator: (request: FastifyRequest) => {
+                  const user = (request as any).user as
+                    | UserIdentity
+                    | undefined;
+                  return user?.id || request.ip || "anonymous";
+                },
+              },
       },
       preHandler: [
         authMiddleware,

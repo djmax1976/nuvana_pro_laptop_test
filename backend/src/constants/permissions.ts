@@ -46,6 +46,7 @@ export const INVENTORY_ORDER = "INVENTORY_ORDER";
 
 // Lottery Permissions
 export const LOTTERY_PACK_RECEIVE = "LOTTERY_PACK_RECEIVE";
+export const LOTTERY_PACK_ACTIVATE = "LOTTERY_PACK_ACTIVATE";
 export const LOTTERY_SHIFT_RECONCILE = "LOTTERY_SHIFT_RECONCILE";
 export const LOTTERY_REPORT = "LOTTERY_REPORT";
 
@@ -119,6 +120,7 @@ export const PERMISSIONS = {
 
   // Lottery
   LOTTERY_PACK_RECEIVE,
+  LOTTERY_PACK_ACTIVATE,
   LOTTERY_SHIFT_RECONCILE,
   LOTTERY_REPORT,
 
@@ -204,6 +206,7 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
 
   // Lottery
   [LOTTERY_PACK_RECEIVE]: "Receive lottery packs",
+  [LOTTERY_PACK_ACTIVATE]: "Activate lottery packs",
   [LOTTERY_SHIFT_RECONCILE]: "Reconcile lottery during shift",
   [LOTTERY_REPORT]: "Generate lottery reports",
 

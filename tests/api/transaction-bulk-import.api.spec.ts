@@ -44,6 +44,7 @@ import { withBypassClient } from "../support/prisma-bypass";
 // Set BULK_IMPORT_TESTS=true to run these tests
 // Note: These tests also require CI=true on the backend for higher rate limits (100/min vs 5/min)
 // Without CI=true on the backend, tests will fail with 429 rate limit errors
+// IMPORTANT: Run with --workers=1 to avoid rate limiting across parallel describe blocks
 const bulkImportEnabled = process.env.BULK_IMPORT_TESTS === "true";
 
 // =============================================================================
@@ -151,6 +152,49 @@ function createCSVContent(transactions: any[]): string {
  */
 function createJSONContent(transactions: any[]): string {
   return JSON.stringify(transactions, null, 2);
+}
+
+/**
+ * Retries a request with exponential backoff on 429 rate limit errors.
+ * This ensures security tests get the actual security response, not rate limit errors.
+ * @param requestFn Function that makes the API request and returns a response
+ * @param maxRetries Maximum number of retries (default: 3)
+ * @returns The response from the final attempt (non-429)
+ */
+async function retryOnRateLimit<T extends { status(): number }>(
+  requestFn: () => Promise<T>,
+  maxRetries: number = 3,
+): Promise<T> {
+  let lastResponse: T;
+  let attempt = 0;
+
+  while (attempt <= maxRetries) {
+    lastResponse = await requestFn();
+
+    // Check status using the status() method (Playwright APIResponse)
+    const status = lastResponse.status();
+
+    // If not 429, return the response immediately
+    if (status !== 429) {
+      return lastResponse;
+    }
+
+    // If 429 and we have retries left, wait with exponential backoff
+    if (attempt < maxRetries) {
+      const delayMs = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      attempt++;
+    } else {
+      // Final attempt returned 429, throw error
+      throw new Error(
+        `Request failed with 429 rate limit after ${maxRetries} retries. ` +
+          `This indicates the test environment rate limit is too low or the test is hitting limits. ` +
+          `Ensure CI=true is set on the backend or increase UPLOAD_RATE_LIMIT_MAX.`,
+      );
+    }
+  }
+
+  return lastResponse!;
 }
 
 /**
@@ -310,14 +354,13 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const blob = new Blob(["invalid content"], { type: "application/pdf" });
     formData.append("file", blob, "transactions.pdf");
 
-    const response = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 to get actual validation response
+    const response = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
     // THEN: Should return 400 with clear error message
@@ -404,36 +447,38 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const blob = new Blob([csvContent], { type: "text/csv" });
     formData.append("file", blob, "invalid-transactions.csv");
 
-    const response = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 to ensure job is created
+    const response = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
     // THEN: Should return 202 with job_id (validation happens async)
-    // AND: Job should track validation errors
     expect(
       response.status(),
       "Should accept file even with validation errors",
     ).toBe(202);
     const body = await response.json();
     const jobId = body.data?.job_id;
+    expect(jobId, "Should have job_id").toBeDefined();
 
-    // Check job status includes validation errors
-    const statusResponse = await superadminApiRequest.get(
-      `/api/transactions/bulk-import/${jobId}`,
+    // Wait for job to complete so errors are populated
+    const completionResult = await waitForJobCompletion(
+      superadminApiRequest,
+      jobId,
     );
-    const statusBody = await statusResponse.json();
+    expect(completionResult, "Job should complete").not.toBeNull();
+
+    // THEN: Job should track validation errors
     expect(
-      statusBody.data?.job?.error_rows,
+      completionResult!.job?.error_rows,
       "Should track error rows",
     ).toBeGreaterThan(0);
     expect(
-      statusBody.data?.errors?.length,
+      completionResult!.errors?.length,
       "Should include validation errors",
     ).toBeGreaterThan(0);
   });
@@ -666,18 +711,18 @@ test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
     const blob = new Blob([csvContent], { type: "text/csv" });
     formData.append("file", blob, "transactions.csv");
 
-    const uploadResponse = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 to ensure job is created
+    const uploadResponse = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
     const uploadBody = await uploadResponse.json();
     const jobId = uploadBody.data?.job_id;
+    expect(jobId, "Should have job_id from upload").toBeDefined();
 
     // WHEN: Checking import status
     const response = await superadminApiRequest.get(
@@ -803,15 +848,19 @@ test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
       permissions: superadminUser.permissions,
     });
 
-    const uploadResponse = await request.post("/api/transactions/bulk-import", {
-      multipart: formData,
-      headers: {
-        Cookie: `access_token=${superadminToken}`,
-      },
-    });
+    // Retry on 429 to ensure job is created
+    const uploadResponse = await retryOnRateLimit(() =>
+      request.post("/api/transactions/bulk-import", {
+        multipart: formData,
+        headers: {
+          Cookie: `access_token=${superadminToken}`,
+        },
+      }),
+    );
 
     const uploadBody = await uploadResponse.json();
     const jobId = uploadBody.data?.job_id;
+    expect(jobId, "Should have job_id from upload").toBeDefined();
 
     // WHEN: Corporate admin tries to view superadmin's job
     const corporateAdminToken = createJWTAccessToken({
@@ -937,27 +986,21 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
     const blob = new Blob([csvContent], { type: "text/csv" });
     formData.append("file", blob, "invalid-transactions.csv");
 
-    const uploadResponse = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 to ensure job is created
+    const uploadResponse = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
     const uploadBody = await uploadResponse.json();
     const jobId = uploadBody.data?.job_id;
-    expect(jobId).toBeDefined();
+    expect(jobId, "Should have job_id from upload").toBeDefined();
 
-    // Wait for processing using polling
-    await waitForJobCompletion(
-      superadminApiRequest,
-      jobId,
-      ["COMPLETED", "FAILED"],
-      30000,
-    );
+    // Wait for processing
+    await waitForJobCompletion(superadminApiRequest, jobId);
 
     // WHEN: Requesting error report in CSV format
     const response = await superadminApiRequest.get(
@@ -1007,27 +1050,21 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
     const blob = new Blob([csvContent], { type: "text/csv" });
     formData.append("file", blob, "invalid-transactions.csv");
 
-    const uploadResponse = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 to ensure job is created
+    const uploadResponse = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
     const uploadBody = await uploadResponse.json();
     const jobId = uploadBody.data?.job_id;
-    expect(jobId).toBeDefined();
+    expect(jobId, "Should have job_id from upload").toBeDefined();
 
-    // Wait for processing using polling
-    await waitForJobCompletion(
-      superadminApiRequest,
-      jobId,
-      ["COMPLETED", "FAILED"],
-      30000,
-    );
+    // Wait for processing
+    await waitForJobCompletion(superadminApiRequest, jobId);
 
     // WHEN: Requesting error report in JSON format
     const response = await superadminApiRequest.get(
@@ -1332,6 +1369,12 @@ test.describe("Bulk Import API - File Upload Security", () => {
   );
   // Run tests serially to avoid rate limiting on bulk import endpoint
   test.describe.configure({ mode: "serial" });
+
+  // Add delay between tests to avoid rate limiting
+  test.beforeEach(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  });
+
   test("3.6-API-SEC-003: [P0] Empty file is rejected", async ({
     superadminApiRequest,
   }) => {
@@ -1383,18 +1426,17 @@ test.describe("Bulk Import API - File Upload Security", () => {
     const blob = new Blob([csvContent], { type: "text/csv" });
     formData.append("file", blob, "../../../etc/passwd.csv");
 
-    const response = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 with exponential backoff to ensure we get the actual security response
+    const response = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
     // THEN: Request should either succeed (filename sanitized) or fail safely
-    // Accept either 202 (if filename is sanitized) or 400 (if rejected)
+    // 429 is not acceptable - retries ensure we get the actual security response
     expect([202, 400]).toContain(response.status());
 
     if (response.status() === 202) {
@@ -1429,17 +1471,17 @@ test.describe("Bulk Import API - File Upload Security", () => {
     const blob = new Blob([csvContent], { type: "text/csv" });
     formData.append("file", blob, "test\x00.csv");
 
-    const response = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 with exponential backoff to ensure we get the actual security response
+    const response = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
     // THEN: Request should either succeed (filename sanitized) or fail safely
+    // 429 is not acceptable - retries ensure we get the actual security response
     expect([202, 400]).toContain(response.status());
   });
 });
@@ -1455,6 +1497,12 @@ test.describe("Bulk Import API - XSS Prevention", () => {
   );
   // Run tests serially to avoid rate limiting on bulk import endpoint
   test.describe.configure({ mode: "serial" });
+
+  // Add delay between tests to avoid rate limiting
+  test.beforeEach(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  });
+
   test("3.6-API-SEC-006: [P0] XSS attempt in transaction name is sanitized or rejected", async ({
     superadminApiRequest,
     superadminUser,
@@ -1483,18 +1531,17 @@ test.describe("Bulk Import API - XSS Prevention", () => {
     const blob = new Blob([csvContent], { type: "text/csv" });
     formData.append("file", blob, "xss-test.csv");
 
-    const response = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 with exponential backoff to ensure we get the actual security response
+    const response = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
     // THEN: File should be accepted (validation happens async)
-    // XSS prevention should happen at rendering time, not upload time
+    // 429 is not acceptable - retries ensure we get the actual security response
     expect(response.status()).toBe(202);
 
     const body = await response.json();
@@ -1526,6 +1573,12 @@ test.describe("Bulk Import API - Input Validation Edge Cases", () => {
   );
   // Run tests serially to avoid rate limiting on bulk import endpoint
   test.describe.configure({ mode: "serial" });
+
+  // Add delay between tests to avoid rate limiting
+  test.beforeEach(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  });
+
   test("3.6-API-EDGE-001: [P1] Invalid job_id format returns 400", async ({
     superadminApiRequest,
   }) => {
@@ -1579,17 +1632,17 @@ test.describe("Bulk Import API - Input Validation Edge Cases", () => {
     const blob = new Blob([malformedCsv], { type: "text/csv" });
     formData.append("file", blob, "malformed.csv");
 
-    const response = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 with exponential backoff to ensure we get the actual validation response
+    const response = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
     // THEN: File should be accepted (parsing errors tracked in job)
+    // 429 is not acceptable - retries ensure we get the actual validation response
     expect(response.status()).toBe(202);
 
     const body = await response.json();
@@ -1619,17 +1672,17 @@ test.describe("Bulk Import API - Input Validation Edge Cases", () => {
     const blob = new Blob([invalidJson], { type: "application/json" });
     formData.append("file", blob, "invalid.json");
 
-    const response = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 with exponential backoff to ensure we get the actual validation response
+    const response = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
     // THEN: File should be accepted but errors tracked in job
+    // 429 is not acceptable - retries ensure we get the actual validation response
     expect(response.status()).toBe(202);
 
     const body = await response.json();

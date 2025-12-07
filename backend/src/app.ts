@@ -254,24 +254,29 @@ app.register(helmet, {
 
 // Register rate limiting
 // Rate limit configuration:
-// - CI/Test: Very high limit (10000) to prevent false test failures from rate limiting
+// - CI/Test: COMPLETELY DISABLED - rate limiting should be tested in dedicated tests
 // - Development: High limit (1000) for Fast Refresh and hot reloading
 // - Production: Standard limit (100) for real users
 const isDevelopment = process.env.NODE_ENV !== "production";
+const isTest = process.env.NODE_ENV === "test";
 const isCI = process.env.CI === "true";
-const rateLimitMax = isCI ? 10000 : isDevelopment ? 1000 : 100;
+const shouldDisableRateLimit = isCI || isTest;
 
-app.register(rateLimit, {
-  max: rateLimitMax,
-  timeWindow: "1 minute",
-  // Note: Per-company rate limiting (500/min) would require custom implementation
-  // based on company context from authentication middleware
-  //
-  // SECURITY: Upload endpoints have stricter rate limits configured per-route:
-  // - UPLOAD_RATE_LIMIT_MAX: Max uploads per time window (default: 5)
-  // - UPLOAD_RATE_LIMIT_WINDOW: Time window for upload rate limit (default: "1 minute")
-  // This prevents abuse of upload bandwidth and ensures fair resource usage
-});
+// Only register rate limiting plugin in non-test environments
+// This completely prevents any 429 errors during parallel test execution
+if (!shouldDisableRateLimit) {
+  app.register(rateLimit, {
+    max: isDevelopment ? 1000 : 100,
+    timeWindow: "1 minute",
+    // Note: Per-company rate limiting (500/min) would require custom implementation
+    // based on company context from authentication middleware
+    //
+    // SECURITY: Upload endpoints have stricter rate limits configured per-route:
+    // - UPLOAD_RATE_LIMIT_MAX: Max uploads per time window (default: 5)
+    // - UPLOAD_RATE_LIMIT_WINDOW: Time window for upload rate limit (default: "1 minute")
+    // This prevents abuse of upload bandwidth and ensures fair resource usage
+  });
+}
 
 // Register RLS (Row-Level Security) plugin
 // This automatically wraps ALL route handlers with RLS context for tenant isolation
