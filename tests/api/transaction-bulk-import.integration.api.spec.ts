@@ -163,14 +163,17 @@ function createJSONContent(transactions: any[]): string {
 }
 
 /**
- * Wait for job to reach a specific status
+ * Wait for job to reach a specific status with optional total_rows check.
+ * For integration tests, we need to wait for the async processing to populate total_rows.
+ * @param requireTotalRows - If true, also waits for total_rows > 0
  */
 async function waitForJobStatus(
   apiRequest: any,
   jobId: string,
   targetStatus: string | string[],
-  maxWaitMs: number = 30000,
-  pollIntervalMs: number = 1000,
+  maxWaitMs: number = 15000,
+  pollIntervalMs: number = 500,
+  requireTotalRows: boolean = false,
 ): Promise<any> {
   const startTime = Date.now();
   const targetStatuses = Array.isArray(targetStatus)
@@ -182,25 +185,36 @@ async function waitForJobStatus(
       `/api/transactions/bulk-import/${jobId}`,
     );
     const body = await response.json();
-    const currentStatus = body.data?.job?.status;
+    const job = body.data?.job;
+    const currentStatus = job?.status;
+
     if (targetStatuses.includes(currentStatus)) {
-      return body.data.job;
+      // If requireTotalRows, wait until total_rows is populated
+      if (
+        requireTotalRows &&
+        (job?.total_rows === 0 || job?.total_rows === undefined)
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+        continue;
+      }
+      return job;
     }
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
   throw new Error(
-    `Job ${jobId} did not reach status ${targetStatuses.join(" or ")} within ${maxWaitMs}ms`,
+    `Job ${jobId} did not reach status ${targetStatuses.join(" or ")}${requireTotalRows ? " with total_rows > 0" : ""} within ${maxWaitMs}ms`,
   );
 }
 
 /**
  * Wait for job to complete (COMPLETED or FAILED status)
+ * Optimized poll intervals for faster test execution.
  */
 async function waitForJobCompletion(
   apiRequest: any,
   jobId: string,
-  maxWaitMs: number = 30000,
-  pollIntervalMs: number = 1000,
+  maxWaitMs: number = 20000,
+  pollIntervalMs: number = 300,
 ): Promise<{ status: string; job: any; errors: any[] } | null> {
   const startTime = Date.now();
   while (Date.now() - startTime < maxWaitMs) {
@@ -322,11 +336,10 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
   // Add small delay between tests to avoid hitting rate limits on retries
   test.describe.configure({ mode: "serial" });
 
-  // Add delay between tests to avoid rate limiting
-  // Rate limit is 100 per minute in CI, so we need sufficient delay between tests
+  // Add minimal delay between tests to avoid rate limiting
+  // Rate limit is 100 per minute in CI - 500ms is sufficient
   test.beforeEach(async () => {
-    // Delay to avoid rate limiting - increased to 2 seconds to give rate limit window time to reset
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 500));
   });
   test("3.6-INT-001: [P0] should complete full bulk import flow (upload → process → status)", async ({
     superadminApiRequest,
@@ -393,14 +406,14 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
       "PENDING",
     );
 
-    // Wait for job to complete (or at least process)
-    // Use polling to wait for job to reach a terminal or processing state
+    // Wait for job to complete - requireTotalRows ensures async processing has populated total_rows
     const job = await waitForJobStatus(
       superadminApiRequest,
       jobId,
       ["PROCESSING", "COMPLETED", "FAILED"],
-      30000,
-      500,
+      15000,
+      300,
+      true, // requireTotalRows - wait until total_rows > 0
     );
 
     // THEN: Job should show progress
@@ -483,39 +496,20 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
 
     expect(jobId, "Should have job_id").toBeTruthy();
 
-    // Wait for processing to start and complete
-    // Use polling to wait for job to reach a terminal state
-    // IMPORTANT: Wait for job to actually start processing (total_rows > 0)
-    // First wait for PROCESSING or terminal status
-    let job = await waitForJobStatus(
+    // Wait for job to complete with total_rows populated
+    // Using requireTotalRows eliminates the need for a separate polling loop
+    const job = await waitForJobStatus(
       superadminApiRequest,
       jobId,
       ["PROCESSING", "COMPLETED", "FAILED"],
-      60000,
-      1000,
+      15000,
+      300,
+      true, // requireTotalRows
     );
-
-    // Then wait until total_rows is populated (background processing may take time)
-    // Poll until total_rows > 0 or timeout
-    const startTime = Date.now();
-    const maxWaitMs = 30000;
-    while (job.total_rows === 0 && Date.now() - startTime < maxWaitMs) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const response = await superadminApiRequest.get(
-        `/api/transactions/bulk-import/${jobId}`,
-      );
-      const body = await response.json();
-      job = body.data?.job || job;
-    }
 
     // THEN: Job tracking should be accurate
     expect(job, "Job should exist").toBeTruthy();
-    expect(
-      job.total_rows,
-      "Total rows should match file (job should have started processing). " +
-        `If this fails, it may indicate the async processing hasn't started yet. ` +
-        `Status: ${job.status}, total_rows: ${job.total_rows}`,
-    ).toBe(10);
+    expect(job.total_rows, "Total rows should match file").toBe(10);
     expect(
       job.processed_rows,
       "Processed rows should be <= total rows",
@@ -525,7 +519,7 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     );
     expect(
       job.processed_rows + job.error_rows,
-      "Processed + error rows should be less than or equal to total rows",
+      "Processed + error rows should be <= total rows",
     ).toBeLessThanOrEqual(job.total_rows);
 
     // If job is completed, verify all rows are accounted for
@@ -599,12 +593,9 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     );
 
     // Wait for validation to complete
-    // Use polling to wait for job to reach a terminal state
     const completionResult = await waitForJobCompletion(
       superadminApiRequest,
       jobId,
-      30000,
-      500,
     );
     expect(
       completionResult,
@@ -719,12 +710,10 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
       "Should return 202 for accepted import",
     ).toBe(202);
 
-    // Wait for job to complete using polling
+    // Wait for job to complete
     const completionResult = await waitForJobCompletion(
       superadminApiRequest,
       jobId,
-      30000,
-      500,
     );
     expect(
       completionResult,
@@ -862,17 +851,10 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
 
     expect(jobId, "Should have job_id").toBeTruthy();
 
-    // Wait for job to complete with processed rows (polling)
-    // The job needs time to:
-    // 1. Parse the CSV file
-    // 2. Validate each transaction
-    // 3. Enqueue valid transactions to RabbitMQ
-    // 4. Update processed_rows count
+    // Wait for job to complete
     const completionResult = await waitForJobCompletion(
       superadminApiRequest,
       jobId,
-      30000,
-      1000,
     );
 
     // THEN: Job should be COMPLETED
@@ -899,14 +881,13 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
       "Processed + error rows should equal total rows",
     ).toBe(job.total_rows);
 
-    // Wait for worker to process the queued messages
-    // The worker consumes from RabbitMQ and creates Transaction records in the database
-    // Poll the database for up to 30 seconds to verify worker processing
+    // Quick check if worker is running - poll a few times with short intervals
+    // Worker processing is optional for this test; the critical assertion is that
+    // transactions were successfully enqueued (processed_rows > 0)
     let dbTransactions: any[] = [];
-    let workerAttempts = 0;
-    const maxWorkerAttempts = 30;
+    const maxWorkerAttempts = 5; // Only try 5 times (2.5 seconds total)
 
-    while (workerAttempts < maxWorkerAttempts) {
+    for (let i = 0; i < maxWorkerAttempts; i++) {
       dbTransactions = await prismaClient.transaction.findMany({
         where: {
           store_id: store.store_id,
@@ -915,55 +896,43 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
         take: 10,
       });
 
-      // If we found transactions, worker has processed them
       if (dbTransactions.length > 0) {
         break;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      workerAttempts++;
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
 
-    // THEN: Worker should have created Transaction records in the database
-    // This verifies the full end-to-end flow: API -> RabbitMQ -> Worker -> Database
-    // NOTE: If worker is not running, this assertion will fail, which is expected behavior
-    // The test verifies that transactions were successfully enqueued (processed_rows > 0)
-    // Worker processing is an infrastructure dependency
+    // If worker processed transactions, verify data integrity
+    // If not, that's OK - the enqueueing was verified above
     if (dbTransactions.length === 0) {
-      // Worker may not be running - this is acceptable for integration tests
+      // Worker not running - this is acceptable for integration tests
       // The important part is that transactions were enqueued (verified above)
-      console.warn(
-        `Worker did not process transactions within ${maxWorkerAttempts} seconds. ` +
-          `Enqueued: ${job.processed_rows}, Found in DB: ${dbTransactions.length}. ` +
-          `This is expected if the transaction worker is not running. ` +
-          `To test full end-to-end flow, ensure the worker is running: npm run worker:transaction`,
+      console.log(
+        `Worker not processing (expected if not running). ` +
+          `Enqueued: ${job.processed_rows} transactions to RabbitMQ.`,
       );
-      // Don't fail the test - enqueueing is the critical part for this integration test
-      // The worker processing is a separate infrastructure concern
       return;
     }
 
+    // Worker is running - verify transaction data integrity
     expect(
       dbTransactions.length,
-      `Worker should have processed at least some transactions within ${maxWorkerAttempts} seconds. ` +
-        `Enqueued: ${job.processed_rows}, Found in DB: ${dbTransactions.length}.`,
+      "Worker should have processed transactions",
     ).toBeGreaterThan(0);
 
-    // Verify transaction data integrity
-    if (dbTransactions.length > 0) {
-      const firstTransaction = dbTransactions[0];
-      expect(
-        firstTransaction.store_id,
-        "Transaction should have correct store_id",
-      ).toBe(store.store_id);
-      expect(
-        firstTransaction.shift_id,
-        "Transaction should have correct shift_id",
-      ).toBe(shift.shift_id);
-      expect(
-        firstTransaction.total,
-        "Transaction should have total amount",
-      ).toBeDefined();
-    }
+    const firstTransaction = dbTransactions[0];
+    expect(
+      firstTransaction.store_id,
+      "Transaction should have correct store_id",
+    ).toBe(store.store_id);
+    expect(
+      firstTransaction.shift_id,
+      "Transaction should have correct shift_id",
+    ).toBe(shift.shift_id);
+    expect(
+      firstTransaction.total,
+      "Transaction should have total amount",
+    ).toBeDefined();
   });
 });

@@ -822,7 +822,7 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     );
   });
 
-  test("6.3-API-010a: [P0] CONCURRENCY - should reject activating already-active pack", async ({
+  test("6.3-API-010a: [P0] CONCURRENCY - should handle concurrent activation requests correctly", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
@@ -840,26 +840,54 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
       status: "RECEIVED",
     });
 
+    // Verify initial state
+    const initialPack = await prismaClient.lotteryPack.findUnique({
+      where: { pack_id: pack.pack_id },
+    });
+    expect(initialPack?.status, "Pack should start in RECEIVED status").toBe(
+      "RECEIVED",
+    );
+
     // WHEN: Making two concurrent activation requests
+    // Using Promise.all to ensure both requests start simultaneously
     const [response1, response2] = await Promise.all([
       storeManagerApiRequest.put(`/api/lottery/packs/${pack.pack_id}/activate`),
       storeManagerApiRequest.put(`/api/lottery/packs/${pack.pack_id}/activate`),
     ]);
 
-    // THEN: One request succeeds, the other fails with INVALID_PACK_STATUS
+    // THEN: One request succeeds, the other fails with CONCURRENT_MODIFICATION
+    // The implementation uses atomic updateMany with status condition, so when
+    // two requests concurrently try to activate the same RECEIVED pack:
+    // - First request: updateMany succeeds (count=1), returns 200
+    // - Second request: updateMany fails (count=0), detects initialPackStatus was RECEIVED,
+    //   returns 409 CONCURRENT_MODIFICATION (not 400, since pack was valid but changed concurrently)
     const responses = [response1, response2];
     const statuses = responses.map((r) => r.status());
+
+    // Verify exactly one success and one failure
+    const successCount = statuses.filter((s) => s === 200).length;
+    const conflictCount = statuses.filter((s) => s === 409).length;
+    const errorCount = statuses.filter((s) => s === 400).length;
+
     expect(
-      statuses.filter((s) => s === 200).length,
-      "Exactly one request should succeed",
+      successCount,
+      `Exactly one request should succeed (200). Got: ${statuses.join(", ")}`,
     ).toBe(1);
     expect(
-      statuses.filter((s) => s === 400).length,
-      "Exactly one request should fail with 400",
+      conflictCount,
+      `Exactly one request should fail with 409 (concurrent modification). Got: ${statuses.join(", ")}`,
     ).toBe(1);
+    expect(
+      errorCount,
+      `No requests should fail with 400 (invalid status). Got: ${statuses.join(", ")}`,
+    ).toBe(0);
 
     // Validate successful response
     const successfulResponse = responses.find((r) => r.status() === 200);
+    expect(
+      successfulResponse,
+      "Should have a successful response with status 200",
+    ).not.toBeUndefined();
     const successBody = await successfulResponse!.json();
     expect(
       successBody.success,
@@ -868,23 +896,59 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(successBody.data.status, "Pack status should be ACTIVE").toBe(
       "ACTIVE",
     );
+    expect(
+      successBody.data.activated_at,
+      "Successful response should include activated_at timestamp",
+    ).toBeDefined();
+    expect(
+      typeof successBody.data.activated_at,
+      "activated_at should be a string",
+    ).toBe("string");
+    // Verify activated_at is a valid ISO date string
+    const activatedDate = new Date(successBody.data.activated_at);
+    expect(
+      activatedDate.getTime(),
+      "activated_at should be a valid date",
+    ).not.toBeNaN();
 
-    // Validate failed response
-    const failedResponse = responses.find((r) => r.status() === 400);
+    // Validate failed response (concurrent modification)
+    const failedResponse = responses.find((r) => r.status() === 409);
+    expect(
+      failedResponse,
+      "Should have a failed response with status 409",
+    ).not.toBeUndefined();
     const failedBody = await failedResponse!.json();
     expect(failedBody.success, "Failed response should indicate failure").toBe(
       false,
     );
     expect(
       failedBody.error.code,
-      "Error code should be INVALID_PACK_STATUS",
-    ).toBe("INVALID_PACK_STATUS");
+      "Error code should be CONCURRENT_MODIFICATION for race condition",
+    ).toBe("CONCURRENT_MODIFICATION");
+    expect(
+      failedBody.error.message,
+      "Error message should mention concurrent modification",
+    ).toMatch(/concurrent/i);
+    expect(
+      failedBody.error.message,
+      "Error message should mention the current status (ACTIVE)",
+    ).toMatch(/ACTIVE/i);
 
-    // AND: Pack is ACTIVE (only activated once)
+    // AND: Pack is ACTIVE (only activated once, not twice)
     const updatedPack = await prismaClient.lotteryPack.findUnique({
       where: { pack_id: pack.pack_id },
     });
     expect(updatedPack?.status, "Pack status should be ACTIVE").toBe("ACTIVE");
+    expect(
+      updatedPack?.activated_at,
+      "Pack should have activated_at timestamp set",
+    ).not.toBeNull();
+    // Verify only one activation occurred by checking activated_at matches successful response
+    const packActivatedAt = updatedPack!.activated_at!.toISOString();
+    expect(
+      packActivatedAt,
+      "Pack activated_at should match successful response",
+    ).toBe(successBody.data.activated_at);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
