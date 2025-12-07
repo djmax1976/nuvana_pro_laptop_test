@@ -80,6 +80,8 @@ export const createLotteryPack = async (
     current_bin_id?: string;
     received_at?: Date;
     activated_at?: Date;
+    depleted_at?: Date;
+    returned_at?: Date;
   },
 ) => {
   const packNumber = overrides.pack_number || faker.string.numeric(6);
@@ -90,22 +92,42 @@ export const createLotteryPack = async (
 
   const status = overrides.status || LotteryPackStatus.RECEIVED;
 
-  // Database constraint requires received_at when status is RECEIVED or any subsequent status
-  const received_at =
-    overrides.received_at !== undefined
-      ? overrides.received_at
-      : status !== LotteryPackStatus.RECEIVED
-        ? new Date(Date.now() - 86400000) // 1 day ago for non-RECEIVED statuses
-        : new Date();
+  // Database constraints require specific timestamps based on status
+  // Chronological order: received_at <= activated_at <= depleted_at <= returned_at
+  const now = new Date();
+  const oneHourAgo = new Date(now.getTime() - 3600000);
+  const twoHoursAgo = new Date(now.getTime() - 7200000);
+  const threeHoursAgo = new Date(now.getTime() - 10800000);
 
-  // Database constraint requires activated_at when status is ACTIVE, DEPLETED, or RETURNED
+  // received_at is required for all statuses
+  const received_at =
+    overrides.received_at !== undefined ? overrides.received_at : threeHoursAgo;
+
+  // activated_at is required for ACTIVE, DEPLETED, or RETURNED
   const activated_at =
     overrides.activated_at !== undefined
       ? overrides.activated_at
       : status === LotteryPackStatus.ACTIVE ||
           status === LotteryPackStatus.DEPLETED ||
           status === LotteryPackStatus.RETURNED
-        ? new Date()
+        ? twoHoursAgo
+        : null;
+
+  // depleted_at is required for DEPLETED or RETURNED
+  const depleted_at =
+    overrides.depleted_at !== undefined
+      ? overrides.depleted_at
+      : status === LotteryPackStatus.DEPLETED ||
+          status === LotteryPackStatus.RETURNED
+        ? oneHourAgo
+        : null;
+
+  // returned_at is required for RETURNED
+  const returned_at =
+    overrides.returned_at !== undefined
+      ? overrides.returned_at
+      : status === LotteryPackStatus.RETURNED
+        ? now
         : null;
 
   return await prisma.lotteryPack.create({
@@ -119,6 +141,8 @@ export const createLotteryPack = async (
       current_bin_id: overrides.current_bin_id || null,
       received_at,
       activated_at,
+      depleted_at,
+      returned_at,
     },
   });
 };
