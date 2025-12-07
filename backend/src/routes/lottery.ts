@@ -905,4 +905,1465 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       }
     },
   );
+
+  /**
+   * GET /api/lottery/games
+   * Query active lottery games
+   * Protected route - requires LOTTERY_GAME_READ permission
+   * Story 6.11: Lottery Query API Endpoints (AC #1)
+   */
+  fastify.get(
+    "/api/lottery/games",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_GAME_READ),
+      ],
+      schema: {
+        description: "Get all active lottery games",
+        tags: ["lottery"],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    game_id: { type: "string", format: "uuid" },
+                    name: { type: "string" },
+                    description: { type: "string", nullable: true },
+                    price: { type: "number", nullable: true },
+                    status: { type: "string" },
+                    created_at: { type: "string", format: "date-time" },
+                    updated_at: { type: "string", format: "date-time" },
+                  },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+
+      try {
+        // Extract IP address and user agent for audit logging
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        // Query active lottery games using Prisma ORM (prevents SQL injection)
+        const games = await prisma.lotteryGame.findMany({
+          where: {
+            status: "ACTIVE",
+          },
+          select: {
+            game_id: true,
+            name: true,
+            description: true,
+            price: true,
+            status: true,
+            created_at: true,
+            updated_at: true,
+          },
+          orderBy: {
+            name: "asc",
+          },
+        });
+
+        // Create audit log entry (non-blocking)
+        try {
+          await prisma.auditLog.create({
+            data: {
+              user_id: user.id,
+              action: "LOTTERY_GAMES_QUERIED",
+              table_name: "lottery_games",
+              record_id: crypto.randomUUID(),
+              new_values: {
+                query_type: "GET_GAMES",
+                filter_status: "ACTIVE",
+              } as Record<string, any>,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              reason: `Lottery games queried by ${user.email} (roles: ${user.roles.join(", ")})`,
+            },
+          });
+        } catch (auditError) {
+          fastify.log.error(
+            { error: auditError },
+            "Failed to create audit log for lottery games query",
+          );
+        }
+
+        return {
+          success: true,
+          data: games.map((game) => ({
+            game_id: game.game_id,
+            name: game.name,
+            description: game.description,
+            price: game.price ? Number(game.price) : null,
+            status: game.status,
+            created_at: game.created_at.toISOString(),
+            updated_at: game.updated_at.toISOString(),
+          })),
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error querying lottery games");
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to query lottery games",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/lottery/packs
+   * Query lottery packs with filters
+   * Protected route - requires LOTTERY_PACK_READ permission
+   * Story 6.11: Lottery Query API Endpoints (AC #2)
+   */
+  fastify.get(
+    "/api/lottery/packs",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_READ),
+      ],
+      schema: {
+        description: "Query lottery packs with filters",
+        tags: ["lottery"],
+        querystring: {
+          type: "object",
+          required: ["store_id"],
+          properties: {
+            store_id: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID (required)",
+            },
+            status: {
+              type: "string",
+              enum: ["RECEIVED", "ACTIVE", "DEPLETED", "RETURNED"],
+              description: "Filter by pack status",
+            },
+            game_id: {
+              type: "string",
+              format: "uuid",
+              description: "Filter by game UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    pack_id: { type: "string", format: "uuid" },
+                    game_id: { type: "string", format: "uuid" },
+                    pack_number: { type: "string" },
+                    serial_start: { type: "string" },
+                    serial_end: { type: "string" },
+                    status: { type: "string" },
+                    store_id: { type: "string", format: "uuid" },
+                    current_bin_id: {
+                      type: "string",
+                      format: "uuid",
+                      nullable: true,
+                    },
+                    received_at: {
+                      type: "string",
+                      format: "date-time",
+                      nullable: true,
+                    },
+                    activated_at: {
+                      type: "string",
+                      format: "date-time",
+                      nullable: true,
+                    },
+                    game: {
+                      type: "object",
+                      properties: {
+                        game_id: { type: "string", format: "uuid" },
+                        name: { type: "string" },
+                      },
+                    },
+                    store: {
+                      type: "object",
+                      properties: {
+                        store_id: { type: "string", format: "uuid" },
+                        name: { type: "string" },
+                      },
+                    },
+                    bin: {
+                      type: "object",
+                      nullable: true,
+                      properties: {
+                        bin_id: { type: "string", format: "uuid" },
+                        name: { type: "string" },
+                        location: { type: "string", nullable: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const query = request.query as {
+        store_id: string;
+        status?: "RECEIVED" | "ACTIVE" | "DEPLETED" | "RETURNED";
+        game_id?: string;
+      };
+
+      try {
+        // Extract IP address and user agent for audit logging
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        // Get user roles to determine store access (RLS enforcement)
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        // Validate store_id matches user's store (RLS enforcement)
+        // System admins can access any store
+        if (!hasSystemScope) {
+          const userStoreRole = userRoles.find(
+            (role) =>
+              role.scope === "STORE" && role.store_id === query.store_id,
+          );
+          if (!userStoreRole) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "FORBIDDEN",
+                message:
+                  "You can only query packs for your assigned store. store_id does not match your store access",
+              },
+            };
+          }
+        }
+
+        // Validate store exists
+        const store = await prisma.store.findUnique({
+          where: { store_id: query.store_id },
+          select: { store_id: true, name: true },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
+          };
+        }
+
+        // Build query filter using Prisma ORM (prevents SQL injection)
+        const whereClause: any = {
+          store_id: query.store_id, // RLS enforced via store_id filter
+        };
+
+        if (query.status) {
+          whereClause.status = query.status;
+        }
+
+        if (query.game_id) {
+          whereClause.game_id = query.game_id;
+        }
+
+        // Query packs with relationships using Prisma ORM
+        const packs = await prisma.lotteryPack.findMany({
+          where: whereClause,
+          include: {
+            game: {
+              select: {
+                game_id: true,
+                name: true,
+              },
+            },
+            store: {
+              select: {
+                store_id: true,
+                name: true,
+              },
+            },
+            bin: {
+              select: {
+                bin_id: true,
+                name: true,
+                location: true,
+              },
+            },
+          },
+          orderBy: {
+            received_at: "desc",
+          },
+        });
+
+        // Create audit log entry (non-blocking)
+        try {
+          await prisma.auditLog.create({
+            data: {
+              user_id: user.id,
+              action: "LOTTERY_PACKS_QUERIED",
+              table_name: "lottery_packs",
+              record_id: crypto.randomUUID(),
+              new_values: {
+                query_type: "GET_PACKS",
+                store_id: query.store_id,
+                status_filter: query.status || null,
+                game_id_filter: query.game_id || null,
+              } as Record<string, any>,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              reason: `Lottery packs queried by ${user.email} (roles: ${user.roles.join(", ")}) - Store: ${query.store_id}`,
+            },
+          });
+        } catch (auditError) {
+          fastify.log.error(
+            { error: auditError },
+            "Failed to create audit log for lottery packs query",
+          );
+        }
+
+        return {
+          success: true,
+          data: packs.map((pack) => ({
+            pack_id: pack.pack_id,
+            game_id: pack.game_id,
+            pack_number: pack.pack_number,
+            serial_start: pack.serial_start,
+            serial_end: pack.serial_end,
+            status: pack.status,
+            store_id: pack.store_id,
+            current_bin_id: pack.current_bin_id,
+            received_at: pack.received_at?.toISOString() || null,
+            activated_at: pack.activated_at?.toISOString() || null,
+            game: pack.game,
+            store: pack.store,
+            bin: pack.bin || null,
+          })),
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error querying lottery packs");
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to query lottery packs",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/lottery/packs/:packId
+   * Get detailed pack information by ID
+   * Protected route - requires LOTTERY_PACK_READ permission
+   * Story 6.11: Lottery Query API Endpoints (AC #3)
+   */
+  fastify.get(
+    "/api/lottery/packs/:packId",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_READ),
+      ],
+      schema: {
+        description: "Get detailed pack information by ID",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["packId"],
+          properties: {
+            packId: {
+              type: "string",
+              format: "uuid",
+              description: "Pack UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  pack_id: { type: "string", format: "uuid" },
+                  game_id: { type: "string", format: "uuid" },
+                  pack_number: { type: "string" },
+                  serial_start: { type: "string" },
+                  serial_end: { type: "string" },
+                  status: { type: "string" },
+                  store_id: { type: "string", format: "uuid" },
+                  current_bin_id: {
+                    type: "string",
+                    format: "uuid",
+                    nullable: true,
+                  },
+                  received_at: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
+                  activated_at: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
+                  depleted_at: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
+                  returned_at: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
+                  tickets_remaining: { type: "number", nullable: true },
+                  game: {
+                    type: "object",
+                    properties: {
+                      game_id: { type: "string", format: "uuid" },
+                      name: { type: "string" },
+                    },
+                  },
+                  store: {
+                    type: "object",
+                    properties: {
+                      store_id: { type: "string", format: "uuid" },
+                      name: { type: "string" },
+                    },
+                  },
+                  bin: {
+                    type: "object",
+                    nullable: true,
+                    properties: {
+                      bin_id: { type: "string", format: "uuid" },
+                      name: { type: "string" },
+                      location: { type: "string", nullable: true },
+                    },
+                  },
+                  shift_openings: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        opening_id: { type: "string", format: "uuid" },
+                        shift_id: { type: "string", format: "uuid" },
+                        opening_serial: { type: "string" },
+                        opened_at: { type: "string", format: "date-time" },
+                      },
+                    },
+                  },
+                  shift_closings: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        closing_id: { type: "string", format: "uuid" },
+                        shift_id: { type: "string", format: "uuid" },
+                        closing_serial: { type: "string" },
+                        opening_serial: { type: "string" },
+                        expected_count: { type: "number" },
+                        actual_count: { type: "number" },
+                        difference: { type: "number" },
+                        has_variance: { type: "boolean" },
+                        variance_id: {
+                          type: "string",
+                          format: "uuid",
+                          nullable: true,
+                        },
+                        closed_at: { type: "string", format: "date-time" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { packId: string };
+
+      try {
+        // Extract IP address and user agent for audit logging
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        // Get user roles to determine store access (RLS enforcement)
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        // Query pack with relationships using Prisma ORM (prevents SQL injection)
+        const pack = await prisma.lotteryPack.findUnique({
+          where: { pack_id: params.packId },
+          include: {
+            game: {
+              select: {
+                game_id: true,
+                name: true,
+              },
+            },
+            store: {
+              select: {
+                store_id: true,
+                name: true,
+              },
+            },
+            bin: {
+              select: {
+                bin_id: true,
+                name: true,
+                location: true,
+              },
+            },
+            shift_openings: {
+              select: {
+                opening_id: true,
+                shift_id: true,
+                opening_serial: true,
+                created_at: true,
+              },
+              orderBy: {
+                created_at: "desc",
+              },
+            },
+            shift_closings: {
+              select: {
+                closing_id: true,
+                shift_id: true,
+                closing_serial: true,
+                created_at: true,
+              },
+              orderBy: {
+                created_at: "desc",
+              },
+            },
+          },
+        });
+
+        if (!pack) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "PACK_NOT_FOUND",
+              message: "Lottery pack not found",
+            },
+          };
+        }
+
+        // Validate store_id matches authenticated user's store (RLS enforcement)
+        // System admins can access any store
+        if (!hasSystemScope) {
+          const userStoreRole = userRoles.find(
+            (role) => role.scope === "STORE" && role.store_id === pack.store_id,
+          );
+          if (!userStoreRole) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "FORBIDDEN",
+                message:
+                  "You can only access packs for your assigned store. Pack belongs to a different store (RLS violation)",
+              },
+            };
+          }
+        }
+
+        // Calculate tickets_remaining
+        // Formula: (serial_end - serial_start + 1) - COUNT(LotteryTicketSerial WHERE pack_id = packId AND sold_at IS NOT NULL)
+        // Note: LotteryTicketSerial model doesn't exist yet, so for now we'll calculate based on serial range
+        // TODO: Replace with actual ticket serial tracking when model is implemented
+        let ticketsRemaining: number | null = null;
+        try {
+          const serialStartBigInt = BigInt(pack.serial_start);
+          const serialEndBigInt = BigInt(pack.serial_end);
+          const totalTickets = Number(
+            serialEndBigInt - serialStartBigInt + BigInt(1),
+          );
+
+          // For now, assume no tickets sold until LotteryTicketSerial model is implemented
+          // When implemented, query: COUNT(LotteryTicketSerial WHERE pack_id = packId AND sold_at IS NOT NULL)
+          ticketsRemaining = totalTickets;
+        } catch (error) {
+          // If serial numbers are not numeric, set to null
+          ticketsRemaining = null;
+        }
+
+        // Get shift closings with variance information
+        const shiftClosingsWithVariance = await Promise.all(
+          pack.shift_closings.map(async (closing) => {
+            // Find corresponding opening for this closing
+            const opening = pack.shift_openings.find(
+              (o) => o.shift_id === closing.shift_id,
+            );
+
+            // Find variance for this shift and pack
+            const variance = await prisma.lotteryVariance.findFirst({
+              where: {
+                shift_id: closing.shift_id,
+                pack_id: pack.pack_id,
+              },
+              select: {
+                variance_id: true,
+                expected: true,
+                actual: true,
+                difference: true,
+              },
+            });
+
+            // Calculate expected count from opening/closing serials
+            let expectedCount = 0;
+            let actualCount = 0;
+            if (opening) {
+              try {
+                const openingSerialBigInt = BigInt(opening.opening_serial);
+                const closingSerialBigInt = BigInt(closing.closing_serial);
+                expectedCount = Number(
+                  closingSerialBigInt - openingSerialBigInt + BigInt(1),
+                );
+              } catch (error) {
+                // If serials are not numeric, use variance data if available
+                expectedCount = variance?.expected || 0;
+              }
+            }
+
+            // Use variance actual count if available, otherwise use expected
+            actualCount = variance?.actual || expectedCount;
+
+            return {
+              closing_id: closing.closing_id,
+              shift_id: closing.shift_id,
+              closing_serial: closing.closing_serial,
+              opening_serial: opening?.opening_serial || "",
+              expected_count: expectedCount,
+              actual_count: actualCount,
+              difference: variance?.difference || 0,
+              has_variance: variance !== null,
+              variance_id: variance?.variance_id || null,
+              closed_at: closing.created_at.toISOString(),
+            };
+          }),
+        );
+
+        // Create audit log entry (non-blocking)
+        try {
+          await prisma.auditLog.create({
+            data: {
+              user_id: user.id,
+              action: "LOTTERY_PACK_DETAILS_QUERIED",
+              table_name: "lottery_packs",
+              record_id: pack.pack_id,
+              new_values: {
+                query_type: "GET_PACK_DETAILS",
+                pack_id: pack.pack_id,
+              } as Record<string, any>,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              reason: `Lottery pack details queried by ${user.email} (roles: ${user.roles.join(", ")}) - Pack: ${pack.pack_number}`,
+            },
+          });
+        } catch (auditError) {
+          fastify.log.error(
+            { error: auditError },
+            "Failed to create audit log for lottery pack details query",
+          );
+        }
+
+        return {
+          success: true,
+          data: {
+            pack_id: pack.pack_id,
+            game_id: pack.game_id,
+            pack_number: pack.pack_number,
+            serial_start: pack.serial_start,
+            serial_end: pack.serial_end,
+            status: pack.status,
+            store_id: pack.store_id,
+            current_bin_id: pack.current_bin_id,
+            received_at: pack.received_at?.toISOString() || null,
+            activated_at: pack.activated_at?.toISOString() || null,
+            depleted_at: pack.depleted_at?.toISOString() || null,
+            returned_at: pack.returned_at?.toISOString() || null,
+            tickets_remaining: ticketsRemaining,
+            game: pack.game,
+            store: pack.store,
+            bin: pack.bin || null,
+            shift_openings: pack.shift_openings.map((opening) => ({
+              opening_id: opening.opening_id,
+              shift_id: opening.shift_id,
+              opening_serial: opening.opening_serial,
+              opened_at: opening.created_at.toISOString(),
+            })),
+            shift_closings: shiftClosingsWithVariance,
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error querying lottery pack details");
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to query lottery pack details",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/lottery/variances
+   * Query lottery variances with filters
+   * Protected route - requires LOTTERY_VARIANCE_READ permission
+   * Story 6.11: Lottery Query API Endpoints (AC #4)
+   */
+  fastify.get(
+    "/api/lottery/variances",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_VARIANCE_READ),
+      ],
+      schema: {
+        description: "Query lottery variances with filters",
+        tags: ["lottery"],
+        querystring: {
+          type: "object",
+          required: ["store_id"],
+          properties: {
+            store_id: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID (required)",
+            },
+            status: {
+              type: "string",
+              enum: ["unresolved", "resolved"],
+              description:
+                "Filter by variance status (unresolved = approved_by is null)",
+            },
+            shift_id: {
+              type: "string",
+              format: "uuid",
+              description: "Filter by shift UUID",
+            },
+            pack_id: {
+              type: "string",
+              format: "uuid",
+              description: "Filter by pack UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    variance_id: { type: "string", format: "uuid" },
+                    shift_id: { type: "string", format: "uuid" },
+                    pack_id: { type: "string", format: "uuid" },
+                    expected_count: { type: "number" },
+                    actual_count: { type: "number" },
+                    difference: { type: "number" },
+                    variance_reason: { type: "string", nullable: true },
+                    approved_by: {
+                      type: "string",
+                      format: "uuid",
+                      nullable: true,
+                    },
+                    approved_at: {
+                      type: "string",
+                      format: "date-time",
+                      nullable: true,
+                    },
+                    created_at: { type: "string", format: "date-time" },
+                    pack: {
+                      type: "object",
+                      nullable: true,
+                      properties: {
+                        pack_id: { type: "string", format: "uuid" },
+                        pack_number: { type: "string" },
+                        game: {
+                          type: "object",
+                          properties: {
+                            game_id: { type: "string", format: "uuid" },
+                            name: { type: "string" },
+                          },
+                        },
+                      },
+                    },
+                    shift: {
+                      type: "object",
+                      nullable: true,
+                      properties: {
+                        shift_id: { type: "string", format: "uuid" },
+                        status: { type: "string" },
+                        opened_at: { type: "string", format: "date-time" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const query = request.query as {
+        store_id: string;
+        status?: "unresolved" | "resolved";
+        shift_id?: string;
+        pack_id?: string;
+      };
+
+      try {
+        // Extract IP address and user agent for audit logging
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        // Get user roles to determine store access (RLS enforcement)
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        // Validate store_id matches user's store (RLS enforcement)
+        // System admins can access any store
+        if (!hasSystemScope) {
+          const userStoreRole = userRoles.find(
+            (role) =>
+              role.scope === "STORE" && role.store_id === query.store_id,
+          );
+          if (!userStoreRole) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "FORBIDDEN",
+                message:
+                  "You can only query variances for your assigned store. store_id does not match your store access",
+              },
+            };
+          }
+        }
+
+        // Validate store exists
+        const store = await prisma.store.findUnique({
+          where: { store_id: query.store_id },
+          select: { store_id: true, name: true },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
+          };
+        }
+
+        // Build query filter using Prisma ORM (prevents SQL injection)
+        // RLS: Filter variances by store_id through pack relationship
+        const whereClause: any = {
+          pack: {
+            store_id: query.store_id, // RLS enforced via pack.store_id
+          },
+        };
+
+        if (query.status) {
+          if (query.status === "unresolved") {
+            whereClause.approved_by = null;
+          } else if (query.status === "resolved") {
+            whereClause.approved_by = { not: null };
+          }
+        }
+
+        if (query.shift_id) {
+          whereClause.shift_id = query.shift_id;
+        }
+
+        if (query.pack_id) {
+          whereClause.pack_id = query.pack_id;
+        }
+
+        // Query variances with relationships using Prisma ORM
+        const variances = await prisma.lotteryVariance.findMany({
+          where: whereClause,
+          include: {
+            pack: {
+              select: {
+                pack_id: true,
+                pack_number: true,
+                game: {
+                  select: {
+                    game_id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+            shift: {
+              select: {
+                shift_id: true,
+                status: true,
+                opened_at: true,
+              },
+            },
+          },
+          orderBy: {
+            created_at: "desc",
+          },
+        });
+
+        // Create audit log entry (non-blocking)
+        try {
+          await prisma.auditLog.create({
+            data: {
+              user_id: user.id,
+              action: "LOTTERY_VARIANCES_QUERIED",
+              table_name: "lottery_variances",
+              record_id: crypto.randomUUID(),
+              new_values: {
+                query_type: "GET_VARIANCES",
+                store_id: query.store_id,
+                status_filter: query.status || null,
+                shift_id_filter: query.shift_id || null,
+                pack_id_filter: query.pack_id || null,
+              } as Record<string, any>,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              reason: `Lottery variances queried by ${user.email} (roles: ${user.roles.join(", ")}) - Store: ${query.store_id}`,
+            },
+          });
+        } catch (auditError) {
+          fastify.log.error(
+            { error: auditError },
+            "Failed to create audit log for lottery variances query",
+          );
+        }
+
+        return {
+          success: true,
+          data: variances.map((variance) => ({
+            variance_id: variance.variance_id,
+            shift_id: variance.shift_id,
+            pack_id: variance.pack_id,
+            expected_count: variance.expected,
+            actual_count: variance.actual,
+            difference: variance.difference,
+            variance_reason: variance.reason,
+            approved_by: variance.approved_by,
+            approved_at: variance.approved_at?.toISOString() || null,
+            created_at: variance.created_at.toISOString(),
+            pack: variance.pack
+              ? {
+                  pack_id: variance.pack.pack_id,
+                  pack_number: variance.pack.pack_number,
+                  game: variance.pack.game,
+                }
+              : null,
+            shift: variance.shift
+              ? {
+                  shift_id: variance.shift.shift_id,
+                  status: variance.shift.status,
+                  opened_at: variance.shift.opened_at.toISOString(),
+                }
+              : null,
+          })),
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error querying lottery variances");
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to query lottery variances",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/lottery/bins
+   * Query lottery bins for a store
+   * Protected route - requires LOTTERY_BIN_READ permission
+   * Story 6.11: Lottery Query API Endpoints (AC #5)
+   */
+  fastify.get(
+    "/api/lottery/bins",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_BIN_READ),
+      ],
+      schema: {
+        description: "Query lottery bins for a store",
+        tags: ["lottery"],
+        querystring: {
+          type: "object",
+          required: ["store_id"],
+          properties: {
+            store_id: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID (required)",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    bin_id: { type: "string", format: "uuid" },
+                    store_id: { type: "string", format: "uuid" },
+                    name: { type: "string" },
+                    location: { type: "string", nullable: true },
+                    created_at: { type: "string", format: "date-time" },
+                    updated_at: { type: "string", format: "date-time" },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const query = request.query as {
+        store_id: string;
+      };
+
+      try {
+        // Extract IP address and user agent for audit logging
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        // Get user roles to determine store access (RLS enforcement)
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        // Validate store_id matches user's store (RLS enforcement)
+        // System admins can access any store
+        if (!hasSystemScope) {
+          const userStoreRole = userRoles.find(
+            (role) =>
+              role.scope === "STORE" && role.store_id === query.store_id,
+          );
+          if (!userStoreRole) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "FORBIDDEN",
+                message:
+                  "You can only query bins for your assigned store. store_id does not match your store access",
+              },
+            };
+          }
+        }
+
+        // Validate store exists
+        const store = await prisma.store.findUnique({
+          where: { store_id: query.store_id },
+          select: { store_id: true, name: true },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
+          };
+        }
+
+        // Query bins using Prisma ORM (prevents SQL injection)
+        // RLS enforced via store_id filter
+        const bins = await prisma.lotteryBin.findMany({
+          where: {
+            store_id: query.store_id, // RLS enforced via store_id filter
+          },
+          orderBy: {
+            name: "asc",
+          },
+        });
+
+        // Create audit log entry (non-blocking)
+        try {
+          await prisma.auditLog.create({
+            data: {
+              user_id: user.id,
+              action: "LOTTERY_BINS_QUERIED",
+              table_name: "lottery_bins",
+              record_id: crypto.randomUUID(),
+              new_values: {
+                query_type: "GET_BINS",
+                store_id: query.store_id,
+              } as Record<string, any>,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              reason: `Lottery bins queried by ${user.email} (roles: ${user.roles.join(", ")}) - Store: ${query.store_id}`,
+            },
+          });
+        } catch (auditError) {
+          fastify.log.error(
+            { error: auditError },
+            "Failed to create audit log for lottery bins query",
+          );
+        }
+
+        return {
+          success: true,
+          data: bins.map((bin) => ({
+            bin_id: bin.bin_id,
+            store_id: bin.store_id,
+            name: bin.name,
+            location: bin.location,
+            created_at: bin.created_at.toISOString(),
+            updated_at: bin.updated_at.toISOString(),
+          })),
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error querying lottery bins");
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to query lottery bins",
+          },
+        };
+      }
+    },
+  );
 }

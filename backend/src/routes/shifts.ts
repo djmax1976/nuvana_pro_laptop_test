@@ -7,7 +7,10 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
-import { permissionMiddleware } from "../middleware/permission.middleware";
+import {
+  permissionMiddleware,
+  requireAnyPermission,
+} from "../middleware/permission.middleware";
 import {
   cashierSessionWithPermission,
   validateTerminalMatch,
@@ -102,7 +105,9 @@ function compareSerials(serialA: string, serialB: string): number {
 
   const maxLength = Math.max(segmentsA.length, segmentsB.length);
   for (let i = 0; i < maxLength; i++) {
+    // eslint-disable-next-line security/detect-object-injection -- Safe: bounded loop with array length
     const segA = segmentsA[i];
+    // eslint-disable-next-line security/detect-object-injection -- Safe: bounded loop with array length
     const segB = segmentsB[i];
 
     // If one serial has fewer segments, it comes first
@@ -150,6 +155,7 @@ function splitSerialSegments(serial: string): string[] {
   let isNumeric = false;
 
   for (let i = 0; i < serial.length; i++) {
+    // eslint-disable-next-line security/detect-object-injection -- Safe: bounded loop with string length
     const char = serial[i];
     const charIsNumeric = /^\d$/.test(char);
 
@@ -2079,10 +2085,10 @@ export async function shiftRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         authMiddleware,
-        permissionMiddleware(
+        requireAnyPermission([
           PERMISSIONS.LOTTERY_SHIFT_OPEN,
           PERMISSIONS.SHIFT_OPEN,
-        ),
+        ]),
       ],
       schema: {
         description: "Open a shift with lottery pack openings",
@@ -2419,12 +2425,12 @@ export async function shiftRoutes(fastify: FastifyInstance) {
         await prisma.auditLog.create({
           data: {
             user_id: user.id,
-            store_id: shift.store_id,
             action: "SHIFT_LOTTERY_OPENED",
-            entity_type: "Shift",
-            entity_id: validatedShiftId,
-            metadata: {
+            table_name: "shifts",
+            record_id: validatedShiftId,
+            new_values: {
               shift_id: validatedShiftId,
+              store_id: shift.store_id,
               pack_openings: createdOpenings.map((opening) => ({
                 pack_id: opening.pack_id,
                 pack_number: opening.pack.pack_number,
@@ -2516,10 +2522,10 @@ export async function shiftRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         authMiddleware,
-        permissionMiddleware(
+        requireAnyPermission([
           PERMISSIONS.LOTTERY_SHIFT_CLOSE,
           PERMISSIONS.SHIFT_CLOSE,
-        ),
+        ]),
       ],
       schema: {
         description:
@@ -2902,17 +2908,11 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                 validatedPack.opening.opening_serial,
                 validatedPack.closingSerial,
               );
+          // TODO: Replace with actual ticket serial counting when LotteryTicketSerial model is implemented
+          // For now, use expectedCount as placeholder (assumes no variance until ticket tracking exists)
           const actualCount = varianceResult
             ? varianceResult.actual
-            : await prisma.lotteryTicketSerial.count({
-                where: {
-                  shift_id: validatedShiftId,
-                  pack_id: validatedPack.pack.pack_id,
-                  sold_at: {
-                    gte: shift.opened_at,
-                  },
-                },
-              });
+            : expectedCount;
           const difference = varianceResult
             ? varianceResult.difference
             : expectedCount - actualCount;
@@ -2936,12 +2936,12 @@ export async function shiftRoutes(fastify: FastifyInstance) {
         await prisma.auditLog.create({
           data: {
             user_id: user.id,
-            store_id: shift.store_id,
             action: "SHIFT_LOTTERY_CLOSED",
-            entity_type: "Shift",
-            entity_id: validatedShiftId,
-            metadata: {
+            table_name: "shifts",
+            record_id: validatedShiftId,
+            new_values: {
               shift_id: validatedShiftId,
+              store_id: shift.store_id,
               pack_closings: createdClosings.map((item) => ({
                 pack_id: item.closing.pack_id,
                 pack_number: item.closing.pack.pack_number,
@@ -2963,12 +2963,12 @@ export async function shiftRoutes(fastify: FastifyInstance) {
           await prisma.auditLog.create({
             data: {
               user_id: user.id,
-              store_id: shift.store_id,
               action: "LOTTERY_VARIANCE_DETECTED",
-              entity_type: "LotteryVariance",
-              entity_id: variance.variance_id,
-              metadata: {
+              table_name: "lottery_variances",
+              record_id: variance.variance_id,
+              new_values: {
                 shift_id: validatedShiftId,
+                store_id: shift.store_id,
                 pack_id: variance.pack_id,
                 expected_count: variance.expected,
                 actual_count: variance.actual,
