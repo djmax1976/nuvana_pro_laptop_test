@@ -274,8 +274,9 @@ export default function LotteryManagementPage() {
   }
 
   // Convert pack details to modal format
+  // Note: Convert null to undefined for location since PackDetailsData expects string | undefined
   const packDetailsForModal: PackDetailsData | null = packDetails
-    ? {
+    ? ({
         pack_id: packDetails.pack_id,
         pack_number: packDetails.pack_number,
         serial_start: packDetails.serial_start,
@@ -285,15 +286,36 @@ export default function LotteryManagementPage() {
           game_id: packDetails.game_id,
           name: "Unknown Game",
         },
-        bin: packDetails.bin,
+        bin: packDetails.bin
+          ? {
+              bin_id: packDetails.bin.bin_id,
+              name: packDetails.bin.name,
+              location: packDetails.bin.location ?? undefined,
+            }
+          : null,
         received_at: packDetails.received_at,
         activated_at: packDetails.activated_at,
-        depleted_at: packDetails.depleted_at,
-        returned_at: packDetails.returned_at,
+        depleted_at: packDetails.depleted_at ?? undefined,
+        returned_at: packDetails.returned_at ?? undefined,
         tickets_remaining: packDetails.tickets_remaining,
-        shift_openings: packDetails.shift_openings,
-        shift_closings: packDetails.shift_closings,
-      }
+        shift_openings: packDetails.shift_openings?.map((o) => ({
+          opening_id: o.opening_id,
+          shift_id: o.shift_id,
+          opening_serial: o.opening_serial,
+          created_at: o.opened_at, // API uses opened_at, component expects created_at
+        })),
+        shift_closings: packDetails.shift_closings?.map((c) => ({
+          closing_id: c.closing_id,
+          shift_id: c.shift_id,
+          closing_serial: c.closing_serial,
+          opening_serial: c.opening_serial,
+          expected_count: c.expected_count,
+          actual_count: c.actual_count,
+          difference: c.difference,
+          has_variance: c.has_variance,
+          created_at: c.closed_at, // API uses closed_at, component expects created_at
+        })),
+      } as PackDetailsData)
     : null;
 
   return (
