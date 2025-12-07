@@ -2180,7 +2180,10 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                 properties: {
                   code: { type: "string" },
                   message: { type: "string" },
-                  details: { type: "object" },
+                  details: {
+                    type: "object",
+                    additionalProperties: true,
+                  },
                 },
               },
             },

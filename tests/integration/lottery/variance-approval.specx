@@ -1,0 +1,115 @@
+/**
+ * Lottery Variance Approval Integration Tests
+ * 
+ * Tests for AC #6: Variance approval flow
+ *
+ * @test-level Integration
+ * @story 6-10 - Lottery Management UI
+ * @priority P0 (Critical - User Flows)
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
+import userEvent from "@testing-library/user-event";
+import { QueryClient } from "@tanstack/react-query";
+import { VarianceApprovalDialog } from "@/components/lottery/VarianceApprovalDialog";
+import { createMockVariance } from "../../support/factories/lottery-ui.factory";
+
+// Mock toast hook
+const mockToast = vi.fn();
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({
+    toast: mockToast,
+  }),
+}));
+
+describe("6.10-INT [P0]: Variance Approval Flow", () => {
+  let queryClient: QueryClient;
+  const mockPackId = "pack-123";
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    vi.clearAllMocks();
+    mockToast.mockClear();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+    vi.clearAllMocks();
+    mockToast.mockClear();
+  });
+
+  it("6.10-INT-009 [P0]: should approve variance with reason", async () => {
+    // Given: I am authenticated as a Store Manager
+    // And: There is a variance that needs approval
+    const user = userEvent.setup();
+    const mockVariance = createMockVariance({
+      variance_id: "variance-123",
+      shift_id: "shift-123",
+      pack_id: mockPackId,
+      expected_count: 100,
+      actual_count: 95,
+      difference: -5,
+      approved_at: null,
+      pack: {
+        pack_number: "PACK-001",
+        game: {
+          name: "Test Game",
+        },
+      },
+      shift: {
+        shift_id: "shift-123",
+        opened_at: "2025-01-28T10:00:00Z",
+      },
+    });
+    const mockOnApprove = vi.fn().mockResolvedValue(undefined);
+    const mockOnSuccess = vi.fn();
+
+    // When: I want to approve a variance
+    renderWithProviders(
+      <VarianceApprovalDialog
+        variance={mockVariance}
+        isOpen={true}
+        onClose={vi.fn()}
+        onSuccess={mockOnSuccess}
+        onApprove={mockOnApprove}
+      />,
+      { queryClient },
+    );
+
+    // And: I can access a variance approval dialog/form
+    // And: I can enter a reason for the variance
+    const reasonInput = screen.getByLabelText(/variance reason/i);
+    await user.type(
+      reasonInput,
+      "Count discrepancy due to damaged tickets",
+    );
+
+    // And: I can submit the approval
+    const approveButton = screen.getByRole("button", {
+      name: /approve variance/i,
+    });
+    await user.click(approveButton);
+
+    // Then: Upon approval, variance is marked as approved
+    await waitFor(() => {
+      expect(mockOnApprove).toHaveBeenCalledWith(
+        "variance-123",
+        "Count discrepancy due to damaged tickets",
+      );
+    });
+
+    // And: Success message is displayed
+    expect(mockOnSuccess).toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Variance approved",
+      }),
+    );
+  });
+});

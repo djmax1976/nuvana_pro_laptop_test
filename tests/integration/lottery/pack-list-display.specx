@@ -1,0 +1,121 @@
+/**
+ * Lottery Pack List Display Integration Tests
+ * 
+ * Tests for AC #1: Pack list display with status indicators
+ *
+ * @test-level Integration
+ * @story 6-10 - Lottery Management UI
+ * @priority P0 (Critical - User Flows)
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { renderWithProviders, screen } from "../../support/test-utils";
+import { QueryClient } from "@tanstack/react-query";
+import { LotteryPackCard } from "@/components/lottery/LotteryPackCard";
+import { createMockPack, createMockGame } from "../../support/factories/lottery-ui.factory";
+
+describe("6.10-INT [P0]: Pack List Display with Status Indicators", () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+    vi.clearAllMocks();
+  });
+
+  it("6.10-INT-001 [P0]: should display packs with status indicators", () => {
+    // Given: I am authenticated as a Store Manager
+    // And: There are packs with different statuses (RECEIVED, ACTIVE)
+    const mockGame = createMockGame({ game_id: "game-123", name: "Test Game" });
+    const receivedPack = createMockPack({
+      pack_id: "pack-123",
+      pack_number: "PACK-001",
+      status: "RECEIVED",
+      game: mockGame,
+    });
+    const activePack = createMockPack({
+      pack_id: "pack-456",
+      pack_number: "PACK-002",
+      status: "ACTIVE",
+      game: mockGame,
+    });
+    const packs = [receivedPack, activePack];
+
+    // When: I navigate to the lottery section
+    renderWithProviders(
+      <div>
+        {packs.map((pack) => (
+          <LotteryPackCard
+            key={pack.pack_id}
+            pack={{
+              pack_id: pack.pack_id,
+              pack_number: pack.pack_number,
+              serial_start: pack.serial_start,
+              serial_end: pack.serial_end,
+              status: pack.status,
+              game: pack.game,
+              tickets_remaining: 500,
+            }}
+          />
+        ))}
+      </div>,
+      { queryClient },
+    );
+
+    // Then: I can view packs with status indicators
+    expect(screen.getByText("PACK-001")).toBeInTheDocument();
+    expect(screen.getByText("PACK-002")).toBeInTheDocument();
+
+    // And: Pack status is displayed with appropriate visual badges/indicators
+    expect(screen.getByTestId("status-badge-pack-123")).toHaveTextContent("RECEIVED");
+    expect(screen.getByTestId("status-badge-pack-456")).toHaveTextContent("ACTIVE");
+
+    // And: I can see associated game information
+    expect(screen.getByText("Test Game")).toBeInTheDocument();
+  });
+
+  it("6.10-INT-002 [P1]: should display serial ranges and tickets remaining", () => {
+    // Given: I am authenticated as a Store Manager
+    // And: There is a pack with serial range and tickets remaining
+    const mockGame = createMockGame({ game_id: "game-123", name: "Test Game" });
+    const pack = createMockPack({
+      pack_id: "pack-123",
+      pack_number: "PACK-001",
+      serial_start: "1000",
+      serial_end: "2000",
+      status: "ACTIVE",
+      game: mockGame,
+    });
+
+    // When: I view the pack card
+    renderWithProviders(
+      <LotteryPackCard
+        pack={{
+          pack_id: pack.pack_id,
+          pack_number: pack.pack_number,
+          serial_start: pack.serial_start,
+          serial_end: pack.serial_end,
+          status: pack.status,
+          game: pack.game,
+          tickets_remaining: 500,
+        }}
+      />,
+      { queryClient },
+    );
+
+    // Then: I can see serial range (serial_start to serial_end)
+    expect(screen.getByText(/1000 - 2000/)).toBeInTheDocument();
+
+    // And: I can see tickets remaining
+    expect(screen.getByText(/500/)).toBeInTheDocument();
+  });
+});

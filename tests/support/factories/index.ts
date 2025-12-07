@@ -175,3 +175,31 @@ export {
   type CashierData,
   type CreateCashierRequest,
 } from "./cashier.factory";
+
+// Lottery UI factories (Story 6.10)
+export {
+  createMockGame,
+  createMockPack,
+  createMockVariance,
+  createMockShiftOpening,
+  createMockShiftClosing,
+  type LotteryGameMock,
+  type LotteryPackMock,
+  type LotteryVarianceMock,
+  type LotteryShiftOpeningMock,
+  type LotteryShiftClosingMock,
+} from "./lottery-ui.factory";
+
+// Lottery factories (Story 6.1, 6.11)
+export {
+  createLotteryGame,
+  createLotteryGames,
+  createLotteryPack,
+  createLotteryPacks,
+  createLotteryBin,
+  createLotteryBins,
+  createLotteryVariance,
+  createLotteryVariances,
+  createLotteryShiftOpening,
+  createLotteryShiftClosing,
+} from "./lottery.factory";

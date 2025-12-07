@@ -79,19 +79,27 @@ CREATE TABLE IF NOT EXISTS "lottery_variances" (
 );
 
 -- CreateIndex
-CREATE INDEX "lottery_shift_closings_shift_id_idx" ON "lottery_shift_closings"("shift_id");
+CREATE INDEX IF NOT EXISTS "lottery_shift_closings_shift_id_idx" ON "lottery_shift_closings"("shift_id");
 
 -- CreateIndex
-CREATE INDEX "lottery_shift_closings_pack_id_idx" ON "lottery_shift_closings"("pack_id");
+CREATE INDEX IF NOT EXISTS "lottery_shift_closings_pack_id_idx" ON "lottery_shift_closings"("pack_id");
 
 -- CreateIndex
-CREATE INDEX "lottery_variances_shift_id_idx" ON "lottery_variances"("shift_id");
+CREATE INDEX IF NOT EXISTS "lottery_variances_shift_id_idx" ON "lottery_variances"("shift_id");
 
 -- CreateIndex
-CREATE INDEX "lottery_variances_pack_id_idx" ON "lottery_variances"("pack_id");
+CREATE INDEX IF NOT EXISTS "lottery_variances_pack_id_idx" ON "lottery_variances"("pack_id");
 
 -- AddUniqueConstraint: Prevent duplicate pack closings per shift
-ALTER TABLE "lottery_shift_closings" ADD CONSTRAINT "lottery_shift_closings_shift_id_pack_id_key" UNIQUE ("shift_id", "pack_id");
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'lottery_shift_closings_shift_id_pack_id_key'
+    ) THEN
+        ALTER TABLE "lottery_shift_closings" ADD CONSTRAINT "lottery_shift_closings_shift_id_pack_id_key" UNIQUE ("shift_id", "pack_id");
+    END IF;
+END $$;
 
 -- AddForeignKey: lottery_shift_closings.shift_id -> shifts.shift_id
 DO $$
