@@ -466,7 +466,8 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     backendUrl,
     prismaClient,
   }) => {
-    // GIVEN: I am authenticated as a Store Manager but without LOTTERY_PACK_ACTIVATE permission
+    // GIVEN: I am authenticated with a role that doesn't have LOTTERY_PACK_ACTIVATE permission
+    // Use CORPORATE_ADMIN which has company-level permissions but not lottery permissions
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
     });
@@ -479,13 +480,13 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     });
     const user = await createUser(prismaClient);
 
-    // Assign STORE_MANAGER role to user (without LOTTERY_PACK_ACTIVATE permission)
+    // Assign CORPORATE_ADMIN role to user (without LOTTERY_PACK_ACTIVATE permission)
     const role = await prismaClient.role.findUnique({
-      where: { code: "STORE_MANAGER" },
+      where: { code: "CORPORATE_ADMIN" },
     });
     if (!role) {
       throw new Error(
-        "STORE_MANAGER role not found in database. Run database seed first.",
+        "CORPORATE_ADMIN role not found in database. Run database seed first.",
       );
     }
 
@@ -495,24 +496,23 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
           user_id: user.user_id,
           role_id: role.role_id,
           company_id: company.company_id,
-          store_id: store.store_id,
+          // CORPORATE_ADMIN has COMPANY scope, so store_id is null
+          store_id: null,
         },
       });
     });
 
-    // Create JWT token with STORE_MANAGER role but WITHOUT LOTTERY_PACK_ACTIVATE permission
+    // Create JWT token with CORPORATE_ADMIN role (without LOTTERY_PACK_ACTIVATE permission)
     const token = createJWTAccessToken({
       user_id: user.user_id,
       email: user.email,
-      roles: ["STORE_MANAGER"],
+      roles: ["CORPORATE_ADMIN"],
       permissions: [
+        "USER_READ",
+        "STORE_CREATE",
         "STORE_READ",
-        "SHIFT_OPEN",
-        "SHIFT_CLOSE",
-        "SHIFT_READ",
-        "SHIFT_REPORT_VIEW",
-        "INVENTORY_READ",
-        "TRANSACTION_READ",
+        "STORE_UPDATE",
+        "STORE_DELETE",
         // Note: LOTTERY_PACK_ACTIVATE is intentionally omitted
       ],
     });
@@ -531,7 +531,6 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
       `${backendUrl}/api/lottery/packs/${pack.pack_id}/activate`,
       {
         headers: {
-          "Content-Type": "application/json",
           Cookie: `access_token=${token}`,
         },
       },

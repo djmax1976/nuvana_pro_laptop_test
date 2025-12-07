@@ -774,13 +774,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               };
             }
 
-            // Pack status changed - return 409 Conflict
-            reply.code(409);
+            // Pack status is not RECEIVED - return 400 Bad Request
+            // (Could be initial state was wrong, or concurrent modification)
+            reply.code(400);
             throw {
               success: false,
               error: {
-                code: "CONCURRENT_MODIFICATION",
-                message: `Pack status changed concurrently. Current status is ${currentPack.status}. Only packs with RECEIVED status can be activated.`,
+                code: "INVALID_PACK_STATUS",
+                message: `Only packs with RECEIVED status can be activated. Current status is ${currentPack.status}.`,
               },
             };
           }

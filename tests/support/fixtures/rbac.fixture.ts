@@ -268,12 +268,14 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = { ...options?.headers };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.put(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            ...options?.headers,
-          },
+          headers,
         });
       },
       delete: async (
@@ -289,13 +291,15 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = { ...options?.headers };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.fetch(`${backendUrl}${path}`, {
           method: "PATCH",
           data,
-          headers: {
-            "Content-Type": "application/json",
-            ...options?.headers,
-          },
+          headers,
         });
       },
     };
@@ -339,13 +343,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${superadminUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.put(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${superadminUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       delete: async (
@@ -364,14 +372,18 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${superadminUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.fetch(`${backendUrl}${path}`, {
           method: "PATCH",
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${superadminUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
     };
@@ -819,6 +831,8 @@ export const test = base.extend<RBACFixture>({
         "SHIFT_REPORT_VIEW",
         "INVENTORY_READ",
         "TRANSACTION_READ",
+        "LOTTERY_PACK_ACTIVATE",
+        "LOTTERY_PACK_RECEIVE",
       ],
     });
 
@@ -837,6 +851,8 @@ export const test = base.extend<RBACFixture>({
         "SHIFT_REPORT_VIEW",
         "INVENTORY_READ",
         "TRANSACTION_READ",
+        "LOTTERY_PACK_ACTIVATE",
+        "LOTTERY_PACK_RECEIVE",
       ],
       token,
     };
@@ -1023,13 +1039,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.put(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       delete: async (
@@ -1328,13 +1348,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${superadminUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.put(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${superadminUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       delete: async (
@@ -1353,14 +1377,18 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${superadminUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.fetch(`${backendUrl}${path}`, {
           method: "PATCH",
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${superadminUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
     };
@@ -1420,13 +1448,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${corporateAdminUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.put(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${corporateAdminUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       delete: async (
@@ -1445,14 +1477,18 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${corporateAdminUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.fetch(`${backendUrl}${path}`, {
           method: "PATCH",
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${corporateAdminUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
     };
@@ -1495,13 +1531,18 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        // to avoid Fastify FST_ERR_CTP_EMPTY_JSON_BODY error
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${storeManagerUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.put(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${storeManagerUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       delete: async (
@@ -1520,14 +1561,19 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        // to avoid Fastify FST_ERR_CTP_EMPTY_JSON_BODY error
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${storeManagerUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.fetch(`${backendUrl}${path}`, {
           method: "PATCH",
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${storeManagerUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
     };
@@ -1958,13 +2004,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${clientUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.put(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${clientUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       delete: async (
@@ -1983,14 +2033,18 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${clientUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.fetch(`${backendUrl}${path}`, {
           method: "PATCH",
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${clientUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
     };
@@ -2030,13 +2084,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${regularUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.put(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${regularUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       delete: async (
@@ -2055,14 +2113,18 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${regularUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.fetch(`${backendUrl}${path}`, {
           method: "PATCH",
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${regularUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
     };

@@ -21,6 +21,8 @@ async function seedRoles() {
     { code: "SHIFT_OPEN", description: "Open shifts" },
     { code: "SHIFT_CLOSE", description: "Close shifts" },
     { code: "INVENTORY_READ", description: "Read inventory data" },
+    { code: "LOTTERY_PACK_RECEIVE", description: "Receive lottery packs" },
+    { code: "LOTTERY_PACK_ACTIVATE", description: "Activate lottery packs" },
   ];
 
   const createdPermissions: Record<string, any> = {};
@@ -85,6 +87,8 @@ async function seedRoles() {
     { role: "STORE_MANAGER", permission: "SHIFT_OPEN" },
     { role: "STORE_MANAGER", permission: "SHIFT_CLOSE" },
     { role: "STORE_MANAGER", permission: "INVENTORY_READ" },
+    { role: "STORE_MANAGER", permission: "LOTTERY_PACK_RECEIVE" },
+    { role: "STORE_MANAGER", permission: "LOTTERY_PACK_ACTIVATE" },
   ];
 
   for (const rp of rolePermissions) {
