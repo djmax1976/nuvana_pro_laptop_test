@@ -368,11 +368,44 @@ test.describe("6.7-API: Shift Lottery Closing - Pack Closing and Reconciliation"
       "0050",
     );
 
-    // Create some ticket sales (but not all expected tickets)
+    // Get shift to access opened_at timestamp for ticket serial filtering
+    const shiftRecord = await prismaClient.shift.findUnique({
+      where: { shift_id: shift.shift_id },
+    });
+    expect(shiftRecord, "Shift should exist").not.toBeNull();
+    const shiftOpenedAt = shiftRecord!.opened_at;
+
+    // Create some ticket sales (but not all expected tickets) to guarantee variance
     // Expected = 0080 - 0050 + 1 = 31
     // Actual = 25 (6 tickets missing = variance)
-    // TODO: Create LotteryTicketSerial records when model is available
-    // For now, test will verify variance detection logic
+    const expectedCount = 31;
+    const actualCount = 25;
+    const expectedDifference = expectedCount - actualCount; // 6
+
+    // Create 25 LotteryTicketSerial records (serials 0050-0074, missing 0075-0080)
+    const ticketSerials: Array<{
+      pack_id: string;
+      serial_number: string;
+      shift_id: string;
+      cashier_id: string;
+      sold_at: Date;
+    }> = [];
+    for (let i = 0; i < actualCount; i++) {
+      const serialNum = 50 + i; // Start at 0050, go up to 0074
+      const serialNumber = serialNum.toString().padStart(4, "0");
+      ticketSerials.push({
+        pack_id: pack.pack_id,
+        serial_number: serialNumber,
+        shift_id: shift.shift_id,
+        cashier_id: storeManagerUser.user_id,
+        sold_at: new Date(shiftOpenedAt.getTime() + (i + 1) * 1000), // Ensure sold_at >= shiftOpenedAt
+      });
+    }
+
+    // Create ticket serial records in database
+    await prismaClient.lotteryTicketSerial.createMany({
+      data: ticketSerials,
+    });
 
     // WHEN: Closing shift with closing serial
     const response = await storeManagerApiRequest.post(
@@ -388,42 +421,60 @@ test.describe("6.7-API: Shift Lottery Closing - Pack Closing and Reconciliation"
 
     const closing = body.data.closings[0];
 
-    // If variance exists
-    if (closing.has_variance) {
-      expect(closing.variance_id, "Variance ID should be present").toBeTruthy();
-      expect(closing.difference, "Difference should be non-zero").not.toBe(0);
+    // Assert variance is detected (deterministic - we created 25 tickets, expected 31)
+    expect(
+      closing.has_variance,
+      "Variance should be detected (expected 31, actual 25)",
+    ).toBe(true);
+    expect(closing.variance_id, "Variance ID should be present").toBeTruthy();
+    expect(closing.difference, "Difference should be 6").toBe(
+      expectedDifference,
+    );
+    expect(closing.expected_count, "Expected count should be 31").toBe(
+      expectedCount,
+    );
+    expect(closing.actual_count, "Actual count should be 25").toBe(actualCount);
 
-      // Verify LotteryVariance record in database
-      const variance = await prismaClient.lotteryVariance.findFirst({
-        where: {
-          shift_id: shift.shift_id,
-          pack_id: pack.pack_id,
-        },
-      });
-      expect(variance, "Variance record should be created").not.toBeNull();
-      expect(variance?.expected, "Variance expected should match").toBe(
-        closing.expected_count,
-      );
-      expect(variance?.actual, "Variance actual should match").toBe(
-        closing.actual_count,
-      );
-      expect(variance?.difference, "Variance difference should match").toBe(
-        closing.difference,
-      );
+    // Verify LotteryVariance record in database
+    const variance = await prismaClient.lotteryVariance.findFirst({
+      where: {
+        shift_id: shift.shift_id,
+        pack_id: pack.pack_id,
+      },
+    });
+    expect(variance, "Variance record should be created").not.toBeNull();
+    expect(variance?.expected, "Variance expected should match").toBe(
+      closing.expected_count,
+    );
+    expect(variance?.actual, "Variance actual should match").toBe(
+      closing.actual_count,
+    );
+    expect(variance?.difference, "Variance difference should match").toBe(
+      closing.difference,
+    );
+    expect(variance?.shift_id, "Variance shift_id should match").toBe(
+      shift.shift_id,
+    );
+    expect(variance?.pack_id, "Variance pack_id should match").toBe(
+      pack.pack_id,
+    );
 
-      // AND: Variance is logged in AuditLog
-      const varianceAuditLog = await prismaClient.auditLog.findFirst({
-        where: {
-          entity_type: "LotteryVariance",
-          entity_id: variance?.variance_id,
-          action: "LOTTERY_VARIANCE_DETECTED",
-        },
-      });
-      expect(
-        varianceAuditLog,
-        "Variance audit log should be created",
-      ).not.toBeNull();
-    }
+    // AND: Variance is logged in AuditLog
+    const varianceAuditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        table_name: "lottery_variances",
+        record_id: variance?.variance_id,
+        action: "LOTTERY_VARIANCE_DETECTED",
+      },
+    });
+    expect(
+      varianceAuditLog,
+      "Variance audit log should be created",
+    ).not.toBeNull();
+    expect(
+      varianceAuditLog?.record_id,
+      "Audit log record_id should match variance_id",
+    ).toBe(variance?.variance_id);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

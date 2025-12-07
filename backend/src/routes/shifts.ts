@@ -68,6 +68,115 @@ function getAuditContext(
 }
 
 /**
+ * Compare two serial numbers with proper handling for numeric and alphanumeric serials.
+ * For pure-numeric serials, compares numerically using BigInt to avoid string comparison issues.
+ * For alphanumeric serials, performs natural ordering by splitting into numeric and non-numeric segments.
+ *
+ * @param serialA - First serial to compare
+ * @param serialB - Second serial to compare
+ * @returns Negative number if serialA < serialB, 0 if equal, positive if serialA > serialB
+ */
+function compareSerials(serialA: string, serialB: string): number {
+  // Check if both serials are pure numeric (only digits, optionally with leading zeros)
+  const isNumericA = /^\d+$/.test(serialA);
+  const isNumericB = /^\d+$/.test(serialB);
+
+  // If both are numeric, compare as BigInt to handle large numbers correctly
+  if (isNumericA && isNumericB) {
+    try {
+      const a = BigInt(serialA);
+      const b = BigInt(serialB);
+      if (a < b) return -1;
+      if (a > b) return 1;
+      return 0;
+    } catch {
+      // Fallback to string comparison if BigInt parsing fails
+      return serialA.localeCompare(serialB, undefined, { numeric: true });
+    }
+  }
+
+  // For alphanumeric serials, perform natural ordering
+  // Split into segments: numeric segments and non-numeric segments
+  const segmentsA = splitSerialSegments(serialA);
+  const segmentsB = splitSerialSegments(serialB);
+
+  const maxLength = Math.max(segmentsA.length, segmentsB.length);
+  for (let i = 0; i < maxLength; i++) {
+    const segA = segmentsA[i];
+    const segB = segmentsB[i];
+
+    // If one serial has fewer segments, it comes first
+    if (segA === undefined) return -1;
+    if (segB === undefined) return 1;
+
+    // Determine if segments are numeric
+    const isNumericSegA = /^\d+$/.test(segA);
+    const isNumericSegB = /^\d+$/.test(segB);
+
+    // If both segments are numeric, compare numerically
+    if (isNumericSegA && isNumericSegB) {
+      try {
+        const a = BigInt(segA);
+        const b = BigInt(segB);
+        if (a < b) return -1;
+        if (a > b) return 1;
+        // Continue to next segment if equal
+      } catch {
+        // Fallback to string comparison
+        const cmp = segA.localeCompare(segB, undefined, { numeric: true });
+        if (cmp !== 0) return cmp;
+      }
+    } else {
+      // At least one is non-numeric, compare lexicographically
+      const cmp = segA.localeCompare(segB);
+      if (cmp !== 0) return cmp;
+    }
+  }
+
+  // All segments are equal
+  return 0;
+}
+
+/**
+ * Split a serial string into alternating numeric and non-numeric segments.
+ * Example: "ABC123XYZ456" -> ["ABC", "123", "XYZ", "456"]
+ *
+ * @param serial - Serial string to split
+ * @returns Array of segments
+ */
+function splitSerialSegments(serial: string): string[] {
+  const segments: string[] = [];
+  let currentSegment = "";
+  let isNumeric = false;
+
+  for (let i = 0; i < serial.length; i++) {
+    const char = serial[i];
+    const charIsNumeric = /^\d$/.test(char);
+
+    if (i === 0) {
+      // First character determines initial segment type
+      isNumeric = charIsNumeric;
+      currentSegment = char;
+    } else if (charIsNumeric === isNumeric) {
+      // Same type as current segment, append
+      currentSegment += char;
+    } else {
+      // Type changed, save current segment and start new one
+      segments.push(currentSegment);
+      currentSegment = char;
+      isNumeric = charIsNumeric;
+    }
+  }
+
+  // Push the last segment
+  if (currentSegment) {
+    segments.push(currentSegment);
+  }
+
+  return segments;
+}
+
+/**
  * Shift routes
  * Provides POST /api/shifts/open endpoint for opening shifts
  */
@@ -2222,7 +2331,9 @@ export async function shiftRoutes(fastify: FastifyInstance) {
             const serialEnd = pack.serial_end;
 
             // Compare serials (handle numeric and alphanumeric)
-            const isWithinRange = serial >= serialStart && serial <= serialEnd;
+            const isWithinRange =
+              compareSerials(serial, serialStart) >= 0 &&
+              compareSerials(serial, serialEnd) <= 0;
 
             if (!isWithinRange) {
               errors.push({
@@ -2681,7 +2792,8 @@ export async function shiftRoutes(fastify: FastifyInstance) {
             const serialEnd = pack.serial_end;
 
             const isWithinRange =
-              closingSerial >= serialStart && closingSerial <= serialEnd;
+              compareSerials(closingSerial, serialStart) >= 0 &&
+              compareSerials(closingSerial, serialEnd) <= 0;
 
             if (!isWithinRange) {
               errors.push({
@@ -2693,7 +2805,7 @@ export async function shiftRoutes(fastify: FastifyInstance) {
             }
 
             // Validate closing_serial >= opening_serial
-            if (closingSerial < opening.opening_serial) {
+            if (compareSerials(closingSerial, opening.opening_serial) < 0) {
               errors.push({
                 index: i,
                 packId: packClosing.packId,

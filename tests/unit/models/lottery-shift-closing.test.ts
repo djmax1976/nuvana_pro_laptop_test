@@ -19,8 +19,9 @@
  * for the LotteryShiftClosing model.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, expectTypeOf } from "vitest";
 import { PrismaClient } from "@prisma/client";
+import type { LotteryShiftClosing, Shift, LotteryPack } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -52,78 +53,55 @@ describe("6.7-UNIT: LotteryShiftClosing Type Definition", () => {
 
   it("6.7-UNIT-015: should have closing_id field of type string", () => {
     // GIVEN: LotteryShiftClosing type is available
-    // WHEN: Checking closing_id field type
-    const closing: { closing_id: string } = mockClosing;
-
-    // THEN: closing_id is string type
-    expect(typeof closing.closing_id, "closing_id should be string type").toBe(
-      "string",
-    );
+    // WHEN: Checking closing_id field type at compile-time
+    // THEN: closing_id is string type (compile-time check)
+    expectTypeOf<LotteryShiftClosing["closing_id"]>().toBeString();
   });
 
   it("6.7-UNIT-016: should have shift_id field of type string", () => {
     // GIVEN: LotteryShiftClosing type is available
-    // WHEN: Checking shift_id field type
-    const closing: { shift_id: string } = mockClosing;
-
-    // THEN: shift_id is string type
-    expect(typeof closing.shift_id, "shift_id should be string type").toBe(
-      "string",
-    );
+    // WHEN: Checking shift_id field type at compile-time
+    // THEN: shift_id is string type (compile-time check)
+    expectTypeOf<LotteryShiftClosing["shift_id"]>().toBeString();
   });
 
   it("6.7-UNIT-017: should have pack_id field of type string", () => {
     // GIVEN: LotteryShiftClosing type is available
-    // WHEN: Checking pack_id field type
-    const closing: { pack_id: string } = mockClosing;
-
-    // THEN: pack_id is string type
-    expect(typeof closing.pack_id, "pack_id should be string type").toBe(
-      "string",
-    );
+    // WHEN: Checking pack_id field type at compile-time
+    // THEN: pack_id is string type (compile-time check)
+    expectTypeOf<LotteryShiftClosing["pack_id"]>().toBeString();
   });
 
   it("6.7-UNIT-018: should have closing_serial field of type string", () => {
     // GIVEN: LotteryShiftClosing type is available
-    // WHEN: Checking closing_serial field type
-    const closing: { closing_serial: string } = mockClosing;
-
-    // THEN: closing_serial is string type
-    expect(
-      typeof closing.closing_serial,
-      "closing_serial should be string type",
-    ).toBe("string");
+    // WHEN: Checking closing_serial field type at compile-time
+    // THEN: closing_serial is string type (compile-time check)
+    expectTypeOf<LotteryShiftClosing["closing_serial"]>().toBeString();
   });
 
   it("6.7-UNIT-019: should have created_at field of type Date", () => {
     // GIVEN: LotteryShiftClosing type is available
-    // WHEN: Checking created_at field type
-    const closing: { created_at: Date } = mockClosing;
-
-    // THEN: created_at is Date type
-    expect(closing.created_at, "created_at should be Date type").toBeInstanceOf(
-      Date,
-    );
+    // WHEN: Checking created_at field type at compile-time
+    // THEN: created_at is Date type (compile-time check)
+    expectTypeOf<LotteryShiftClosing["created_at"]>().toEqualTypeOf<Date>();
   });
 
   it("6.7-UNIT-020: should have shift relation type", () => {
-    // GIVEN: LotteryShiftClosing type is available
-    // WHEN: Checking shift relation type
-    const closing: { shift: any } = mockClosing;
-
-    // THEN: shift is object type (many-to-one relationship)
-    expect(closing.shift, "shift should be defined").toBeDefined();
-    expect(typeof closing.shift, "shift should be an object").toBe("object");
+    // GIVEN: LotteryShiftClosing type with shift relation is available
+    // WHEN: Checking shift relation type at compile-time
+    // THEN: shift relation type matches Prisma-generated type (compile-time check)
+    type ClosingWithShift = LotteryShiftClosing & { shift: Shift };
+    const closing: ClosingWithShift = mockClosing as ClosingWithShift;
+    expectTypeOf<ClosingWithShift["shift"]>().toEqualTypeOf<Shift>();
   });
 
   it("6.7-UNIT-021: should have pack relation type", () => {
-    // GIVEN: LotteryShiftClosing type is available
-    // WHEN: Checking pack relation type
-    const closing: { pack: any } = mockClosing;
-
-    // THEN: pack is object type (many-to-one relationship)
-    expect(closing.pack, "pack should be defined").toBeDefined();
-    expect(typeof closing.pack, "pack should be an object").toBe("object");
+    // GIVEN: LotteryShiftClosing type with pack relation is available
+    // WHEN: Checking pack relation type at compile-time
+    // THEN: pack relation type matches Prisma-generated type (compile-time check)
+    type ClosingWithPack = LotteryShiftClosing & { pack: LotteryPack };
+    const closing: ClosingWithPack = mockClosing as ClosingWithPack;
+    expectTypeOf<ClosingWithPack["pack"]>().toEqualTypeOf<LotteryPack>();
   });
 
   it("6.7-UNIT-022: SECURITY - should enforce type safety for required fields", () => {

@@ -19,8 +19,9 @@
  * for the LotteryShiftOpening model.
  */
 
-import { describe, it, expect } from "vitest";
-import { PrismaClient } from "@prisma/client";
+import { describe, it, expect, expectTypeOf } from "vitest";
+import { PrismaClient, Prisma } from "@prisma/client";
+import type { LotteryShiftOpening, Shift, LotteryPack } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -52,90 +53,72 @@ describe("6.6-UNIT: LotteryShiftOpening Type Definition", () => {
 
   it("6.6-UNIT-001: should have opening_id field of type string", () => {
     // GIVEN: LotteryShiftOpening type is available
-    // WHEN: Checking opening_id field type
-    const opening: { opening_id: string } = mockOpening;
-
-    // THEN: opening_id is string type
-    expect(typeof opening.opening_id, "opening_id should be string type").toBe(
-      "string",
-    );
+    // WHEN: Assigning opening_id to a typed variable
+    // THEN: TypeScript will fail compilation if Prisma types differ (compile-time check)
+    const opening_id: LotteryShiftOpening["opening_id"] = "test-id";
+    expectTypeOf(opening_id).toBeString();
   });
 
   it("6.6-UNIT-002: should have shift_id field of type string", () => {
     // GIVEN: LotteryShiftOpening type is available
-    // WHEN: Checking shift_id field type
-    const opening: { shift_id: string } = mockOpening;
-
-    // THEN: shift_id is string type
-    expect(typeof opening.shift_id, "shift_id should be string type").toBe(
-      "string",
-    );
+    // WHEN: Assigning shift_id to a typed variable
+    // THEN: TypeScript will fail compilation if Prisma types differ (compile-time check)
+    const shift_id: LotteryShiftOpening["shift_id"] = "test-shift-id";
+    expectTypeOf(shift_id).toBeString();
   });
 
   it("6.6-UNIT-003: should have pack_id field of type string", () => {
     // GIVEN: LotteryShiftOpening type is available
-    // WHEN: Checking pack_id field type
-    const opening: { pack_id: string } = mockOpening;
-
-    // THEN: pack_id is string type
-    expect(typeof opening.pack_id, "pack_id should be string type").toBe(
-      "string",
-    );
+    // WHEN: Assigning pack_id to a typed variable
+    // THEN: TypeScript will fail compilation if Prisma types differ (compile-time check)
+    const pack_id: LotteryShiftOpening["pack_id"] = "test-pack-id";
+    expectTypeOf(pack_id).toBeString();
   });
 
   it("6.6-UNIT-004: should have opening_serial field of type string", () => {
     // GIVEN: LotteryShiftOpening type is available
-    // WHEN: Checking opening_serial field type
-    const opening: { opening_serial: string } = mockOpening;
-
-    // THEN: opening_serial is string type
-    expect(
-      typeof opening.opening_serial,
-      "opening_serial should be string type",
-    ).toBe("string");
+    // WHEN: Assigning opening_serial to a typed variable
+    // THEN: TypeScript will fail compilation if Prisma types differ (compile-time check)
+    const opening_serial: LotteryShiftOpening["opening_serial"] = "184303159650093783374550";
+    expectTypeOf(opening_serial).toBeString();
   });
 
   it("6.6-UNIT-005: should have created_at field of type Date", () => {
     // GIVEN: LotteryShiftOpening type is available
-    // WHEN: Checking created_at field type
-    const opening: { created_at: Date } = mockOpening;
-
-    // THEN: created_at is Date type
-    expect(opening.created_at, "created_at should be Date type").toBeInstanceOf(
-      Date,
-    );
+    // WHEN: Assigning created_at to a typed variable
+    // THEN: TypeScript will fail compilation if Prisma types differ (compile-time check)
+    const created_at: LotteryShiftOpening["created_at"] = new Date();
+    expectTypeOf(created_at).toEqualTypeOf<Date>();
   });
 
   it("6.6-UNIT-006: should have shift relation type", () => {
-    // GIVEN: LotteryShiftOpening type is available
+    // GIVEN: LotteryShiftOpening type with shift relation is available
     // WHEN: Checking shift relation type
-    const opening: { shift: any } = mockOpening;
-
-    // THEN: shift is object type (many-to-one relationship)
-    expect(opening.shift, "shift should be defined").toBeDefined();
-    expect(typeof opening.shift, "shift should be an object").toBe("object");
+    // THEN: shift relation type matches Prisma-generated type (compile-time check)
+    type OpeningWithShift = LotteryShiftOpening & { shift: Shift };
+    const opening: OpeningWithShift = mockOpening as OpeningWithShift;
+    // TypeScript will fail compilation if types don't match - assignment is the compile-time check
+    const shift: Shift = opening.shift;
+    expectTypeOf(shift).toEqualTypeOf<Shift>();
   });
 
   it("6.6-UNIT-007: should have pack relation type", () => {
-    // GIVEN: LotteryShiftOpening type is available
+    // GIVEN: LotteryShiftOpening type with pack relation is available
     // WHEN: Checking pack relation type
-    const opening: { pack: any } = mockOpening;
-
-    // THEN: pack is object type (many-to-one relationship)
-    expect(opening.pack, "pack should be defined").toBeDefined();
-    expect(typeof opening.pack, "pack should be an object").toBe("object");
+    // THEN: pack relation type matches Prisma-generated type (compile-time check)
+    type OpeningWithPack = LotteryShiftOpening & { pack: LotteryPack };
+    const opening: OpeningWithPack = mockOpening as OpeningWithPack;
+    // TypeScript will fail compilation if types don't match - assignment is the compile-time check
+    const pack: LotteryPack = opening.pack;
+    expectTypeOf(pack).toEqualTypeOf<LotteryPack>();
   });
 
   it("6.6-UNIT-008: SECURITY - should enforce type safety for required fields", () => {
     // GIVEN: Types with required fields
-    // WHEN: Checking required field types
-    const opening: {
-      opening_id: string;
-      shift_id: string;
-      pack_id: string;
-      opening_serial: string;
-      created_at: Date;
-    } = {
+    // WHEN: Assigning values to typed variable
+    // THEN: TypeScript will fail compilation if Prisma types differ (compile-time check)
+    // The assignment itself is the compile-time check - TypeScript will error if types don't match
+    const opening: LotteryShiftOpening = {
       opening_id: "test-id",
       shift_id: "test-shift-id",
       pack_id: "test-pack-id",
@@ -143,25 +126,19 @@ describe("6.6-UNIT: LotteryShiftOpening Type Definition", () => {
       created_at: new Date(),
     };
 
-    // THEN: Required fields are properly typed
-    expect(
-      typeof opening.opening_id,
-      "Required opening_id should be string",
-    ).toBe("string");
-    expect(typeof opening.shift_id, "Required shift_id should be string").toBe(
-      "string",
-    );
-    expect(typeof opening.pack_id, "Required pack_id should be string").toBe(
-      "string",
-    );
-    expect(
-      typeof opening.opening_serial,
-      "Required opening_serial should be string",
-    ).toBe("string");
-    expect(
-      opening.created_at,
-      "Required created_at should be Date",
-    ).toBeInstanceOf(Date);
+    // Additional compile-time type verification - assignments will fail if types don't match
+    const opening_id: LotteryShiftOpening["opening_id"] = opening.opening_id;
+    const shift_id: LotteryShiftOpening["shift_id"] = opening.shift_id;
+    const pack_id: LotteryShiftOpening["pack_id"] = opening.pack_id;
+    const opening_serial: LotteryShiftOpening["opening_serial"] = opening.opening_serial;
+    const created_at: LotteryShiftOpening["created_at"] = opening.created_at;
+
+    // Runtime verification (secondary to compile-time checks above)
+    expectTypeOf(opening_id).toBeString();
+    expectTypeOf(shift_id).toBeString();
+    expectTypeOf(pack_id).toBeString();
+    expectTypeOf(opening_serial).toBeString();
+    expectTypeOf(created_at).toEqualTypeOf<Date>();
   });
 
   it("6.6-UNIT-009: should validate Prisma Client model availability", () => {
