@@ -275,3 +275,109 @@ export function validateUpdateStartingCashInput(
 export function safeValidateUpdateStartingCashInput(data: unknown) {
   return UpdateStartingCashSchema.safeParse(data);
 }
+
+/**
+ * Pack Opening Schema
+ * Validates a single pack opening entry
+ * Story 6.6: Shift Lottery Opening
+ */
+export const PackOpeningSchema = z.object({
+  packId: z.string().uuid("packId must be a valid UUID"),
+  openingSerial: z
+    .string()
+    .min(1, "openingSerial is required")
+    .max(100, "openingSerial must be at most 100 characters"),
+});
+
+/**
+ * Shift Lottery Opening Request Schema
+ * Validates the request body for POST /api/shifts/:shiftId/lottery/opening
+ * Story 6.6: Shift Lottery Opening
+ */
+export const ShiftLotteryOpeningSchema = z.object({
+  packOpenings: z
+    .array(PackOpeningSchema)
+    .min(1, "At least one pack opening is required"),
+});
+
+/**
+ * Type inference from schemas
+ */
+export type PackOpeningInput = z.infer<typeof PackOpeningSchema>;
+export type ShiftLotteryOpeningInput = z.infer<
+  typeof ShiftLotteryOpeningSchema
+>;
+
+/**
+ * Validate shift lottery opening request and return typed result
+ * @param data - Raw payload data
+ * @returns Validated and typed shift lottery opening input
+ * @throws ZodError if validation fails
+ */
+export function validateShiftLotteryOpeningInput(
+  data: unknown,
+): ShiftLotteryOpeningInput {
+  return ShiftLotteryOpeningSchema.parse(data);
+}
+
+/**
+ * Safe validation that returns result object instead of throwing
+ * @param data - Raw payload data
+ * @returns SafeParseResult with success flag and data/error
+ */
+export function safeValidateShiftLotteryOpeningInput(data: unknown) {
+  return ShiftLotteryOpeningSchema.safeParse(data);
+}
+
+/**
+ * Pack Closing Schema
+ * Validates a single pack closing entry
+ * Story 6.7: Shift Lottery Closing and Reconciliation
+ */
+export const PackClosingSchema = z.object({
+  packId: z.string().uuid("packId must be a valid UUID"),
+  closingSerial: z
+    .string()
+    .min(1, "closingSerial is required")
+    .max(100, "closingSerial must be at most 100 characters"),
+});
+
+/**
+ * Shift Lottery Closing Request Schema
+ * Validates the request body for POST /api/shifts/:shiftId/lottery/closing
+ * Story 6.7: Shift Lottery Closing and Reconciliation
+ */
+export const ShiftLotteryClosingSchema = z.object({
+  packClosings: z
+    .array(PackClosingSchema)
+    .min(1, "At least one pack closing is required"),
+});
+
+/**
+ * Type inference from schemas
+ */
+export type PackClosingInput = z.infer<typeof PackClosingSchema>;
+export type ShiftLotteryClosingInput = z.infer<
+  typeof ShiftLotteryClosingSchema
+>;
+
+/**
+ * Validate shift lottery closing request and return typed result
+ * @param data - Raw payload data
+ * @returns Validated and typed shift lottery closing input
+ * @throws ZodError if validation fails
+ */
+export function validateShiftLotteryClosingInput(
+  data: unknown,
+): ShiftLotteryClosingInput {
+  return ShiftLotteryClosingSchema.parse(data);
+}
+
+/**
+ * Safe validation that returns result object instead of throwing
+ * @param data - Raw payload data
+ * @returns SafeParseResult with success flag and data/error
+ */
+export function safeValidateShiftLotteryClosingInput(data: unknown) {
+  return ShiftLotteryClosingSchema.safeParse(data);
+}

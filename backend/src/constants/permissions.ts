@@ -47,6 +47,8 @@ export const INVENTORY_ORDER = "INVENTORY_ORDER";
 // Lottery Permissions
 export const LOTTERY_PACK_RECEIVE = "LOTTERY_PACK_RECEIVE";
 export const LOTTERY_PACK_ACTIVATE = "LOTTERY_PACK_ACTIVATE";
+export const LOTTERY_SHIFT_OPEN = "LOTTERY_SHIFT_OPEN";
+export const LOTTERY_SHIFT_CLOSE = "LOTTERY_SHIFT_CLOSE";
 export const LOTTERY_SHIFT_RECONCILE = "LOTTERY_SHIFT_RECONCILE";
 export const LOTTERY_REPORT = "LOTTERY_REPORT";
 
@@ -121,6 +123,8 @@ export const PERMISSIONS = {
   // Lottery
   LOTTERY_PACK_RECEIVE,
   LOTTERY_PACK_ACTIVATE,
+  LOTTERY_SHIFT_OPEN,
+  LOTTERY_SHIFT_CLOSE,
   LOTTERY_SHIFT_RECONCILE,
   LOTTERY_REPORT,
 
@@ -207,6 +211,8 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   // Lottery
   [LOTTERY_PACK_RECEIVE]: "Receive lottery packs",
   [LOTTERY_PACK_ACTIVATE]: "Activate lottery packs",
+  [LOTTERY_SHIFT_OPEN]: "Open shifts with lottery pack openings",
+  [LOTTERY_SHIFT_CLOSE]: "Close shifts with lottery pack closings",
   [LOTTERY_SHIFT_RECONCILE]: "Reconcile lottery during shift",
   [LOTTERY_REPORT]: "Generate lottery reports",
 
@@ -280,6 +286,9 @@ export const PERMISSION_CATEGORIES = {
     description: "Permissions for lottery pack management and reconciliation",
     permissions: [
       LOTTERY_PACK_RECEIVE,
+      LOTTERY_PACK_ACTIVATE,
+      LOTTERY_SHIFT_OPEN,
+      LOTTERY_SHIFT_CLOSE,
       LOTTERY_SHIFT_RECONCILE,
       LOTTERY_REPORT,
     ],
@@ -362,6 +371,9 @@ export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
 
   // Lottery - Scratch-off pack management
   LOTTERY_PACK_RECEIVE,
+  LOTTERY_PACK_ACTIVATE,
+  LOTTERY_SHIFT_OPEN,
+  LOTTERY_SHIFT_CLOSE,
   LOTTERY_SHIFT_RECONCILE,
   LOTTERY_REPORT,
 

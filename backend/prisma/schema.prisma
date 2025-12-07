@@ -38,6 +38,7 @@ model User {
   roles_deleted           Role[]                 @relation("RoleDeleter")
   company_roles_assigned  CompanyAllowedRole[]   @relation("CompanyAllowedRoleAssigner")
   bulk_import_jobs        BulkImportJob[]        @relation("BulkImportJobUser")
+  variance_approvals      LotteryVariance[]      @relation("VarianceApprover")
   cashiers_created        Cashier[]              @relation("CashierCreatedBy")
   cashiers_updated        Cashier[]              @relation("CashierUpdatedBy")
   cashier_sessions_auth   CashierSession[]       @relation("CashierSessionAuthenticator")
@@ -365,6 +366,9 @@ model Shift {
   store            Store            @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
   transactions     Transaction[]
   cashier_sessions CashierSession[]
+  lottery_openings LotteryShiftOpening[]
+  lottery_closings LotteryShiftClosing[]
+  lottery_variances LotteryVariance[]
 
   @@index([store_id])
   @@index([opened_by])
@@ -567,6 +571,9 @@ model LotteryPack {
   game          LotteryGame        @relation(fields: [game_id], references: [game_id], onDelete: Cascade)
   store         Store              @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
   bin           LotteryBin?       @relation(fields: [current_bin_id], references: [bin_id], onDelete: SetNull)
+  shift_openings LotteryShiftOpening[]
+  shift_closings LotteryShiftClosing[]
+  variances     LotteryVariance[]
   
   @@index([game_id])
   @@index([store_id])
@@ -593,4 +600,60 @@ model LotteryBin {
   
   @@index([store_id])
   @@map("lottery_bins")
+}
+
+/// Lottery Shift Opening - Tracks lottery pack openings for shifts
+/// Story 6.6: Shift Lottery Opening
+/// Tenant isolation enforced via store_id through Shift and LotteryPack relationships
+model LotteryShiftOpening {
+  opening_id    String   @id @default(uuid()) @db.Uuid
+  shift_id      String   @db.Uuid
+  pack_id       String   @db.Uuid
+  opening_serial String  @db.VarChar(100)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  
+  shift         Shift    @relation(fields: [shift_id], references: [shift_id], onDelete: Cascade)
+  pack          LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  
+  @@unique([shift_id, pack_id])
+  @@index([shift_id])
+  @@index([pack_id])
+  @@map("lottery_shift_openings")
+}
+
+model LotteryShiftClosing {
+  closing_id     String   @id @default(uuid()) @db.Uuid
+  shift_id       String   @db.Uuid
+  pack_id        String   @db.Uuid
+  closing_serial String   @db.VarChar(100)
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  
+  shift          Shift    @relation(fields: [shift_id], references: [shift_id], onDelete: Cascade)
+  pack           LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  
+  @@unique([shift_id, pack_id])
+  @@index([shift_id])
+  @@index([pack_id])
+  @@map("lottery_shift_closings")
+}
+
+model LotteryVariance {
+  variance_id  String    @id @default(uuid()) @db.Uuid
+  shift_id     String    @db.Uuid
+  pack_id      String    @db.Uuid
+  expected     Int
+  actual       Int
+  difference   Int
+  reason       String?   @db.Text
+  approved_by  String?   @db.Uuid
+  approved_at  DateTime? @db.Timestamptz(6)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  
+  shift        Shift     @relation(fields: [shift_id], references: [shift_id], onDelete: Cascade)
+  pack         LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  approver     User?     @relation("VarianceApprover", fields: [approved_by], references: [user_id], onDelete: SetNull)
+  
+  @@index([shift_id])
+  @@index([pack_id])
+  @@map("lottery_variances")
 }
