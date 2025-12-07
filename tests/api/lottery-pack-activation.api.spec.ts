@@ -105,10 +105,6 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
       "",
     );
     // Verify activated_at is a valid ISO date string
-    expect(
-      () => new Date(body.data.activated_at),
-      "activated_at should be a valid ISO date string",
-    ).not.toThrow();
     const activatedDate = new Date(body.data.activated_at);
     expect(
       activatedDate.getTime(),
@@ -831,8 +827,7 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     storeManagerUser,
     prismaClient,
   }) => {
-    // GIVEN: I am authenticated as a Store Manager with a pack that is already ACTIVE
-    // This simulates the scenario where another request already activated the pack
+    // GIVEN: I am authenticated as a Store Manager with a pack in RECEIVED status
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
     });
@@ -842,29 +837,50 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
       pack_number: "PACK-010a",
       serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
-      status: "ACTIVE", // Already activated
+      status: "RECEIVED",
     });
 
-    // WHEN: Attempting to activate an already-active pack
-    const response = await storeManagerApiRequest.put(
-      `/api/lottery/packs/${pack.pack_id}/activate`,
+    // WHEN: Making two concurrent activation requests
+    const [response1, response2] = await Promise.all([
+      storeManagerApiRequest.put(`/api/lottery/packs/${pack.pack_id}/activate`),
+      storeManagerApiRequest.put(`/api/lottery/packs/${pack.pack_id}/activate`),
+    ]);
+
+    // THEN: One request succeeds, the other fails with INVALID_PACK_STATUS
+    const responses = [response1, response2];
+    const statuses = responses.map((r) => r.status());
+    expect(
+      statuses.filter((s) => s === 200).length,
+      "Exactly one request should succeed",
+    ).toBe(1);
+    expect(
+      statuses.filter((s) => s === 400).length,
+      "Exactly one request should fail with 400",
+    ).toBe(1);
+
+    // Validate successful response
+    const successfulResponse = responses.find((r) => r.status() === 200);
+    const successBody = await successfulResponse!.json();
+    expect(
+      successBody.success,
+      "Successful response should indicate success",
+    ).toBe(true);
+    expect(successBody.data.status, "Pack status should be ACTIVE").toBe(
+      "ACTIVE",
     );
 
-    // THEN: Request is rejected with 400 Bad Request (invalid status)
-    expect(response.status(), "Should return 400 for already-active pack").toBe(
-      400,
-    );
-    const body = await response.json();
-    expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error.code, "Error code should be INVALID_PACK_STATUS").toBe(
-      "INVALID_PACK_STATUS",
+    // Validate failed response
+    const failedResponse = responses.find((r) => r.status() === 400);
+    const failedBody = await failedResponse!.json();
+    expect(failedBody.success, "Failed response should indicate failure").toBe(
+      false,
     );
     expect(
-      body.error.message,
-      "Error message should mention current status",
-    ).toMatch(/ACTIVE/i);
+      failedBody.error.code,
+      "Error code should be INVALID_PACK_STATUS",
+    ).toBe("INVALID_PACK_STATUS");
 
-    // AND: Pack status remains ACTIVE
+    // AND: Pack is ACTIVE (only activated once)
     const updatedPack = await prismaClient.lotteryPack.findUnique({
       where: { pack_id: pack.pack_id },
     });

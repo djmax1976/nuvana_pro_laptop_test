@@ -154,6 +154,49 @@ function createJSONContent(transactions: any[]): string {
 }
 
 /**
+ * Retries a request with exponential backoff on 429 rate limit errors.
+ * This ensures security tests get the actual security response, not rate limit errors.
+ * @param requestFn Function that makes the API request and returns a response
+ * @param maxRetries Maximum number of retries (default: 3)
+ * @returns The response from the final attempt (non-429)
+ */
+async function retryOnRateLimit<T extends { status(): number }>(
+  requestFn: () => Promise<T>,
+  maxRetries: number = 3,
+): Promise<T> {
+  let lastResponse: T;
+  let attempt = 0;
+
+  while (attempt <= maxRetries) {
+    lastResponse = await requestFn();
+
+    // Check status using the status() method (Playwright APIResponse)
+    const status = lastResponse.status();
+
+    // If not 429, return the response immediately
+    if (status !== 429) {
+      return lastResponse;
+    }
+
+    // If 429 and we have retries left, wait with exponential backoff
+    if (attempt < maxRetries) {
+      const delayMs = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      attempt++;
+    } else {
+      // Final attempt returned 429, throw error
+      throw new Error(
+        `Request failed with 429 rate limit after ${maxRetries} retries. ` +
+          `This indicates the test environment rate limit is too low or the test is hitting limits. ` +
+          `Ensure CI=true is set on the backend or increase UPLOAD_RATE_LIMIT_MAX.`,
+      );
+    }
+  }
+
+  return lastResponse!;
+}
+
+/**
  * Polls job status until completion or timeout
  * More reliable than fixed waits for burn-in stability
  */
@@ -1389,19 +1432,18 @@ test.describe("Bulk Import API - File Upload Security", () => {
     const blob = new Blob([csvContent], { type: "text/csv" });
     formData.append("file", blob, "../../../etc/passwd.csv");
 
-    const response = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 with exponential backoff to ensure we get the actual security response
+    const response = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
-    // THEN: Request should either succeed (filename sanitized), fail safely, or be rate limited
-    // Rate limiting (429) is acceptable behavior for file upload endpoints under load
-    expect([202, 400, 429]).toContain(response.status());
+    // THEN: Request should either succeed (filename sanitized) or fail safely
+    // 429 is not acceptable - retries ensure we get the actual security response
+    expect([202, 400]).toContain(response.status());
 
     if (response.status() === 202) {
       // If accepted, verify job was created (filename was sanitized)
@@ -1435,19 +1477,18 @@ test.describe("Bulk Import API - File Upload Security", () => {
     const blob = new Blob([csvContent], { type: "text/csv" });
     formData.append("file", blob, "test\x00.csv");
 
-    const response = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 with exponential backoff to ensure we get the actual security response
+    const response = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
-    // THEN: Request should either succeed (filename sanitized), fail safely, or be rate limited
-    // Rate limiting (429) is acceptable behavior for file upload endpoints under load
-    expect([202, 400, 429]).toContain(response.status());
+    // THEN: Request should either succeed (filename sanitized) or fail safely
+    // 429 is not acceptable - retries ensure we get the actual security response
+    expect([202, 400]).toContain(response.status());
   });
 });
 
@@ -1496,23 +1537,17 @@ test.describe("Bulk Import API - XSS Prevention", () => {
     const blob = new Blob([csvContent], { type: "text/csv" });
     formData.append("file", blob, "xss-test.csv");
 
-    const response = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 with exponential backoff to ensure we get the actual security response
+    const response = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
-    // THEN: File should be accepted (validation happens async) or rate limited
-    // Rate limiting (429) is acceptable behavior for file upload endpoints under load
-    if (response.status() === 429) {
-      // Rate limited - this is acceptable behavior, skip further assertions
-      return;
-    }
-
+    // THEN: File should be accepted (validation happens async)
+    // 429 is not acceptable - retries ensure we get the actual security response
     expect(response.status()).toBe(202);
 
     const body = await response.json();
@@ -1603,23 +1638,17 @@ test.describe("Bulk Import API - Input Validation Edge Cases", () => {
     const blob = new Blob([malformedCsv], { type: "text/csv" });
     formData.append("file", blob, "malformed.csv");
 
-    const response = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 with exponential backoff to ensure we get the actual validation response
+    const response = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
-    // THEN: File should be accepted (parsing errors tracked in job) or rate limited
-    // Rate limiting (429) is acceptable behavior for file upload endpoints under load
-    if (response.status() === 429) {
-      // Rate limited - this is acceptable behavior, skip further assertions
-      return;
-    }
-
+    // THEN: File should be accepted (parsing errors tracked in job)
+    // 429 is not acceptable - retries ensure we get the actual validation response
     expect(response.status()).toBe(202);
 
     const body = await response.json();
@@ -1649,23 +1678,17 @@ test.describe("Bulk Import API - Input Validation Edge Cases", () => {
     const blob = new Blob([invalidJson], { type: "application/json" });
     formData.append("file", blob, "invalid.json");
 
-    const response = await superadminApiRequest.post(
-      "/api/transactions/bulk-import",
-      formData,
-      {
+    // Retry on 429 with exponential backoff to ensure we get the actual validation response
+    const response = await retryOnRateLimit(() =>
+      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
-      },
+      }),
     );
 
-    // THEN: File should be accepted but errors tracked in job, or rate limited
-    // Rate limiting (429) is acceptable behavior for file upload endpoints under load
-    if (response.status() === 429) {
-      // Rate limited - this is acceptable behavior, skip further assertions
-      return;
-    }
-
+    // THEN: File should be accepted but errors tracked in job
+    // 429 is not acceptable - retries ensure we get the actual validation response
     expect(response.status()).toBe(202);
 
     const body = await response.json();
