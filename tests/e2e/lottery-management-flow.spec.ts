@@ -270,8 +270,17 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
         timeout: 10000,
       });
 
-      // Wait for packs to load
-      await page.waitForTimeout(2000);
+      // Wait for packs to load (wait for actual pack element or empty state, not arbitrary time)
+      await Promise.race([
+        page
+          .locator('[data-testid="activate-pack-button"]')
+          .waitFor({ state: "visible", timeout: 10000 })
+          .catch(() => null),
+        page
+          .getByText(/no packs found|no lottery packs/i)
+          .waitFor({ state: "visible", timeout: 10000 })
+          .catch(() => null),
+      ]);
 
       // WHEN: User clicks Activate Pack button
       const activateButton = page.locator(

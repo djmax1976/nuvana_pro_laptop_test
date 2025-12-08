@@ -11,11 +11,14 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import {
   receivePack,
   activatePack,
+  updatePack,
+  deletePack,
   getPacks,
   getPackDetails,
   getVariances,
   approveVariance,
   type ReceivePackInput,
+  type UpdatePackInput,
   type ApproveVarianceInput,
   type LotteryPackQueryFilters,
   type VarianceQueryFilters,
@@ -170,6 +173,56 @@ export function usePackActivation() {
       });
     },
   });
+}
+
+/**
+ * Hook to update a lottery pack
+ * @returns Mutation hook for pack update
+ */
+export function useUpdatePack() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ packId, data }: { packId: string; data: UpdatePackInput }) =>
+      updatePack(packId, data),
+    onSuccess: (_, { packId }) => {
+      // Invalidate pack list and detail queries to refresh after update
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.packs() });
+      queryClient.invalidateQueries({
+        queryKey: lotteryKeys.packDetail(packId),
+      });
+    },
+  });
+}
+
+/**
+ * Hook to delete a lottery pack
+ * @returns Mutation hook for pack deletion
+ */
+export function useDeletePack() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (packId: string) => deletePack(packId),
+    onSuccess: () => {
+      // Invalidate pack list queries to refresh after deletion
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.packs() });
+    },
+  });
+}
+
+/**
+ * Hook to fetch active packs by store
+ * Convenience hook that filters by ACTIVE status
+ * @param storeId - Store UUID (required for RLS enforcement)
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with active packs data
+ */
+export function useActivePacksByStore(
+  storeId: string | null | undefined,
+  options?: { enabled?: boolean },
+) {
+  return useLotteryPacks(storeId, { status: "ACTIVE" }, options);
 }
 
 /**

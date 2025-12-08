@@ -33,7 +33,26 @@ async function loginAndWaitForDashboard(
   email: string,
   password: string,
 ): Promise<void> {
-  await page.goto("/login", { waitUntil: "networkidle" });
+  // Network-first pattern: Intercept API calls BEFORE navigation
+  // This prevents race conditions where requests fire before waits are registered
+  const loginResponsePromise = page.waitForResponse(
+    (resp) =>
+      (resp.url().includes("/api/auth/login") ||
+        resp.url().includes("/api/client/auth/login")) &&
+      resp.status() === 200,
+    { timeout: 30000 },
+  );
+
+  const dashboardDataPromise = page
+    .waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/client/dashboard") && resp.status() === 200,
+      { timeout: 30000 },
+    )
+    .catch(() => null); // Dashboard API might not always fire, that's OK
+
+  // THEN navigate to login page
+  await page.goto("/login", { waitUntil: "domcontentloaded" });
 
   // Wait for login form to be visible and ready for input
   await page.waitForSelector('input[type="email"]', {
@@ -41,8 +60,11 @@ async function loginAndWaitForDashboard(
     timeout: 15000,
   });
 
-  // Small delay to ensure React hydration is complete
-  await page.waitForTimeout(500);
+  // Wait for input to be editable (ensures React hydration is complete)
+  // This is deterministic - waits for actual condition, not arbitrary time
+  await expect(page.locator('input[type="email"]')).toBeEditable({
+    timeout: 10000,
+  });
 
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
@@ -53,11 +75,18 @@ async function loginAndWaitForDashboard(
     waitUntil: "domcontentloaded",
   });
 
-  // Click submit button
+  // Click submit button (triggers login API request)
   await page.click('button[type="submit"]');
+
+  // Wait for login API response (deterministic - waits for actual response)
+  const loginResponse = await loginResponsePromise;
+  expect(loginResponse.status()).toBe(200);
 
   // Wait for navigation to complete
   await navigationPromise;
+
+  // Wait for dashboard data API response if it fires (deterministic)
+  await dashboardDataPromise;
 
   // Wait for page to be fully loaded (including auth context validation)
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {

@@ -521,10 +521,7 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
     // WHEN: Navigating to the company list page
     await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
-    // Wait for React hydration
-    await superadminPage.waitForTimeout(500);
-
-    // THEN: Company list should be visible
+    // THEN: Company list should be visible (wait for actual element, not arbitrary time)
     await expect(
       superadminPage.locator('[data-testid="company-list-container"]'),
     ).toBeVisible({ timeout: 30000 });

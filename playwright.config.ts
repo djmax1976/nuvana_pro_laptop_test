@@ -63,7 +63,7 @@ export default defineConfig({
   projects: [
     {
       name: "e2e",
-      testMatch: "**/e2e/**/*.spec.ts",
+      testMatch: "**/{e2e,integration}/**/*.spec.ts",
       use: {
         ...devices["Desktop Chrome"],
         baseURL: process.env.FRONTEND_URL || "http://localhost:3000",

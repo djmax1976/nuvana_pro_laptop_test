@@ -6,7 +6,7 @@ import { createUser, createCompany } from "../support/factories";
  * @test-level API
  * @justification Tests API endpoints for client role permission management - requires database and auth infrastructure
  * @story 2.92
- * @enhanced-by workflow-9 on 2025-11-28
+ * @enhanced-by workflow-9 on 2025-01-28
  *
  * Client Role Permission Management API Tests
  *

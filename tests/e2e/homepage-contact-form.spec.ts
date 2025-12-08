@@ -94,9 +94,7 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     // GIVEN: User is on homepage contact form with valid data
     await page.goto("/", { waitUntil: "networkidle" });
 
-    // Wait for React hydration
-    await page.waitForTimeout(500);
-
+    // Wait for button to be visible and ready (deterministic, not arbitrary time)
     const getStartedButton = page
       .getByRole("button", { name: /Get Started/i })
       .first();

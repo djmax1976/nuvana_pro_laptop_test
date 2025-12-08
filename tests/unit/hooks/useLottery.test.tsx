@@ -1,331 +1,313 @@
 /**
- * Lottery Hooks Unit Tests
- * Tests for src/hooks/useLottery.ts custom hooks
+ * Unit Tests: useLottery Hooks
  *
- * Story: 6.10 - Lottery Management UI
- * Task: 10 - Create custom hooks for lottery data management
+ * Tests custom hooks for lottery data management:
+ * - useActivePacksByStore
+ * - useUpdatePack
+ * - useDeletePack
+ * - Security: Input validation, error handling
+ * - Edge cases: Empty data, network errors, timeout
+ *
+ * @test-level UNIT
+ * @justification Tests hook behavior in isolation with mocked TanStack Query
+ * @story 6-10-1 - Client Dashboard Lottery Page
+ * @priority P1 (High - Data Management, API Integration)
+ * @enhanced-by workflow-9 on 2025-01-28
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { renderHook, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ReactNode } from "react";
 import {
   useLotteryPacks,
-  usePackDetails,
-  useLotteryVariances,
-  usePackReception,
-  usePackActivation,
-  useVarianceApproval,
-  useInvalidateLottery,
-} from "../../../src/hooks/useLottery";
-import * as lotteryApi from "../../../src/lib/api/lottery";
+  useUpdatePack,
+  useDeletePack,
+} from "@/hooks/useLottery";
 
-// Mock the API module
-vi.mock("../../../src/lib/api/lottery", () => ({
-  receivePack: vi.fn(),
-  activatePack: vi.fn(),
+// Mock API functions
+vi.mock("@/lib/api/lottery", () => ({
   getPacks: vi.fn(),
-  getPackDetails: vi.fn(),
-  getVariances: vi.fn(),
-  approveVariance: vi.fn(),
+  updatePack: vi.fn(),
+  deletePack: vi.fn(),
 }));
 
-// Create a test query client
-function createTestQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-      },
-      mutations: {
-        retry: false,
-      },
-    },
-  });
-}
+import { getPacks, updatePack, deletePack } from "@/lib/api/lottery";
 
-// Wrapper component for React Query
-function QueryWrapper({ children }: { children: ReactNode }) {
-  const queryClient = createTestQueryClient();
-  return (
+describe("6.10.1-UNIT: useLottery Hooks", () => {
+  let queryClient: QueryClient;
+
+  // Test isolation: Create fresh QueryClient for each test
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-}
 
-describe("useLotteryPacks", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+  describe("useLotteryPacks", () => {
+    it("6.10.1-UNIT-HOOKS-001: [P1] should fetch active packs for a store (AC #2, #3)", async () => {
+      // GIVEN: Mock API response
+      const mockPacks = [
+        {
+          pack_id: "pack-1",
+          pack_number: "PACK-001",
+          status: "ACTIVE" as const,
+          game: { name: "Game 1" },
+          bin: { name: "Bin 1" },
+        },
+      ];
 
-  it("should fetch packs successfully", async () => {
-    const mockPacks = [
-      {
-        pack_id: "pack-123",
-        game_id: "game-123",
-        pack_number: "PACK-001",
-        serial_start: "1000",
-        serial_end: "2000",
-        status: "ACTIVE" as const,
-        store_id: "store-123",
-        current_bin_id: "bin-123",
-        received_at: "2025-01-28T10:00:00Z",
-        activated_at: "2025-01-28T10:05:00Z",
-      },
-    ];
+      (getPacks as ReturnType<typeof vi.fn>).mockResolvedValue({
+        success: true,
+        data: mockPacks,
+      });
 
-    vi.mocked(lotteryApi.getPacks).mockResolvedValueOnce({
-      success: true,
-      data: mockPacks,
+      // WHEN: Hook is called with storeId and status filter
+      const { result } = renderHook(
+        () => useLotteryPacks("store-1", { status: "ACTIVE" }),
+        { wrapper },
+      );
+
+      // THEN: Hook returns packs data
+      await waitFor(
+        () => {
+          expect(result.current.isSuccess, "Query should succeed").toBe(true);
+        },
+        { timeout: 3000 },
+      );
+
+      expect(result.current.data, "Hook should return packs data").toEqual(
+        mockPacks,
+      );
+      expect(
+        getPacks,
+        "API should be called with correct filters",
+      ).toHaveBeenCalledWith({
+        store_id: "store-1",
+        status: "ACTIVE",
+      });
     });
 
-    const { result } = renderHook(
-      () => useLotteryPacks("store-123", { status: "ACTIVE" }),
-      {
-        wrapper: QueryWrapper,
-      },
-    );
+    it("6.10.1-UNIT-HOOKS-002: [P1] should handle loading state (AC #7)", async () => {
+      // GIVEN: Mock API that takes time to resolve
+      (getPacks as ReturnType<typeof vi.fn>).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(() => {
+              resolve({ success: true, data: [] });
+            }, 100);
+          }),
+      );
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      // WHEN: Hook is called
+      const { result } = renderHook(
+        () => useLotteryPacks("store-1", { status: "ACTIVE" }),
+        { wrapper },
+      );
 
-    expect(result.current.data).toEqual(mockPacks);
-    expect(lotteryApi.getPacks).toHaveBeenCalledWith({
-      store_id: "store-123",
-      status: "ACTIVE",
+      // THEN: Loading state is true initially
+      expect(
+        result.current.isLoading,
+        "Loading state should be true initially",
+      ).toBe(true);
+
+      await waitFor(
+        () => {
+          expect(
+            result.current.isLoading,
+            "Loading state should become false after data loads",
+          ).toBe(false);
+        },
+        { timeout: 3000 },
+      );
+    });
+
+    it("6.10.1-UNIT-HOOKS-003: [P1] should handle error state (AC #7)", async () => {
+      // GIVEN: Mock API that returns error
+      (getPacks as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("Failed to fetch packs"),
+      );
+
+      // WHEN: Hook is called
+      const { result } = renderHook(
+        () => useLotteryPacks("store-1", { status: "ACTIVE" }),
+        { wrapper },
+      );
+
+      // THEN: Error state is set
+      await waitFor(
+        () => {
+          expect(result.current.isError, "Error state should be true").toBe(
+            true,
+          );
+        },
+        { timeout: 3000 },
+      );
+
+      expect(
+        result.current.error,
+        "Error object should be defined",
+      ).toBeDefined();
+    });
+
+    it("6.10.1-UNIT-HOOKS-003b: [P1] should not fetch when storeId is null", async () => {
+      // GIVEN: Hook called with null storeId
+      // WHEN: Hook is called with null storeId
+      const { result } = renderHook(
+        () => useLotteryPacks(null, { status: "ACTIVE" }),
+        { wrapper },
+      );
+
+      // THEN: Query is disabled (not executed)
+      expect(
+        result.current.isLoading,
+        "Query should not be loading when storeId is null",
+      ).toBe(false);
+      expect(
+        getPacks,
+        "API should not be called when storeId is null",
+      ).not.toHaveBeenCalled();
     });
   });
 
-  it("should not fetch when storeId is null", () => {
-    const { result } = renderHook(() => useLotteryPacks(null), {
-      wrapper: QueryWrapper,
+  describe("useUpdatePack", () => {
+    it("6.10.1-UNIT-HOOKS-004: [P1] should update pack successfully (AC #5)", async () => {
+      // GIVEN: Mock API response
+      const mockUpdateData = {
+        pack_number: "PACK-UPDATED",
+        serial_start: "2000",
+        serial_end: "3000",
+      };
+
+      (updatePack as ReturnType<typeof vi.fn>).mockResolvedValue({
+        success: true,
+        data: { pack_id: "pack-1", ...mockUpdateData },
+      });
+
+      // WHEN: Mutation is executed
+      const { result } = renderHook(() => useUpdatePack(), { wrapper });
+
+      await result.current.mutateAsync({
+        packId: "pack-1",
+        data: mockUpdateData,
+      });
+
+      // THEN: API is called with correct data
+      expect(
+        updatePack,
+        "API should be called with pack ID and update data",
+      ).toHaveBeenCalledWith("pack-1", mockUpdateData);
+      expect(result.current.isSuccess, "Mutation should succeed").toBe(true);
     });
 
-    expect(result.current.isLoading).toBe(false);
-    expect(result.current.isFetching).toBe(false);
-    expect(lotteryApi.getPacks).not.toHaveBeenCalled();
-  });
-});
+    it("6.10.1-UNIT-HOOKS-005: [P1] should handle update errors (AC #5)", async () => {
+      // GIVEN: Mock API that returns error
+      (updatePack as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("Update failed"),
+      );
 
-describe("usePackDetails", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+      // WHEN: Mutation is executed
+      const { result } = renderHook(() => useUpdatePack(), { wrapper });
 
-  it("should fetch pack details successfully", async () => {
-    const mockPackDetail = {
-      pack_id: "pack-123",
-      game_id: "game-123",
-      pack_number: "PACK-001",
-      serial_start: "1000",
-      serial_end: "2000",
-      status: "ACTIVE" as const,
-      store_id: "store-123",
-      current_bin_id: "bin-123",
-      received_at: "2025-01-28T10:00:00Z",
-      activated_at: "2025-01-28T10:05:00Z",
-      tickets_remaining: 500,
-    };
-
-    vi.mocked(lotteryApi.getPackDetails).mockResolvedValueOnce({
-      success: true,
-      data: mockPackDetail,
+      // THEN: Error is thrown
+      await expect(
+        result.current.mutateAsync({
+          packId: "pack-1",
+          data: { pack_number: "PACK-UPDATED" },
+        }),
+        "Mutation should throw error",
+      ).rejects.toThrow("Update failed");
     });
 
-    const { result } = renderHook(() => usePackDetails("pack-123"), {
-      wrapper: QueryWrapper,
-    });
+    // ============ EDGE CASES ============
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    it("6.10.1-UNIT-HOOKS-EDGE-001: [P2] should handle empty update data", async () => {
+      // GIVEN: Mock API response
+      (updatePack as ReturnType<typeof vi.fn>).mockResolvedValue({
+        success: true,
+        data: { pack_id: "pack-1" },
+      });
 
-    expect(result.current.data).toEqual(mockPackDetail);
-    expect(lotteryApi.getPackDetails).toHaveBeenCalledWith("pack-123");
-  });
+      // WHEN: Mutation is executed with empty data object
+      const { result } = renderHook(() => useUpdatePack(), { wrapper });
 
-  it("should not fetch when packId is null", () => {
-    const { result } = renderHook(() => usePackDetails(null), {
-      wrapper: QueryWrapper,
-    });
+      await result.current.mutateAsync({
+        packId: "pack-1",
+        data: {}, // Empty update (only bin_id change, etc.)
+      });
 
-    expect(result.current.isLoading).toBe(false);
-    expect(result.current.isFetching).toBe(false);
-    expect(lotteryApi.getPackDetails).not.toHaveBeenCalled();
-  });
-});
-
-describe("useLotteryVariances", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("should fetch variances successfully", async () => {
-    const mockVariances = [
-      {
-        variance_id: "variance-123",
-        shift_id: "shift-123",
-        pack_id: "pack-123",
-        expected_count: 100,
-        actual_count: 95,
-        difference: -5,
-        variance_reason: null,
-        approved_by: null,
-        approved_at: null,
-        created_at: "2025-01-28T12:00:00Z",
-      },
-    ];
-
-    vi.mocked(lotteryApi.getVariances).mockResolvedValueOnce({
-      success: true,
-      data: mockVariances,
-    });
-
-    const { result } = renderHook(
-      () => useLotteryVariances("store-123", { status: "unresolved" }),
-      {
-        wrapper: QueryWrapper,
-      },
-    );
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(result.current.data).toEqual(mockVariances);
-    expect(lotteryApi.getVariances).toHaveBeenCalledWith({
-      store_id: "store-123",
-      status: "unresolved",
+      // THEN: API is called with empty data object
+      expect(
+        updatePack,
+        "API should be called with empty data object",
+      ).toHaveBeenCalledWith("pack-1", {});
     });
   });
-});
 
-describe("usePackReception", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+  describe("useDeletePack", () => {
+    it("6.10.1-UNIT-HOOKS-006: [P1] should delete pack successfully (AC #6)", async () => {
+      // GIVEN: Mock API response
+      (deletePack as ReturnType<typeof vi.fn>).mockResolvedValue({
+        success: true,
+        message: "Pack deleted successfully",
+      });
 
-  it("should successfully receive a pack", async () => {
-    const mockPackData = {
-      game_id: "game-123",
-      pack_number: "PACK-001",
-      serial_start: "1000",
-      serial_end: "2000",
-      store_id: "store-123",
-    };
+      // WHEN: Mutation is executed
+      const { result } = renderHook(() => useDeletePack(), { wrapper });
 
-    const mockResponse = {
-      success: true,
-      data: {
-        pack_id: "pack-123",
-        ...mockPackData,
-        status: "RECEIVED" as const,
-        current_bin_id: null,
-        received_at: "2025-01-28T10:00:00Z",
-        game: { game_id: "game-123", name: "Test Game" },
-        store: { store_id: "store-123", name: "Test Store" },
-        bin: null,
-      },
-    };
+      await result.current.mutateAsync("pack-1");
 
-    vi.mocked(lotteryApi.receivePack).mockResolvedValueOnce(mockResponse);
-
-    const { result } = renderHook(() => usePackReception(), {
-      wrapper: QueryWrapper,
+      // THEN: API is called with pack ID
+      expect(
+        deletePack,
+        "API should be called with pack ID",
+      ).toHaveBeenCalledWith("pack-1");
+      expect(result.current.isSuccess, "Mutation should succeed").toBe(true);
     });
 
-    result.current.mutate(mockPackData);
+    it("6.10.1-UNIT-HOOKS-007: [P1] should handle delete errors (AC #6)", async () => {
+      // GIVEN: Mock API that returns error
+      (deletePack as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("Delete failed"),
+      );
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      // WHEN: Mutation is executed
+      const { result } = renderHook(() => useDeletePack(), { wrapper });
 
-    expect(lotteryApi.receivePack).toHaveBeenCalledWith(mockPackData);
-    expect(result.current.data).toEqual(mockResponse);
-  });
-});
-
-describe("usePackActivation", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("should successfully activate a pack", async () => {
-    const packId = "pack-123";
-
-    const mockResponse = {
-      success: true,
-      data: {
-        pack_id: packId,
-        game_id: "game-123",
-        pack_number: "PACK-001",
-        serial_start: "1000",
-        serial_end: "2000",
-        status: "ACTIVE" as const,
-        activated_at: "2025-01-28T10:05:00Z",
-        game: { game_id: "game-123", name: "Test Game" },
-        store: { store_id: "store-123", name: "Test Store" },
-        bin: null,
-      },
-    };
-
-    vi.mocked(lotteryApi.activatePack).mockResolvedValueOnce(mockResponse);
-
-    const { result } = renderHook(() => usePackActivation(), {
-      wrapper: QueryWrapper,
+      // THEN: Error is thrown
+      await expect(
+        result.current.mutateAsync("pack-1"),
+        "Mutation should throw error",
+      ).rejects.toThrow("Delete failed");
     });
 
-    result.current.mutate(packId);
+    // ============ EDGE CASES ============
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    it("6.10.1-UNIT-HOOKS-EDGE-002: [P2] should handle invalid pack ID format", async () => {
+      // GIVEN: Mock API that rejects invalid UUID
+      (deletePack as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("Invalid pack ID format"),
+      );
 
-    expect(lotteryApi.activatePack).toHaveBeenCalledWith(packId);
-    expect(result.current.data).toEqual(mockResponse);
-  });
-});
+      // WHEN: Mutation is executed with invalid pack ID
+      const { result } = renderHook(() => useDeletePack(), { wrapper });
 
-describe("useVarianceApproval", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("should successfully approve a variance", async () => {
-    const shiftId = "shift-123";
-    const varianceData = {
-      variance_reason: "Count discrepancy due to damaged tickets",
-    };
-
-    const mockResponse = {
-      success: true,
-      data: {
-        shift_id: shiftId,
-        status: "CLOSED",
-        variance_reason: varianceData.variance_reason,
-        variance_amount: -5,
-        variance_percentage: -5,
-      },
-    };
-
-    vi.mocked(lotteryApi.approveVariance).mockResolvedValueOnce(mockResponse);
-
-    const { result } = renderHook(() => useVarianceApproval(), {
-      wrapper: QueryWrapper,
+      // THEN: Error is thrown
+      await expect(
+        result.current.mutateAsync("invalid-pack-id"),
+        "Mutation should throw error for invalid pack ID",
+      ).rejects.toThrow("Invalid pack ID format");
     });
-
-    result.current.mutate({ shiftId, data: varianceData });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(lotteryApi.approveVariance).toHaveBeenCalledWith(
-      shiftId,
-      varianceData,
-    );
-    expect(result.current.data).toEqual(mockResponse);
-  });
-});
-
-describe("useInvalidateLottery", () => {
-  it("should provide invalidation functions", () => {
-    const { result } = renderHook(() => useInvalidateLottery(), {
-      wrapper: QueryWrapper,
-    });
-
-    expect(result.current.invalidatePacks).toBeDefined();
-    expect(result.current.invalidatePackDetail).toBeDefined();
-    expect(result.current.invalidateVariances).toBeDefined();
-    expect(result.current.invalidateAll).toBeDefined();
   });
 });

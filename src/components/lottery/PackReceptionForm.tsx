@@ -2,33 +2,21 @@
 
 /**
  * Pack Reception Form Component
- * Form for receiving a new lottery pack
+ * Form for receiving lottery packs via 24-digit serialized numbers
  *
- * Story: 6.10 - Lottery Management UI
- * AC #2: Pack reception form with game selection, pack_number, serial range, bin assignment
+ * Story: 6.12 - Serialized Pack Reception with Batch Processing
+ * AC #1, #2, #3, #4, #5: Serialized input, parsing, validation, batch submission
  */
 
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  type ChangeEvent,
+} from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -38,137 +26,227 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
-import { useState } from "react";
+import { Loader2, X } from "lucide-react";
+import { receivePackBatch } from "@/lib/api/lottery";
+import { parseSerializedNumber } from "@/lib/utils/lottery-serial-parser";
 
 /**
- * Form validation schema matching backend pack reception schema
- * Mirrors backend validation client-side for immediate feedback
- * Required: game_id, pack_number, serial_start, serial_end
- * Optional: bin_id
+ * Pack item in reception list
  */
-const packReceptionFormSchema = z
-  .object({
-    game_id: z.string().uuid("Game must be selected"),
-    pack_number: z
-      .string()
-      .min(1, "Pack number is required")
-      .max(50, "Pack number must be 50 characters or less")
-      .trim(),
-    serial_start: z
-      .string()
-      .min(1, "Serial start is required")
-      .max(100, "Serial start must be 100 characters or less")
-      .regex(/^\d+$/, "Serial start must contain only numeric characters")
-      .trim(),
-    serial_end: z
-      .string()
-      .min(1, "Serial end is required")
-      .max(100, "Serial end must be 100 characters or less")
-      .regex(/^\d+$/, "Serial end must contain only numeric characters")
-      .trim(),
-    bin_id: z
-      .string()
-      .uuid("Bin must be a valid UUID")
-      .optional()
-      .or(z.literal("")),
-  })
-  .refine(
-    (data) => {
-      // Validate serial_end >= serial_start (numeric comparison)
-      const start = parseInt(data.serial_start, 10);
-      const end = parseInt(data.serial_end, 10);
-      if (isNaN(start) || isNaN(end)) {
-        return false;
-      }
-      return end >= start;
-    },
-    {
-      message: "Serial end must be greater than or equal to serial start",
-      path: ["serial_end"],
-    },
-  );
-
-type PackReceptionFormValues = z.infer<typeof packReceptionFormSchema>;
-
-/**
- * Game option for dropdown
- */
-export interface GameOption {
-  game_id: string;
-  name: string;
-  description?: string;
-}
-
-/**
- * Bin option for dropdown
- */
-export interface BinOption {
-  bin_id: string;
-  name: string;
-  location?: string;
+interface PackItem {
+  serial: string;
+  game_code: string;
+  pack_number: string;
+  serial_start: string;
+  game_name?: string;
+  game_id?: string;
+  error?: string;
+  isValidating?: boolean;
 }
 
 interface PackReceptionFormProps {
   storeId: string;
-  games: GameOption[];
-  bins?: BinOption[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
-  onSubmit: (
-    data: PackReceptionFormValues & { store_id: string },
-  ) => Promise<void>;
 }
 
 /**
  * PackReceptionForm component
- * Dialog form for receiving a new lottery pack
- * Uses React Hook Form with Zod validation matching backend schema
+ * Dialog form for receiving lottery packs via serialized numbers
+ * Supports batch processing with auto-generating input fields
  */
 export function PackReceptionForm({
   storeId,
-  games,
-  bins = [],
   open,
   onOpenChange,
   onSuccess,
-  onSubmit,
 }: PackReceptionFormProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [packList, setPackList] = useState<PackItem[]>([]);
+  const [inputValue, setInputValue] = useState<string>("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
-  const form = useForm<PackReceptionFormValues>({
-    resolver: zodResolver(packReceptionFormSchema),
-    defaultValues: {
-      game_id: "",
-      pack_number: "",
-      serial_start: "",
-      serial_end: "",
-      bin_id: "",
+  // Clear debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+      }
+    };
+  }, []);
+
+  // Reset form when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setPackList([]);
+      setInputValue("");
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+        debounceTimer.current = null;
+      }
+    }
+  }, [open]);
+
+  // Maintain focus on input after clearing
+  useEffect(() => {
+    if (open && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [open, packList.length]);
+
+  /**
+   * Clear input and refocus for next entry
+   */
+  const clearInputAndFocus = useCallback(() => {
+    setInputValue("");
+    // Focus will be maintained via the useEffect that triggers on packList.length changes
+  }, []);
+
+  /**
+   * Parse and add serialized number to list
+   * Client-side parsing only - validation happens on batch submit
+   */
+  const handleSerialComplete = useCallback(
+    (serial: string): void => {
+      // Validate format first (client-side)
+      if (!/^\d{24}$/.test(serial)) {
+        // Not yet 24 digits - wait for more input
+        return;
+      }
+
+      try {
+        // Parse serial client-side
+        const parsed = parseSerializedNumber(serial);
+
+        // Check if pack already exists in list (duplicate in same session)
+        const existingPack = packList.find((p) => p.serial === serial);
+        if (existingPack) {
+          toast({
+            title: "Duplicate pack",
+            description: "Pack already exists in reception list",
+            variant: "destructive",
+          });
+          // Clear input and maintain focus for retry
+          clearInputAndFocus();
+          return;
+        }
+
+        // Add to list optimistically (validation happens on submit)
+        const newPack: PackItem = {
+          serial,
+          game_code: parsed.game_code,
+          pack_number: parsed.pack_number,
+          serial_start: parsed.serial_start,
+        };
+
+        setPackList((prev) => [...prev, newPack]);
+
+        // Clear input for next entry (focus maintained via useEffect)
+        clearInputAndFocus();
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Invalid serial format";
+        toast({
+          title: "Invalid serial",
+          description: errorMessage,
+          variant: "destructive",
+        });
+        // Clear input on error too
+        clearInputAndFocus();
+      }
     },
-  });
+    [packList, toast, clearInputAndFocus],
+  );
 
-  const handleSubmit = async (values: PackReceptionFormValues) => {
+  /**
+   * Handle input change with debouncing
+   */
+  const handleInputChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const cleanedValue = e.target.value.replace(/\D/g, ""); // Only allow digits
+      setInputValue(cleanedValue);
+
+      // Clear existing debounce timer
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+      }
+
+      // Set new debounce timer (400ms delay)
+      debounceTimer.current = setTimeout(() => {
+        if (cleanedValue.length === 24) {
+          handleSerialComplete(cleanedValue);
+        }
+      }, 400);
+    },
+    [handleSerialComplete],
+  );
+
+  /**
+   * Remove pack from list
+   */
+  const handleRemovePack = useCallback((index: number) => {
+    setPackList((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  /**
+   * Handle batch submission
+   */
+  const handleSubmit = useCallback(async () => {
+    if (packList.length === 0) {
+      toast({
+        title: "No packs to receive",
+        description: "Please enter at least one valid pack",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      await onSubmit({
-        ...values,
+      // Submit all packs via batch API
+      const serials = packList.map((pack) => pack.serial);
+      const response = await receivePackBatch({
+        serialized_numbers: serials,
         store_id: storeId,
-        bin_id: values.bin_id || undefined,
       });
 
-      toast({
-        title: "Pack received",
-        description: `Pack ${values.pack_number} has been received successfully.`,
-      });
+      if (response.success && response.data) {
+        const createdCount = response.data.created.length;
+        const duplicateCount = response.data.duplicates.length;
+        const errorCount = response.data.errors.length;
 
-      form.reset();
-      onOpenChange(false);
-      onSuccess?.();
+        if (createdCount > 0) {
+          toast({
+            title: "Packs received",
+            description: `Successfully received ${createdCount} pack(s)${
+              duplicateCount > 0
+                ? `, ${duplicateCount} duplicate(s) skipped`
+                : ""
+            }${errorCount > 0 ? `, ${errorCount} error(s)` : ""}`,
+          });
+        } else {
+          toast({
+            title: "No packs received",
+            description: "All packs were duplicates or had errors",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Reset form
+        setPackList([]);
+        setInputValue("");
+        onOpenChange(false);
+        onSuccess?.();
+      } else {
+        throw new Error("Batch submission failed");
+      }
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : "Failed to receive pack";
+        error instanceof Error ? error.message : "Failed to receive packs";
       toast({
         title: "Error",
         description: errorMessage,
@@ -177,213 +255,107 @@ export function PackReceptionForm({
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [packList, storeId, toast, onOpenChange, onSuccess]);
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!isSubmitting) {
       onOpenChange(newOpen);
-      if (!newOpen) {
-        form.reset();
-      }
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Receive Lottery Pack</DialogTitle>
+          <DialogTitle>Receive Lottery Packs</DialogTitle>
           <DialogDescription>
-            Enter pack information to receive a new lottery pack. The pack will
-            be created with RECEIVED status.
+            Enter 24-digit serialized numbers to receive multiple packs. The
+            form will automatically validate and add packs to the reception
+            list.
           </DialogDescription>
         </DialogHeader>
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(handleSubmit)}
-            className="space-y-4"
-          >
-            {/* Game Selection */}
-            <FormField
-              control={form.control}
-              name="game_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Game</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                    disabled={isSubmitting}
+
+        <div className="space-y-4">
+          {/* Single Input Field */}
+          <div className="space-y-2">
+            <label htmlFor="serial-input" className="text-sm font-medium">
+              Serialized Number (24 digits)
+            </label>
+            <Input
+              id="serial-input"
+              ref={inputRef}
+              value={inputValue}
+              onChange={handleInputChange}
+              placeholder="000000000000000000000000"
+              disabled={isSubmitting}
+              maxLength={24}
+              data-testid="serial-input"
+              className="font-mono"
+              autoFocus
+              aria-label="Enter 24-digit serialized number"
+            />
+          </div>
+
+          {/* Pack List */}
+          {packList.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">
+                  Packs Ready to Receive ({packList.length})
+                </label>
+              </div>
+              <div className="border rounded-md divide-y max-h-60 overflow-y-auto">
+                {packList.map((pack, index) => (
+                  <div
+                    key={index}
+                    className="p-3 flex items-center justify-between hover:bg-muted/50"
                   >
-                    <FormControl>
-                      <SelectTrigger data-testid="game-select">
-                        <SelectValue placeholder="Select a game" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {games.length === 0 ? (
-                        <SelectItem value="no-games" disabled>
-                          No games available
-                        </SelectItem>
-                      ) : (
-                        games.map((game) => (
-                          <SelectItem
-                            key={game.game_id}
-                            value={game.game_id}
-                            data-testid={`game-option-${game.game_id}`}
-                          >
-                            {game.name}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    Select the lottery game for this pack
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Pack Number */}
-            <FormField
-              control={form.control}
-              name="pack_number"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Pack Number</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="PACK-001"
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">
+                        {pack.game_name || `Game ${pack.game_code}`}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Pack: {pack.pack_number} | Serial Start:{" "}
+                        {pack.serial_start}
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleRemovePack(index)}
                       disabled={isSubmitting}
-                      data-testid="pack-number-input"
-                      maxLength={50}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Unique pack number (max 50 characters)
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Serial Start */}
-            <FormField
-              control={form.control}
-              name="serial_start"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Serial Start</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="0001"
-                      disabled={isSubmitting}
-                      data-testid="serial-start-input"
-                      maxLength={100}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Starting serial number (numeric only)
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Serial End */}
-            <FormField
-              control={form.control}
-              name="serial_end"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Serial End</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="0100"
-                      disabled={isSubmitting}
-                      data-testid="serial-end-input"
-                      maxLength={100}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Ending serial number (must be &gt;= serial start, numeric
-                    only)
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Bin Assignment (Optional) */}
-            {bins.length > 0 && (
-              <FormField
-                control={form.control}
-                name="bin_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Bin Assignment (Optional)</FormLabel>
-                    <Select
-                      onValueChange={(value) =>
-                        field.onChange(value === "none" ? "" : value)
-                      }
-                      value={field.value || "none"}
-                      disabled={isSubmitting}
+                      data-testid={`remove-pack-${index}`}
                     >
-                      <FormControl>
-                        <SelectTrigger data-testid="bin-select">
-                          <SelectValue placeholder="Select a bin (optional)" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        {bins.map((bin) => (
-                          <SelectItem
-                            key={bin.bin_id}
-                            value={bin.bin_id}
-                            data-testid={`bin-option-${bin.bin_id}`}
-                          >
-                            {bin.name}
-                            {bin.location && ` - ${bin.location}`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      Assign pack to a physical storage bin (optional)
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleOpenChange(false)}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={isSubmitting}
-                data-testid="submit-pack-reception"
-              >
-                {isSubmitting && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                Receive Pack
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => handleOpenChange(false)}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSubmitting || packList.length === 0}
+            data-testid="submit-batch-reception"
+          >
+            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Receive {packList.length > 0 ? `${packList.length} ` : ""}Pack
+            {packList.length !== 1 ? "s" : ""}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

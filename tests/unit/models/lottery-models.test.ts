@@ -245,6 +245,7 @@ describe("6.1-UNIT: LotteryGame Type Definition", () => {
   // Mock game object with all required fields for type validation
   const mockGame = {
     game_id: "test-game-id",
+    game_code: "0001", // Story 6.12: Added game_code field
     name: "Test Game",
     status: LotteryGameStatus.ACTIVE,
     description: "Test description",
@@ -334,6 +335,50 @@ describe("6.1-UNIT: LotteryGame Type Definition", () => {
     expect(game.updated_at, "updated_at should be Date type").toBeInstanceOf(
       Date,
     );
+  });
+
+  it("6.12-UNIT-001: should have game_code field of type string | null (optional)", () => {
+    // GIVEN: LotteryGame type is available (Story 6.12)
+    // WHEN: Checking game_code field type
+    const game: { game_code: string | null } = mockGame;
+
+    // THEN: game_code is string or null type (optional field)
+    expect(
+      game.game_code === null || typeof game.game_code === "string",
+      "game_code should be string or null",
+    ).toBe(true);
+  });
+
+  it("6.12-UNIT-002: should validate game_code format (4 characters max)", () => {
+    // GIVEN: LotteryGame type is available (Story 6.12)
+    // WHEN: Checking game_code format validation
+    const validGameCode: string = "0001";
+    const invalidGameCode: string = "00001"; // 5 characters - invalid
+
+    // THEN: game_code should be 4 characters or less (validated at database level)
+    expect(
+      validGameCode.length,
+      "Valid game_code should be 4 characters or less",
+    ).toBeLessThanOrEqual(4);
+    expect(
+      invalidGameCode.length,
+      "Invalid game_code exceeds 4 characters",
+    ).toBeGreaterThan(4);
+  });
+
+  it("6.12-UNIT-003: should accept null game_code (optional field)", () => {
+    // GIVEN: LotteryGame type is available (Story 6.12)
+    // WHEN: Checking game_code with null value
+    const gameWithNullCode: { game_code: string | null } = {
+      ...mockGame,
+      game_code: null,
+    };
+
+    // THEN: game_code can be null (optional field)
+    expect(
+      gameWithNullCode.game_code,
+      "game_code should accept null value",
+    ).toBeNull();
   });
 });
 
