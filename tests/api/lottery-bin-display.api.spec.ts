@@ -23,8 +23,20 @@ import { test, expect } from "../support/fixtures/rbac.fixture";
 import {
   createCompany,
   createStore,
+  createUser,
 } from "../support/factories/database.factory";
 import { withBypassClient } from "../support/prisma-bypass";
+
+/**
+ * Generate a unique 4-digit game code for test isolation
+ * Uses random 4-digit number to avoid collisions in parallel tests
+ * Game codes must be exactly 4 digits (constraint: lottery_games_game_code_format_check)
+ */
+function generateUniqueGameCode(): string {
+  // Generate random 4-digit number between 1000 and 9999
+  const random = Math.floor(1000 + Math.random() * 9000);
+  return random.toString();
+}
 
 test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
   // ═══════════════════════════════════════════════════════════════════════════
@@ -50,11 +62,12 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
     }
 
     // Create test data: game, bins, packs
+    const gameCode = generateUniqueGameCode();
     const game = await withBypassClient(async (tx) => {
       return await tx.lotteryGame.create({
         data: {
           name: "Test Game",
-          game_code: "1234",
+          game_code: gameCode,
           price: 5.0,
           status: "ACTIVE",
         },
@@ -92,6 +105,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
           serial_start: "0001",
           serial_end: "0050",
           status: "ACTIVE",
+          activated_at: new Date(),
           current_bin_id: bin1.bin_id,
           tickets_sold_count: 25,
         },
@@ -105,6 +119,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
           serial_start: "0051",
           serial_end: "0100",
           status: "ACTIVE",
+          activated_at: new Date(),
           current_bin_id: bin2.bin_id,
           tickets_sold_count: 30,
         },
@@ -134,7 +149,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
     expect(bin1Data, "Bin 1 data should be present").toBeDefined();
     expect(bin1Data.bin_name, "Bin 1 name should match").toBe("Bin 1");
     expect(bin1Data.display_order, "Bin 1 display_order should be 0").toBe(0);
-    expect(bin1Data.game_code, "Game code should be present").toBe("1234");
+    expect(bin1Data.game_code, "Game code should be present").toBe(gameCode);
     expect(bin1Data.game_name, "Game name should be present").toBe("Test Game");
     expect(bin1Data.pack_number, "Pack number should be present").toBe(
       "PACK001",
@@ -239,11 +254,12 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
       return;
     }
 
+    const gameCode = generateUniqueGameCode();
     const game = await withBypassClient(async (tx) => {
       return await tx.lotteryGame.create({
         data: {
           name: "Test Game",
-          game_code: "5678",
+          game_code: gameCode,
           price: 10.0,
           status: "ACTIVE",
         },
@@ -282,6 +298,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
           serial_start: "0001",
           serial_end: "0050",
           status: "ACTIVE",
+          activated_at: new Date(),
           current_bin_id: activeBin.bin_id,
           tickets_sold_count: 20,
         },
@@ -296,6 +313,8 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
           serial_start: "0051",
           serial_end: "0100",
           status: "DEPLETED", // Inactive
+          activated_at: new Date(),
+          depleted_at: new Date(),
           current_bin_id: activeBin.bin_id,
           tickets_sold_count: 50,
         },
@@ -396,17 +415,29 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
     // Extract unique bins and their display_order
     const bins = Array.from(
       new Map<string, { name: string; display_order: number }>(
-        body.data.map((row: { bin_id: string; bin_name: string; display_order: number }) => [
-          row.bin_id,
-          { name: row.bin_name, display_order: row.display_order },
-        ]),
+        body.data.map(
+          (row: {
+            bin_id: string;
+            bin_name: string;
+            display_order: number;
+          }) => [
+            row.bin_id,
+            { name: row.bin_name, display_order: row.display_order },
+          ],
+        ),
       ).values(),
     );
 
     expect(bins.length, "Should have 3 bins").toBeGreaterThanOrEqual(3);
-    const binA = bins.find((b: { name: string; display_order: number }) => b.name === "Bin A");
-    const binB = bins.find((b: { name: string; display_order: number }) => b.name === "Bin B");
-    const binC = bins.find((b: { name: string; display_order: number }) => b.name === "Bin C");
+    const binA = bins.find(
+      (b: { name: string; display_order: number }) => b.name === "Bin A",
+    );
+    const binB = bins.find(
+      (b: { name: string; display_order: number }) => b.name === "Bin B",
+    );
+    const binC = bins.find(
+      (b: { name: string; display_order: number }) => b.name === "Bin C",
+    );
 
     expect(binA?.display_order, "Bin A should have display_order 0").toBe(0);
     expect(binB?.display_order, "Bin B should have display_order 1").toBe(1);
@@ -431,11 +462,12 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
       return;
     }
 
+    const gameCode = generateUniqueGameCode();
     const game = await withBypassClient(async (tx) => {
       return await tx.lotteryGame.create({
         data: {
           name: "Test Game",
-          game_code: "9999",
+          game_code: gameCode,
           price: 2.0,
           status: "ACTIVE",
         },
@@ -453,15 +485,17 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
       });
     });
 
+    const packNumber = `DENORM_${Date.now()}`;
     await withBypassClient(async (tx) => {
       await tx.lotteryPack.create({
         data: {
           game_id: game.game_id,
           store_id: store.store_id,
-          pack_number: "DENORM_TEST",
+          pack_number: packNumber,
           serial_start: "0001",
           serial_end: "0100",
           status: "ACTIVE",
+          activated_at: new Date(),
           current_bin_id: bin.bin_id,
           tickets_sold_count: 75, // Denormalized count
         },
@@ -477,7 +511,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
     expect(response.status(), "Expected 200 OK status").toBe(200);
     const body = await response.json();
     const packData = body.data.find(
-      (row: any) => row.pack_number === "DENORM_TEST",
+      (row: any) => row.pack_number === packNumber,
     );
     expect(packData, "Pack data should be present").toBeDefined();
     expect(
@@ -493,8 +527,11 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
     // GIVEN: I am NOT authenticated
     // AND: A store exists
     const store = await withBypassClient(async (tx) => {
+      const ownerUser = await tx.user.create({
+        data: createUser({ name: "Auth Test Owner" }),
+      });
       const company = await tx.company.create({
-        data: createCompany(),
+        data: createCompany({ owner_user_id: ownerUser.user_id }),
       });
       return await tx.store.create({
         data: createStore({ company_id: company.company_id }),
@@ -520,8 +557,11 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
     // GIVEN: I am authenticated but lack LOTTERY_BIN_READ permission
     // AND: A store exists
     const store = await withBypassClient(async (tx) => {
+      const ownerUser = await tx.user.create({
+        data: createUser({ name: "Permission Test Owner" }),
+      });
       const company = await tx.company.create({
-        data: createCompany(),
+        data: createCompany({ owner_user_id: ownerUser.user_id }),
       });
       return await tx.store.create({
         data: createStore({ company_id: company.company_id }),
@@ -547,8 +587,11 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
     // GIVEN: I am authenticated as a Client Owner
     // AND: Bins exist for another store (different company)
     const otherCompany = await withBypassClient(async (tx) => {
+      const ownerUser = await tx.user.create({
+        data: createUser({ name: "RLS Test Owner" }),
+      });
       return await tx.company.create({
-        data: createCompany(),
+        data: createCompany({ owner_user_id: ownerUser.user_id }),
       });
     });
 
@@ -574,11 +617,14 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
       `/api/lottery/bins/display/${otherStore.store_id}`,
     );
 
-    // THEN: I receive 403 Forbidden (RLS enforcement)
+    // THEN: I receive 403 Forbidden (RLS enforcement via permission middleware)
+    // The permission middleware denies access before RLS check since user lacks permission for other company's store
     expect(response.status(), "Expected 403 Forbidden").toBe(403);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error.code, "Error code should be FORBIDDEN").toBe("FORBIDDEN");
+    expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
+      "PERMISSION_DENIED",
+    );
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -679,8 +725,11 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
     // GIVEN: I am NOT authenticated
     // AND: A store exists
     const store = await withBypassClient(async (tx) => {
+      const ownerUser = await tx.user.create({
+        data: createUser({ name: "JWT Test Owner" }),
+      });
       const company = await tx.company.create({
-        data: createCompany(),
+        data: createCompany({ owner_user_id: ownerUser.user_id }),
       });
       return await tx.store.create({
         data: createStore({ company_id: company.company_id }),
@@ -736,8 +785,11 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
     }
 
     const otherCompany = await withBypassClient(async (tx) => {
+      const ownerUser = await tx.user.create({
+        data: createUser({ name: "Data Leak Test Owner" }),
+      });
       return await tx.company.create({
-        data: createCompany(),
+        data: createCompany({ owner_user_id: ownerUser.user_id }),
       });
     });
 
@@ -821,11 +873,12 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
       return;
     }
 
+    const gameCode = generateUniqueGameCode();
     const game = await withBypassClient(async (tx) => {
       return await tx.lotteryGame.create({
         data: {
           name: "Test Game",
-          game_code: "1111",
+          game_code: gameCode,
           price: 3.0,
           status: "ACTIVE",
         },
@@ -843,15 +896,17 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
       });
     });
 
+    const packNumber = `TEST_${Date.now()}`;
     await withBypassClient(async (tx) => {
       await tx.lotteryPack.create({
         data: {
           game_id: game.game_id,
           store_id: store.store_id,
-          pack_number: "TEST_PACK",
+          pack_number: packNumber,
           serial_start: "0001",
           serial_end: "0050",
           status: "ACTIVE",
+          activated_at: new Date(),
           current_bin_id: bin.bin_id,
           tickets_sold_count: 25,
         },

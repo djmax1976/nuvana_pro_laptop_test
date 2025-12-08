@@ -2999,7 +2999,13 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               success: { type: "boolean" },
-              error: { type: "object" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
             },
           },
         },
