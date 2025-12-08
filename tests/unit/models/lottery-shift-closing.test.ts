@@ -91,7 +91,8 @@ describe("6.7-UNIT: LotteryShiftClosing Type Definition", () => {
     // WHEN: Checking shift relation type at compile-time
     // THEN: shift relation type matches Prisma-generated type (compile-time check)
     type ClosingWithShift = LotteryShiftClosing & { shift: Shift };
-    const closing: ClosingWithShift = mockClosing as ClosingWithShift;
+    // Use unknown to force cast since we only have mock data with partial fields
+    const closing = mockClosing as unknown as ClosingWithShift;
     expectTypeOf<ClosingWithShift["shift"]>().toEqualTypeOf<Shift>();
   });
 
@@ -100,7 +101,8 @@ describe("6.7-UNIT: LotteryShiftClosing Type Definition", () => {
     // WHEN: Checking pack relation type at compile-time
     // THEN: pack relation type matches Prisma-generated type (compile-time check)
     type ClosingWithPack = LotteryShiftClosing & { pack: LotteryPack };
-    const closing: ClosingWithPack = mockClosing as ClosingWithPack;
+    // Use unknown to force cast since we only have mock data with partial fields
+    const closing = mockClosing as unknown as ClosingWithPack;
     expectTypeOf<ClosingWithPack["pack"]>().toEqualTypeOf<LotteryPack>();
   });
 

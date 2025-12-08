@@ -833,6 +833,10 @@ export const test = base.extend<RBACFixture>({
         "TRANSACTION_READ",
         "LOTTERY_PACK_ACTIVATE",
         "LOTTERY_PACK_RECEIVE",
+        "LOTTERY_GAME_READ",
+        "LOTTERY_PACK_READ",
+        "LOTTERY_VARIANCE_READ",
+        "LOTTERY_BIN_READ",
       ],
     });
 
@@ -853,6 +857,10 @@ export const test = base.extend<RBACFixture>({
         "TRANSACTION_READ",
         "LOTTERY_PACK_ACTIVATE",
         "LOTTERY_PACK_RECEIVE",
+        "LOTTERY_GAME_READ",
+        "LOTTERY_PACK_READ",
+        "LOTTERY_VARIANCE_READ",
+        "LOTTERY_BIN_READ",
       ],
       token,
     };

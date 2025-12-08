@@ -9,9 +9,6 @@
  * @justification Tests pure business logic functions without external dependencies
  * @story 6-11 - Lottery Query API Endpoints
  * @priority P0 (Critical - Business Logic)
- *
- * RED PHASE: These tests define expected behavior before implementation.
- * Tests will fail until calculation functions are implemented.
  */
 
 import { describe, it, expect } from "vitest";
@@ -30,13 +27,39 @@ function calculateTicketsRemaining(
   serialEnd: string,
   soldCount: number,
 ): number {
-  // TODO: Implement this function
-  throw new Error("Not implemented");
+  // Parse serial numbers as BigInt to handle large numbers
+  let serialStartBigInt: bigint;
+  let serialEndBigInt: bigint;
+
+  try {
+    serialStartBigInt = BigInt(serialStart);
+    serialEndBigInt = BigInt(serialEnd);
+  } catch (error) {
+    throw new Error("Invalid serial format: serial numbers must be numeric");
+  }
+
+  // Validate serial range
+  if (serialEndBigInt < serialStartBigInt) {
+    throw new Error("Invalid serial range: serial_end must be >= serial_start");
+  }
+
+  // Calculate total tickets: (serial_end - serial_start + 1)
+  const totalTickets = Number(serialEndBigInt - serialStartBigInt + BigInt(1));
+
+  // Calculate remaining: total - sold
+  const remaining = totalTickets - soldCount;
+
+  // Ensure non-negative result
+  if (remaining < 0) {
+    throw new Error("Invalid calculation: sold count exceeds total tickets");
+  }
+
+  return remaining;
 }
 
-describe("Lottery Query Service - tickets_remaining Calculation", () => {
+describe("6.11-UNIT: Lottery Query Service - tickets_remaining Calculation", () => {
   describe("calculateTicketsRemaining", () => {
-    it("should calculate remaining tickets correctly when some tickets are sold", () => {
+    it("6.11-UNIT-001: should calculate remaining tickets correctly when some tickets are sold", () => {
       // GIVEN: A pack with serial range 000001-000100 and 25 tickets sold
       const serialStart = "000001";
       const serialEnd = "000100";
@@ -53,7 +76,7 @@ describe("Lottery Query Service - tickets_remaining Calculation", () => {
       expect(result).toBe(75);
     });
 
-    it("should return total tickets when no tickets are sold", () => {
+    it("6.11-UNIT-002: should return total tickets when no tickets are sold", () => {
       // GIVEN: A pack with serial range 000001-000100 and 0 tickets sold
       const serialStart = "000001";
       const serialEnd = "000100";
@@ -70,7 +93,7 @@ describe("Lottery Query Service - tickets_remaining Calculation", () => {
       expect(result).toBe(100);
     });
 
-    it("should return 0 when all tickets are sold", () => {
+    it("6.11-UNIT-003: should return 0 when all tickets are sold", () => {
       // GIVEN: A pack with serial range 000001-000100 and 100 tickets sold
       const serialStart = "000001";
       const serialEnd = "000100";
@@ -87,7 +110,7 @@ describe("Lottery Query Service - tickets_remaining Calculation", () => {
       expect(result).toBe(0);
     });
 
-    it("should handle single ticket pack correctly", () => {
+    it("6.11-UNIT-004: should handle single ticket pack correctly", () => {
       // GIVEN: A pack with serial range 000001-000001 (single ticket)
       const serialStart = "000001";
       const serialEnd = "000001";
@@ -104,7 +127,7 @@ describe("Lottery Query Service - tickets_remaining Calculation", () => {
       expect(result).toBe(1);
     });
 
-    it("should handle large serial ranges correctly", () => {
+    it("6.11-UNIT-005: should handle large serial ranges correctly", () => {
       // GIVEN: A pack with serial range 000001-999999
       const serialStart = "000001";
       const serialEnd = "999999";
@@ -121,7 +144,7 @@ describe("Lottery Query Service - tickets_remaining Calculation", () => {
       expect(result).toBe(499999);
     });
 
-    it("should throw error for invalid serial format (non-numeric)", () => {
+    it("6.11-UNIT-006: should throw error for invalid serial format (non-numeric)", () => {
       // GIVEN: Invalid serial format
       const serialStart = "ABC001";
       const serialEnd = "000100";
@@ -134,30 +157,60 @@ describe("Lottery Query Service - tickets_remaining Calculation", () => {
       }).toThrow("Invalid serial format");
     });
 
-    it("should throw error when serial_end < serial_start", () => {
+    it("6.11-UNIT-007: should throw error when serial_end < serial_start", () => {
       // GIVEN: Invalid range (end < start)
       const serialStart = "000100";
       const serialEnd = "000001";
       const soldCount = 0;
 
       // WHEN: Calculating tickets remaining
-      // THEN: Should throw error or handle gracefully
+      // THEN: Should throw error
       expect(() => {
         calculateTicketsRemaining(serialStart, serialEnd, soldCount);
-      }).toThrow();
+      }).toThrow("serial_end must be >= serial_start");
     });
 
-    it("should handle null serial ranges gracefully", () => {
+    it("6.11-UNIT-008: should handle null serial ranges gracefully", () => {
       // GIVEN: Null serial ranges (edge case)
       const serialStart = null as any;
       const serialEnd = "000100";
       const soldCount = 0;
 
       // WHEN: Calculating tickets remaining
-      // THEN: Should throw error or return 0
+      // THEN: Should throw error
       expect(() => {
         calculateTicketsRemaining(serialStart, serialEnd, soldCount);
       }).toThrow();
+    });
+
+    it("6.11-UNIT-009: should throw error when sold count exceeds total tickets", () => {
+      // GIVEN: A pack with serial range 000001-000100 and 150 tickets sold (impossible)
+      const serialStart = "000001";
+      const serialEnd = "000100";
+      const soldCount = 150;
+
+      // WHEN: Calculating tickets remaining
+      // THEN: Should throw error
+      expect(() => {
+        calculateTicketsRemaining(serialStart, serialEnd, soldCount);
+      }).toThrow("sold count exceeds total tickets");
+    });
+
+    it("6.11-UNIT-010: should handle very large serial numbers", () => {
+      // GIVEN: A pack with very large serial range
+      const serialStart = "184303159650093783374530";
+      const serialEnd = "184303159650093783374680";
+      const soldCount = 50;
+
+      // WHEN: Calculating tickets remaining
+      const result = calculateTicketsRemaining(
+        serialStart,
+        serialEnd,
+        soldCount,
+      );
+
+      // THEN: Remaining tickets = (184303159650093783374680 - 184303159650093783374530 + 1) - 50 = 101
+      expect(result).toBe(101);
     });
   });
 });

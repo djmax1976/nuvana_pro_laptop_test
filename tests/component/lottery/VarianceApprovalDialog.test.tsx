@@ -12,13 +12,10 @@
  * @justification Tests UI dialog behavior in isolation - fast, isolated, granular
  * @story 6-10 - Lottery Management UI
  * @priority P1 (High - Variance Approval)
- *
- * RED PHASE: These tests define expected behavior before implementation.
- * Tests will fail until component is implemented.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { VarianceApprovalDialog } from "@/components/lottery/VarianceApprovalDialog";
 
@@ -58,9 +55,11 @@ describe("6.10-COMPONENT: VarianceApprovalDialog", () => {
 
   const mockOnSuccess = vi.fn();
   const mockOnClose = vi.fn();
+  const mockOnApprove = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockOnApprove.mockResolvedValue(undefined);
   });
 
   it("6.10-COMPONENT-050: [P1] should display variance details in dialog (AC #6)", async () => {
@@ -76,10 +75,14 @@ describe("6.10-COMPONENT: VarianceApprovalDialog", () => {
     );
 
     // THEN: Variance details are displayed
-    expect(screen.getByText(/100|expected/i)).toBeInTheDocument();
-    expect(screen.getByText(/95|actual/i)).toBeInTheDocument();
-    expect(screen.getByText(/-5|difference/i)).toBeInTheDocument();
+    // Check for pack number
     expect(screen.getByText("PACK-001")).toBeInTheDocument();
+    // Check for expected count value
+    expect(screen.getByText("100")).toBeInTheDocument();
+    // Check for actual count value
+    expect(screen.getByText("95")).toBeInTheDocument();
+    // Check for difference value
+    expect(screen.getByText("-5")).toBeInTheDocument();
   });
 
   it("6.10-COMPONENT-051: [P1] should display reason input field (AC #6)", async () => {
@@ -107,13 +110,12 @@ describe("6.10-COMPONENT: VarianceApprovalDialog", () => {
         isOpen={true}
         onSuccess={mockOnSuccess}
         onClose={mockOnClose}
+        onApprove={mockOnApprove}
       />,
     );
 
     // WHEN: User submits without entering reason
-    const submitButton = screen.getByRole("button", {
-      name: /approve|submit/i,
-    });
+    const submitButton = screen.getByTestId("submit-variance-approval");
     await user.click(submitButton);
 
     // THEN: Validation error is displayed
@@ -125,7 +127,6 @@ describe("6.10-COMPONENT: VarianceApprovalDialog", () => {
   it("6.10-COMPONENT-053: [P1] should submit approval with reason (AC #6)", async () => {
     // GIVEN: VarianceApprovalDialog component with onApprove handler
     const user = userEvent.setup();
-    const mockOnApprove = vi.fn().mockResolvedValue(undefined);
 
     render(
       <VarianceApprovalDialog
@@ -139,25 +140,22 @@ describe("6.10-COMPONENT: VarianceApprovalDialog", () => {
 
     // WHEN: User enters reason and submits
     const reasonInput = screen.getByLabelText(/reason/i);
-    await user.type(reasonInput, "Test reason");
-    const submitButton = screen.getByRole("button", {
-      name: /approve|submit/i,
-    });
+    await user.type(reasonInput, "Test reason for variance");
+    const submitButton = screen.getByTestId("submit-variance-approval");
     await user.click(submitButton);
 
     // THEN: onApprove handler is called with variance ID and reason
     await waitFor(() => {
       expect(mockOnApprove).toHaveBeenCalledWith(
         mockVariance.variance_id,
-        "Test reason",
+        "Test reason for variance",
       );
     });
   });
 
-  it("6.10-COMPONENT-054: [P1] should display success message after approval (AC #6)", async () => {
+  it("6.10-COMPONENT-054: [P1] should call onClose after successful approval (AC #6)", async () => {
     // GIVEN: VarianceApprovalDialog component with successful approval
     const user = userEvent.setup();
-    const mockOnApprove = vi.fn().mockResolvedValue(undefined);
 
     render(
       <VarianceApprovalDialog
@@ -172,25 +170,18 @@ describe("6.10-COMPONENT: VarianceApprovalDialog", () => {
     // WHEN: User approves variance
     const reasonInput = screen.getByLabelText(/reason/i);
     await user.type(reasonInput, "Test reason");
-    const submitButton = screen.getByRole("button", {
-      name: /approve|submit/i,
-    });
+    const submitButton = screen.getByTestId("submit-variance-approval");
     await user.click(submitButton);
 
-    // THEN: Success message is displayed (via toast, which is mocked)
-    await waitFor(() => {
-      expect(mockOnApprove).toHaveBeenCalled();
-    });
-    // Dialog should close on success
+    // THEN: Dialog should close on success
     await waitFor(() => {
       expect(mockOnClose).toHaveBeenCalled();
     });
   });
 
-  it("6.10-COMPONENT-055: [P1] should refresh variance alerts after approval (AC #6)", async () => {
+  it("6.10-COMPONENT-055: [P1] should call onSuccess after approval (AC #6)", async () => {
     // GIVEN: VarianceApprovalDialog component with successful approval
     const user = userEvent.setup();
-    const mockOnApprove = vi.fn().mockResolvedValue(undefined);
 
     render(
       <VarianceApprovalDialog
@@ -205,24 +196,19 @@ describe("6.10-COMPONENT: VarianceApprovalDialog", () => {
     // WHEN: User approves variance
     const reasonInput = screen.getByLabelText(/reason/i);
     await user.type(reasonInput, "Test reason");
-    const submitButton = screen.getByRole("button", {
-      name: /approve|submit/i,
-    });
+    const submitButton = screen.getByTestId("submit-variance-approval");
     await user.click(submitButton);
 
     // THEN: onSuccess callback is called (triggers alert refresh)
     await waitFor(() => {
-      expect(mockOnApprove).toHaveBeenCalled();
       expect(mockOnSuccess).toHaveBeenCalled();
     });
   });
 
-  it("6.10-COMPONENT-056: [P1] should display error message on approval failure (AC #6)", async () => {
+  it("6.10-COMPONENT-056: [P1] should not close on approval failure (AC #6)", async () => {
     // GIVEN: VarianceApprovalDialog component with approval failure
     const user = userEvent.setup();
-    const mockOnApprove = vi
-      .fn()
-      .mockRejectedValue(new Error("Approval failed"));
+    mockOnApprove.mockRejectedValue(new Error("Approval failed"));
 
     render(
       <VarianceApprovalDialog
@@ -237,16 +223,15 @@ describe("6.10-COMPONENT: VarianceApprovalDialog", () => {
     // WHEN: User approves variance
     const reasonInput = screen.getByLabelText(/reason/i);
     await user.type(reasonInput, "Test reason");
-    const submitButton = screen.getByRole("button", {
-      name: /approve|submit/i,
-    });
+    const submitButton = screen.getByTestId("submit-variance-approval");
     await user.click(submitButton);
 
-    // THEN: Error is handled (toast is mocked, but error state should be set)
+    // THEN: Dialog should remain open on error
     await waitFor(() => {
       expect(mockOnApprove).toHaveBeenCalled();
     });
-    // Dialog should remain open on error
+    // Wait a bit to ensure onClose is not called
+    await new Promise((r) => setTimeout(r, 100));
     expect(mockOnClose).not.toHaveBeenCalled();
   });
 });

@@ -153,7 +153,7 @@ describe("4.9-COMPONENT: MyStoreDashboardLayout Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("[P0] 4.9-COMPONENT-003: should NOT display Shifts, Inventory, Lottery, Employees, Reports, or AI Assistant navigation", () => {
+  it("[P0] 4.9-COMPONENT-003: should NOT display Shifts, Inventory, Employees, Reports, or AI Assistant navigation (but should show Lottery per Story 6.10)", () => {
     // GIVEN: Component is rendered
     renderWithProviders(
       <MyStoreDashboardLayout>
@@ -164,7 +164,8 @@ describe("4.9-COMPONENT: MyStoreDashboardLayout Component", () => {
     // THEN: Excluded navigation items should NOT be present
     expect(screen.queryByText(/shifts/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/inventory/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/lottery/i)).not.toBeInTheDocument();
+    // Note: Lottery IS shown per Story 6.10 - Lottery Management UI
+    expect(screen.queryByText(/lottery/i)).toBeInTheDocument();
     expect(screen.queryByText(/employees/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/reports/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/ai assistant/i)).not.toBeInTheDocument();

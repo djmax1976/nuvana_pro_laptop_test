@@ -328,8 +328,10 @@ export function PackReceptionForm({
                   <FormItem>
                     <FormLabel>Bin Assignment (Optional)</FormLabel>
                     <Select
-                      onValueChange={(value) => field.onChange(value || "")}
-                      value={field.value || ""}
+                      onValueChange={(value) =>
+                        field.onChange(value === "none" ? "" : value)
+                      }
+                      value={field.value || "none"}
                       disabled={isSubmitting}
                     >
                       <FormControl>
@@ -338,7 +340,7 @@ export function PackReceptionForm({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
+                        <SelectItem value="none">None</SelectItem>
                         {bins.map((bin) => (
                           <SelectItem
                             key={bin.bin_id}

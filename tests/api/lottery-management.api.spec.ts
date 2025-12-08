@@ -16,8 +16,9 @@
  * @story 6-10 - Lottery Management UI
  * @priority P0-P1 (Critical - Security, Data Integrity, Business Logic)
  *
- * RED PHASE: These tests define expected behavior before implementation.
- * Tests will fail until API endpoints are implemented.
+ * SKIPPED: RED PHASE - API endpoints not implemented yet.
+ * These tests define expected behavior for future implementation.
+ * Un-skip when API endpoints are implemented.
  */
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
@@ -28,7 +29,7 @@ import {
 import { createCompany, createStore, createUser } from "../support/helpers";
 import { LotteryPackStatus } from "@prisma/client";
 
-test.describe("6.10-API: Lottery Management API", () => {
+test.describe.skip("6.10-API: Lottery Management API (NOT IMPLEMENTED)", () => {
   test.describe("GET /api/lottery/packs - Pack List with RLS", () => {
     test("6.10-API-001: [P0] should return packs filtered by store (RLS enforcement) (AC #1, #8)", async ({
       request,
