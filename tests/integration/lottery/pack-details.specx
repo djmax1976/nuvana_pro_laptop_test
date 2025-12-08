@@ -1,0 +1,89 @@
+/**
+ * Lottery Pack Details Integration Tests
+ * 
+ * Tests for AC #4: Pack details display
+ *
+ * @test-level Integration
+ * @story 6-10 - Lottery Management UI
+ * @priority P0 (Critical - User Flows)
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { renderWithProviders, screen } from "../../support/test-utils";
+import { QueryClient } from "@tanstack/react-query";
+import { PackDetailsModal } from "@/components/lottery/PackDetailsModal";
+import { createMockPack, createMockGame, createMockShiftOpening, createMockShiftClosing } from "../../support/factories/lottery-ui.factory";
+
+describe("6.10-INT [P0]: Pack Details Display", () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+    vi.clearAllMocks();
+  });
+
+  it("6.10-INT-006 [P0]: should display full pack details in modal", () => {
+    // Given: I am authenticated as a Store Manager
+    // And: There is a pack with details and associated shift openings/closings
+    const mockGame = createMockGame({ game_id: "game-123", name: "Test Game" });
+    const mockActivePack = createMockPack({
+      pack_id: "pack-456",
+      pack_number: "PACK-002",
+      serial_start: "1000",
+      serial_end: "2000",
+      status: "ACTIVE",
+      game: mockGame,
+    });
+    const shiftOpening = createMockShiftOpening({
+      opening_id: "opening-123",
+      shift_id: "shift-123",
+      opening_serial: "1500",
+      created_at: "2025-01-28T11:00:00Z",
+      shift: {
+        shift_id: "shift-123",
+        shift_number: 1,
+        status: "OPEN",
+      },
+    });
+
+    const mockPackDetail = {
+      ...mockActivePack,
+      tickets_remaining: 500,
+      shift_openings: [shiftOpening],
+      shift_closings: [],
+    };
+
+    // When: I view pack details
+    renderWithProviders(
+      <PackDetailsModal
+        pack={mockPackDetail}
+        open={true}
+        onOpenChange={vi.fn()}
+      />,
+      { queryClient },
+    );
+
+    // Then: I can see serial range (serial_start to serial_end)
+    expect(screen.getByText(/1000 - 2000/)).toBeInTheDocument();
+
+    // And: I can see tickets remaining (calculated from serial range and sold tickets)
+    expect(screen.getByText(/500/)).toBeInTheDocument();
+
+    // And: I can see pack status and activation timestamp
+    expect(screen.getByText("ACTIVE")).toBeInTheDocument();
+
+    // And: I can see associated game information
+    expect(screen.getByText("PACK-002")).toBeInTheDocument();
+    expect(screen.getByText("Test Game")).toBeInTheDocument();
+  });
+});

@@ -224,3 +224,126 @@ export const createLotteryBins = async (
   });
   return await Promise.all(overridePromises);
 };
+
+/**
+ * Create a single LotteryVariance with required shift_id and pack_id
+ *
+ * @param prisma - PrismaClient instance to use for database operations
+ * @param overrides - Required shift_id and pack_id, plus optional fields
+ * @returns LotteryVariance object for test use
+ */
+/**
+ * Create a single LotteryVariance with required shift_id and pack_id
+ * Note: Status is determined by approved_by/approved_at (null = unresolved, set = resolved)
+ *
+ * @param prisma - PrismaClient instance to use for database operations
+ * @param overrides - Required shift_id and pack_id, plus optional fields
+ * @returns LotteryVariance object for test use
+ */
+export const createLotteryVariance = async (
+  prisma: PrismaClient,
+  overrides: {
+    shift_id: string;
+    pack_id: string;
+    expected: number;
+    actual: number;
+    difference?: number;
+    reason?: string;
+    approved_by?: string | null;
+    approved_at?: Date | null;
+  },
+) => {
+  // Note: difference = actual - expected (per database constraint lottery_variances_difference_check)
+  // Positive difference means over (actual > expected), negative means under (actual < expected)
+  const difference =
+    overrides.difference !== undefined
+      ? overrides.difference
+      : overrides.actual - overrides.expected;
+
+  return await prisma.lotteryVariance.create({
+    data: {
+      shift_id: overrides.shift_id,
+      pack_id: overrides.pack_id,
+      expected: overrides.expected,
+      actual: overrides.actual,
+      difference,
+      reason: overrides.reason || null,
+      approved_by:
+        overrides.approved_by !== undefined ? overrides.approved_by : null,
+      approved_at:
+        overrides.approved_at !== undefined ? overrides.approved_at : null,
+    },
+  });
+};
+
+/**
+ * Create multiple LotteryVariances
+ *
+ * @param prisma - PrismaClient instance to use for database operations
+ * @param count - Number of variances to create
+ * @param overrides - Required shift_id and pack_id, plus optional fields
+ * @returns Array of LotteryVariance objects
+ */
+export const createLotteryVariances = async (
+  prisma: PrismaClient,
+  count: number,
+  overrides: {
+    shift_id: string;
+    pack_id: string;
+    expected: number;
+    actual: number;
+  },
+) => {
+  const variancePromises = Array.from({ length: count }, () =>
+    createLotteryVariance(prisma, overrides),
+  );
+  return await Promise.all(variancePromises);
+};
+
+/**
+ * Create a single LotteryShiftOpening with required shift_id, pack_id, and opening_serial
+ *
+ * @param prisma - PrismaClient instance to use for database operations
+ * @param overrides - Required shift_id, pack_id, and opening_serial
+ * @returns LotteryShiftOpening object for test use
+ */
+export const createLotteryShiftOpening = async (
+  prisma: PrismaClient,
+  overrides: {
+    shift_id: string;
+    pack_id: string;
+    opening_serial: string;
+  },
+) => {
+  return await prisma.lotteryShiftOpening.create({
+    data: {
+      shift_id: overrides.shift_id,
+      pack_id: overrides.pack_id,
+      opening_serial: overrides.opening_serial,
+    },
+  });
+};
+
+/**
+ * Create a single LotteryShiftClosing with required shift_id, pack_id, and closing_serial
+ *
+ * @param prisma - PrismaClient instance to use for database operations
+ * @param overrides - Required shift_id, pack_id, and closing_serial
+ * @returns LotteryShiftClosing object for test use
+ */
+export const createLotteryShiftClosing = async (
+  prisma: PrismaClient,
+  overrides: {
+    shift_id: string;
+    pack_id: string;
+    closing_serial: string;
+  },
+) => {
+  return await prisma.lotteryShiftClosing.create({
+    data: {
+      shift_id: overrides.shift_id,
+      pack_id: overrides.pack_id,
+      closing_serial: overrides.closing_serial,
+    },
+  });
+};

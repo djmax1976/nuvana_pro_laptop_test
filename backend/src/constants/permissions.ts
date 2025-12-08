@@ -45,8 +45,14 @@ export const INVENTORY_ADJUST = "INVENTORY_ADJUST";
 export const INVENTORY_ORDER = "INVENTORY_ORDER";
 
 // Lottery Permissions
+export const LOTTERY_GAME_READ = "LOTTERY_GAME_READ";
+export const LOTTERY_PACK_READ = "LOTTERY_PACK_READ";
 export const LOTTERY_PACK_RECEIVE = "LOTTERY_PACK_RECEIVE";
 export const LOTTERY_PACK_ACTIVATE = "LOTTERY_PACK_ACTIVATE";
+export const LOTTERY_VARIANCE_READ = "LOTTERY_VARIANCE_READ";
+export const LOTTERY_BIN_READ = "LOTTERY_BIN_READ";
+export const LOTTERY_SHIFT_OPEN = "LOTTERY_SHIFT_OPEN";
+export const LOTTERY_SHIFT_CLOSE = "LOTTERY_SHIFT_CLOSE";
 export const LOTTERY_SHIFT_RECONCILE = "LOTTERY_SHIFT_RECONCILE";
 export const LOTTERY_REPORT = "LOTTERY_REPORT";
 
@@ -119,8 +125,14 @@ export const PERMISSIONS = {
   INVENTORY_ORDER,
 
   // Lottery
+  LOTTERY_GAME_READ,
+  LOTTERY_PACK_READ,
   LOTTERY_PACK_RECEIVE,
   LOTTERY_PACK_ACTIVATE,
+  LOTTERY_VARIANCE_READ,
+  LOTTERY_BIN_READ,
+  LOTTERY_SHIFT_OPEN,
+  LOTTERY_SHIFT_CLOSE,
   LOTTERY_SHIFT_RECONCILE,
   LOTTERY_REPORT,
 
@@ -205,8 +217,14 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [INVENTORY_ORDER]: "Create inventory orders",
 
   // Lottery
+  [LOTTERY_GAME_READ]: "View lottery games",
+  [LOTTERY_PACK_READ]: "View lottery packs",
   [LOTTERY_PACK_RECEIVE]: "Receive lottery packs",
   [LOTTERY_PACK_ACTIVATE]: "Activate lottery packs",
+  [LOTTERY_VARIANCE_READ]: "View lottery variances",
+  [LOTTERY_BIN_READ]: "View lottery bins",
+  [LOTTERY_SHIFT_OPEN]: "Open shifts with lottery pack openings",
+  [LOTTERY_SHIFT_CLOSE]: "Close shifts with lottery pack closings",
   [LOTTERY_SHIFT_RECONCILE]: "Reconcile lottery during shift",
   [LOTTERY_REPORT]: "Generate lottery reports",
 
@@ -279,7 +297,14 @@ export const PERMISSION_CATEGORIES = {
     name: "Lottery",
     description: "Permissions for lottery pack management and reconciliation",
     permissions: [
+      LOTTERY_GAME_READ,
+      LOTTERY_PACK_READ,
       LOTTERY_PACK_RECEIVE,
+      LOTTERY_PACK_ACTIVATE,
+      LOTTERY_VARIANCE_READ,
+      LOTTERY_BIN_READ,
+      LOTTERY_SHIFT_OPEN,
+      LOTTERY_SHIFT_CLOSE,
       LOTTERY_SHIFT_RECONCILE,
       LOTTERY_REPORT,
     ],
@@ -361,7 +386,14 @@ export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
   INVENTORY_ORDER,
 
   // Lottery - Scratch-off pack management
+  LOTTERY_GAME_READ,
+  LOTTERY_PACK_READ,
   LOTTERY_PACK_RECEIVE,
+  LOTTERY_PACK_ACTIVATE,
+  LOTTERY_VARIANCE_READ,
+  LOTTERY_BIN_READ,
+  LOTTERY_SHIFT_OPEN,
+  LOTTERY_SHIFT_CLOSE,
   LOTTERY_SHIFT_RECONCILE,
   LOTTERY_REPORT,
 

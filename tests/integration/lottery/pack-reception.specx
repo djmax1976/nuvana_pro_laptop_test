@@ -1,0 +1,151 @@
+/**
+ * Lottery Pack Reception Integration Tests
+ * 
+ * Tests for AC #2: Pack reception flow
+ *
+ * @test-level Integration
+ * @story 6-10 - Lottery Management UI
+ * @priority P0 (Critical - User Flows)
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
+import userEvent from "@testing-library/user-event";
+import { QueryClient } from "@tanstack/react-query";
+import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
+import * as lotteryHooks from "@/hooks/useLottery";
+import { createMockGame } from "../../support/factories/lottery-ui.factory";
+
+// Mock the hooks module
+vi.mock("@/hooks/useLottery", () => ({
+  usePackReception: vi.fn(),
+}));
+
+// Mock toast hook
+const mockToast = vi.fn();
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({
+    toast: mockToast,
+  }),
+}));
+
+describe("6.10-INT [P0]: Pack Reception Flow", () => {
+  let queryClient: QueryClient;
+  const mockStoreId = "store-123";
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    vi.clearAllMocks();
+    mockToast.mockClear();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+    vi.clearAllMocks();
+    mockToast.mockClear();
+  });
+
+  it("6.10-INT-003 [P0]: should submit pack reception form and refresh list", async () => {
+    // Given: I am authenticated as a Store Manager
+    const user = userEvent.setup();
+    const mockGame = createMockGame({ game_id: "game-123", name: "Test Game" });
+    const mockOnSuccess = vi.fn();
+    const mockOnSubmit = vi.fn().mockResolvedValue(undefined);
+
+    const mockUsePackReception = {
+      mutateAsync: mockOnSubmit,
+      isPending: false,
+      isError: false,
+      error: null,
+    };
+
+    vi.mocked(lotteryHooks.usePackReception).mockReturnValue(
+      mockUsePackReception as any,
+    );
+
+    // When: I want to receive a new lottery pack
+    renderWithProviders(
+      <PackReceptionForm
+        storeId={mockStoreId}
+        games={[mockGame]}
+        bins={[]}
+        open={true}
+        onOpenChange={vi.fn()}
+        onSuccess={mockOnSuccess}
+        onSubmit={mockOnSubmit}
+      />,
+      { queryClient },
+    );
+
+    // And: I can access a pack reception form
+    // And: I can enter pack information (game_id, pack_number, serial_start, serial_end)
+    const gameSelect = screen.getByTestId("game-select");
+    await user.click(gameSelect);
+    await user.click(screen.getByText("Test Game"));
+
+    const packNumberInput = screen.getByTestId("pack-number-input");
+    await user.type(packNumberInput, "PACK-003");
+
+    const serialStartInput = screen.getByTestId("serial-start-input");
+    await user.type(serialStartInput, "2001");
+
+    const serialEndInput = screen.getByTestId("serial-end-input");
+    await user.type(serialEndInput, "3000");
+
+    // And: I can submit the form
+    const submitButton = screen.getByRole("button", { name: /receive pack/i });
+    await user.click(submitButton);
+
+    // Then: Upon submission, pack is created with RECEIVED status
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith({
+        game_id: "game-123",
+        pack_number: "PACK-003",
+        serial_start: "2001",
+        serial_end: "3000",
+        store_id: mockStoreId,
+        bin_id: undefined,
+      });
+    });
+
+    // And: Success message is displayed
+    expect(mockOnSuccess).toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Pack received",
+      }),
+    );
+  });
+
+  it("6.10-INT-004 [P1]: should show validation errors for invalid input", async () => {
+    // Given: I am authenticated as a Store Manager
+    const user = userEvent.setup();
+    const mockGame = createMockGame({ game_id: "game-123", name: "Test Game" });
+
+    // When: I try to submit the form without filling required fields
+    renderWithProviders(
+      <PackReceptionForm
+        storeId={mockStoreId}
+        games={[mockGame]}
+        bins={[]}
+        open={true}
+        onOpenChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+      { queryClient },
+    );
+
+    const submitButton = screen.getByRole("button", { name: /receive pack/i });
+    await user.click(submitButton);
+
+    // Then: Validation errors are displayed
+    await waitFor(() => {
+      expect(screen.getByText(/game must be selected/i)).toBeInTheDocument();
+    });
+  });
+});

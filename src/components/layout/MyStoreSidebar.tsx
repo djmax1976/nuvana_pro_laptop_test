@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
 import { useStoreTerminals, TerminalWithStatus } from "@/lib/api/stores";
-import { Clock, Loader2, AlertCircle } from "lucide-react";
+import { Clock, Loader2, AlertCircle, Ticket } from "lucide-react";
 import { TerminalAuthModal } from "@/components/terminals/TerminalAuthModal";
 
 interface MyStoreSidebarProps {
@@ -17,11 +17,10 @@ interface MyStoreSidebarProps {
 
 /**
  * MyStore Terminal Dashboard Sidebar component
- * Minimal sidebar showing only terminal links and Clock In/Out link
- * Excludes: Shifts, Inventory, Lottery, Employees, Reports, AI Assistant
+ * Shows terminal links, Clock In/Out link, and Lottery Management link
  *
  * @requirements
- * - AC #2: Sidebar shows only terminal links for associated store and Clock In/Out link
+ * - AC #2: Sidebar shows terminal links for associated store, Clock In/Out link, and Lottery link
  * - AC #5: Shows terminals for stores user has access to (RLS filtering at API level)
  */
 export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
@@ -52,6 +51,12 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
 
   // Determine if Clock In/Out link is active
   const isClockInOutActive = pathname === "/mystore/clock-in-out";
+
+  // Determine if Lottery link is active
+  const isLotteryActive = pathname === "/mystore/lottery";
+
+  // Only show lottery link for STORE_MANAGER role (not CLIENT_USER)
+  const showLotteryLink = user?.roles?.includes("STORE_MANAGER") ?? false;
 
   // Handle terminal click - open authentication modal
   const handleTerminalClick = (terminal: TerminalWithStatus) => {
@@ -95,6 +100,24 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
           <Clock className="h-5 w-5" />
           <span>Clock In/Out</span>
         </Link>
+
+        {/* Lottery Management Link - Only for STORE_MANAGER */}
+        {showLotteryLink && (
+          <Link
+            href="/mystore/lottery"
+            data-testid="lottery-link"
+            onClick={() => onNavigate?.()}
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              isLotteryActive
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+            )}
+          >
+            <Ticket className="h-5 w-5" />
+            <span>Lottery</span>
+          </Link>
+        )}
 
         {/* Terminal Links Section */}
         <div className="mt-4 space-y-1">

@@ -1,0 +1,120 @@
+/**
+ * Lottery Variance Alert Integration Tests
+ * 
+ * Tests for AC #5: Variance alert display
+ *
+ * @test-level Integration
+ * @story 6-10 - Lottery Management UI
+ * @priority P0 (Critical - User Flows)
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { renderWithProviders, screen } from "../../support/test-utils";
+import { QueryClient } from "@tanstack/react-query";
+import { VarianceAlert } from "@/components/lottery/VarianceAlert";
+import { createMockVariance } from "../../support/factories/lottery-ui.factory";
+
+describe("6.10-INT [P0]: Variance Alert Display", () => {
+  let queryClient: QueryClient;
+  const mockPackId = "pack-123";
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+    vi.clearAllMocks();
+  });
+
+  it("6.10-INT-007 [P0]: should display variance alerts prominently", () => {
+    // Given: I am authenticated as a Store Manager
+    // And: There are lottery variances detected
+    const mockVariances = [
+      createMockVariance({
+        variance_id: "variance-123",
+        shift_id: "shift-123",
+        pack_id: mockPackId,
+        expected_count: 100,
+        actual_count: 95,
+        difference: -5,
+        approved_at: null,
+        pack: {
+          pack_number: "PACK-001",
+          game: {
+            name: "Test Game",
+          },
+        },
+        shift: {
+          shift_id: "shift-123",
+          opened_at: "2025-01-28T10:00:00Z",
+        },
+      }),
+    ];
+
+    // When: I navigate to the lottery section
+    renderWithProviders(
+      <VarianceAlert
+        variances={mockVariances}
+        onVarianceClick={vi.fn()}
+      />,
+      { queryClient },
+    );
+
+    // Then: Variance alerts are displayed prominently (e.g., banner, notification, highlighted section)
+    expect(
+      screen.getByText(/variance detected/i),
+    ).toBeInTheDocument();
+
+    // And: Variance details are shown (expected count, actual count, difference, pack information)
+    expect(screen.getByText(/100/)).toBeInTheDocument();
+    expect(screen.getByText(/95/)).toBeInTheDocument();
+    expect(screen.getByText(/-5/)).toBeInTheDocument();
+  });
+
+  it("6.10-INT-008 [P1]: should highlight unresolved variances", () => {
+    // Given: I am authenticated as a Store Manager
+    // And: There are unresolved variances
+    const mockVariances = [
+      createMockVariance({
+        variance_id: "variance-123",
+        shift_id: "shift-123",
+        pack_id: mockPackId,
+        expected_count: 100,
+        actual_count: 95,
+        difference: -5,
+        approved_at: null, // Unresolved
+        pack: {
+          pack_number: "PACK-001",
+          game: {
+            name: "Test Game",
+          },
+        },
+        shift: {
+          shift_id: "shift-123",
+          opened_at: "2025-01-28T10:00:00Z",
+        },
+      }),
+    ];
+
+    // When: I navigate to the lottery section
+    renderWithProviders(
+      <VarianceAlert
+        variances={mockVariances}
+        onVarianceClick={vi.fn()}
+      />,
+      { queryClient },
+    );
+
+    // Then: I can see which shifts have unresolved variances
+    // And: Unresolved variances are highlighted
+    const alert = screen.getByRole("alert");
+    expect(alert).toBeInTheDocument();
+  });
+});

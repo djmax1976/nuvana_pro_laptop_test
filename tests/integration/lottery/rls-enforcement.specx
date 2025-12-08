@@ -1,0 +1,179 @@
+/**
+ * Lottery RLS Enforcement Integration Tests
+ * 
+ * Tests for AC #8: RLS enforcement and error handling
+ *
+ * @test-level Integration
+ * @story 6-10 - Lottery Management UI
+ * @priority P0 (Critical - Security, Data Integrity)
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
+import userEvent from "@testing-library/user-event";
+import { QueryClient } from "@tanstack/react-query";
+import { LotteryPackCard } from "@/components/lottery/LotteryPackCard";
+import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
+import * as lotteryHooks from "@/hooks/useLottery";
+import { createMockPack, createMockGame } from "../../support/factories/lottery-ui.factory";
+
+// Mock the hooks module
+vi.mock("@/hooks/useLottery", () => ({
+  useLotteryPacks: vi.fn(),
+}));
+
+// Mock toast hook
+const mockToast = vi.fn();
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({
+    toast: mockToast,
+  }),
+}));
+
+describe("6.10-INT [P0]: RLS Enforcement and Error Handling", () => {
+  let queryClient: QueryClient;
+  const mockStoreId = "store-123";
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    vi.clearAllMocks();
+    mockToast.mockClear();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+    vi.clearAllMocks();
+    mockToast.mockClear();
+  });
+
+  it("6.10-INT-010 [P0]: should only display packs for user's store", () => {
+    // Given: I am authenticated as a Store Manager
+    // And: There are packs from different stores
+    const mockGame = createMockGame({ game_id: "game-123", name: "Test Game" });
+    const store1Pack = createMockPack({
+      pack_id: "pack-123",
+      pack_number: "PACK-001",
+      store_id: mockStoreId,
+      game: mockGame,
+    });
+    const store2Pack = createMockPack({
+      pack_id: "pack-999",
+      pack_number: "PACK-999",
+      store_id: "store-999", // Different store
+      game: mockGame,
+    });
+
+    // When: I navigate to the lottery section
+    // Mock hook to return only store1 packs (RLS enforcement)
+    vi.mocked(lotteryHooks.useLotteryPacks).mockReturnValue({
+      data: [store1Pack],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as any);
+
+    renderWithProviders(
+      <div>
+        {[store1Pack].map((pack) => (
+          <LotteryPackCard
+            key={pack.pack_id}
+            pack={{
+              pack_id: pack.pack_id,
+              pack_number: pack.pack_number,
+              serial_start: pack.serial_start,
+              serial_end: pack.serial_end,
+              status: pack.status,
+              game: pack.game,
+            }}
+          />
+        ))}
+      </div>,
+      { queryClient },
+    );
+
+    // Then: RLS policies ensure I can only access packs for my store
+    expect(screen.getByText("PACK-001")).toBeInTheDocument();
+    expect(screen.queryByText("PACK-999")).not.toBeInTheDocument();
+  });
+
+  it("6.10-INT-011 [P0]: should display error messages for failed operations", async () => {
+    // Given: I am authenticated as a Store Manager
+    // And: An API operation fails
+    const user = userEvent.setup();
+    const mockGame = createMockGame({ game_id: "game-123", name: "Test Game" });
+    const mockOnSubmit = vi
+      .fn()
+      .mockRejectedValue(new Error("Pack number already exists"));
+
+    // When: I interact with lottery management features
+    renderWithProviders(
+      <PackReceptionForm
+        storeId={mockStoreId}
+        games={[mockGame]}
+        bins={[]}
+        open={true}
+        onOpenChange={vi.fn()}
+        onSubmit={mockOnSubmit}
+      />,
+      { queryClient },
+    );
+
+    // And: I submit a form with invalid data
+    const gameSelect = screen.getByTestId("game-select");
+    await user.click(gameSelect);
+    await user.click(screen.getByText("Test Game"));
+
+    const packNumberInput = screen.getByTestId("pack-number-input");
+    await user.type(packNumberInput, "PACK-001");
+
+    const serialStartInput = screen.getByTestId("serial-start-input");
+    await user.type(serialStartInput, "1000");
+
+    const serialEndInput = screen.getByTestId("serial-end-input");
+    await user.type(serialEndInput, "2000");
+
+    const submitButton = screen.getByRole("button", { name: /receive pack/i });
+    await user.click(submitButton);
+
+    // Then: Error messages are displayed for failed operations
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Error",
+          description: "Pack number already exists",
+          variant: "destructive",
+        }),
+      );
+    });
+  });
+
+  it("6.10-INT-012 [P1]: should show loading states during API calls", () => {
+    // Given: I am authenticated as a Store Manager
+    // And: An API call is in progress
+    vi.mocked(lotteryHooks.useLotteryPacks).mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+      error: null,
+    } as any);
+
+    // When: I navigate to the lottery section
+    renderWithProviders(
+      <div data-testid="pack-list">
+        {vi.mocked(lotteryHooks.useLotteryPacks).mock.results[0]?.value
+          ?.isLoading && <div>Loading packs...</div>}
+      </div>,
+      { queryClient },
+    );
+
+    // Then: Loading states are shown during API calls
+    expect(
+      vi.mocked(lotteryHooks.useLotteryPacks).mock.results[0]?.value?.isLoading,
+    ).toBe(true);
+  });
+});

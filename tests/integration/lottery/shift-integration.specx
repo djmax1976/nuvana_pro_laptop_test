@@ -1,0 +1,98 @@
+/**
+ * Lottery Shift Integration Integration Tests
+ * 
+ * Tests for AC #7: Integration with shift opening/closing
+ *
+ * @test-level Integration
+ * @story 6-10 - Lottery Management UI
+ * @priority P0 (Critical - User Flows)
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { renderWithProviders, screen } from "../../support/test-utils";
+import { QueryClient } from "@tanstack/react-query";
+import { PackDetailsModal } from "@/components/lottery/PackDetailsModal";
+import { createMockPack, createMockGame, createMockShiftOpening, createMockShiftClosing } from "../../support/factories/lottery-ui.factory";
+
+describe("6.10-INT [P0]: Integration with Shift Opening/Closing", () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+    vi.clearAllMocks();
+  });
+
+  it("6.10-INT-013 [P0]: should display packs in shift context", () => {
+    // Given: I am authenticated as a Store Manager
+    // And: There is a pack with associated shift openings and closings
+    const mockGame = createMockGame({ game_id: "game-123", name: "Test Game" });
+    const mockActivePack = createMockPack({
+      pack_id: "pack-456",
+      pack_number: "PACK-002",
+      status: "ACTIVE",
+      game: mockGame,
+    });
+    const shiftOpening = createMockShiftOpening({
+      opening_id: "opening-123",
+      shift_id: "shift-123",
+      opening_serial: "1500",
+      created_at: "2025-01-28T11:00:00Z",
+      shift: {
+        shift_id: "shift-123",
+        shift_number: 1,
+        status: "OPEN",
+      },
+    });
+    const shiftClosing = createMockShiftClosing({
+      closing_id: "closing-123",
+      shift_id: "shift-123",
+      closing_serial: "1800",
+      opening_serial: "1500",
+      expected_count: 301,
+      actual_count: 295,
+      difference: -6,
+      has_variance: true,
+      created_at: "2025-01-28T12:00:00Z",
+      shift: {
+        shift_id: "shift-123",
+        shift_number: 1,
+        status: "CLOSING",
+      },
+    });
+
+    const mockPackDetail = {
+      ...mockActivePack,
+      shift_openings: [shiftOpening],
+      shift_closings: [shiftClosing],
+    };
+
+    // When: I navigate to the lottery section
+    renderWithProviders(
+      <PackDetailsModal
+        pack={mockPackDetail}
+        open={true}
+        onOpenChange={vi.fn()}
+      />,
+      { queryClient },
+    );
+
+    // Then: The UI integrates with shift opening/closing flows
+    // And: I can see packs that were opened in active shifts
+    expect(screen.getByText(/shift opening/i)).toBeInTheDocument();
+    expect(screen.getByText(/1500/)).toBeInTheDocument();
+
+    // And: I can see packs that need closing for shifts in CLOSING status
+    expect(screen.getByText(/shift closing/i)).toBeInTheDocument();
+    expect(screen.getByText(/1800/)).toBeInTheDocument();
+  });
+});

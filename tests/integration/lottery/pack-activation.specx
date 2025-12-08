@@ -1,0 +1,98 @@
+/**
+ * Lottery Pack Activation Integration Tests
+ * 
+ * Tests for AC #3: Pack activation flow
+ *
+ * @test-level Integration
+ * @story 6-10 - Lottery Management UI
+ * @priority P0 (Critical - User Flows)
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
+import userEvent from "@testing-library/user-event";
+import { QueryClient } from "@tanstack/react-query";
+import { PackActivationForm } from "@/components/lottery/PackActivationForm";
+import { createMockPack, createMockGame } from "../../support/factories/lottery-ui.factory";
+
+// Mock toast hook
+const mockToast = vi.fn();
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({
+    toast: mockToast,
+  }),
+}));
+
+describe("6.10-INT [P0]: Pack Activation Flow", () => {
+  let queryClient: QueryClient;
+  const mockPackId = "pack-123";
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    vi.clearAllMocks();
+    mockToast.mockClear();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+    vi.clearAllMocks();
+    mockToast.mockClear();
+  });
+
+  it("6.10-INT-005 [P0]: should activate a pack and refresh list", async () => {
+    // Given: I am authenticated as a Store Manager
+    // And: There is a pack with RECEIVED status
+    const user = userEvent.setup();
+    const mockGame = createMockGame({ game_id: "game-123", name: "Test Game" });
+    const mockPack = createMockPack({
+      pack_id: mockPackId,
+      pack_number: "PACK-001",
+      status: "RECEIVED",
+      game: mockGame,
+    });
+    const mockOnActivate = vi.fn().mockResolvedValue(undefined);
+    const mockOnSuccess = vi.fn();
+
+    // When: I want to activate a pack in RECEIVED status
+    renderWithProviders(
+      <PackActivationForm
+        packs={[mockPack]}
+        open={true}
+        onOpenChange={vi.fn()}
+        onSuccess={mockOnSuccess}
+        onActivate={mockOnActivate}
+      />,
+      { queryClient },
+    );
+
+    // And: I can access a pack activation form or action
+    // And: I can select a pack with RECEIVED status
+    const packSelect = screen.getByRole("combobox", { name: /select pack/i });
+    await user.click(packSelect);
+    await user.click(screen.getByText(/PACK-001/));
+
+    // And: I can activate the pack
+    const activateButton = screen.getByRole("button", {
+      name: /activate pack/i,
+    });
+    await user.click(activateButton);
+
+    // Then: Upon activation, pack status changes to ACTIVE
+    await waitFor(() => {
+      expect(mockOnActivate).toHaveBeenCalledWith(mockPackId);
+    });
+
+    // And: Success message is displayed
+    expect(mockOnSuccess).toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Pack activated",
+      }),
+    );
+  });
+});
