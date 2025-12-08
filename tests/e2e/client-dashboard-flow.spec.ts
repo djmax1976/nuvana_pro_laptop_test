@@ -33,16 +33,19 @@ async function loginAndWaitForDashboard(
   email: string,
   password: string,
 ): Promise<void> {
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
+  await page.goto("/login", { waitUntil: "networkidle" });
 
-  // Wait for login form to be visible
-  await page.waitForSelector('input[type="email"], input[name="email"]', {
+  // Wait for login form to be visible and ready for input
+  await page.waitForSelector('input[type="email"]', {
     state: "visible",
     timeout: 15000,
   });
 
-  await page.fill('input[name="email"], input[type="email"]', email);
-  await page.fill('input[name="password"], input[type="password"]', password);
+  // Small delay to ensure React hydration is complete
+  await page.waitForTimeout(500);
+
+  await page.fill('input[type="email"]', email);
+  await page.fill('input[type="password"]', password);
 
   // Set up navigation promise BEFORE clicking submit (order matters for reliability)
   const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {

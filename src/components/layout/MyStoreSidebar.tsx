@@ -55,6 +55,9 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
   // Determine if Lottery link is active
   const isLotteryActive = pathname === "/mystore/lottery";
 
+  // Only show lottery link for STORE_MANAGER role (not CLIENT_USER)
+  const showLotteryLink = user?.roles?.includes("STORE_MANAGER") ?? false;
+
   // Handle terminal click - open authentication modal
   const handleTerminalClick = (terminal: TerminalWithStatus) => {
     setSelectedTerminal(terminal);
@@ -98,21 +101,23 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
           <span>Clock In/Out</span>
         </Link>
 
-        {/* Lottery Management Link */}
-        <Link
-          href="/mystore/lottery"
-          data-testid="lottery-link"
-          onClick={() => onNavigate?.()}
-          className={cn(
-            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-            isLotteryActive
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-          )}
-        >
-          <Ticket className="h-5 w-5" />
-          <span>Lottery</span>
-        </Link>
+        {/* Lottery Management Link - Only for STORE_MANAGER */}
+        {showLotteryLink && (
+          <Link
+            href="/mystore/lottery"
+            data-testid="lottery-link"
+            onClick={() => onNavigate?.()}
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              isLotteryActive
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+            )}
+          >
+            <Ticket className="h-5 w-5" />
+            <span>Lottery</span>
+          </Link>
+        )}
 
         {/* Terminal Links Section */}
         <div className="mt-4 space-y-1">

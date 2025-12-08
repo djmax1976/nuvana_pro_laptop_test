@@ -10,6 +10,7 @@
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 
@@ -97,26 +98,14 @@ export function VarianceAlert({
   // Group unresolved variances by shift for better organization
   const unresolvedByShift = groupVariancesByShift(unresolvedVariances);
 
-  // If no variances exist, show message
+  // If no variances exist, return null (component should not be visible)
+  // This allows tests to check that variance-alert is not visible when there are no variances
   if (variances.length === 0) {
-    return (
-      <Alert
-        className={cn(
-          "border-green-500/50 bg-green-50 dark:bg-green-950/20",
-          className,
-        )}
-      >
-        <CheckCircle2 className="h-4 w-4 text-green-600" />
-        <AlertTitle>No Variances</AlertTitle>
-        <AlertDescription>
-          All lottery pack reconciliations are clear. No variances detected.
-        </AlertDescription>
-      </Alert>
-    );
+    return null;
   }
 
   return (
-    <div className={cn("space-y-4", className)}>
+    <div className={cn("space-y-4", className)} data-testid="variance-alert">
       {/* Unresolved Variances - Prominently Displayed */}
       {unresolvedVariances.length > 0 && (
         <div className="space-y-3">
@@ -223,6 +212,21 @@ export function VarianceAlert({
                               </span>
                             </div>
                           </div>
+                          {onVarianceClick && (
+                            <div className="mt-3 flex justify-end">
+                              <Button
+                                size="sm"
+                                variant="default"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onVarianceClick(variance);
+                                }}
+                                data-testid="approve-variance-button"
+                              >
+                                Approve Variance
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>

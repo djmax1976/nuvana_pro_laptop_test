@@ -92,13 +92,22 @@ test.describe("E2E-003: Homepage Contact Form", () => {
     page,
   }) => {
     // GIVEN: User is on homepage contact form with valid data
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.goto("/", { waitUntil: "networkidle" });
+
+    // Wait for React hydration
+    await page.waitForTimeout(500);
 
     const getStartedButton = page
       .getByRole("button", { name: /Get Started/i })
       .first();
     await expect(getStartedButton).toBeVisible({ timeout: 10000 });
     await getStartedButton.click();
+
+    // Wait for contact form to be visible
+    await page.waitForSelector('input[name="name"]', {
+      state: "visible",
+      timeout: 5000,
+    });
 
     await page.locator('input[name="name"]').fill("John Doe");
     await page.locator('input[name="email"]').fill("john.doe@test.com");

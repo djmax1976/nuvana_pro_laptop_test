@@ -180,6 +180,7 @@ export function PackActivationForm({
             type="button"
             onClick={handleActivate}
             disabled={isSubmitting || !selectedPackId}
+            data-testid="submit-pack-activation"
           >
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Activate Pack

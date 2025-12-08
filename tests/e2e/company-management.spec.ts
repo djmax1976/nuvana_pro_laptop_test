@@ -519,12 +519,36 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
     });
 
     // WHEN: Navigating to the company list page
-    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
+    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+
+    // Wait for React hydration
+    await superadminPage.waitForTimeout(500);
 
     // THEN: Company list should be visible
     await expect(
       superadminPage.locator('[data-testid="company-list-container"]'),
     ).toBeVisible({ timeout: 30000 });
+
+    // Wait for the table rows to be populated (companies to load)
+    await superadminPage.waitForSelector("tbody tr", {
+      state: "visible",
+      timeout: 15000,
+    });
+
+    // Wait specifically for our test companies to appear
+    // This ensures we're not just seeing leftover data from other tests
+    await expect(
+      superadminPage.locator("tbody tr").filter({ hasText: "Alpha Company" }),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      superadminPage.locator("tbody tr").filter({ hasText: "Beta Company" }),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      superadminPage.locator("tbody tr").filter({ hasText: "Zeta Company" }),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      superadminPage.locator("tbody tr").filter({ hasText: "Gamma Company" }),
+    ).toBeVisible({ timeout: 10000 });
 
     // THEN: All sortable columns should support ascending/descending sorting
     const columnsToTest = [

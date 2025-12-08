@@ -34,6 +34,8 @@ import {
 import { VarianceApprovalDialog } from "@/components/lottery/VarianceApprovalDialog";
 import { receivePack } from "@/lib/api/lottery";
 import { useToast } from "@/hooks/use-toast";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { CheckCircle2 } from "lucide-react";
 
 /**
  * Lottery Management Page
@@ -67,6 +69,7 @@ export default function LotteryManagementPage() {
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [selectedVariance, setSelectedVariance] =
     useState<LotteryVariance | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Get first active store ID from user's accessible stores
   const storeId =
@@ -171,6 +174,8 @@ export default function LotteryManagementPage() {
       await packReceptionMutation.mutateAsync(data);
       invalidatePacks();
       setReceptionDialogOpen(false);
+      setSuccessMessage("Pack received successfully");
+      setTimeout(() => setSuccessMessage(null), 5000);
     } catch (error) {
       throw error; // Error handling is done in the form component
     }
@@ -181,6 +186,8 @@ export default function LotteryManagementPage() {
       await packActivationMutation.mutateAsync(packId);
       invalidatePacks();
       setActivationDialogOpen(false);
+      setSuccessMessage("Pack activated successfully");
+      setTimeout(() => setSuccessMessage(null), 5000);
     } catch (error) {
       throw error; // Error handling is done in the form component
     }
@@ -202,6 +209,8 @@ export default function LotteryManagementPage() {
       invalidatePacks();
       setVarianceDialogOpen(false);
       setSelectedVariance(null);
+      setSuccessMessage("Variance approved successfully");
+      setTimeout(() => setSuccessMessage(null), 5000);
     } catch (error) {
       throw error; // Error handling is done in the dialog component
     }
@@ -351,6 +360,17 @@ export default function LotteryManagementPage() {
           </Button>
         </div>
       </div>
+
+      {/* Success Message */}
+      {successMessage && (
+        <Alert
+          className="border-green-500/50 bg-green-50 dark:bg-green-950/20"
+          data-testid="success-message"
+        >
+          <CheckCircle2 className="h-4 w-4 text-green-600" />
+          <AlertDescription>{successMessage}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Variance Alerts */}
       {!variancesLoading && !variancesError && (
