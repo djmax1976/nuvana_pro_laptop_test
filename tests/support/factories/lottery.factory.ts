@@ -253,10 +253,12 @@ export const createLotteryVariance = async (
     approved_at?: Date | null;
   },
 ) => {
+  // Note: difference = actual - expected (per database constraint lottery_variances_difference_check)
+  // Positive difference means over (actual > expected), negative means under (actual < expected)
   const difference =
     overrides.difference !== undefined
       ? overrides.difference
-      : overrides.expected - overrides.actual;
+      : overrides.actual - overrides.expected;
 
   return await prisma.lotteryVariance.create({
     data: {
