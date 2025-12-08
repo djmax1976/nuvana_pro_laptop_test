@@ -31,6 +31,7 @@ export function validateBinTemplate(binTemplate: any): {
 
   // THEN: Validate each bin definition
   for (let i = 0; i < binTemplate.length; i++) {
+    // eslint-disable-next-line security/detect-object-injection
     const bin = binTemplate[i];
     if (typeof bin !== "object" || bin === null) {
       return {

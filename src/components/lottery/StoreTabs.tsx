@@ -62,6 +62,7 @@ export function StoreTabs({
                     e.key === "ArrowRight"
                       ? (currentIndex + 1) % stores.length
                       : (currentIndex - 1 + stores.length) % stores.length;
+                  // eslint-disable-next-line security/detect-object-injection
                   onStoreSelect(stores[nextIndex].store_id);
                 }
               }}

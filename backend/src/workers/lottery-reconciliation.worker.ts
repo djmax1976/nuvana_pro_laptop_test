@@ -57,6 +57,7 @@ function logWorker(
     ...metadata,
   };
 
+  // eslint-disable-next-line security/detect-object-injection
   console[level](JSON.stringify(logMessage));
 }
 

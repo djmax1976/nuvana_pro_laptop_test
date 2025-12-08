@@ -9,7 +9,7 @@
  *        add/remove bins, save and persist configuration
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
 import { StoreTabs } from "@/components/lottery/StoreTabs";
@@ -26,7 +26,10 @@ export default function LotteryBinsSettingsPage() {
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
 
   // Set first store as selected when stores are loaded
-  const stores = dashboardData?.stores || [];
+  const stores = useMemo(
+    () => dashboardData?.stores || [],
+    [dashboardData?.stores],
+  );
   useEffect(() => {
     if (stores.length > 0 && selectedStoreId === null) {
       setSelectedStoreId(stores[0].store_id);

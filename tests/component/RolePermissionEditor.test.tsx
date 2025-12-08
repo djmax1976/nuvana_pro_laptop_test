@@ -57,6 +57,7 @@ vi.mock("@/lib/api/client-roles", () => ({
       INVENTORY: "Inventory",
       REPORTS: "Reports",
     };
+    // eslint-disable-next-line security/detect-object-injection
     return names[category] || category;
   }),
   hasClientOverrides: vi.fn((permissions) =>
