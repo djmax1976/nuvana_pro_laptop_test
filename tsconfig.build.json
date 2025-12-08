@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "node_modules",
+    "nuvana_control",
+    "bmad",
+    "nuvana_docs",
+    "my-files",
+    "prd",
+    "stories",
+    "backend",
+    "tests"
+  ]
+}

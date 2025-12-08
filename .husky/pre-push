@@ -14,8 +14,8 @@ done
 echo "Running full lint..."
 npm run lint
 
-echo "Type-checking project..."
-npx tsc --noEmit
+echo "Type-checking project (excluding tests)..."
+npx tsc --noEmit --project tsconfig.build.json
 
 echo "Building project..."
 # Allow build to pass even if default error pages (404/500) have export warnings

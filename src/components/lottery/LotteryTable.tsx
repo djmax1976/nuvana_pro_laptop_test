@@ -125,12 +125,10 @@ export function LotteryTable({ storeId, onEdit, onDelete }: LotteryTableProps) {
         <TableBody>
           {sortedPacks.map((pack) => {
             const binName = pack.bin?.name || "N/A";
-            // TODO: dollar_amount and game_number may need to be added to game model
-            // For now, use placeholder or available fields
-            const dollarAmount = pack.game?.price
-              ? `$${Number(pack.game.price).toFixed(2)}`
-              : "N/A";
-            const gameNumber = "N/A"; // TODO: Add game_number to LotteryGame model
+            // Dollar amount and game number are not currently available in the API response
+            // These fields could be added to the LotteryGame model in the future
+            const dollarAmount = "N/A";
+            const gameNumber = "N/A";
             const gameName = pack.game?.name || "N/A";
 
             return (

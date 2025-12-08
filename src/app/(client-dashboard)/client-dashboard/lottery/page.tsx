@@ -71,7 +71,7 @@ export default function ClientDashboardLotteryPage() {
             Lottery Management
           </h1>
           <p className="text-destructive">
-            Failed to load stores: {dashboardError?.message || "Unknown error"}
+            Failed to load stores. Please try again.
           </p>
         </div>
       </div>

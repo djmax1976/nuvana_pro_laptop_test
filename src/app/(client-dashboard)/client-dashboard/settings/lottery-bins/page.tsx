@@ -60,7 +60,7 @@ export default function LotteryBinsSettingsPage() {
         <div className="space-y-1">
           <h1 className="text-2xl font-bold">Lottery Bin Configuration</h1>
           <p className="text-destructive">
-            Failed to load stores: {dashboardError?.message || "Unknown error"}
+            Failed to load stores. Please try again.
           </p>
         </div>
       </div>

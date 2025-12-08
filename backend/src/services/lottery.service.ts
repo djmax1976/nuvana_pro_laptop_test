@@ -180,7 +180,7 @@ export async function movePackBetweenBins(
 ): Promise<{
   pack_id: string;
   current_bin_id: string | null;
-  history_id: string;
+  history_id: string | null;
 }> {
   // Validate pack exists using Prisma ORM (prevents SQL injection)
   const pack = await prisma.lotteryPack.findUnique({
@@ -242,24 +242,28 @@ export async function movePackBetweenBins(
       },
     });
 
-    // Create LotteryPackBinHistory record for audit trail
-    const history = await tx.lotteryPackBinHistory.create({
-      data: {
-        pack_id: packId,
-        bin_id: newBinId, // Can be null if unassigning from bin
-        moved_by: movedBy,
-        moved_at: new Date(),
-        reason: reason || null,
-      },
-      select: {
-        history_id: true,
-      },
-    });
+    // Create LotteryPackBinHistory record for audit trail (only when moving TO a bin)
+    let historyId: string | null = null;
+    if (newBinId !== null) {
+      const history = await tx.lotteryPackBinHistory.create({
+        data: {
+          pack_id: packId,
+          bin_id: newBinId,
+          moved_by: movedBy,
+          moved_at: new Date(),
+          reason: reason || null,
+        },
+        select: {
+          history_id: true,
+        },
+      });
+      historyId = history.history_id;
+    }
 
     return {
       pack_id: updatedPack.pack_id,
       current_bin_id: updatedPack.current_bin_id,
-      history_id: history.history_id,
+      history_id: historyId,
     };
   });
 

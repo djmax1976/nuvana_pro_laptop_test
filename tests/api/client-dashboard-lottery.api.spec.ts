@@ -355,9 +355,9 @@ test.describe("6.10.1-API: Client Dashboard Lottery - Pack Update", () => {
 
       // THEN: Request is rejected (400 Bad Request for invalid UUID, or 404 Not Found)
       expect(
-        response.status(),
+        [400, 404],
         `SQL injection attempt "${maliciousId}" should be rejected`,
-      ).toBeOneOf([400, 404]);
+      ).toContain(response.status());
     }
   });
 
@@ -406,9 +406,9 @@ test.describe("6.10.1-API: Client Dashboard Lottery - Pack Update", () => {
       } else {
         // Or validation rejects it
         expect(
-          response.status(),
+          [400, 422],
           `XSS attempt "${maliciousInput}" should be rejected or sanitized`,
-        ).toBeOneOf([400, 422]);
+        ).toContain(response.status());
       }
     }
   });
@@ -695,10 +695,9 @@ test.describe("6.10.1-API: Client Dashboard Lottery - Pack Deletion", () => {
     );
 
     // THEN: Pack is deleted successfully
-    expect(
+    expect([200, 204], "Expected 200 OK or 204 No Content status").toContain(
       response.status(),
-      "Expected 200 OK or 204 No Content status",
-    ).toBeOneOf([200, 204]);
+    );
 
     // AND: Pack record is deleted from database
     const deletedPack = await prismaClient.lotteryPack.findUnique({
@@ -731,9 +730,9 @@ test.describe("6.10.1-API: Client Dashboard Lottery - Pack Deletion", () => {
 
     // THEN: Request is rejected with 400 Bad Request or 409 Conflict
     expect(
-      response.status(),
+      [400, 409],
       "Expected 400 or 409 - ACTIVE packs cannot be deleted",
-    ).toBeOneOf([400, 409]);
+    ).toContain(response.status());
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
     expect(
@@ -826,9 +825,9 @@ test.describe("6.10.1-API: Client Dashboard Lottery - Pack Deletion", () => {
 
       // THEN: Request is rejected (400 Bad Request for invalid UUID, or 404 Not Found)
       expect(
-        response.status(),
+        [400, 404],
         `SQL injection attempt "${maliciousId}" should be rejected`,
-      ).toBeOneOf([400, 404]);
+      ).toContain(response.status());
     }
   });
 
@@ -945,10 +944,9 @@ test.describe("6.10.1-API: Client Dashboard Lottery - Get Active Packs", () => {
     );
 
     // THEN: Request is rejected or returns empty array (RLS enforcement)
-    expect(
+    expect([200, 403], "Expected 200 OK or 403 Forbidden status").toContain(
       response.status(),
-      "Expected 200 OK or 403 Forbidden status",
-    ).toBeOneOf([200, 403]);
+    );
     if (response.status() === 200) {
       const body = await response.json();
       expect(
@@ -981,9 +979,9 @@ test.describe("6.10.1-API: Client Dashboard Lottery - Get Active Packs", () => {
 
       // THEN: Request is rejected (400 Bad Request for invalid UUID, or 403 Forbidden)
       expect(
-        response.status(),
+        [400, 403, 404],
         `SQL injection attempt "${maliciousStoreId}" should be rejected`,
-      ).toBeOneOf([400, 403, 404]);
+      ).toContain(response.status());
     }
   });
 
