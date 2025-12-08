@@ -19,12 +19,25 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StoreTabs } from "@/components/lottery/StoreTabs";
+import type { OwnedStore } from "@/lib/api/client-dashboard";
+
+// Helper to create mock OwnedStore with all required fields
+const createMockStore = (props: { store_id: string; name: string }): OwnedStore => ({
+  store_id: props.store_id,
+  company_id: "company-1",
+  company_name: "Test Company",
+  name: props.name,
+  location_json: { address: "123 Test St" },
+  timezone: "America/New_York",
+  status: "ACTIVE",
+  created_at: new Date().toISOString(),
+});
 
 describe("6.10.1-COMPONENT: StoreTabs", () => {
-  const mockStores = [
-    { store_id: "store-1", name: "Store 1" },
-    { store_id: "store-2", name: "Store 2" },
-    { store_id: "store-3", name: "Store 3" },
+  const mockStores: OwnedStore[] = [
+    createMockStore({ store_id: "store-1", name: "Store 1" }),
+    createMockStore({ store_id: "store-2", name: "Store 2" }),
+    createMockStore({ store_id: "store-3", name: "Store 3" }),
   ];
 
   // Test isolation: Clean up after each test
@@ -142,7 +155,7 @@ describe("6.10.1-COMPONENT: StoreTabs", () => {
 
   it("6.10.1-COMPONENT-004: [P2] should handle single store (AC #1)", async () => {
     // GIVEN: StoreTabs component with single store
-    const singleStore = [{ store_id: "store-1", name: "Store 1" }];
+    const singleStore = [createMockStore({ store_id: "store-1", name: "Store 1" })];
 
     // WHEN: Component is rendered
     render(

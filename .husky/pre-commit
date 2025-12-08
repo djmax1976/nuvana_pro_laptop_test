@@ -27,8 +27,8 @@ if [ $LINT_EXIT_CODE -ne 0 ] || echo "$LINT_OUTPUT" | grep -qE "(warning|error)"
   exit 1
 fi
 
-echo "Type-checking project (excluding tests)..."
-npx tsc --noEmit --project tsconfig.build.json
+echo "Type-checking project..."
+npx tsc --noEmit
 
 # Find newly created or modified Vitest test files (unit/component tests only, exclude Playwright E2E/API tests)
 # Only match .test.ts or .test.tsx files in tests/unit/ or tests/component/ directories

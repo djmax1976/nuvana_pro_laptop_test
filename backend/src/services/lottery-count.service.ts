@@ -11,12 +11,12 @@ import { prisma } from "../utils/db";
  * Increment denormalized ticket count
  *
  * @param currentCount - Current tickets_sold_count
- * @param lastSoldAt - Current last_sold_at timestamp
+ * @param _lastSoldAt - Current last_sold_at timestamp (unused, kept for API consistency)
  * @returns Updated count and timestamp
  */
 export function incrementTicketCount(
   currentCount: number,
-  lastSoldAt: Date | null,
+  _lastSoldAt: Date | null,
 ): { count: number; lastSoldAt: Date } {
   // GIVEN: Current count and timestamp
   // WHEN: Incrementing count

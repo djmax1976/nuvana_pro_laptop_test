@@ -395,8 +395,8 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
 
     // Extract unique bins and their display_order
     const bins = Array.from(
-      new Map(
-        body.data.map((row: any) => [
+      new Map<string, { name: string; display_order: number }>(
+        body.data.map((row: { bin_id: string; bin_name: string; display_order: number }) => [
           row.bin_id,
           { name: row.bin_name, display_order: row.display_order },
         ]),
@@ -404,9 +404,9 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
     );
 
     expect(bins.length, "Should have 3 bins").toBeGreaterThanOrEqual(3);
-    const binA = bins.find((b) => b.name === "Bin A");
-    const binB = bins.find((b) => b.name === "Bin B");
-    const binC = bins.find((b) => b.name === "Bin C");
+    const binA = bins.find((b: { name: string; display_order: number }) => b.name === "Bin A");
+    const binB = bins.find((b: { name: string; display_order: number }) => b.name === "Bin B");
+    const binC = bins.find((b: { name: string; display_order: number }) => b.name === "Bin C");
 
     expect(binA?.display_order, "Bin A should have display_order 0").toBe(0);
     expect(binB?.display_order, "Bin B should have display_order 1").toBe(1);

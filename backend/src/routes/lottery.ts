@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { randomUUID } from "crypto";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
@@ -902,7 +903,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   user_id: user.id,
                   action: "BATCH_PACK_RECEIVED",
                   table_name: "lottery_packs",
-                  record_id: null,
+                  record_id: randomUUID(),
                   new_values: {
                     total_serials: body.serialized_numbers.length,
                     created_count: created.length,
@@ -3883,7 +3884,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               user_id: user.id,
               action: "LOTTERY_BIN_READ",
               table_name: "lottery_bins",
-              record_id: null,
+              record_id: crypto.randomUUID(),
               new_values: {
                 store_id: params.storeId,
                 bin_count: bins.length,
@@ -4785,7 +4786,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               user_id: user.id,
               action: "LOTTERY_BIN_DISPLAY_READ",
               table_name: "lottery_bins",
-              record_id: null,
+              record_id: crypto.randomUUID(),
               new_values: {
                 store_id: params.storeId,
                 bin_count: displayData.length,

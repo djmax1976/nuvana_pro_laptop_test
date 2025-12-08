@@ -24,13 +24,24 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BinConfigurationForm } from "@/components/lottery/BinConfigurationForm";
-import { getBinConfiguration, saveBinConfiguration } from "@/lib/api/lottery";
+import { getBinConfiguration, createBinConfiguration, updateBinConfiguration } from "@/lib/api/lottery";
+import type { BinConfigurationResponse } from "@/lib/api/lottery";
 
 // Mock the API client
 vi.mock("@/lib/api/lottery", () => ({
   getBinConfiguration: vi.fn(),
-  saveBinConfiguration: vi.fn(),
+  createBinConfiguration: vi.fn(),
+  updateBinConfiguration: vi.fn(),
 }));
+
+// Helper to create mock BinConfigurationResponse with all required fields
+const createMockBinConfig = (bins: { name: string; location: string; display_order: number }[] = []): BinConfigurationResponse => ({
+  config_id: "config-123",
+  store_id: "123e4567-e89b-12d3-a456-426614174000",
+  bin_template: bins,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+});
 
 // Mock the toast hook
 vi.mock("@/hooks/use-toast", () => ({
@@ -56,7 +67,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     // GIVEN: BinConfigurationForm component
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: [] },
+      data: createMockBinConfig([]),
     });
 
     // WHEN: Component is rendered
@@ -82,7 +93,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     ];
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: existingBins },
+      data: createMockBinConfig(existingBins),
     });
 
     // WHEN: Component is rendered
@@ -101,7 +112,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     // GIVEN: BinConfigurationForm with no bins
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: [] },
+      data: createMockBinConfig([]),
     });
     const user = userEvent.setup();
 
@@ -128,7 +139,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     ];
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: existingBins },
+      data: createMockBinConfig(existingBins),
     });
     const user = userEvent.setup();
 
@@ -154,7 +165,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     ];
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: existingBins },
+      data: createMockBinConfig(existingBins),
     });
     const user = userEvent.setup();
 
@@ -184,7 +195,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     }));
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: tooManyBins },
+      data: createMockBinConfig(tooManyBins),
     });
     const user = userEvent.setup();
 
@@ -210,11 +221,11 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     const bins = [{ name: "Bin 1", location: "Front", display_order: 0 }];
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: bins },
+      data: createMockBinConfig(bins),
     });
-    vi.mocked(saveBinConfiguration).mockResolvedValue({
+    vi.mocked(updateBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: bins },
+      data: createMockBinConfig(bins),
     });
     const user = userEvent.setup();
 
@@ -231,7 +242,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
 
     // THEN: Configuration is saved and success callback is called
     await waitFor(() => {
-      expect(saveBinConfiguration).toHaveBeenCalledWith(mockStoreId, {
+      expect(updateBinConfiguration).toHaveBeenCalledWith(mockStoreId, {
         bin_template: bins,
       });
       expect(mockOnSuccess).toHaveBeenCalled();
@@ -242,9 +253,9 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     // GIVEN: BinConfigurationForm with API error
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: [] },
+      data: createMockBinConfig([]),
     });
-    vi.mocked(saveBinConfiguration).mockRejectedValue(
+    vi.mocked(updateBinConfiguration).mockRejectedValue(
       new Error("Failed to save"),
     );
     const user = userEvent.setup();
@@ -281,7 +292,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
 
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: [] },
+      data: createMockBinConfig([]),
     });
     const user = userEvent.setup();
 
@@ -319,7 +330,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     const xssPayload = "<script>alert('xss')</script>";
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: [] },
+      data: createMockBinConfig([]),
     });
     const user = userEvent.setup();
 
@@ -351,7 +362,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     // GIVEN: BinConfigurationForm
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: [] },
+      data: createMockBinConfig([]),
     });
     const user = userEvent.setup();
 
@@ -389,7 +400,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     const longName = "A".repeat(256); // Exceeds 255 character limit
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: [] },
+      data: createMockBinConfig([]),
     });
     const user = userEvent.setup();
 
@@ -425,7 +436,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     const specialChars = "Bin with émojis 🎰🎲 and special chars !@#$%^&*()";
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: [] },
+      data: createMockBinConfig([]),
     });
     const user = userEvent.setup();
 
@@ -453,7 +464,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     // GIVEN: BinConfigurationForm
     vi.mocked(getBinConfiguration).mockResolvedValue({
       success: true,
-      data: { bin_template: [] },
+      data: createMockBinConfig([]),
     });
     const user = userEvent.setup();
 
