@@ -413,6 +413,11 @@ test.describe("6.6-API: Shift Lottery Opening - Pack Opening", () => {
     );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
+    // Permission middleware returns PERMISSION_DENIED code
+    expect(body.error, "Error object should be present").toHaveProperty("code");
+    expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
+      "PERMISSION_DENIED",
+    );
   });
 
   test("6.6-API-004a: [P0] SECURITY - should allow SHIFT_MANAGER role", async ({
@@ -538,12 +543,19 @@ test.describe("6.6-API: Shift Lottery Opening - Pack Opening", () => {
       },
     );
 
-    // THEN: Request is rejected with 400 or 403 (store mismatch)
-    expect([400, 403], "Should return 400 or 403 for store mismatch").toContain(
-      response.status(),
-    );
+    // THEN: Request is rejected with 400 (validation error for store mismatch)
+    expect(response.status(), "Should return 400 for store mismatch").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be VALIDATION_ERROR").toBe(
+      "VALIDATION_ERROR",
+    );
+    // Verify error message mentions store mismatch
+    const errorMessage =
+      body.error?.details?.errors?.[0]?.message || body.error?.message;
+    expect(errorMessage, "Error message should mention store mismatch").toMatch(
+      /different store|store/i,
+    );
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -585,16 +597,39 @@ test.describe("6.6-API: Shift Lottery Opening - Pack Opening", () => {
     expect(response.status(), "Should return 400 for invalid status").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be VALIDATION_ERROR").toBe(
+      "VALIDATION_ERROR",
+    );
+    // Verify error details contain pack status error
     expect(
-      body.error.code,
-      "Error code should indicate invalid pack status",
-    ).toBeDefined();
+      body.error.details,
+      "Error should contain details with errors array",
+    ).toHaveProperty("errors");
+    const errorMessage =
+      body.error?.details?.errors?.[0]?.message || body.error?.message;
+    expect(errorMessage, "Error message should mention pack status").toMatch(
+      /not ACTIVE|status/i,
+    );
 
     // AND: No LotteryShiftOpening records are created
     const openings = await prismaClient.lotteryShiftOpening.findMany({
       where: { shift_id: shift.shift_id },
     });
     expect(openings.length, "No openings should be created").toBe(0);
+
+    // AND: Verify error details structure
+    expect(
+      body.error.details,
+      "Error should contain details with errors array",
+    ).toHaveProperty("errors");
+    expect(
+      Array.isArray(body.error.details.errors),
+      "Errors should be an array",
+    ).toBe(true);
+    expect(
+      body.error.details.errors.length,
+      "Should have at least one error",
+    ).toBeGreaterThan(0);
   });
 
   test("6.6-API-009: [P0] VALIDATION - should reject pack with DEPLETED status (AC #2)", async ({
@@ -631,10 +666,17 @@ test.describe("6.6-API: Shift Lottery Opening - Pack Opening", () => {
     // THEN: Request is rejected with 400 Bad Request
     expect(response.status(), "Should return 400 for invalid status").toBe(400);
     const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be VALIDATION_ERROR").toBe(
+      "VALIDATION_ERROR",
+    );
+    // Verify error details contain pack status error
+    const errorMessage =
+      body.error?.details?.errors?.[0]?.message || body.error?.message;
     expect(
-      body.error.code,
-      "Error code should indicate invalid pack status",
-    ).toBeDefined();
+      errorMessage,
+      "Error message should mention DEPLETED status",
+    ).toMatch(/not ACTIVE|status|DEPLETED/i);
   });
 
   test("6.6-API-010: [P0] VALIDATION - should reject opening serial outside pack range (AC #3)", async ({
@@ -891,6 +933,12 @@ test.describe("6.6-API: Shift Lottery Opening - Pack Opening", () => {
       body.error.details.errors.length,
       "Should have at least one error",
     ).toBeGreaterThan(0);
+    // Verify error message mentions pack not found
+    const errorMessage =
+      body.error?.details?.errors?.[0]?.message || body.error?.message;
+    expect(errorMessage, "Error message should mention pack not found").toMatch(
+      /pack not found|not found/i,
+    );
   });
 
   test("6.6-API-015: [P0] VALIDATION - should reject shift not in OPEN status", async ({
@@ -934,10 +982,13 @@ test.describe("6.6-API: Shift Lottery Opening - Pack Opening", () => {
     ).toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be INVALID_SHIFT_STATUS").toBe(
+      "INVALID_SHIFT_STATUS",
+    );
     expect(
-      body.error.code,
-      "Error code should indicate invalid shift status",
-    ).toBeDefined();
+      body.error.message,
+      "Error message should mention shift must be OPEN",
+    ).toMatch(/must be in OPEN|OPEN status/i);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1519,6 +1570,19 @@ test.describe("6.6-API: Shift Lottery Opening - Pack Opening", () => {
       where: { shift_id: shift.shift_id },
     });
     expect(openings.length, "Should have 10 opening records").toBe(10);
+
+    // AND: Verify each opening has correct structure
+    for (const opening of body.data.openings) {
+      expect(opening, "Opening should have required fields").toHaveProperty(
+        "opening_id",
+      );
+      expect(opening, "Opening should have pack_id").toHaveProperty("pack_id");
+      expect(opening, "Opening should have opening_serial").toHaveProperty(
+        "opening_serial",
+      );
+      expect(opening, "Opening should have pack").toHaveProperty("pack");
+      expect(opening.pack, "Pack should have game").toHaveProperty("game");
+    }
   });
 
   test("6.6-API-030: [P0] VALIDATION - should reject duplicate packIds in same request", async ({
@@ -1556,12 +1620,27 @@ test.describe("6.6-API: Shift Lottery Opening - Pack Opening", () => {
     );
 
     // THEN: Request is rejected with 400 or 409 (duplicate detection)
+    // Note: Implementation doesn't check for duplicates in same request during validation,
+    // so it will try to create both and the second will fail with unique constraint (409)
     expect(
       [400, 409],
       "Should reject duplicate packId in same request",
     ).toContain(response.status());
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
+
+    // If 409, verify it's a duplicate constraint error
+    if (response.status() === 409) {
+      expect(
+        body.error?.code,
+        "Error code should be DUPLICATE_PACK_OPENING for constraint violation",
+      ).toBe("DUPLICATE_PACK_OPENING");
+    } else if (response.status() === 400) {
+      // If 400, verify it's a validation error
+      expect(body.error?.code, "Error code should be VALIDATION_ERROR").toBe(
+        "VALIDATION_ERROR",
+      );
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1697,5 +1776,201 @@ test.describe("6.6-API: Shift Lottery Opening - Pack Opening", () => {
     expect(Array.from(uniqueGameIds)[0], "Game ID should match").toBe(
       game.game_id,
     );
+
+    // AND: Verify response structure matches schema
+    expect(body.data, "Response should contain shift_id").toHaveProperty(
+      "shift_id",
+    );
+    expect(body.data.shift_id, "shift_id should match").toBe(shift.shift_id);
+    expect(body.data, "Response should contain openings array").toHaveProperty(
+      "openings",
+    );
+    expect(
+      Array.isArray(body.data.openings),
+      "openings should be an array",
+    ).toBe(true);
+    expect(body.data.openings.length, "Should have 3 openings").toBe(3);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RESPONSE STRUCTURE VALIDATION TESTS (P0 - API Contract)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  test("6.6-API-033: [P0] CONTRACT - should return correct response structure matching schema", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager with an OPEN shift and ACTIVE pack
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game",
+      price: 2.0,
+    });
+    const pack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: "PACK-033",
+      serial_start: "0001",
+      serial_end: "0100",
+      status: "ACTIVE",
+    });
+    const shift = await createOpenShift(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
+
+    // WHEN: Opening shift with lottery pack
+    const response = await storeManagerApiRequest.post(
+      `/api/shifts/${shift.shift_id}/lottery/opening`,
+      {
+        packOpenings: [{ packId: pack.pack_id, openingSerial: "0050" }],
+      },
+    );
+
+    // THEN: Response structure matches API schema exactly
+    expect(response.status(), "Should return 201 Created").toBe(201);
+    const body = await response.json();
+
+    // Top-level structure
+    expect(body, "Response should be an object").toBeInstanceOf(Object);
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(typeof body.success, "success should be boolean").toBe("boolean");
+    expect(body.data, "Response should contain data object").toBeInstanceOf(
+      Object,
+    );
+
+    // Data structure
+    expect(body.data, "Data should contain shift_id").toHaveProperty(
+      "shift_id",
+    );
+    expect(typeof body.data.shift_id, "shift_id should be string (UUID)").toBe(
+      "string",
+    );
+    expect(body.data.shift_id, "shift_id should match request").toBe(
+      shift.shift_id,
+    );
+    expect(body.data, "Data should contain openings array").toHaveProperty(
+      "openings",
+    );
+    expect(
+      Array.isArray(body.data.openings),
+      "openings should be an array",
+    ).toBe(true);
+    expect(body.data.openings.length, "Should have 1 opening").toBe(1);
+
+    // Opening structure
+    const opening = body.data.openings[0];
+    expect(opening, "Opening should be an object").toBeInstanceOf(Object);
+    expect(opening, "Opening should have opening_id").toHaveProperty(
+      "opening_id",
+    );
+    expect(opening, "Opening should have pack_id").toHaveProperty("pack_id");
+    expect(opening, "Opening should have opening_serial").toHaveProperty(
+      "opening_serial",
+    );
+    expect(opening, "Opening should have pack").toHaveProperty("pack");
+
+    // Opening field types
+    expect(
+      typeof opening.opening_id,
+      "opening_id should be string (UUID)",
+    ).toBe("string");
+    expect(
+      opening.opening_id.length,
+      "opening_id should be valid UUID length",
+    ).toBeGreaterThan(30);
+    expect(typeof opening.pack_id, "pack_id should be string (UUID)").toBe(
+      "string",
+    );
+    expect(opening.pack_id, "pack_id should match request").toBe(pack.pack_id);
+    expect(
+      typeof opening.opening_serial,
+      "opening_serial should be string",
+    ).toBe("string");
+    expect(opening.opening_serial, "opening_serial should match request").toBe(
+      "0050",
+    );
+
+    // Pack structure
+    expect(opening.pack, "Pack should be an object").toBeInstanceOf(Object);
+    expect(opening.pack, "Pack should have pack_id").toHaveProperty("pack_id");
+    expect(opening.pack, "Pack should have pack_number").toHaveProperty(
+      "pack_number",
+    );
+    expect(opening.pack, "Pack should have serial_start").toHaveProperty(
+      "serial_start",
+    );
+    expect(opening.pack, "Pack should have serial_end").toHaveProperty(
+      "serial_end",
+    );
+    expect(opening.pack, "Pack should have game").toHaveProperty("game");
+
+    // Pack field types and values
+    expect(
+      typeof opening.pack.pack_id,
+      "pack.pack_id should be string (UUID)",
+    ).toBe("string");
+    expect(opening.pack.pack_id, "pack.pack_id should match").toBe(
+      pack.pack_id,
+    );
+    expect(
+      typeof opening.pack.pack_number,
+      "pack.pack_number should be string",
+    ).toBe("string");
+    expect(opening.pack.pack_number, "pack.pack_number should match").toBe(
+      "PACK-033",
+    );
+    expect(
+      typeof opening.pack.serial_start,
+      "pack.serial_start should be string",
+    ).toBe("string");
+    expect(opening.pack.serial_start, "pack.serial_start should match").toBe(
+      "0001",
+    );
+    expect(
+      typeof opening.pack.serial_end,
+      "pack.serial_end should be string",
+    ).toBe("string");
+    expect(opening.pack.serial_end, "pack.serial_end should match").toBe(
+      "0100",
+    );
+
+    // Game structure
+    expect(opening.pack.game, "Game should be an object").toBeInstanceOf(
+      Object,
+    );
+    expect(opening.pack.game, "Game should have game_id").toHaveProperty(
+      "game_id",
+    );
+    expect(opening.pack.game, "Game should have name").toHaveProperty("name");
+
+    // Game field types and values
+    expect(
+      typeof opening.pack.game.game_id,
+      "game.game_id should be string (UUID)",
+    ).toBe("string");
+    expect(opening.pack.game.game_id, "game.game_id should match").toBe(
+      game.game_id,
+    );
+    expect(typeof opening.pack.game.name, "game.name should be string").toBe(
+      "string",
+    );
+    expect(opening.pack.game.name, "game.name should match").toBe("Test Game");
+
+    // Verify no extra fields in response (contract compliance)
+    const expectedTopLevelKeys = ["success", "data"];
+    const actualTopLevelKeys = Object.keys(body);
+    expect(
+      actualTopLevelKeys.sort(),
+      "Response should only contain expected top-level keys",
+    ).toEqual(expectedTopLevelKeys.sort());
+
+    const expectedDataKeys = ["shift_id", "openings"];
+    const actualDataKeys = Object.keys(body.data);
+    expect(
+      actualDataKeys.sort(),
+      "Data should only contain expected keys",
+    ).toEqual(expectedDataKeys.sort());
   });
 });
