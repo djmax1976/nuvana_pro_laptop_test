@@ -479,7 +479,7 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
     const baseTime = new Date("2024-01-01T00:00:00Z");
 
     const company1 = await createCompany(prismaClient, {
-      name: "Alpha Company",
+      name: "E2E Alpha Company",
       status: "ACTIVE",
       owner_user_id: ownerUser1.user_id,
     });
@@ -489,7 +489,7 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
     });
 
     const company2 = await createCompany(prismaClient, {
-      name: "Beta Company",
+      name: "E2E Beta Company",
       status: "INACTIVE",
       owner_user_id: ownerUser2.user_id,
     });
@@ -499,7 +499,7 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
     });
 
     const company3 = await createCompany(prismaClient, {
-      name: "Zeta Company",
+      name: "E2E Zeta Company",
       status: "ACTIVE",
       owner_user_id: ownerUser3.user_id,
     });
@@ -509,7 +509,7 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
     });
 
     const company4 = await createCompany(prismaClient, {
-      name: "Gamma Company",
+      name: "E2E Gamma Company",
       status: "INACTIVE",
       owner_user_id: ownerUser4.user_id,
     });
@@ -519,7 +519,7 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
     });
 
     // WHEN: Navigating to the company list page
-    await superadminPage.goto("/companies", { waitUntil: "networkidle" });
+    await superadminPage.goto("/companies", { waitUntil: "domcontentloaded" });
 
     // Wait for React hydration
     await superadminPage.waitForTimeout(500);
@@ -538,16 +538,24 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
     // Wait specifically for our test companies to appear
     // This ensures we're not just seeing leftover data from other tests
     await expect(
-      superadminPage.locator("tbody tr").filter({ hasText: "Alpha Company" }),
+      superadminPage
+        .locator("tbody tr")
+        .filter({ hasText: "E2E Alpha Company" }),
     ).toBeVisible({ timeout: 10000 });
     await expect(
-      superadminPage.locator("tbody tr").filter({ hasText: "Beta Company" }),
+      superadminPage
+        .locator("tbody tr")
+        .filter({ hasText: "E2E Beta Company" }),
     ).toBeVisible({ timeout: 10000 });
     await expect(
-      superadminPage.locator("tbody tr").filter({ hasText: "Zeta Company" }),
+      superadminPage
+        .locator("tbody tr")
+        .filter({ hasText: "E2E Zeta Company" }),
     ).toBeVisible({ timeout: 10000 });
     await expect(
-      superadminPage.locator("tbody tr").filter({ hasText: "Gamma Company" }),
+      superadminPage
+        .locator("tbody tr")
+        .filter({ hasText: "E2E Gamma Company" }),
     ).toBeVisible({ timeout: 10000 });
 
     // THEN: All sortable columns should support ascending/descending sorting
@@ -574,10 +582,10 @@ test.describe("2.4-E2E: Company List - Sorting", () => {
 
     // Helper function to extract cell values for a column from rows matching our test companies
     const testCompanyNames = [
-      "Alpha Company",
-      "Beta Company",
-      "Zeta Company",
-      "Gamma Company",
+      "E2E Alpha Company",
+      "E2E Beta Company",
+      "E2E Zeta Company",
+      "E2E Gamma Company",
     ];
     const getColumnCellValues = async (
       columnIndex: number,
