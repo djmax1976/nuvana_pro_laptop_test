@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
 import { useStoreTerminals, TerminalWithStatus } from "@/lib/api/stores";
+import { useMenuPermissions } from "@/hooks/useMenuPermissions";
 import { Clock, Loader2, AlertCircle, Ticket } from "lucide-react";
 import { TerminalAuthModal } from "@/components/terminals/TerminalAuthModal";
 
@@ -25,7 +26,8 @@ interface MyStoreSidebarProps {
  */
 export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
   const pathname = usePathname();
-  const { user } = useClientAuth();
+  const { user, permissions } = useClientAuth();
+  const { canAccessMenuByKey } = useMenuPermissions(permissions);
   const { data: dashboardData, isLoading: dashboardLoading } =
     useClientDashboard();
 
@@ -55,8 +57,9 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
   // Determine if Lottery link is active
   const isLotteryActive = pathname === "/mystore/lottery";
 
-  // Only show lottery link for STORE_MANAGER role (not CLIENT_USER)
-  const showLotteryLink = user?.roles?.includes("STORE_MANAGER") ?? false;
+  // Show lottery link using centralized menu permission configuration
+  // Uses the same permission logic as ClientSidebar for consistency
+  const showLotteryLink = canAccessMenuByKey("lottery");
 
   // Handle terminal click - open authentication modal
   const handleTerminalClick = (terminal: TerminalWithStatus) => {
