@@ -508,14 +508,16 @@ describe("6.13-INTEGRATION: Lottery Pack Movement Audit Trail", () => {
       expect(updatedPack?.current_bin_id).toBe(testBin2.bin_id);
 
       // AND: History record is created
-      const history = await prisma.lotteryPackBinHistory.findUnique({
-        where: { history_id: result.history_id },
-      });
+      const history = result.history_id
+        ? await prisma.lotteryPackBinHistory.findUnique({
+            where: { history_id: result.history_id },
+          })
+        : null;
       expect(history).toBeDefined();
       expect(history?.pack_id).toBe(pack.pack_id);
       expect(history?.bin_id).toBe(testBin2.bin_id);
       expect(history?.moved_by).toBe(testMover.user_id);
-      expect(history?.reason).toBe("Service method test");
+      expect(history?.reason ?? undefined).toBe("Service method test");
     });
 
     it("6.13-INTEGRATION-026: should create audit log entry on pack movement", async () => {
@@ -543,7 +545,7 @@ describe("6.13-INTEGRATION: Lottery Pack Movement Audit Trail", () => {
           record_id: pack.pack_id,
           action: "LOTTERY_PACK_MOVED",
         },
-        orderBy: { created_at: "desc" },
+        orderBy: { timestamp: "desc" },
       });
 
       expect(auditLog).toBeDefined();

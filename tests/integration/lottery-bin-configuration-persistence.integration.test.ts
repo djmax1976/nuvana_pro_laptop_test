@@ -136,7 +136,7 @@ describe("6.13-INTEGRATION: Lottery Bin Configuration Persistence", () => {
       // THEN: Complex template is stored and retrieved correctly
       expect(config.bin_template).toEqual(binTemplate);
       expect(Array.isArray(config.bin_template)).toBe(true);
-      expect(config.bin_template.length).toBe(4);
+      expect((config.bin_template as unknown[]).length).toBe(4);
     });
 
     it("6.13-INTEGRATION-027: should store bin template with optional location", async () => {
@@ -157,7 +157,15 @@ describe("6.13-INTEGRATION: Lottery Bin Configuration Persistence", () => {
 
       // THEN: Template is stored correctly with optional fields
       expect(config.bin_template).toEqual(binTemplate);
-      expect(config.bin_template[1].location).toBeUndefined();
+      expect(
+        (
+          config.bin_template as Array<{
+            name: string;
+            location?: string;
+            display_order: number;
+          }>
+        )[1].location,
+      ).toBeUndefined();
     });
   });
 
@@ -340,11 +348,16 @@ describe("6.13-INTEGRATION: Lottery Bin Configuration Persistence", () => {
 
       // THEN: JSON is parsed correctly and accessible
       expect(retrieved).toBeDefined();
-      expect(Array.isArray(retrieved?.bin_template)).toBe(true);
-      expect(retrieved?.bin_template.length).toBe(3);
-      expect(retrieved?.bin_template[0].name).toBe("Front");
-      expect(retrieved?.bin_template[0].location).toBe("Aisle 1");
-      expect(retrieved?.bin_template[0].display_order).toBe(0);
+      const retrievedTemplate = retrieved?.bin_template as Array<{
+        name: string;
+        location: string;
+        display_order: number;
+      }>;
+      expect(Array.isArray(retrievedTemplate)).toBe(true);
+      expect(retrievedTemplate.length).toBe(3);
+      expect(retrievedTemplate[0].name).toBe("Front");
+      expect(retrievedTemplate[0].location).toBe("Aisle 1");
+      expect(retrievedTemplate[0].display_order).toBe(0);
     });
   });
 
@@ -373,7 +386,12 @@ describe("6.13-INTEGRATION: Lottery Bin Configuration Persistence", () => {
         // THEN: Configuration is created (JSON field stores as-is, SQL injection prevented by Prisma)
         expect(config, "Configuration should be created").toBeDefined();
         expect(
-          config.bin_template[0].name,
+          (
+            config.bin_template as Array<{
+              name: string;
+              display_order: number;
+            }>
+          )[0].name,
           "Malicious name should be stored as string",
         ).toBe(maliciousBin.name);
 
@@ -429,24 +447,29 @@ describe("6.13-INTEGRATION: Lottery Bin Configuration Persistence", () => {
         Array.isArray(config.bin_template),
         "Bin template should be an array",
       ).toBe(true);
-      expect(config.bin_template.length, "Should have 200 bins").toBe(200);
+      expect(
+        (config.bin_template as unknown[]).length,
+        "Should have 200 bins",
+      ).toBe(200);
 
       // AND: All bins are retrievable
       const retrieved = await prisma.lotteryBinConfiguration.findUnique({
         where: { config_id: config.config_id },
       });
+      const retrievedTemplate = retrieved?.bin_template as Array<{
+        name: string;
+        display_order: number;
+      }>;
       expect(
-        retrieved?.bin_template.length,
+        retrievedTemplate.length,
         "Retrieved template should have 200 bins",
       ).toBe(200);
-      expect(
-        retrieved?.bin_template[0].name,
-        "First bin name should match",
-      ).toBe("Bin 1");
-      expect(
-        retrieved?.bin_template[199].name,
-        "Last bin name should match",
-      ).toBe("Bin 200");
+      expect(retrievedTemplate[0].name, "First bin name should match").toBe(
+        "Bin 1",
+      );
+      expect(retrievedTemplate[199].name, "Last bin name should match").toBe(
+        "Bin 200",
+      );
     });
 
     it("6.13-INTEGRATION-EDGE-004: [P1] Should handle empty bin_template array", async () => {
@@ -466,9 +489,10 @@ describe("6.13-INTEGRATION: Lottery Bin Configuration Persistence", () => {
         Array.isArray(config.bin_template),
         "Bin template should be an array",
       ).toBe(true);
-      expect(config.bin_template.length, "Bin template should be empty").toBe(
-        0,
-      );
+      expect(
+        (config.bin_template as unknown[]).length,
+        "Bin template should be empty",
+      ).toBe(0);
     });
 
     it("6.13-INTEGRATION-EDGE-005: [P1] Should handle special characters and Unicode in bin names", async () => {
@@ -492,16 +516,20 @@ describe("6.13-INTEGRATION: Lottery Bin Configuration Persistence", () => {
       const retrieved = await prisma.lotteryBinConfiguration.findUnique({
         where: { config_id: config.config_id },
       });
+      const retrievedSpecialTemplate = retrieved?.bin_template as Array<{
+        name: string;
+        display_order: number;
+      }>;
       expect(
-        retrieved?.bin_template[0].name,
+        retrievedSpecialTemplate[0].name,
         "Emoji bin name should be preserved",
       ).toBe("Bin with émojis 🎰🎲");
       expect(
-        retrieved?.bin_template[1].name,
+        retrievedSpecialTemplate[1].name,
         "Special chars bin name should be preserved",
       ).toBe("Bin with special chars !@#$%^&*()");
       expect(
-        retrieved?.bin_template[2].name,
+        retrievedSpecialTemplate[2].name,
         "Unicode bin name should be preserved",
       ).toBe("Bin with unicode 中文 العربية");
     });

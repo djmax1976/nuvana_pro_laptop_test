@@ -100,9 +100,10 @@ describe("6.13-INTEGRATION: Lottery Game Code Uniqueness and Constraints", () =>
       await expect(
         prisma.lotteryGame.create({
           data: {
+            game_code: null as any,
             name: "Test Game",
             price: 5.0,
-            // game_code is missing - should fail
+            // game_code is null - should fail
           },
         }),
       ).rejects.toThrow();
@@ -117,7 +118,8 @@ describe("6.13-INTEGRATION: Lottery Game Code Uniqueness and Constraints", () =>
           data: {
             name: "Test Game",
             game_code: "9999",
-            // price is missing - should fail
+            price: null as any,
+            // price is null - should fail
           },
         }),
       ).rejects.toThrow();

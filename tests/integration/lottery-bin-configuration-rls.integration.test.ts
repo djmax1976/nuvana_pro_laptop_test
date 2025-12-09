@@ -504,11 +504,11 @@ describe("6.13-INTEGRATION: Lottery Bin Configuration RLS Enforcement", () => {
         store2.store_id,
       );
       expect(
-        updated1.bin_template[0].name,
+        (updated1.bin_template as Array<{ name: string }>)[0].name,
         "Store1 bin name should be updated",
       ).toBe("Updated Store1 Bin");
       expect(
-        updated2.bin_template[0].name,
+        (updated2.bin_template as Array<{ name: string }>)[0].name,
         "Store2 bin name should be updated",
       ).toBe("Updated Store2 Bin");
     });

@@ -17,9 +17,6 @@ import { PrismaClient } from "@prisma/client";
 import {
   createLotteryGame,
   createLotteryBin,
-  createStore,
-  createCompany,
-  createUser,
 } from "../../support/factories/lottery.factory";
 
 const prisma = new PrismaClient();
@@ -36,10 +33,34 @@ let testBins: any[] = [];
 // ═══════════════════════════════════════════════════════════════════════════
 
 beforeAll(async () => {
-  // Create test company and store
-  testCompany = await createCompany(prisma);
-  testStore = await createStore(prisma, testCompany.company_id);
-  testUser = await createUser(prisma, testCompany.company_id);
+  // Create test user first
+  testUser = await prisma.user.create({
+    data: {
+      email: `test-bin-order-${Date.now()}@test.com`,
+      name: "Test User",
+      public_id: `USR${Date.now()}`,
+    },
+  });
+
+  // Create test company
+  testCompany = await prisma.company.create({
+    data: {
+      name: "Test Bin Order Company",
+      owner_user_id: testUser.user_id,
+      public_id: `COM${Date.now()}`,
+    },
+  });
+
+  // Create test store
+  testStore = await prisma.store.create({
+    data: {
+      company_id: testCompany.company_id,
+      name: "Test Bin Order Store",
+      public_id: `STR${Date.now()}`,
+    },
+  });
+
+  // Create test game
   testGame = await createLotteryGame(prisma, {
     game_code: "1234",
     price: 5.0,
@@ -225,7 +246,13 @@ describe("6.13-INTEGRATION: Lottery Bin Ordering and Active Status", () => {
   describe("Composite Queries", () => {
     it("6.13-INTEGRATION-005: should filter by store_id and is_active, ordered by display_order", async () => {
       // GIVEN: Bins in different stores with different active statuses
-      const otherStore = await createStore(prisma, testCompany.company_id);
+      const otherStore = await prisma.store.create({
+        data: {
+          company_id: testCompany.company_id,
+          name: "Other Test Store",
+          public_id: `STRO${Date.now()}`,
+        },
+      });
       const bin1 = await createLotteryBin(prisma, {
         store_id: testStore.store_id,
         name: "Store 1 Bin 1",

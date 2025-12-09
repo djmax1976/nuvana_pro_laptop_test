@@ -48,6 +48,14 @@ export function validateBinTemplate(binTemplate: any): {
       };
     }
 
+    // Validate name length (max 255 characters per DB constraint)
+    if (bin.name.length > 255) {
+      return {
+        valid: false,
+        error: `Bin definition at index ${i} name exceeds maximum length of 255 characters`,
+      };
+    }
+
     if (
       typeof bin.display_order !== "number" ||
       bin.display_order < 0 ||

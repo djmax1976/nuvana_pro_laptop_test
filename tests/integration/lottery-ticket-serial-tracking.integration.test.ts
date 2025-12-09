@@ -100,7 +100,7 @@ beforeAll(async () => {
       store_id: testStore.store_id,
       opened_by: testUser.user_id,
       cashier_id: testCashier.user_id,
-      status: "IN_PROGRESS",
+      status: "OPEN",
     },
   });
 });
@@ -289,7 +289,7 @@ describe("6.13-INTEGRATION: Lottery Ticket Serial Tracking", () => {
           store_id: testStore.store_id,
           opened_by: testUser.user_id,
           cashier_id: testCashier.user_id,
-          status: "IN_PROGRESS",
+          status: "OPEN",
         },
       });
 

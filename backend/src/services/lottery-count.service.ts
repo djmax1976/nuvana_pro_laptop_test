@@ -16,7 +16,7 @@ import { prisma } from "../utils/db";
  */
 export function incrementTicketCount(
   currentCount: number,
-  lastSoldAt: Date | null,
+  _lastSoldAt: Date | null,
 ): { count: number; lastSoldAt: Date } {
   // GIVEN: Current count and timestamp
   // WHEN: Incrementing count

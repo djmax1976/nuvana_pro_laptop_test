@@ -401,7 +401,7 @@ describe("6.13-INTEGRATION: Lottery Bin Soft Delete Functionality", () => {
     const packAfterDelete = await withBypassClient(async (tx) => {
       return await tx.lotteryPack.findUnique({
         where: { pack_id: pack.pack_id },
-        include: { current_bin: true },
+        include: { bin: true },
       });
     });
     expect(packAfterDelete, "Pack should still exist").toBeDefined();
@@ -410,11 +410,11 @@ describe("6.13-INTEGRATION: Lottery Bin Soft Delete Functionality", () => {
       "Pack should still reference bin",
     ).toBe(testBin.bin_id);
     expect(
-      packAfterDelete?.current_bin,
+      packAfterDelete?.bin,
       "Bin should still be accessible via relation",
     ).toBeDefined();
     expect(
-      packAfterDelete?.current_bin.is_active,
+      packAfterDelete?.bin?.is_active,
       "Referenced bin should be inactive",
     ).toBe(false);
 

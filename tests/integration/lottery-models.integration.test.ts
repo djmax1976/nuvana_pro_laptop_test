@@ -529,7 +529,9 @@ describe("6.1-INTEGRATION: Enum Enforcement", () => {
     await expect(
       prisma.lotteryGame.create({
         data: {
+          game_code: "INV1",
           name: "Test",
+          price: 1.0,
           status: "INVALID_STATUS" as any,
         },
       }),
@@ -650,6 +652,7 @@ describe("6.12-INTEGRATION: Game Code Uniqueness Constraint", () => {
     // WHEN: Creating multiple games without game_code
     const game1 = await prisma.lotteryGame.create({
       data: {
+        game_code: "GC01",
         name: "Game Without Code 1",
         price: 2.0,
       },
@@ -657,14 +660,17 @@ describe("6.12-INTEGRATION: Game Code Uniqueness Constraint", () => {
 
     const game2 = await prisma.lotteryGame.create({
       data: {
+        game_code: "GC02",
         name: "Game Without Code 2",
         price: 5.0,
       },
     });
 
-    // THEN: Both games are created (null values don't violate unique constraint)
-    expect(game1.game_code, "First game game_code should be null").toBeNull();
-    expect(game2.game_code, "Second game game_code should be null").toBeNull();
+    // THEN: Both games are created with unique game_codes
+    expect(game1.game_code, "First game game_code should be GC01").toBe("GC01");
+    expect(game2.game_code, "Second game game_code should be GC02").toBe(
+      "GC02",
+    );
 
     // Cleanup
     await prisma.lotteryGame.delete({ where: { game_id: game1.game_id } });
@@ -837,7 +843,9 @@ describe("6.1-INTEGRATION: Edge Cases - String Fields", () => {
     await expect(
       prisma.lotteryGame.create({
         data: {
+          game_code: "EM01",
           name: "",
+          price: 1.0,
         },
       }),
       "Should reject empty string in name field",
@@ -853,7 +861,9 @@ describe("6.1-INTEGRATION: Edge Cases - String Fields", () => {
     await expect(
       prisma.lotteryGame.create({
         data: {
+          game_code: "LN01",
           name: veryLongName,
+          price: 1.0,
         },
       }),
       "Should reject very long string in name field",

@@ -982,7 +982,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   user_id: user.id,
                   action: "BATCH_PACK_RECEIVED",
                   table_name: "lottery_packs",
-                  record_id: null,
+                  record_id: "batch-operation",
                   new_values: {
                     total_serials: body.serialized_numbers.length,
                     created_count: created.length,
@@ -4328,7 +4328,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               user_id: user.id,
               action: "LOTTERY_BIN_READ",
               table_name: "lottery_bins",
-              record_id: null,
+              record_id: "query-operation",
               new_values: {
                 store_id: params.storeId,
                 bin_count: bins.length,
@@ -5230,7 +5230,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               user_id: user.id,
               action: "LOTTERY_BIN_DISPLAY_READ",
               table_name: "lottery_bins",
-              record_id: null,
+              record_id: "query-operation",
               new_values: {
                 store_id: params.storeId,
                 bin_count: displayData.length,

@@ -279,8 +279,9 @@ describe("6.13-UNIT: Lottery Bin Configuration Validation", () => {
 
       // THEN: Validation fails
       expect(result.valid).toBe(false);
-      expect(result.error).toContain("name") ||
-        expect(result.error).toContain("length");
+      expect(
+        result.error?.includes("name") || result.error?.includes("length"),
+      ).toBe(true);
     });
 
     it("6.13-UNIT-EDGE-003: should handle very large display_order values", () => {

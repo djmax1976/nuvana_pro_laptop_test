@@ -17,9 +17,6 @@ import { PrismaClient } from "@prisma/client";
 import {
   createLotteryGame,
   createLotteryPack,
-  createStore,
-  createCompany,
-  createUser,
 } from "../../support/factories/lottery.factory";
 import {
   incrementTicketCount,
@@ -42,14 +39,40 @@ let testPack: any;
 // ═══════════════════════════════════════════════════════════════════════════
 
 beforeAll(async () => {
-  // Create test company, store, game, and pack
-  testCompany = await createCompany(prisma);
-  testStore = await createStore(prisma, testCompany.company_id);
-  testUser = await createUser(prisma, testCompany.company_id);
+  // Create test user first
+  testUser = await prisma.user.create({
+    data: {
+      email: `test-ticket-count-${Date.now()}@test.com`,
+      name: "Test User",
+      public_id: `USR${Date.now()}`,
+    },
+  });
+
+  // Create test company
+  testCompany = await prisma.company.create({
+    data: {
+      name: "Test Ticket Count Company",
+      owner_user_id: testUser.user_id,
+      public_id: `COM${Date.now()}`,
+    },
+  });
+
+  // Create test store
+  testStore = await prisma.store.create({
+    data: {
+      company_id: testCompany.company_id,
+      name: "Test Ticket Count Store",
+      public_id: `STR${Date.now()}`,
+    },
+  });
+
+  // Create test game
   testGame = await createLotteryGame(prisma, {
     game_code: "1234",
     price: 5.0,
   });
+
+  // Create test pack
   testPack = await createLotteryPack(prisma, {
     game_id: testGame.game_id,
     store_id: testStore.store_id,
