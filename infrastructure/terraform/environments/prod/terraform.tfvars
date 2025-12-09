@@ -11,8 +11,8 @@ vpc_cidr           = "10.1.0.0/16"
 availability_zones = ["us-east-1a", "us-east-1b"]
 
 # RDS PostgreSQL
-db_name           = "nuvana"
-db_username       = "nuvana_admin"
+db_name     = "nuvana"
+db_username = "nuvana_admin"
 # Fixed-performance instance (db.m5.large) provides sustained CPU/memory without burst credits.
 # General-purpose M5 family offers 2 vCPU, 8 GiB RAM, and baseline network performance.
 # Use db.r5.large if memory-optimized workloads are required (13 GiB RAM, same vCPU).
