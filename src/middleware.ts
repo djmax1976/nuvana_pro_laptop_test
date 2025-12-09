@@ -19,6 +19,7 @@ import type { NextRequest } from "next/server";
 
 // Routes that don't require authentication
 const PUBLIC_ROUTES = [
+  "/", // Marketing homepage - must be public for SEO and user experience
   "/login",
   "/client-login", // Legacy redirect
 ];
@@ -46,11 +47,53 @@ function shouldBypass(pathname: string): boolean {
 
 /**
  * Check if a path is a public route
+ *
+ * Handles exact matches and nested paths correctly:
+ * - "/" matches only the root path exactly
+ * - "/login" matches "/login" and "/login/..."
  */
 function isPublicRoute(pathname: string): boolean {
-  return PUBLIC_ROUTES.some(
-    (route) => pathname === route || pathname.startsWith(`${route}/`),
-  );
+  return PUBLIC_ROUTES.some((route) => {
+    // Exact match for all routes
+    if (pathname === route) {
+      return true;
+    }
+    // For non-root routes, also match nested paths (e.g., /login/callback)
+    // Root "/" should NOT match nested paths like "/dashboard"
+    if (route !== "/" && pathname.startsWith(`${route}/`)) {
+      return true;
+    }
+    return false;
+  });
+}
+
+/**
+ * Decode base64url string to JSON object (web-compatible, Edge runtime safe)
+ *
+ * Converts URL-safe base64 to standard base64, decodes it, and parses as JSON.
+ */
+function decodeBase64Url(base64url: string): any {
+  // Convert URL-safe base64 to standard base64
+  let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+
+  // Pad the string to a multiple of 4
+  while (base64.length % 4) {
+    base64 += "=";
+  }
+
+  // Decode base64 to binary string using atob()
+  const binaryString = atob(base64);
+
+  // Convert binary string to Uint8Array using Uint8Array.from()
+  // This avoids the security/detect-object-injection lint warning
+  const bytes = Uint8Array.from(binaryString, (char) => char.charCodeAt(0));
+
+  // Decode UTF-8 using TextDecoder
+  const decoder = new TextDecoder("utf-8");
+  const decoded = decoder.decode(bytes);
+
+  // Parse and return JSON
+  return JSON.parse(decoded);
 }
 
 /**
@@ -75,9 +118,7 @@ function hasValidToken(request: NextRequest): boolean {
 
   // Check if token is not expired (decode payload without verification)
   try {
-    const payload = JSON.parse(
-      Buffer.from(parts[1], "base64url").toString("utf8"),
-    );
+    const payload = decodeBase64Url(parts[1]);
 
     // Check expiration if present
     if (payload.exp) {
