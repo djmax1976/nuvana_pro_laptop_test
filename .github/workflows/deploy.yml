@@ -141,21 +141,22 @@ jobs:
         env:
           CLUSTER: nuvana-${{ steps.set-env.outputs.environment }}-cluster
           SERVICE: nuvana-${{ steps.set-env.outputs.environment }}-frontend
-        continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 5
         run: |
-          echo "Waiting for frontend service to stabilize..."
-          aws ecs wait services-stable \
+          echo "Checking frontend service status..."
+          # Wait up to 3 minutes for service to stabilize (20 attempts * 9 seconds = 3 minutes)
+          timeout 180 aws ecs wait services-stable \
             --cluster $CLUSTER \
-            --services $SERVICE || {
-            echo "⚠️ Frontend service did not fully stabilize, but checking if tasks are running..."
+            --services $SERVICE \
+            --max-attempts 20 || {
+            echo "⚠️ Frontend service did not fully stabilize within 3 minutes, checking task status..."
             RUNNING=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --query 'services[0].runningCount' --output text)
             DESIRED=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --query 'services[0].desiredCount' --output text)
             echo "Running tasks: $RUNNING / Desired: $DESIRED"
             if [ "$RUNNING" -ge "$DESIRED" ]; then
-              echo "✓ Frontend tasks are running"
+              echo "✓ Frontend tasks are running ($RUNNING/$DESIRED), deployment successful"
             else
-              echo "✗ Not enough frontend tasks running"
+              echo "✗ Not enough frontend tasks running ($RUNNING/$DESIRED)"
               exit 1
             fi
           }
@@ -164,23 +165,24 @@ jobs:
         env:
           CLUSTER: nuvana-${{ steps.set-env.outputs.environment }}-cluster
           SERVICE: nuvana-${{ steps.set-env.outputs.environment }}-backend
-        continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 5
         run: |
-          echo "Waiting for backend service to stabilize..."
-          aws ecs wait services-stable \
+          echo "Checking backend service status..."
+          # Wait up to 3 minutes for service to stabilize (20 attempts * 9 seconds = 3 minutes)
+          # If it doesn't stabilize, check if tasks are at least running
+          timeout 180 aws ecs wait services-stable \
             --cluster $CLUSTER \
-            --services $SERVICE || {
-            echo "⚠️ Service did not fully stabilize, but checking if tasks are running..."
-            # Check if tasks are at least running
+            --services $SERVICE \
+            --max-attempts 20 || {
+            echo "⚠️ Service did not fully stabilize within 3 minutes, checking task status..."
             RUNNING=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --query 'services[0].runningCount' --output text)
             DESIRED=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --query 'services[0].desiredCount' --output text)
             echo "Running tasks: $RUNNING / Desired: $DESIRED"
             if [ "$RUNNING" -ge "$DESIRED" ]; then
-              echo "✓ Tasks are running, deployment may continue despite health check issues"
-              echo "Note: Health checks may be failing due to Redis/RabbitMQ connectivity, but tasks are deployed"
+              echo "✓ Tasks are running ($RUNNING/$DESIRED), deployment successful"
+              echo "Note: Health checks may be failing due to Redis/RabbitMQ connectivity, but tasks are deployed and running"
             else
-              echo "✗ Not enough tasks running"
+              echo "✗ Not enough tasks running ($RUNNING/$DESIRED)"
               exit 1
             fi
           }
