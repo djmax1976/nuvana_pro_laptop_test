@@ -194,7 +194,15 @@ resource "aws_ecs_task_definition" "frontend" {
         },
         {
           name  = "BACKEND_URL"
-          value = "http://localhost:3001" # Internal routing via ALB
+          value = "http://localhost:3001" # Internal routing via ALB (server-side)
+        },
+        {
+          name  = "NEXT_PUBLIC_BACKEND_URL"
+          value = "http://${var.alb_dns_name}" # ALB URL for client-side API calls
+        },
+        {
+          name  = "NEXT_PUBLIC_API_URL"
+          value = "http://${var.alb_dns_name}" # ALB URL for client-side API calls
         }
       ]
 

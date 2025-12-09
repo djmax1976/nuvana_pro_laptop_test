@@ -40,6 +40,11 @@ variable "alb_security_group_id" {
   type        = string
 }
 
+variable "alb_dns_name" {
+  description = "DNS name of the ALB (for frontend API URL configuration)"
+  type        = string
+}
+
 # Database
 variable "database_url_secret_arn" {
   description = "ARN of the DATABASE_URL secret"

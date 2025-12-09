@@ -183,6 +183,7 @@ module "ecs" {
 
   # Service discovery
   alb_security_group_id = module.alb.security_group_id
+  alb_dns_name          = module.alb.dns_name
 
   # Database connection
   database_url_secret_arn = module.secrets.database_url_secret_arn
