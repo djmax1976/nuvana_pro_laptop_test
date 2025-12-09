@@ -104,10 +104,25 @@ jobs:
         env:
           CLUSTER: nuvana-${{ steps.set-env.outputs.environment }}-cluster
           SERVICE: nuvana-${{ steps.set-env.outputs.environment }}-backend
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
+          # Get current task definition
+          TASK_DEF=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --query 'services[0].taskDefinition' --output text)
+          
+          # Get task definition JSON and update image
+          NEW_IMAGE="$ECR_REGISTRY/nuvana-${{ steps.set-env.outputs.environment }}-backend:$IMAGE_TAG"
+          aws ecs describe-task-definition --task-definition $TASK_DEF --query 'taskDefinition' | \
+            jq ".containerDefinitions[0].image = \"$NEW_IMAGE\" | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)" | \
+            aws ecs register-task-definition --cli-input-json file:///dev/stdin --query 'taskDefinition.taskDefinitionArn' --output text > new-task-def.txt
+          
+          NEW_TASK_DEF=$(cat new-task-def.txt)
+          
+          # Update service with new task definition
           aws ecs update-service \
             --cluster $CLUSTER \
             --service $SERVICE \
+            --task-definition $NEW_TASK_DEF \
             --force-new-deployment
 
       - name: Update worker ECS service
