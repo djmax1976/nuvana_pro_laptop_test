@@ -1025,24 +1025,34 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
-      - run: npm run build
+      - name: Build frontend
+        run: npm run build
+      # Enterprise best practice: Validate build artifacts exist before archiving
+      - name: Validate build output
+        run: |
+          if [ ! -d ".next" ]; then
+            echo "::error::Frontend build failed - .next directory not found"
+            exit 1
+          fi
+          echo "✅ Frontend build output validated"
+          du -sh .next/
       - name: Create attestation archive
+        # Note: Only frontend build is archived here. Backend is deployed via Docker images
+        # in the deployment_gate job, which builds backend/Dockerfile directly.
         run: |
           tar -czf frontend-build.tar.gz .next/
-          tar -czf backend-build.tar.gz backend/dist/
+          echo "✅ Created frontend-build.tar.gz ($(du -h frontend-build.tar.gz | cut -f1))"
       - name: Generate build provenance attestation
         uses: actions/attest-build-provenance@1c608d11d69870c2092266b3f9a6f3abbf17002c  # v1.4.3
         with:
           subject-path: |
             frontend-build.tar.gz
-            backend-build.tar.gz
       - name: Upload bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: build-output
           path: |
             .next
-            backend/dist
             package-lock.json
           retention-days: 30
 
