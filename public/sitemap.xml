@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!--
+    Nuvana Pro Sitemap
+
+    Note: For enterprise SaaS applications, the sitemap typically only includes
+    public marketing pages. Authenticated dashboard pages should NOT be indexed.
+
+    In production, consider generating this dynamically using Next.js sitemap generation:
+    https://nextjs.org/docs/app/api-reference/file-conventions/metadata/sitemap
+  -->
+
+  <url>
+    <loc>https://nuvana.pro/</loc>
+    <lastmod>2024-01-01</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>1.0</priority>
+  </url>
+
+  <url>
+    <loc>https://nuvana.pro/login</loc>
+    <lastmod>2024-01-01</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Add additional public pages as your marketing site grows -->
+</urlset>
