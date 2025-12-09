@@ -110,7 +110,8 @@ resource "aws_lb_target_group" "backend" {
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
-  protocol          = "HTTP"
+  # nosemgrep: terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version
+  protocol = "HTTP" # Intentional: HTTP-only mode for development when no SSL cert provided
 
   # If certificate exists, redirect to HTTPS. Otherwise, forward to frontend.
   dynamic "default_action" {
