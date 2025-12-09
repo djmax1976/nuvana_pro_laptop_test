@@ -66,14 +66,28 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
 
+      - name: Get ALB DNS name
+        id: get-alb-dns
+        env:
+          ENVIRONMENT: ${{ steps.set-env.outputs.environment }}
+        run: |
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --query "LoadBalancers[?contains(LoadBalancerName, 'nuvana-$ENVIRONMENT')].DNSName" \
+            --output text)
+          echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
+          echo "ALB DNS: $ALB_DNS"
+
       - name: Build and push frontend image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: nuvana-${{ steps.set-env.outputs.environment }}-frontend
           IMAGE_TAG: ${{ github.sha }}
+          ALB_DNS: ${{ steps.get-alb-dns.outputs.alb_dns }}
         run: |
           docker build \
             -f Dockerfile.frontend \
+            --build-arg NEXT_PUBLIC_BACKEND_URL=http://$ALB_DNS \
+            --build-arg NEXT_PUBLIC_API_URL=http://$ALB_DNS \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
             .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
