@@ -261,7 +261,7 @@ resource "aws_ecs_task_definition" "backend" {
         },
         {
           name  = "CORS_ORIGIN"
-          value = "*" # Will be updated with actual domain
+          value = var.cors_origin
         }
       ]
 

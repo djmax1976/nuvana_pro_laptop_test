@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { OwnedStore } from "@/lib/api/client-dashboard";
 import { Store } from "lucide-react";
@@ -24,6 +25,27 @@ export function StoreTabs({
   selectedStoreId,
   onStoreSelect,
 }: StoreTabsProps) {
+  // Map of store_id -> HTMLButtonElement for ref-based focus management
+  const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  // Focus the selected tab after state updates
+  useEffect(() => {
+    if (selectedStoreId) {
+      const tabButton = tabRefs.current.get(selectedStoreId);
+      tabButton?.focus();
+    }
+  }, [selectedStoreId]);
+
+  // Ref callback to add/remove elements from the map
+  const setTabRef =
+    (storeId: string) => (element: HTMLButtonElement | null) => {
+      if (element) {
+        tabRefs.current.set(storeId, element);
+      } else {
+        tabRefs.current.delete(storeId);
+      }
+    };
+
   if (stores.length === 0) {
     return null;
   }
@@ -66,14 +88,11 @@ export function StoreTabs({
                       : (currentIndex - 1 + stores.length) % stores.length;
                   // eslint-disable-next-line security/detect-object-injection
                   const nextStore = stores[nextIndex];
+                  // Focus will be handled by useEffect after state update
                   onStoreSelect(nextStore.store_id);
-                  // Move focus to the next tab button
-                  const nextButton = document.querySelector(
-                    `[data-testid="store-tab-${nextStore.store_id}"]`,
-                  ) as HTMLButtonElement;
-                  nextButton?.focus();
                 }
               }}
+              ref={setTabRef(store.store_id)}
               className={cn(
                 "relative inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg",
                 "transition-all duration-200 ease-in-out",

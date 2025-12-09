@@ -36,3 +36,8 @@ worker_desired_count   = 1
 
 # SSL Certificate (leave empty for HTTP only)
 certificate_arn = ""
+
+# CORS Configuration
+# Set to your development frontend domain(s)
+# For multiple origins, use comma-separated list: "http://localhost:3000,http://localhost:3001"
+cors_origin = "http://localhost:3000"

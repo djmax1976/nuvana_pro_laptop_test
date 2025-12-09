@@ -13,13 +13,27 @@ availability_zones = ["us-east-1a", "us-east-1b"]
 # RDS PostgreSQL
 db_name           = "nuvana"
 db_username       = "nuvana_admin"
-db_instance_class = "db.t3.small" # Upgrade for production
+# Fixed-performance instance (db.m5.large) provides sustained CPU/memory without burst credits.
+# General-purpose M5 family offers 2 vCPU, 8 GiB RAM, and baseline network performance.
+# Use db.r5.large if memory-optimized workloads are required (13 GiB RAM, same vCPU).
+# Monitor CloudWatch metrics (CPUUtilization, DatabaseConnections, ReadLatency, WriteLatency)
+# to validate sizing and adjust based on actual production load patterns.
+db_instance_class = "db.m5.large"
 
 # ElastiCache Redis
-redis_node_type = "cache.t3.small" # Upgrade for production
+# Fixed-performance instance (cache.m5.large) provides sustained throughput without burst credits.
+# M5 family offers 2 vCPU, 6.64 GiB usable memory, and baseline network performance.
+# Monitor CloudWatch metrics (CPUUtilization, NetworkBytesIn/Out, Evictions, CacheHits/Misses)
+# to validate sizing. Consider cache.r5.large (13.07 GiB) if memory-bound, or cache.m5.xlarge
+# (4 vCPU, 13.31 GiB) if CPU-bound workloads are observed.
+redis_node_type = "cache.m5.large"
 
 # Amazon MQ (RabbitMQ)
-rabbitmq_instance_type = "mq.t3.micro"
+# Fixed-performance instance (mq.m5.large) provides sustained CPU/memory for message processing.
+# M5 family offers 2 vCPU, 8 GiB RAM, and baseline network performance suitable for production workloads.
+# Monitor CloudWatch metrics (QueueDepth, MessageCount, ConsumerCount, PublishRate) to validate sizing.
+# Consider mq.m5.xlarge (4 vCPU, 16 GiB) if high message throughput or large queue depths are observed.
+rabbitmq_instance_type = "mq.m5.large"
 
 # ECS Task Sizing (production-ready)
 frontend_cpu    = 512
@@ -36,3 +50,8 @@ worker_desired_count   = 2
 
 # SSL Certificate (add your ACM certificate ARN)
 certificate_arn = ""
+
+# CORS Configuration
+# Set to your production frontend domain(s)
+# For multiple origins, use comma-separated list: "https://example.com,https://www.example.com"
+cors_origin = "https://your-production-domain.com"

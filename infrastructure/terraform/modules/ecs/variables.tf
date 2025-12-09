@@ -131,3 +131,8 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "cors_origin" {
+  description = "Allowed CORS origin(s) for the backend API. Can be a single origin (e.g., 'https://example.com') or comma-separated list of origins (e.g., 'https://example.com,https://www.example.com'). Must be explicitly set - no default for security."
+  type        = string
+}

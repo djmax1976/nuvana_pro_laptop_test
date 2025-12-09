@@ -208,8 +208,8 @@ app.setErrorHandler((error: any, _request, reply) => {
 
 // Register cookie parser (required for httpOnly cookie support)
 // SECURITY: Cookie secret must be set via environment variable - no fallback allowed
-const cookieSecret = process.env.COOKIE_SECRET;
-if (!cookieSecret) {
+const cookieSecret = process.env.COOKIE_SECRET?.trim();
+if (!cookieSecret || cookieSecret.length < 32) {
   throw new Error(
     "COOKIE_SECRET environment variable is required. Set a strong, random secret (minimum 32 characters).",
   );

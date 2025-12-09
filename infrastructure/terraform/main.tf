@@ -212,5 +212,8 @@ module "ecs" {
   backend_desired_count  = var.backend_desired_count
   worker_desired_count   = var.worker_desired_count
 
+  # CORS configuration
+  cors_origin = var.cors_origin
+
   tags = local.common_tags
 }

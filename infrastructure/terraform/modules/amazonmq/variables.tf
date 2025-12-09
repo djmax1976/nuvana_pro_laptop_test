@@ -34,3 +34,9 @@ variable "ecs_security_group_id" {
   type        = string
   default     = ""
 }
+
+variable "vpc_cidr" {
+  description = "CIDR block of the VPC for fallback ingress rules when ECS security group is not provided"
+  type        = string
+  default     = "10.0.0.0/16"
+}
