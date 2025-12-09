@@ -112,11 +112,13 @@ jobs:
           
           # Get task definition JSON and update image
           NEW_IMAGE="$ECR_REGISTRY/nuvana-${{ steps.set-env.outputs.environment }}-backend:$IMAGE_TAG"
-          aws ecs describe-task-definition --task-definition $TASK_DEF --query 'taskDefinition' | \
-            jq ".containerDefinitions[0].image = \"$NEW_IMAGE\" | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)" | \
-            aws ecs register-task-definition --cli-input-json file:///dev/stdin --query 'taskDefinition.taskDefinitionArn' --output text > new-task-def.txt
+          aws ecs describe-task-definition --task-definition $TASK_DEF --query 'taskDefinition' > task-def.json
           
-          NEW_TASK_DEF=$(cat new-task-def.txt)
+          # Update image in task definition and remove fields that can't be set
+          jq ".containerDefinitions[0].image = \"$NEW_IMAGE\" | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)" task-def.json > task-def-updated.json
+          
+          # Register new task definition
+          NEW_TASK_DEF=$(aws ecs register-task-definition --cli-input-json file://task-def-updated.json --query 'taskDefinition.taskDefinitionArn' --output text)
           
           # Update service with new task definition
           aws ecs update-service \
