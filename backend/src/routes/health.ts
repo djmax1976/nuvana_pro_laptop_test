@@ -6,12 +6,41 @@ import { checkRabbitMQHealth } from "../utils/rabbitmq";
  * Health check endpoint that verifies all services
  * GET /api/health
  */
+/**
+ * Timeout wrapper for health checks - ensures fast response even if services are slow
+ */
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  defaultValue: T,
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) =>
+      setTimeout(() => resolve(defaultValue), timeoutMs),
+    ),
+  ]);
+}
+
 export async function healthRoutes(fastify: FastifyInstance) {
   fastify.get(
     "/api/health",
     async (_request: FastifyRequest, reply: FastifyReply) => {
-      const redisHealth = await checkRedisHealth();
-      const rabbitmqHealth = await checkRabbitMQHealth();
+      // Use timeout to ensure health check responds quickly (within 2 seconds)
+      // This prevents ALB from timing out (ALB timeout is 5 seconds)
+      const HEALTH_CHECK_TIMEOUT = 2000; // 2 seconds max
+
+      const [redisHealth, rabbitmqHealth] = await Promise.all([
+        withTimeout(checkRedisHealth(), HEALTH_CHECK_TIMEOUT, {
+          healthy: false,
+          status: "disconnected" as const,
+          error: "Health check timeout",
+        }),
+        withTimeout(checkRabbitMQHealth(), HEALTH_CHECK_TIMEOUT, {
+          healthy: false,
+          error: "Health check timeout",
+        }),
+      ]);
 
       // Determine overall health status
       const allHealthy = redisHealth.healthy && rabbitmqHealth.healthy;
