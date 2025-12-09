@@ -490,26 +490,43 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
         // WHEN: Login and try to access superadmin dashboard
         await performRealLogin(page, frontendUrl, user.email, password, true);
         await page.goto(`${frontendUrl}/dashboard`, {
-          waitUntil: "networkidle",
+          waitUntil: "domcontentloaded",
         });
 
         // Wait for potential redirect (dashboard layout redirects CLIENT_OWNER to client-dashboard)
-        // The redirect happens in a useEffect, so we need to wait for it
-        await page.waitForLoadState("load");
-        await page.waitForTimeout(2000);
+        // The redirect happens in a useEffect, so we use waitForURL with a pattern that accepts any redirect
+        // CLIENT_OWNER should be redirected to /client-dashboard
+        try {
+          // Wait for redirect to client-dashboard, login, or an error page
+          await page.waitForURL(
+            (url) =>
+              url.pathname.includes("client-dashboard") ||
+              url.pathname.includes("login") ||
+              !url.pathname.startsWith("/dashboard"),
+            { timeout: 10000 },
+          );
+        } catch {
+          // If timeout, check current state - might still be on /dashboard with error shown
+        }
 
         // THEN: Should be redirected away or show access denied
         // The dashboard layout should redirect CLIENT_OWNER users to /client-dashboard
         const currentUrl = page.url();
+        const url = new URL(currentUrl);
+        // Check if redirected: either to /client-dashboard, /login, or away from /dashboard entirely
+        // Note: /client-dashboard pathname is "/client-dashboard", /dashboard pathname is "/dashboard"
+        const isAtClientDashboard =
+          url.pathname.startsWith("/client-dashboard");
+        const isAtLogin = url.pathname.includes("login");
+        const isNotAtSuperadminDashboard =
+          !url.pathname.startsWith("/dashboard");
         const redirectedAway =
-          !currentUrl.includes("/dashboard") ||
-          currentUrl.includes("client-dashboard") ||
-          currentUrl.includes("login");
+          isAtClientDashboard || isAtLogin || isNotAtSuperadminDashboard;
         const hasError = await page.getByText(/denied|forbidden|403/i).count();
 
         expect(
           redirectedAway || hasError > 0,
-          `Client owner should not access superadmin dashboard. Current URL: ${currentUrl}`,
+          `Client owner should not access superadmin dashboard. Current URL: ${currentUrl}, pathname: ${url.pathname}`,
         ).toBeTruthy();
       } finally {
         await cleanupTestUser(user.user_id, company.company_id);
