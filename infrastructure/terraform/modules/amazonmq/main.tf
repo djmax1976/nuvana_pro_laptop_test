@@ -53,10 +53,11 @@ resource "aws_security_group" "rabbitmq" {
 resource "aws_mq_broker" "main" {
   broker_name = "${var.name_prefix}-rabbitmq"
 
-  engine_type         = "RabbitMQ"
-  engine_version      = "3.13"
-  host_instance_type  = var.instance_type
-  deployment_mode     = "SINGLE_INSTANCE"
+  engine_type                = "RabbitMQ"
+  engine_version             = "3.13"
+  host_instance_type         = var.instance_type
+  deployment_mode            = "SINGLE_INSTANCE"
+  auto_minor_version_upgrade = true
 
   # Authentication
   user {
