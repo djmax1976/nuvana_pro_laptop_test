@@ -1,0 +1,12 @@
+# Nuvana Pro - Robots.txt
+# https://www.robotstxt.org/
+#
+# DEVELOPMENT/STAGING: All crawling is blocked
+# When ready for production, update this file or rely on the dynamic robots.ts
+
+# Block all crawlers during development
+User-agent: *
+Disallow: /
+
+# No sitemap during development
+# Sitemap: https://nuvana.pro/sitemap.xml
