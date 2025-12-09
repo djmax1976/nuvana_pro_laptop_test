@@ -28,3 +28,9 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "ecs_security_group_id" {
+  description = "Security group ID of ECS tasks (for restricted access)"
+  type        = string
+  default     = ""
+}

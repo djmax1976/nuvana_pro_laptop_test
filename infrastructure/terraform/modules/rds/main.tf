@@ -17,12 +17,27 @@ resource "aws_security_group" "rds" {
   description = "Security group for RDS PostgreSQL"
   vpc_id      = var.vpc_id
 
-  ingress {
-    description = "PostgreSQL from VPC"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/16"]
+  # Allow access from ECS security group if provided, otherwise fall back to VPC CIDR
+  dynamic "ingress" {
+    for_each = var.ecs_security_group_id != "" ? [1] : []
+    content {
+      description     = "PostgreSQL from ECS tasks"
+      from_port       = 5432
+      to_port         = 5432
+      protocol        = "tcp"
+      security_groups = [var.ecs_security_group_id]
+    }
+  }
+
+  dynamic "ingress" {
+    for_each = var.ecs_security_group_id == "" ? [1] : []
+    content {
+      description = "PostgreSQL from VPC (fallback)"
+      from_port   = 5432
+      to_port     = 5432
+      protocol    = "tcp"
+      cidr_blocks = ["10.0.0.0/16"]
+    }
   }
 
   egress {
@@ -57,9 +72,9 @@ resource "aws_db_instance" "main" {
   identifier = "${var.name_prefix}-postgres"
 
   # Engine
-  engine               = "postgres"
-  engine_version       = "15.10"
-  instance_class       = var.db_instance_class
+  engine         = "postgres"
+  engine_version = "15.10"
+  instance_class = var.db_instance_class
 
   # Storage
   allocated_storage     = 20
@@ -84,12 +99,12 @@ resource "aws_db_instance" "main" {
   maintenance_window      = "Mon:04:00-Mon:05:00"
 
   # Monitoring
-  performance_insights_enabled = false  # Not available on t3.micro
+  performance_insights_enabled = false # Not available on t3.micro
 
-  # Other
+  # Protection settings (configurable via variables)
   auto_minor_version_upgrade = true
-  deletion_protection        = false  # Set to true for production
-  skip_final_snapshot        = true   # Set to false for production
+  deletion_protection        = var.deletion_protection
+  skip_final_snapshot        = var.skip_final_snapshot
   final_snapshot_identifier  = "${var.name_prefix}-final-snapshot"
 
   tags = merge(var.tags, {

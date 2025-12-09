@@ -17,22 +17,50 @@ resource "aws_security_group" "rabbitmq" {
   description = "Security group for Amazon MQ RabbitMQ"
   vpc_id      = var.vpc_id
 
-  # AMQP
-  ingress {
-    description = "AMQP from VPC"
-    from_port   = 5671
-    to_port     = 5671
-    protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/16"]
+  # AMQP - Prefer security group reference over CIDR when available
+  dynamic "ingress" {
+    for_each = var.ecs_security_group_id != "" ? [1] : []
+    content {
+      description     = "AMQP from ECS tasks"
+      from_port       = 5671
+      to_port         = 5671
+      protocol        = "tcp"
+      security_groups = [var.ecs_security_group_id]
+    }
   }
 
-  # Management Console
-  ingress {
-    description = "RabbitMQ Console from VPC"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/16"]
+  dynamic "ingress" {
+    for_each = var.ecs_security_group_id == "" ? [1] : []
+    content {
+      description = "AMQP from VPC (fallback)"
+      from_port   = 5671
+      to_port     = 5671
+      protocol    = "tcp"
+      cidr_blocks = ["10.0.0.0/16"]
+    }
+  }
+
+  # Management Console - Prefer security group reference over CIDR when available
+  dynamic "ingress" {
+    for_each = var.ecs_security_group_id != "" ? [1] : []
+    content {
+      description     = "RabbitMQ Console from ECS tasks"
+      from_port       = 443
+      to_port         = 443
+      protocol        = "tcp"
+      security_groups = [var.ecs_security_group_id]
+    }
+  }
+
+  dynamic "ingress" {
+    for_each = var.ecs_security_group_id == "" ? [1] : []
+    content {
+      description = "RabbitMQ Console from VPC (fallback)"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["10.0.0.0/16"]
+    }
   }
 
   egress {
@@ -67,7 +95,7 @@ resource "aws_mq_broker" "main" {
 
   # Network
   publicly_accessible = false
-  subnet_ids          = [var.private_subnet_ids[0]]  # Single instance needs 1 subnet
+  subnet_ids          = [var.private_subnet_ids[0]] # Single instance needs 1 subnet
   security_groups     = [aws_security_group.rabbitmq.id]
 
   # Maintenance

@@ -1,0 +1,26 @@
+# Semgrep ignore patterns
+
+# One-time migration scripts (not production code)
+backend/scripts/fix-*.js
+backend/scripts/migration-*.js
+
+# Test files (tested separately)
+tests/
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+
+# Build artifacts
+node_modules/
+dist/
+.next/
+out/
+
+# Configuration files
+*.config.js
+*.config.ts
+
+# Development-only files
+*.example
+*.sample

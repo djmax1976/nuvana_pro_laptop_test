@@ -37,7 +37,7 @@ import { createCompany, createStore } from "../support/helpers";
 
 /**
  * Helper function to perform login and wait for client dashboard.
- * Uses simplified pattern for reliability.
+ * Uses network-first pattern for reliable test stability in CI/CD.
  */
 async function loginAndWaitForClientDashboard(
   page: Page,
@@ -47,28 +47,77 @@ async function loginAndWaitForClientDashboard(
   // Navigate to login page
   await page.goto("/login", { waitUntil: "networkidle" });
 
-  // Wait for login form to be visible
-  await page.waitForSelector('input[type="email"]', {
-    state: "visible",
-    timeout: 15000,
+  // Wait for login form to be visible and ready for input
+  const emailInput = page.locator("#email");
+  await emailInput.waitFor({ state: "visible", timeout: 15000 });
+
+  // Wait for input to be editable (ensures React hydration is complete)
+  await expect(emailInput).toBeEditable({ timeout: 10000 });
+
+  // Fill credentials using locator and verify the values are entered
+  await emailInput.fill(email);
+  await page.locator("#password").fill(password);
+
+  // Verify the form is filled before submitting
+  await expect(emailInput).toHaveValue(email);
+  await expect(page.locator("#password")).toHaveValue(password);
+
+  // Set up response and navigation promises AFTER form is ready but BEFORE clicking
+  const loginResponsePromise = page.waitForResponse(
+    (resp) => resp.url().includes("/api/auth/login") && resp.status() === 200,
+    { timeout: 30000 },
+  );
+
+  const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {
+    timeout: 30000,
+    waitUntil: "domcontentloaded",
   });
 
-  // Fill credentials
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', password);
+  // Click submit button
+  await page.getByRole("button", { name: "Sign In" }).click();
 
-  // Click submit and wait for navigation
-  await Promise.all([
-    page.waitForURL(/.*client-dashboard.*/, {
-      timeout: 30000,
-    }),
-    page.click('button[type="submit"]'),
-  ]);
+  // Wait for login API response
+  const loginResponse = await loginResponsePromise;
+  expect(loginResponse.status()).toBe(200);
 
+  // Wait for navigation to complete
+  await navigationPromise;
+
+  // Wait for page to be fully loaded
+  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+    // networkidle might timeout if there are long-polling requests
+  });
+}
+
+/**
+ * Helper function to wait for lottery page data to load
+ */
+async function waitForLotteryPageLoaded(page: Page): Promise<void> {
+  // Wait for the lottery page container
+  await page
+    .locator('[data-testid="client-dashboard-lottery-page"]')
+    .waitFor({ state: "visible", timeout: 15000 });
+
+  // Wait for network to be idle
   await page
     .waitForLoadState("networkidle", { timeout: 15000 })
     .catch(() => {});
+
+  // Wait for store tabs OR loading to complete
+  await Promise.race([
+    page
+      .locator('[data-testid="store-tabs"]')
+      .waitFor({ state: "visible", timeout: 15000 })
+      .catch(() => null),
+    page
+      .getByText(/no stores available/i)
+      .waitFor({ state: "visible", timeout: 15000 })
+      .catch(() => null),
+  ]);
 }
+
+// Use serial mode to prevent parallel execution issues with shared test data
+test.describe.configure({ mode: "serial" });
 
 test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
   let prisma: PrismaClient;
@@ -160,7 +209,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       price: 5.0,
     });
 
-    // Create bins
+    // Create bins for store1
     bin1 = await createLotteryBin(prisma, {
       store_id: store1.store_id,
       name: "Bin 1",
@@ -221,19 +270,17 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
     // Navigate to lottery page
     await page.goto("/client-dashboard/lottery", {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
     });
 
     // Wait for page to load
-    await page
-      .locator('[data-testid="client-dashboard-lottery-page"]')
-      .waitFor({ state: "visible", timeout: 15000 });
+    await waitForLotteryPageLoaded(page);
 
     // THEN: Store tabs are displayed (for multiple stores)
     const storeTabs = page.locator('[data-testid="store-tabs"]');
     await expect(storeTabs).toBeVisible({ timeout: 10000 });
 
-    // AND: Both stores are shown in tabs (wait for store tabs to load)
+    // AND: Both stores are shown in tabs
     await expect(
       page.locator(`[data-testid="store-tab-${store1.store_id}"]`),
     ).toBeVisible({ timeout: 10000 });
@@ -259,7 +306,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       store_id: store1.store_id,
       status: "ACTIVE",
       current_bin_id: bin1.bin_id,
-      pack_number: "PACK-001",
+      pack_number: `PACK-001-${Date.now()}`,
     });
 
     const activePack2 = await createLotteryPack(prisma, {
@@ -267,7 +314,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       store_id: store1.store_id,
       status: "ACTIVE",
       current_bin_id: bin2.bin_id,
-      pack_number: "PACK-002",
+      pack_number: `PACK-002-${Date.now()}`,
     });
 
     // Create a RECEIVED pack (should also be shown in new table view)
@@ -275,18 +322,16 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       game_id: game.game_id,
       store_id: store1.store_id,
       status: "RECEIVED",
-      pack_number: "PACK-RECEIVED",
+      pack_number: `PACK-RECEIVED-${Date.now()}`,
     });
 
     try {
       await loginAndWaitForClientDashboard(page, clientOwner.email, password);
       await page.goto("/client-dashboard/lottery", {
-        waitUntil: "networkidle",
+        waitUntil: "domcontentloaded",
       });
 
-      await page
-        .locator('[data-testid="client-dashboard-lottery-page"]')
-        .waitFor({ state: "visible", timeout: 15000 });
+      await waitForLotteryPageLoaded(page);
 
       // Wait for store tabs to load, then select store 1
       await page
@@ -313,18 +358,17 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       if (tableVisible) {
         // THEN: Table displays game summaries (grouped by game_id)
-        // The new LotteryTable groups packs by game
         await expect(
           page.locator(`[data-testid="lottery-table-row-${game.game_id}"]`),
         ).toBeVisible({ timeout: 10000 });
 
         // AND: Table shows correct columns (new column structure)
         const tableHeader = page.locator("table thead");
-        await expect(tableHeader.locator("text=Game Name")).toBeVisible();
-        await expect(tableHeader.locator("text=Game Number")).toBeVisible();
-        await expect(tableHeader.locator("text=Dollar Value")).toBeVisible();
-        await expect(tableHeader.locator("text=Pack Count")).toBeVisible();
-        await expect(tableHeader.locator("text=Status")).toBeVisible();
+        await expect(tableHeader.getByText("Game Name")).toBeVisible();
+        await expect(tableHeader.getByText("Game Number")).toBeVisible();
+        await expect(tableHeader.getByText("Dollar Value")).toBeVisible();
+        await expect(tableHeader.getByText("Pack Count")).toBeVisible();
+        await expect(tableHeader.getByText("Status")).toBeVisible();
 
         // Verify the game name is displayed
         await expect(page.getByText("Integration Test Game")).toBeVisible();
@@ -352,17 +396,10 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
   }) => {
     await loginAndWaitForClientDashboard(page, clientOwner.email, password);
     await page.goto("/client-dashboard/lottery", {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
     });
 
-    await page
-      .locator('[data-testid="client-dashboard-lottery-page"]')
-      .waitFor({ state: "visible", timeout: 15000 });
-
-    // Wait for store tabs to load
-    await page
-      .locator('[data-testid="store-tabs"]')
-      .waitFor({ state: "visible", timeout: 10000 });
+    await waitForLotteryPageLoaded(page);
 
     // Select store 2 (no packs) if tab exists
     const store2Tab = page.locator(
@@ -385,7 +422,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     // THEN: Empty state message is displayed (for store with no packs)
     const emptyState = page.locator('[data-testid="lottery-table-empty"]');
     if (await emptyState.isVisible()) {
-      // The new empty state message mentions "lottery inventory"
+      // The empty state message mentions "lottery inventory"
       await expect(emptyState).toContainText(/No lottery inventory/i);
     }
 
@@ -395,20 +432,15 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     ).toBeVisible();
   });
 
-  test("6.10.1-UI-004: [P1] Add lottery flow (AC #4)", async ({ page }) => {
+  test("6.10.1-UI-004: [P1] Add lottery flow opens reception dialog (AC #4)", async ({
+    page,
+  }) => {
     await loginAndWaitForClientDashboard(page, clientOwner.email, password);
     await page.goto("/client-dashboard/lottery", {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
     });
 
-    await page
-      .locator('[data-testid="client-dashboard-lottery-page"]')
-      .waitFor({ state: "visible", timeout: 15000 });
-
-    // Wait for store tabs to load
-    await page
-      .locator('[data-testid="store-tabs"]')
-      .waitFor({ state: "visible", timeout: 10000 });
+    await waitForLotteryPageLoaded(page);
 
     // Select store 1 if tab exists
     const store1Tab = page.locator(
@@ -426,8 +458,15 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       timeout: 5000,
     });
 
-    // Note: Form submission testing requires 24-digit serialized numbers
-    // For now, we verify the dialog opens and can be closed
+    // AND: Serial input field is visible
+    await expect(page.locator('[data-testid="serial-input"]')).toBeVisible({
+      timeout: 5000,
+    });
+
+    // AND: Submit button is visible (disabled until packs are added)
+    await expect(
+      page.locator('[data-testid="submit-batch-reception"]'),
+    ).toBeVisible();
 
     // Close dialog
     await page.locator('button:has-text("Cancel")').click();
@@ -440,12 +479,10 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     // GIVEN: Client owner logged in
     await loginAndWaitForClientDashboard(page, clientOwner.email, password);
     await page.goto("/client-dashboard/lottery", {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
     });
 
-    await page
-      .locator('[data-testid="client-dashboard-lottery-page"]')
-      .waitFor({ state: "visible", timeout: 15000 });
+    await waitForLotteryPageLoaded(page);
 
     // THEN: Main content tabs are visible (Inventory and Configuration)
     const inventoryTab = page.locator(
@@ -462,10 +499,14 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     await configTab.click();
 
     // THEN: Configuration content is shown (BinConfigurationCard)
-    // The tab switch should happen
     await expect(configTab).toHaveAttribute("data-state", "active", {
       timeout: 5000,
     });
+
+    // AND: Bin Configuration card heading is visible
+    await expect(
+      page.getByRole("heading", { name: "Bin Configuration" }),
+    ).toBeVisible({ timeout: 5000 });
 
     // WHEN: Clicking back to Inventory tab
     await inventoryTab.click();
@@ -481,7 +522,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
   }) => {
     await loginAndWaitForClientDashboard(page, clientOwner.email, password);
     await page.goto("/client-dashboard/lottery", {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
     });
 
     // THEN: Page should load without getting stuck in loading state
@@ -526,23 +567,16 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       game_id: game.game_id,
       store_id: otherStore.store_id,
       status: "ACTIVE",
-      pack_number: "OTHER-STORE-PACK",
+      pack_number: `OTHER-STORE-PACK-${Date.now()}`,
     });
 
     try {
       await loginAndWaitForClientDashboard(page, clientOwner.email, password);
       await page.goto("/client-dashboard/lottery", {
-        waitUntil: "networkidle",
+        waitUntil: "domcontentloaded",
       });
 
-      await page
-        .locator('[data-testid="client-dashboard-lottery-page"]')
-        .waitFor({ state: "visible", timeout: 15000 });
-
-      // Wait for content to load
-      await page
-        .locator('[data-testid="store-tabs"]')
-        .waitFor({ state: "visible", timeout: 10000 });
+      await waitForLotteryPageLoaded(page);
 
       // THEN: Other store's tab is NOT visible (RLS enforcement)
       await expect(
@@ -635,26 +669,24 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
         password,
       );
       await page.goto("/client-dashboard/lottery", {
-        waitUntil: "networkidle",
+        waitUntil: "domcontentloaded",
       });
 
-      await page
-        .locator('[data-testid="client-dashboard-lottery-page"]')
-        .waitFor({ state: "visible", timeout: 15000 });
-
-      // Wait for store tabs container
-      await page
-        .locator('[data-testid="store-tabs"]')
-        .waitFor({ state: "visible", timeout: 10000 });
+      await waitForLotteryPageLoaded(page);
 
       // THEN: For single store, it shows as a badge (not clickable tabs)
       // The StoreTabs component shows single store as a highlighted badge
-      // There should NOT be multiple tab buttons
       const storeTabs = page.locator('[data-testid="store-tabs"]');
       await expect(storeTabs).toBeVisible();
 
       // Single store shows the store name in a badge format
       await expect(storeTabs.getByText("Only Store")).toBeVisible();
+
+      // AND: The badge should not be a button (single store = non-interactive badge)
+      // Check that there's no button role or tab role in the store tabs container
+      const tabButtons = storeTabs.locator('button[role="tab"]');
+      const tabButtonCount = await tabButtons.count();
+      expect(tabButtonCount).toBe(0);
     } finally {
       // Cleanup
       await prisma.userRole
@@ -670,5 +702,94 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
         .delete({ where: { user_id: singleStoreUser.user_id } })
         .catch(() => {});
     }
+  });
+
+  test("6.10.1-UI-009: [P2] Add New Lottery button accessibility", async ({
+    page,
+  }) => {
+    await loginAndWaitForClientDashboard(page, clientOwner.email, password);
+    await page.goto("/client-dashboard/lottery", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await waitForLotteryPageLoaded(page);
+
+    // THEN: Add button has proper accessibility attributes
+    const addButton = page.locator('[data-testid="add-new-lottery-button"]');
+    await expect(addButton).toBeVisible();
+    await expect(addButton).toHaveAttribute(
+      "aria-label",
+      "Add new lottery pack",
+    );
+  });
+
+  test("6.10.1-UI-010: [P2] Table column headers accessibility", async ({
+    page,
+  }) => {
+    // Create a pack so table is visible
+    const testPack = await createLotteryPack(prisma, {
+      game_id: game.game_id,
+      store_id: store1.store_id,
+      status: "ACTIVE",
+      pack_number: `A11Y-PACK-${Date.now()}`,
+    });
+
+    try {
+      await loginAndWaitForClientDashboard(page, clientOwner.email, password);
+      await page.goto("/client-dashboard/lottery", {
+        waitUntil: "domcontentloaded",
+      });
+
+      await waitForLotteryPageLoaded(page);
+
+      // Select store 1
+      await page
+        .locator(`[data-testid="store-tab-${store1.store_id}"]`)
+        .click();
+
+      // Wait for table
+      await page
+        .locator('[data-testid="lottery-table"]')
+        .waitFor({ state: "visible", timeout: 10000 });
+
+      // THEN: Table headers have proper scope attribute
+      const headers = page.locator('th[scope="col"]');
+      const headerCount = await headers.count();
+      expect(headerCount).toBeGreaterThanOrEqual(5);
+
+      // AND: Table region has proper ARIA label
+      await expect(
+        page.locator('[data-testid="lottery-table"]'),
+      ).toHaveAttribute("aria-label", "Lottery inventory table");
+    } finally {
+      await prisma.lotteryPack
+        .delete({ where: { pack_id: testPack.pack_id } })
+        .catch(() => {});
+    }
+  });
+
+  test("6.10.1-UI-011: [P2] Store tabs keyboard navigation", async ({
+    page,
+  }) => {
+    await loginAndWaitForClientDashboard(page, clientOwner.email, password);
+    await page.goto("/client-dashboard/lottery", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await waitForLotteryPageLoaded(page);
+
+    // Focus on first store tab
+    const store1Tab = page.locator(
+      `[data-testid="store-tab-${store1.store_id}"]`,
+    );
+    await store1Tab.focus();
+
+    // WHEN: Pressing ArrowRight key
+    await page.keyboard.press("ArrowRight");
+
+    // THEN: Focus moves to next tab (store 2)
+    await expect(
+      page.locator(`[data-testid="store-tab-${store2.store_id}"]`),
+    ).toBeFocused({ timeout: 3000 });
   });
 });

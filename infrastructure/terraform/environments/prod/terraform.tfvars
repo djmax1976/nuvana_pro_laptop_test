@@ -13,10 +13,10 @@ availability_zones = ["us-east-1a", "us-east-1b"]
 # RDS PostgreSQL
 db_name           = "nuvana"
 db_username       = "nuvana_admin"
-db_instance_class = "db.t3.small"  # Upgrade for production
+db_instance_class = "db.t3.small" # Upgrade for production
 
 # ElastiCache Redis
-redis_node_type = "cache.t3.small"  # Upgrade for production
+redis_node_type = "cache.t3.small" # Upgrade for production
 
 # Amazon MQ (RabbitMQ)
 rabbitmq_instance_type = "mq.t3.micro"

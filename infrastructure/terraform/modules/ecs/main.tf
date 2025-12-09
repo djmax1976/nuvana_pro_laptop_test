@@ -194,7 +194,7 @@ resource "aws_ecs_task_definition" "frontend" {
         },
         {
           name  = "BACKEND_URL"
-          value = "http://localhost:3001"  # Internal routing via ALB
+          value = "http://localhost:3001" # Internal routing via ALB
         }
       ]
 
@@ -261,7 +261,7 @@ resource "aws_ecs_task_definition" "backend" {
         },
         {
           name  = "CORS_ORIGIN"
-          value = "*"  # Will be updated with actual domain
+          value = "*" # Will be updated with actual domain
         }
       ]
 
@@ -325,7 +325,7 @@ resource "aws_ecs_task_definition" "worker" {
   container_definitions = jsonencode([
     {
       name      = "worker"
-      image     = var.backend_image  # Same image, different command
+      image     = var.backend_image # Same image, different command
       essential = true
 
       command = ["node", "dist/workers/transaction.worker.js"]

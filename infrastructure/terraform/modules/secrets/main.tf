@@ -12,8 +12,8 @@ resource "random_password" "db_password" {
 }
 
 resource "random_password" "rabbitmq_password" {
-  length           = 32
-  special          = false  # RabbitMQ has restrictions on special chars
+  length  = 32
+  special = false # RabbitMQ has restrictions on special chars
 }
 
 resource "random_password" "jwt_secret" {

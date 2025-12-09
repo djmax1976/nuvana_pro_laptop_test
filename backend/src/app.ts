@@ -207,9 +207,15 @@ app.setErrorHandler((error: any, _request, reply) => {
 });
 
 // Register cookie parser (required for httpOnly cookie support)
+// SECURITY: Cookie secret must be set via environment variable - no fallback allowed
+const cookieSecret = process.env.COOKIE_SECRET;
+if (!cookieSecret) {
+  throw new Error(
+    "COOKIE_SECRET environment variable is required. Set a strong, random secret (minimum 32 characters).",
+  );
+}
 app.register(cookie, {
-  secret:
-    process.env.COOKIE_SECRET || "default-cookie-secret-change-in-production",
+  secret: cookieSecret,
 });
 
 // Register multipart form data parser (required for file uploads)

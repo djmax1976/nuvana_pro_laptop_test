@@ -65,9 +65,9 @@ locals {
 module "vpc" {
   source = "./modules/vpc"
 
-  name_prefix         = local.name_prefix
-  vpc_cidr            = var.vpc_cidr
-  availability_zones  = var.availability_zones
+  name_prefix        = local.name_prefix
+  vpc_cidr           = var.vpc_cidr
+  availability_zones = var.availability_zones
 
   tags = local.common_tags
 }
@@ -105,9 +105,9 @@ module "rds" {
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
 
-  db_name            = var.db_name
-  db_username        = var.db_username
-  db_instance_class  = var.db_instance_class
+  db_name           = var.db_name
+  db_username       = var.db_username
+  db_instance_class = var.db_instance_class
 
   # Get password from Secrets Manager
   db_password_secret_arn = module.secrets.db_password_secret_arn
@@ -125,7 +125,7 @@ module "elasticache" {
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
 
-  node_type          = var.redis_node_type
+  node_type = var.redis_node_type
 
   tags = local.common_tags
 }
@@ -140,7 +140,7 @@ module "amazonmq" {
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
 
-  instance_type      = var.rabbitmq_instance_type
+  instance_type = var.rabbitmq_instance_type
 
   # Get credentials from Secrets Manager
   rabbitmq_password_secret_arn = module.secrets.rabbitmq_password_secret_arn
@@ -158,7 +158,7 @@ module "alb" {
   vpc_id            = module.vpc.vpc_id
   public_subnet_ids = module.vpc.public_subnet_ids
 
-  certificate_arn   = var.certificate_arn
+  certificate_arn = var.certificate_arn
 
   tags = local.common_tags
 }
@@ -174,8 +174,8 @@ module "ecs" {
   private_subnet_ids = module.vpc.private_subnet_ids
 
   # Container images
-  frontend_image     = "${module.ecr.frontend_repository_url}:latest"
-  backend_image      = "${module.ecr.backend_repository_url}:latest"
+  frontend_image = "${module.ecr.frontend_repository_url}:latest"
+  backend_image  = "${module.ecr.backend_repository_url}:latest"
 
   # ALB target groups
   frontend_target_group_arn = module.alb.frontend_target_group_arn

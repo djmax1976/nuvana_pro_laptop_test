@@ -38,3 +38,21 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "deletion_protection" {
+  description = "Enable deletion protection for the RDS instance"
+  type        = bool
+  default     = true
+}
+
+variable "skip_final_snapshot" {
+  description = "Skip final snapshot when deleting the RDS instance"
+  type        = bool
+  default     = false
+}
+
+variable "ecs_security_group_id" {
+  description = "Security group ID of ECS tasks (for restricted access)"
+  type        = string
+  default     = ""
+}

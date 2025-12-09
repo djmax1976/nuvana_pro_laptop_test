@@ -50,7 +50,7 @@ variable "db_username" {
 variable "db_instance_class" {
   description = "RDS instance class"
   type        = string
-  default     = "db.t3.micro"  # Free tier eligible
+  default     = "db.t3.micro" # Free tier eligible
 }
 
 # -----------------------------------------------------------------------------

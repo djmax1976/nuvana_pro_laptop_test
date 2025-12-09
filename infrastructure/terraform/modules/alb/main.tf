@@ -50,7 +50,7 @@ resource "aws_lb" "main" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = var.public_subnet_ids
 
-  enable_deletion_protection = false  # Set to true for production
+  enable_deletion_protection = false # Set to true for production
 
   tags = merge(var.tags, {
     Name = "${var.name_prefix}-alb"
@@ -105,15 +105,32 @@ resource "aws_lb_target_group" "backend" {
 # -----------------------------------------------------------------------------
 # Listeners
 # -----------------------------------------------------------------------------
-# HTTP Listener (redirect to HTTPS if certificate provided, otherwise serve directly)
+# HTTP Listener - Redirect to HTTPS when certificate is available, otherwise forward
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
 
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.frontend.arn
+  # Redirect to HTTPS when certificate is provided
+  dynamic "default_action" {
+    for_each = var.certificate_arn != "" ? [1] : []
+    content {
+      type = "redirect"
+      redirect {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+  }
+
+  # Forward directly only when no certificate (development/testing)
+  dynamic "default_action" {
+    for_each = var.certificate_arn == "" ? [1] : []
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.frontend.arn
+    }
   }
 }
 
@@ -136,7 +153,9 @@ resource "aws_lb_listener" "https" {
 # -----------------------------------------------------------------------------
 # Listener Rules - Route /api/* to backend
 # -----------------------------------------------------------------------------
+# HTTP API rule only when no certificate (development mode - no redirect)
 resource "aws_lb_listener_rule" "api_http" {
+  count        = var.certificate_arn == "" ? 1 : 0
   listener_arn = aws_lb_listener.http.arn
   priority     = 100
 

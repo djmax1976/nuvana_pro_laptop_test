@@ -65,7 +65,13 @@ export function StoreTabs({
                       ? (currentIndex + 1) % stores.length
                       : (currentIndex - 1 + stores.length) % stores.length;
                   // eslint-disable-next-line security/detect-object-injection
-                  onStoreSelect(stores[nextIndex].store_id);
+                  const nextStore = stores[nextIndex];
+                  onStoreSelect(nextStore.store_id);
+                  // Move focus to the next tab button
+                  const nextButton = document.querySelector(
+                    `[data-testid="store-tab-${nextStore.store_id}"]`,
+                  ) as HTMLButtonElement;
+                  nextButton?.focus();
                 }
               }}
               className={cn(
