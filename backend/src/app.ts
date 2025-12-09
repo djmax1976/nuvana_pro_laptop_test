@@ -207,9 +207,15 @@ app.setErrorHandler((error: any, _request, reply) => {
 });
 
 // Register cookie parser (required for httpOnly cookie support)
+// SECURITY: Cookie secret must be set via environment variable - no fallback allowed
+const cookieSecret = process.env.COOKIE_SECRET?.trim();
+if (!cookieSecret || cookieSecret.length < 32) {
+  throw new Error(
+    "COOKIE_SECRET environment variable is required. Set a strong, random secret (minimum 32 characters).",
+  );
+}
 app.register(cookie, {
-  secret:
-    process.env.COOKIE_SECRET || "default-cookie-secret-change-in-production",
+  secret: cookieSecret,
 });
 
 // Register multipart form data parser (required for file uploads)
@@ -241,11 +247,12 @@ app.register(cors, {
 });
 
 // Register Helmet for security headers
+// Note: This API server doesn't serve HTML, but CSP headers are set as defense-in-depth
 app.register(helmet, {
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'"],
       scriptSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https:"],
     },

@@ -24,23 +24,53 @@ import {
 export const createLotteryGame = async (
   prisma: PrismaClient,
   overrides: Partial<{
+    game_code: string;
     name: string;
     description: string;
     price: number;
     status: LotteryGameStatus;
   }> = {},
 ) => {
-  return await prisma.lotteryGame.create({
-    data: {
-      name: overrides.name || `Game ${faker.string.alphanumeric(6)}`,
-      description: overrides.description || faker.lorem.sentence(),
-      price:
-        overrides.price !== undefined
-          ? overrides.price
-          : parseFloat(faker.commerce.price({ min: 1, max: 50 })),
-      status: overrides.status || LotteryGameStatus.ACTIVE,
-    },
-  });
+  // Generate unique game_code using random 4-digit number to avoid collisions
+  // Retry on unique constraint violations
+  let attempts = 0;
+  const maxAttempts = 10;
+
+  while (attempts < maxAttempts) {
+    try {
+      const uniqueCode =
+        overrides.game_code ||
+        faker.string.numeric({ length: 4, exclude: ["0000"] });
+
+      return await prisma.lotteryGame.create({
+        data: {
+          game_code: uniqueCode,
+          name: overrides.name || `Game ${faker.string.alphanumeric(6)}`,
+          description: overrides.description || faker.lorem.sentence(),
+          price:
+            overrides.price !== undefined
+              ? overrides.price
+              : parseFloat(faker.commerce.price({ min: 1, max: 50 })),
+          status: overrides.status || LotteryGameStatus.ACTIVE,
+        },
+      });
+    } catch (error: any) {
+      // If unique constraint violation and no explicit game_code override, retry
+      if (
+        error.code === "P2002" &&
+        !overrides.game_code &&
+        attempts < maxAttempts - 1
+      ) {
+        attempts++;
+        continue;
+      }
+      // Otherwise, rethrow the error
+      throw error;
+    }
+  }
+  throw new Error(
+    `Failed to create lottery game after ${maxAttempts} attempts due to game_code collisions`,
+  );
 };
 
 /**
@@ -187,6 +217,8 @@ export const createLotteryBin = async (
     store_id: string;
     name?: string;
     location?: string;
+    display_order?: number;
+    is_active?: boolean;
   },
 ) => {
   return await prisma.lotteryBin.create({
@@ -194,6 +226,8 @@ export const createLotteryBin = async (
       store_id: overrides.store_id,
       name: overrides.name || `Bin ${faker.string.alphanumeric(4)}`,
       location: overrides.location || faker.location.streetAddress(),
+      display_order: overrides.display_order ?? 0,
+      is_active: overrides.is_active ?? true,
     },
   });
 };

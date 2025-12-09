@@ -1,12 +1,10 @@
-# Stage 0 + Stage 1 + Stage 2 + Stage 3 + Stage 4 + Stage 5 + Stage 6 (Foundation + Component + API + E2E + Stability + Security + Artifacts)
-# Progressive CI pipeline following progression plan
+# CI Pipeline - Validation Only (PR-triggered)
+# All validation runs on PR; deployment is handled by deploy.yml on push
 # SECURITY HARDENED: All secrets in GitHub Secrets, actions pinned to SHAs, artifact signing, log scrubbing
 
-name: Lean CI
+name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   schedule:
@@ -24,7 +22,7 @@ env:
   NEXT_TELEMETRY_DISABLED: "1"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -723,8 +721,8 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
-          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
-          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
+          DAILY_UPLOAD_COUNT: 1000
+          UPLOAD_RATE_LIMIT_MAX: 1000
       - name: Wait for backend health
         id: wait_backend_api_smoke
         run: |
@@ -781,7 +779,6 @@ jobs:
             kill $(cat backend.pid) 2>/dev/null || true
             rm -f backend.pid
           fi
-          # Extra cleanup: kill any remaining process on port 3001
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
   build_app:
@@ -817,7 +814,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
-          fetch-depth: 0  # Full history needed for gitleaks to compare commits
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -938,8 +935,8 @@ jobs:
           JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.TEST_JWT_REFRESH_SECRET }}
           COOKIE_SECRET: ${{ secrets.TEST_COOKIE_SECRET }}
-          DAILY_UPLOAD_COUNT: 1000  # Increased limit for bulk import tests
-          UPLOAD_RATE_LIMIT_MAX: 1000  # Increased rate limit for bulk import tests
+          DAILY_UPLOAD_COUNT: 1000
+          UPLOAD_RATE_LIMIT_MAX: 1000
       - name: Wait for backend
         id: wait_backend
         run: |
@@ -978,7 +975,6 @@ jobs:
           target: ${{ env.BACKEND_URL }}
           fail_action: true
           artifact_name: zap-scan-report
-          # Allow informational alerts but fail on low/medium/high severity findings
           rules_file_name: '.zap/rules.tsv'
           cmd_options: "-I -z \"-config replacer.full_list(0).description=auth-cookies -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Cookie -config replacer.full_list(0).replacement=${{ steps.zap_auth.outputs.cookie_header }}\""
       - name: Scrub secrets from logs
@@ -1005,7 +1001,6 @@ jobs:
             kill $(cat backend.pid) 2>/dev/null || true
             rm -f backend.pid
           fi
-          # Extra cleanup: kill any remaining process on port 3001
           bash nuvana_control/workflows/11-ci_pipeline/scripts/kill-port.sh 3001 || true
 
   artifact_build:
@@ -1014,8 +1009,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write  # Required for artifact attestation
-      attestations: write  # Required for artifact attestation
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
@@ -1025,20 +1020,31 @@ jobs:
       - run: npm ci
       - name: Install backend dependencies
         run: cd backend && npm ci
-      - run: npm run build
+      - name: Build frontend
+        run: npm run build
+      - name: Validate build output
+        run: |
+          if [ ! -d ".next" ]; then
+            echo "::error::Frontend build failed - .next directory not found"
+            exit 1
+          fi
+          echo "✅ Frontend build output validated"
+          du -sh .next/
+      - name: Create attestation archive
+        run: |
+          tar -czf frontend-build.tar.gz .next/
+          echo "✅ Created frontend-build.tar.gz ($(du -h frontend-build.tar.gz | cut -f1))"
       - name: Generate build provenance attestation
         uses: actions/attest-build-provenance@1c608d11d69870c2092266b3f9a6f3abbf17002c  # v1.4.3
         with:
           subject-path: |
-            .next/**
-            backend/dist/**
+            frontend-build.tar.gz
       - name: Upload bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: build-output
           path: |
             .next
-            backend/dist
             package-lock.json
           retention-days: 30
 
@@ -1056,13 +1062,10 @@ jobs:
         with:
           name: build-output
           path: ./build-output
-      # Enterprise Best Practice: Use VEX Hub for automatic false positive filtering
-      # VEX (Vulnerability Exploitability Exchange) is NIST/CISA recommended standard
-      # References: NIST SP 800-204D, CISA/NSA CI/CD Security Guidance
       - name: Setup Trivy with VEX Hub
         uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1  # v0.2.4
         with:
-          version: 'v0.68.1'  # Latest stable (December 2025)
+          version: 'v0.68.1'
       - name: Initialize VEX Repository
         run: trivy vex repo init
       - name: Run Trivy vulnerability scanner (blocking - HIGH/CRITICAL with fixes)
@@ -1124,27 +1127,3 @@ jobs:
           echo "Review trivy-report.txt artifact for details"
           echo "If these are false positives, document them in .trivyignore.yaml with justification"
           exit 1
-
-  deployment_gate:
-    name: Deploy to Production
-    needs: [api_full_suite, e2e_full_suite, security_static, security_dynamic, artifact_build, bundle_security_scan]
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53  # v6.0.0
-        with:
-          name: build-output
-          path: ./build-output
-      - name: Display artifact contents
-        run: ls -R ./build-output
-      - name: Deploy (placeholder)
-        run: |
-          echo "Artifacts ready at ./build-output (.next, backend/dist)."
-          echo "Insert your deployment command here (e.g., push image or upload bundle)."
-          echo "Deployment is gated by the production environment approval settings."
-
-
-

@@ -529,7 +529,9 @@ describe("6.1-INTEGRATION: Enum Enforcement", () => {
     await expect(
       prisma.lotteryGame.create({
         data: {
+          game_code: "INV1",
           name: "Test",
+          price: 1.0,
           status: "INVALID_STATUS" as any,
         },
       }),
@@ -591,6 +593,132 @@ describe("6.1-INTEGRATION: Enum Enforcement", () => {
       });
       expect(pack.status, `Status ${status} should be accepted`).toBe(status);
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UNIQUE CONSTRAINT TESTS - Game Code (Story 6.12)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("6.12-INTEGRATION: Game Code Uniqueness Constraint", () => {
+  it("6.12-INTEGRATION-001: should create LotteryGame with game_code", async () => {
+    // GIVEN: Valid game data with game_code
+    // WHEN: Creating a LotteryGame with game_code
+    const game = await prisma.lotteryGame.create({
+      data: {
+        name: "Test Game with Code",
+        game_code: "0001",
+        price: 2.0,
+      },
+    });
+
+    // THEN: Game is created with game_code
+    expect(game.game_code, "game_code should be set").toBe("0001");
+    expect(game.name, "name should match").toBe("Test Game with Code");
+
+    // Cleanup
+    await prisma.lotteryGame.delete({ where: { game_id: game.game_id } });
+  });
+
+  it("6.12-INTEGRATION-002: should reject duplicate game_code", async () => {
+    // GIVEN: A game with game_code "0001" exists
+    const firstGame = await prisma.lotteryGame.create({
+      data: {
+        name: "First Game",
+        game_code: "0001",
+        price: 2.0,
+      },
+    });
+
+    // WHEN: Attempting to create another game with the same game_code
+    // THEN: Unique constraint violation is thrown
+    await expect(
+      prisma.lotteryGame.create({
+        data: {
+          name: "Second Game",
+          game_code: "0001", // Duplicate game_code
+          price: 5.0,
+        },
+      }),
+      "Should reject duplicate game_code with unique constraint error",
+    ).rejects.toThrow();
+
+    // Cleanup
+    await prisma.lotteryGame.delete({ where: { game_id: firstGame.game_id } });
+  });
+
+  it("6.12-INTEGRATION-003: should allow multiple games with null game_code", async () => {
+    // GIVEN: game_code is optional (nullable)
+    // WHEN: Creating multiple games without game_code
+    const game1 = await prisma.lotteryGame.create({
+      data: {
+        game_code: "GC01",
+        name: "Game Without Code 1",
+        price: 2.0,
+      },
+    });
+
+    const game2 = await prisma.lotteryGame.create({
+      data: {
+        game_code: "GC02",
+        name: "Game Without Code 2",
+        price: 5.0,
+      },
+    });
+
+    // THEN: Both games are created with unique game_codes
+    expect(game1.game_code, "First game game_code should be GC01").toBe("GC01");
+    expect(game2.game_code, "Second game game_code should be GC02").toBe(
+      "GC02",
+    );
+
+    // Cleanup
+    await prisma.lotteryGame.delete({ where: { game_id: game1.game_id } });
+    await prisma.lotteryGame.delete({ where: { game_id: game2.game_id } });
+  });
+
+  it("6.12-INTEGRATION-004: should enforce game_code length constraint (4 characters max)", async () => {
+    // GIVEN: game_code with 5 characters (exceeds VARCHAR(4) limit)
+    // WHEN: Attempting to create a game with game_code exceeding 4 characters
+    // THEN: Database constraint violation is thrown
+    await expect(
+      prisma.lotteryGame.create({
+        data: {
+          name: "Game With Long Code",
+          game_code: "00001", // 5 characters - exceeds VARCHAR(4)
+          price: 2.0,
+        },
+      }),
+      "Should reject game_code exceeding 4 characters with constraint error",
+    ).rejects.toThrow();
+  });
+
+  it("6.12-INTEGRATION-005: should allow different game_codes for different games", async () => {
+    // GIVEN: Multiple unique game_codes
+    // WHEN: Creating games with different game_codes
+    const game1 = await prisma.lotteryGame.create({
+      data: {
+        name: "Game 1",
+        game_code: "0001",
+        price: 2.0,
+      },
+    });
+
+    const game2 = await prisma.lotteryGame.create({
+      data: {
+        name: "Game 2",
+        game_code: "0002",
+        price: 5.0,
+      },
+    });
+
+    // THEN: Both games are created successfully
+    expect(game1.game_code, "First game game_code").toBe("0001");
+    expect(game2.game_code, "Second game game_code").toBe("0002");
+
+    // Cleanup
+    await prisma.lotteryGame.delete({ where: { game_id: game1.game_id } });
+    await prisma.lotteryGame.delete({ where: { game_id: game2.game_id } });
   });
 });
 
@@ -715,7 +843,9 @@ describe("6.1-INTEGRATION: Edge Cases - String Fields", () => {
     await expect(
       prisma.lotteryGame.create({
         data: {
+          game_code: "EM01",
           name: "",
+          price: 1.0,
         },
       }),
       "Should reject empty string in name field",
@@ -731,7 +861,9 @@ describe("6.1-INTEGRATION: Edge Cases - String Fields", () => {
     await expect(
       prisma.lotteryGame.create({
         data: {
+          game_code: "LN01",
           name: veryLongName,
+          price: 1.0,
         },
       }),
       "Should reject very long string in name field",

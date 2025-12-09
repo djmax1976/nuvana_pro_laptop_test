@@ -8,7 +8,7 @@ import * as clientRolesApi from "@/lib/api/client-roles";
  * @test-level Component
  * @justification UI component tests for RolePermissionEditor - tests rendering, user interactions, and state management
  * @story 2.92
- * @enhanced-by workflow-9 on 2025-11-28
+ * @enhanced-by workflow-9 on 2025-01-28
  *
  * Component Tests: RolePermissionEditor
  *
@@ -37,12 +37,16 @@ vi.mock("@/lib/api/client-roles", () => ({
     isPending: false,
   })),
   groupPermissionsByCategory: vi.fn((permissions) => {
-    // Group by category for testing
-    const grouped: Record<string, typeof permissions> = {};
+    // Group by category for testing - MUST return a Map to match actual implementation
+    const grouped = new Map<string, typeof permissions>();
     for (const perm of permissions) {
       const category = perm.category || "OTHER";
-      if (!grouped[category]) grouped[category] = [];
-      grouped[category].push(perm);
+      const existing = grouped.get(category);
+      if (existing) {
+        existing.push(perm);
+      } else {
+        grouped.set(category, [perm]);
+      }
     }
     return grouped;
   }),
@@ -53,11 +57,20 @@ vi.mock("@/lib/api/client-roles", () => ({
       INVENTORY: "Inventory",
       REPORTS: "Reports",
     };
+    // eslint-disable-next-line security/detect-object-injection
     return names[category] || category;
   }),
   hasClientOverrides: vi.fn((permissions) =>
     permissions.some((p: any) => p.is_client_override),
   ),
+  clientRoleKeys: {
+    all: ["client-roles"],
+    lists: () => ["client-roles", "list"],
+    list: () => ["client-roles", "list"],
+    details: () => ["client-roles", "detail"],
+    detail: (roleId: string) => ["client-roles", "detail", roleId],
+    permissions: (roleId: string) => ["client-roles", "permissions", roleId],
+  },
 }));
 
 // Mock the toast hook

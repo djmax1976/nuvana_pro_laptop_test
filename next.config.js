@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Enable standalone output for Docker deployment
+  output: 'standalone',
   // Disable static page generation entirely - force all pages to be dynamic
   // This prevents prerendering errors for auth-protected pages
   skipTrailingSlashRedirect: false,

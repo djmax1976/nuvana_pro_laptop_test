@@ -100,10 +100,10 @@ export const createUser = (overrides: Partial<UserData> = {}): UserData => {
 /**
  * Creates a Company test data object
  * Name format: Test <random> (identifiable for cleanup)
- * Requires owner_user_id to be provided
+ * owner_user_id defaults to a random UUID for test scenarios
  */
 export const createCompany = (
-  overrides: Partial<CompanyData> & { owner_user_id: string },
+  overrides: Partial<CompanyData> & { owner_user_id?: string } = {},
 ): CompanyData => {
   const name = overrides.name || `Test ${faker.company.name()}`;
   if (overrides.name) {
@@ -113,6 +113,7 @@ export const createCompany = (
     public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
     name,
     status: "ACTIVE",
+    owner_user_id: overrides.owner_user_id || faker.string.uuid(),
     ...overrides,
   };
 };

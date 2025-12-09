@@ -15,6 +15,45 @@ import {
 import { PrismaClient } from "@prisma/client";
 import { createJWTAccessToken } from "../factories";
 import { withBypassClient } from "../prisma-bypass";
+import { createClient, RedisClientType } from "redis";
+
+// Redis client for cache clearing in tests
+let testRedisClientForFixtures: RedisClientType | null = null;
+
+async function getTestRedisClientForFixtures(): Promise<RedisClientType | null> {
+  if (testRedisClientForFixtures && testRedisClientForFixtures.isOpen) {
+    return testRedisClientForFixtures;
+  }
+
+  const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+
+  try {
+    testRedisClientForFixtures = createClient({ url: redisUrl });
+    testRedisClientForFixtures.on("error", () => {
+      // Silently ignore Redis errors in tests
+    });
+    await testRedisClientForFixtures.connect();
+    return testRedisClientForFixtures;
+  } catch {
+    // Redis unavailable - graceful degradation
+    testRedisClientForFixtures = null;
+    return null;
+  }
+}
+
+/**
+ * Clear RBAC cache for a specific user to ensure fresh data in tests
+ */
+async function clearUserRbacCache(userId: string): Promise<void> {
+  try {
+    const redis = await getTestRedisClientForFixtures();
+    if (redis) {
+      await redis.del(`user_roles:${userId}`);
+    }
+  } catch {
+    // Ignore Redis errors - tests will still work, just slower
+  }
+}
 
 // Load environment variables from .env.local for Playwright tests
 config({ path: ".env.local" });
@@ -819,6 +858,9 @@ export const test = base.extend<RBACFixture>({
       });
     });
 
+    // Clear RBAC cache to ensure the new role is visible to the API immediately
+    await clearUserRbacCache(user.user_id);
+
     const token = createJWTAccessToken({
       user_id: user.user_id,
       email: user.email,
@@ -837,6 +879,9 @@ export const test = base.extend<RBACFixture>({
         "LOTTERY_PACK_READ",
         "LOTTERY_VARIANCE_READ",
         "LOTTERY_BIN_READ",
+        "LOTTERY_BIN_MANAGE",
+        "LOTTERY_BIN_CONFIG_READ",
+        "LOTTERY_BIN_CONFIG_WRITE",
       ],
     });
 
@@ -861,6 +906,9 @@ export const test = base.extend<RBACFixture>({
         "LOTTERY_PACK_READ",
         "LOTTERY_VARIANCE_READ",
         "LOTTERY_BIN_READ",
+        "LOTTERY_BIN_MANAGE",
+        "LOTTERY_BIN_CONFIG_READ",
+        "LOTTERY_BIN_CONFIG_WRITE",
       ],
       token,
     };
@@ -1200,6 +1248,9 @@ export const test = base.extend<RBACFixture>({
         },
       });
     });
+
+    // Clear RBAC cache to ensure the new role is visible to the API immediately
+    await clearUserRbacCache(user.user_id);
 
     const token = createJWTAccessToken({
       user_id: user.user_id,
@@ -1632,6 +1683,9 @@ export const test = base.extend<RBACFixture>({
       });
     });
 
+    // Clear RBAC cache to ensure the new role is visible to the API immediately
+    await clearUserRbacCache(user.user_id);
+
     // Assign default STORE scope roles to the company via CompanyAllowedRole
     // This is required for client role permission management (Story 2.92)
     // IMPORTANT: Query MUST be inside withBypassClient to prevent race conditions
@@ -1688,7 +1742,17 @@ export const test = base.extend<RBACFixture>({
       "INVENTORY_ADJUST",
       "INVENTORY_ORDER",
       // Lottery Management
+      "LOTTERY_GAME_READ",
+      "LOTTERY_PACK_READ",
       "LOTTERY_PACK_RECEIVE",
+      "LOTTERY_PACK_ACTIVATE",
+      "LOTTERY_VARIANCE_READ",
+      "LOTTERY_BIN_READ",
+      "LOTTERY_BIN_MANAGE",
+      "LOTTERY_BIN_CONFIG_READ",
+      "LOTTERY_BIN_CONFIG_WRITE",
+      "LOTTERY_SHIFT_OPEN",
+      "LOTTERY_SHIFT_CLOSE",
       "LOTTERY_SHIFT_RECONCILE",
       "LOTTERY_REPORT",
       // Reports

@@ -105,7 +105,11 @@ describe("4.9-COMPONENT: MyStoreDashboardLayout Component", () => {
     mockPathname.mockReturnValue("/mystore");
     mockUseClientAuth.mockReturnValue({
       user: mockUser,
-      permissions: [],
+      permissions: [
+        "LOTTERY_PACK_RECEIVE",
+        "LOTTERY_SHIFT_RECONCILE",
+        "LOTTERY_REPORT",
+      ],
       isLoading: false,
       isAuthenticated: true,
       isClientUser: true,

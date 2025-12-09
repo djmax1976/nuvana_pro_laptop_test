@@ -100,26 +100,16 @@ describe("LotteryPackCard Accessibility", () => {
 // SKIPPED: JSDOM doesn't properly support Radix UI Select and Dialog focus management
 // These accessibility tests would pass in a real browser environment
 // Manual testing confirms accessibility works correctly
+// NOTE: PackReceptionForm now uses serialized input per Story 6.12
 describe.skip("PackReceptionForm Accessibility (JSDOM limitation)", () => {
-  const mockGames = [
-    { game_id: "game-1", name: "Game 1" },
-    { game_id: "game-2", name: "Game 2" },
-  ];
-
-  const mockBins = [{ bin_id: "bin-1", name: "Bin A", location: "Shelf 1" }];
-
-  const mockOnSubmit = vi.fn().mockResolvedValue(undefined);
-
   it("should have proper dialog ARIA attributes", () => {
     render(
       <QueryWrapper>
         <PackReceptionForm
           storeId="store-123"
-          games={mockGames}
-          bins={mockBins}
           open={true}
           onOpenChange={vi.fn()}
-          onSubmit={mockOnSubmit}
+          onSuccess={vi.fn()}
         />
       </QueryWrapper>,
     );
@@ -128,7 +118,7 @@ describe.skip("PackReceptionForm Accessibility (JSDOM limitation)", () => {
     expect(dialog).toBeInTheDocument();
 
     const title = screen.getByRole("heading", {
-      name: /receive lottery pack/i,
+      name: /receive lottery packs/i,
     });
     expect(title).toBeInTheDocument();
   });
@@ -138,20 +128,17 @@ describe.skip("PackReceptionForm Accessibility (JSDOM limitation)", () => {
       <QueryWrapper>
         <PackReceptionForm
           storeId="store-123"
-          games={mockGames}
-          bins={mockBins}
           open={true}
           onOpenChange={vi.fn()}
-          onSubmit={mockOnSubmit}
+          onSuccess={vi.fn()}
         />
       </QueryWrapper>,
     );
 
-    expect(screen.getByLabelText(/game/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/pack number/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/serial start/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/serial end/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/bin assignment/i)).toBeInTheDocument();
+    // Serialized input field
+    expect(
+      screen.getByLabelText(/enter 24-digit serialized number/i),
+    ).toBeInTheDocument();
   });
 
   it("should be keyboard navigable", async () => {
@@ -160,47 +147,33 @@ describe.skip("PackReceptionForm Accessibility (JSDOM limitation)", () => {
       <QueryWrapper>
         <PackReceptionForm
           storeId="store-123"
-          games={mockGames}
-          bins={mockBins}
           open={true}
           onOpenChange={vi.fn()}
-          onSubmit={mockOnSubmit}
+          onSuccess={vi.fn()}
         />
       </QueryWrapper>,
     );
 
     // Tab through form fields
     await user.tab();
-    expect(screen.getByTestId("game-select")).toHaveFocus();
-
-    await user.tab();
-    expect(screen.getByTestId("pack-number-input")).toHaveFocus();
-
-    await user.tab();
-    expect(screen.getByTestId("serial-start-input")).toHaveFocus();
+    expect(screen.getByTestId("serial-input")).toHaveFocus();
   });
 
-  it("should display validation errors accessibly", async () => {
-    const user = userEvent.setup();
+  it("should have accessible button states", async () => {
     render(
       <QueryWrapper>
         <PackReceptionForm
           storeId="store-123"
-          games={mockGames}
-          bins={mockBins}
           open={true}
           onOpenChange={vi.fn()}
-          onSubmit={mockOnSubmit}
+          onSuccess={vi.fn()}
         />
       </QueryWrapper>,
     );
 
-    // Try to submit without filling required fields
-    const submitButton = screen.getByRole("button", { name: /receive pack/i });
-    await user.click(submitButton);
-
-    // Validation errors should be announced
-    await screen.findByText(/game must be selected/i);
+    // Submit button should be disabled when no packs in list
+    const submitButton = screen.getByRole("button", { name: /receive.*pack/i });
+    expect(submitButton).toBeDisabled();
   });
 });
 

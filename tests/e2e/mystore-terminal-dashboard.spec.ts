@@ -218,6 +218,10 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     // GIVEN: User is logged in and on /mystore dashboard
     await loginAndWaitForMyStore(page, clientUser.email, password);
 
+    // Get sidebar element for scoped assertions
+    const sidebar = page.getByTestId("mystore-sidebar");
+    await expect(sidebar).toBeVisible();
+
     // THEN: Clock In/Out link should be visible
     await expect(page.getByTestId("clock-in-out-link")).toBeVisible();
 
@@ -229,13 +233,18 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
       page.getByTestId(`terminal-link-${terminal2.pos_terminal_id}`),
     ).toBeVisible();
 
-    // THEN: Excluded navigation items should NOT be present
-    await expect(page.getByText(/shifts/i)).not.toBeVisible();
-    await expect(page.getByText(/inventory/i)).not.toBeVisible();
-    await expect(page.getByText(/lottery/i)).not.toBeVisible();
-    await expect(page.getByText(/employees/i)).not.toBeVisible();
-    await expect(page.getByText(/reports/i)).not.toBeVisible();
-    await expect(page.getByText(/ai assistant/i)).not.toBeVisible();
+    // THEN: CLIENT_USER role CAN see Lottery link in sidebar
+    // (CLIENT_USER has LOTTERY_REPORT permission per rbac.seed.ts)
+    await expect(page.getByTestId("lottery-link")).toBeVisible();
+
+    // THEN: Excluded navigation items should NOT be present in the sidebar
+    // Note: We check within sidebar context to avoid matching text elsewhere
+    // MyStore sidebar only shows: Clock In/Out, Lottery (if permitted), and Terminal links
+    await expect(sidebar.getByText(/shifts/i)).not.toBeVisible();
+    await expect(sidebar.getByText(/inventory/i)).not.toBeVisible();
+    await expect(sidebar.getByText(/employees/i)).not.toBeVisible();
+    await expect(sidebar.getByText(/reports/i)).not.toBeVisible();
+    await expect(sidebar.getByText(/ai assistant/i)).not.toBeVisible();
   });
 
   test("[P0] 4.9-E2E-003: Clicking terminal should open TerminalAuthModal", async ({

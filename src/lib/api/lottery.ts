@@ -41,7 +41,9 @@ export interface LotteryPackResponse {
   // Extended fields from joins (optional, populated by backend)
   game?: {
     game_id: string;
+    game_code: string;
     name: string;
+    price: number | null;
   };
   store?: {
     store_id: string;
@@ -94,6 +96,17 @@ export interface ReceivePackInput {
   serial_end: string;
   store_id?: string; // Optional - can be derived from user's store role
   bin_id?: string; // Optional - physical location
+}
+
+/**
+ * Update pack input
+ */
+export interface UpdatePackInput {
+  game_id?: string;
+  pack_number?: string;
+  serial_start?: string;
+  serial_end?: string;
+  bin_id?: string; // Optional - can be set to null to unassign bin
 }
 
 /**
@@ -196,6 +209,7 @@ export interface ApiResponse<T> {
   success: boolean;
   data: T;
   message?: string;
+  error?: string;
 }
 
 /**
@@ -308,6 +322,111 @@ export async function receivePack(
 }
 
 /**
+ * Batch receive lottery packs via serialized numbers
+ * POST /api/lottery/packs/receive/batch
+ * Story 6.12: Serialized Pack Reception with Batch Processing
+ * @param data - Batch reception data with serialized numbers
+ * @returns Batch reception response with created packs, duplicates, and errors
+ */
+export interface BatchReceivePackInput {
+  serialized_numbers: string[];
+  store_id?: string;
+}
+
+export interface BatchReceivePackResponse {
+  created: Array<{
+    pack_id: string;
+    game_id: string;
+    pack_number: string;
+    serial_start: string;
+    serial_end: string;
+    status: string;
+    game?: {
+      game_id: string;
+      name: string;
+    };
+  }>;
+  duplicates: string[];
+  errors: Array<{
+    serial: string;
+    error: string;
+  }>;
+  games_not_found: Array<{
+    serial: string;
+    game_code: string;
+    pack_number: string;
+    serial_start: string;
+  }>;
+}
+
+export async function receivePackBatch(
+  data: BatchReceivePackInput,
+): Promise<ApiResponse<BatchReceivePackResponse>> {
+  return apiRequest<ApiResponse<BatchReceivePackResponse>>(
+    "/api/lottery/packs/receive/batch",
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+/**
+ * Lottery game response
+ */
+export interface LotteryGameResponse {
+  game_id: string;
+  game_code: string;
+  name: string;
+  description: string | null;
+  price: number | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Get all active lottery games
+ * GET /api/lottery/games
+ * @returns List of active lottery games
+ */
+export async function getGames(): Promise<ApiResponse<LotteryGameResponse[]>> {
+  return apiRequest<ApiResponse<LotteryGameResponse[]>>("/api/lottery/games", {
+    method: "GET",
+  });
+}
+
+/**
+ * Create a new lottery game
+ * POST /api/lottery/games
+ * @param data - Game data (game_code, name, optional price and description)
+ * @returns Created game response
+ */
+export interface CreateGameInput {
+  game_code: string;
+  name: string;
+  price?: number;
+  description?: string;
+}
+
+export interface CreateGameResponse {
+  game_id: string;
+  game_code: string;
+  name: string;
+  price: number;
+  status: string;
+}
+
+export async function createGame(
+  data: CreateGameInput,
+): Promise<ApiResponse<CreateGameResponse>> {
+  return apiRequest<ApiResponse<CreateGameResponse>>("/api/lottery/games", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/**
  * Activate a lottery pack (change status from RECEIVED to ACTIVE)
  * PUT /api/lottery/packs/:packId/activate
  * @param packId - Pack UUID
@@ -320,6 +439,43 @@ export async function activatePack(
     `/api/lottery/packs/${packId}/activate`,
     {
       method: "PUT",
+    },
+  );
+}
+
+/**
+ * Update a lottery pack
+ * PUT /api/lottery/packs/:packId
+ * @param packId - Pack UUID
+ * @param data - Pack update data (partial fields)
+ * @returns Updated pack response
+ */
+export async function updatePack(
+  packId: string,
+  data: UpdatePackInput,
+): Promise<ApiResponse<LotteryPackResponse>> {
+  return apiRequest<ApiResponse<LotteryPackResponse>>(
+    `/api/lottery/packs/${packId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+/**
+ * Delete a lottery pack
+ * DELETE /api/lottery/packs/:packId
+ * @param packId - Pack UUID
+ * @returns Success response
+ */
+export async function deletePack(
+  packId: string,
+): Promise<ApiResponse<{ pack_id: string; message: string }>> {
+  return apiRequest<ApiResponse<{ pack_id: string; message: string }>>(
+    `/api/lottery/packs/${packId}`,
+    {
+      method: "DELETE",
     },
   );
 }
@@ -357,6 +513,37 @@ export async function getPacks(
     }
     throw error;
   }
+}
+
+/**
+ * Check if a pack exists in a store
+ * GET /api/lottery/packs/check/:storeId/:packNumber
+ * Used for real-time duplicate detection during pack reception
+ * @param storeId - Store UUID
+ * @param packNumber - Pack number to check
+ * @returns Whether pack exists and pack info if found
+ */
+export interface CheckPackExistsResponse {
+  exists: boolean;
+  pack: {
+    pack_id: string;
+    status: string;
+    game: {
+      name: string;
+    };
+  } | null;
+}
+
+export async function checkPackExists(
+  storeId: string,
+  packNumber: string,
+): Promise<ApiResponse<CheckPackExistsResponse>> {
+  return apiRequest<ApiResponse<CheckPackExistsResponse>>(
+    `/api/lottery/packs/check/${storeId}/${packNumber}`,
+    {
+      method: "GET",
+    },
+  );
 }
 
 /**
@@ -448,4 +635,122 @@ export async function approveVariance(
       // Note: closing_cash is not required for variance approval (shift must be in VARIANCE_REVIEW status)
     }),
   });
+}
+
+// ============ Bin Configuration API ============
+
+/**
+ * Bin configuration item
+ */
+export interface BinConfigurationItem {
+  name: string;
+  location?: string;
+  display_order: number;
+}
+
+/**
+ * Bin configuration response
+ */
+export interface BinConfigurationResponse {
+  config_id: string;
+  store_id: string;
+  bin_template: BinConfigurationItem[];
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Get bin configuration for a store
+ * GET /api/lottery/bins/configuration/:storeId
+ * @param storeId - Store UUID
+ * @returns Bin configuration response
+ */
+export async function getBinConfiguration(
+  storeId: string,
+): Promise<ApiResponse<BinConfigurationResponse>> {
+  return apiRequest<ApiResponse<BinConfigurationResponse>>(
+    `/api/lottery/bins/configuration/${storeId}`,
+    {
+      method: "GET",
+    },
+  );
+}
+
+/**
+ * Create bin configuration for a store
+ * POST /api/lottery/bins/configuration/:storeId
+ * @param storeId - Store UUID
+ * @param data - Bin configuration data
+ * @returns Created bin configuration response
+ */
+export async function createBinConfiguration(
+  storeId: string,
+  data: { bin_template: BinConfigurationItem[] },
+): Promise<ApiResponse<BinConfigurationResponse>> {
+  return apiRequest<ApiResponse<BinConfigurationResponse>>(
+    `/api/lottery/bins/configuration/${storeId}`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+/**
+ * Update bin configuration for a store
+ * PUT /api/lottery/bins/configuration/:storeId
+ * @param storeId - Store UUID
+ * @param data - Bin configuration data
+ * @returns Updated bin configuration response
+ */
+export async function updateBinConfiguration(
+  storeId: string,
+  data: { bin_template: BinConfigurationItem[] },
+): Promise<ApiResponse<BinConfigurationResponse>> {
+  return apiRequest<ApiResponse<BinConfigurationResponse>>(
+    `/api/lottery/bins/configuration/${storeId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+// ============ Bin Display API ============
+
+/**
+ * Bin display data item
+ * Response from GET /api/lottery/bins/display/:storeId
+ */
+export interface BinDisplayItem {
+  bin_id: string;
+  bin_name: string;
+  display_order: number;
+  game_code: string | null;
+  game_name: string | null;
+  price: number | null;
+  pack_number: string | null;
+  serial_start: string | null;
+  serial_end: string | null;
+  total_sold: number;
+  status: string | null;
+}
+
+/**
+ * Get bin display data for a store
+ * GET /api/lottery/bins/display/:storeId
+ * Returns optimized bin display data with packs, game info, and sold counts
+ * Story 6.13: Lottery Database Enhancements & Bin Management (AC #2, #3)
+ * @param storeId - Store UUID
+ * @returns Bin display data response
+ */
+export async function getBinDisplay(
+  storeId: string,
+): Promise<ApiResponse<BinDisplayItem[]>> {
+  return apiRequest<ApiResponse<BinDisplayItem[]>>(
+    `/api/lottery/bins/display/${storeId}`,
+    {
+      method: "GET",
+    },
+  );
 }

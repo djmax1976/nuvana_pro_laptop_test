@@ -15,10 +15,7 @@ import {
   useInvalidateLottery,
 } from "@/hooks/useLottery";
 import { LotteryPackCard } from "@/components/lottery/LotteryPackCard";
-import {
-  PackReceptionForm,
-  type GameOption,
-} from "@/components/lottery/PackReceptionForm";
+import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
 import {
   PackActivationForm,
   type PackOption,
@@ -102,21 +99,6 @@ export default function LotteryManagementPage() {
   const packActivationMutation = usePackActivation();
   const varianceApprovalMutation = useVarianceApproval();
   const { invalidatePacks, invalidateVariances } = useInvalidateLottery();
-
-  // Extract unique games from packs for reception form
-  const games: GameOption[] = useMemo(() => {
-    if (!packs) return [];
-    const gameMap = new Map<string, GameOption>();
-    packs.forEach((pack) => {
-      if (pack.game && !gameMap.has(pack.game.game_id)) {
-        gameMap.set(pack.game.game_id, {
-          game_id: pack.game.game_id,
-          name: pack.game.name,
-        });
-      }
-    });
-    return Array.from(gameMap.values());
-  }, [packs]);
 
   // Filter packs for activation form (RECEIVED status only)
   const receivedPacks: PackOption[] = useMemo(() => {
@@ -463,14 +445,11 @@ export default function LotteryManagementPage() {
       {/* Pack Reception Dialog */}
       <PackReceptionForm
         storeId={storeId}
-        games={games}
-        bins={[]} // Bins are optional - can be added later if needed
         open={receptionDialogOpen}
         onOpenChange={setReceptionDialogOpen}
         onSuccess={() => {
           invalidatePacks();
         }}
-        onSubmit={handlePackReception}
       />
 
       {/* Pack Activation Dialog */}

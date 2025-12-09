@@ -13,7 +13,7 @@ import * as clientRolesApi from "@/lib/api/client-roles";
  * @test-level Component
  * @justification UI component tests for RoleList - tests rendering, user interactions, and state management
  * @story 2.92
- * @enhanced-by workflow-9 on 2025-11-28
+ * @enhanced-by workflow-9 on 2025-01-28
  *
  * Component Tests: RoleList
  *

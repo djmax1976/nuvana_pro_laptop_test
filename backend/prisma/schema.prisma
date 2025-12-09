@@ -43,6 +43,8 @@ model User {
   cashiers_updated        Cashier[]              @relation("CashierUpdatedBy")
   cashier_sessions_auth   CashierSession[]       @relation("CashierSessionAuthenticator")
   store_logins            Store[]                @relation("StoreLogin") // Stores where this user is the store login credential
+  ticket_serials          LotteryTicketSerial[]  @relation("TicketCashier")
+  pack_bin_history        LotteryPackBinHistory[] @relation("PackMover")
 
   @@index([email])
   @@index([status])
@@ -93,6 +95,7 @@ model Store {
   cashier_sessions CashierSession[]
   lottery_packs    LotteryPack[]
   lottery_bins     LotteryBin[]
+  bin_configuration LotteryBinConfiguration?
 
   @@index([company_id])
   @@index([status])
@@ -369,6 +372,7 @@ model Shift {
   lottery_openings LotteryShiftOpening[]
   lottery_closings LotteryShiftClosing[]
   lottery_variances LotteryVariance[]
+  ticket_serials   LotteryTicketSerial[]
 
   @@index([store_id])
   @@index([opened_by])
@@ -536,9 +540,10 @@ model CashierSession {
 /// Story 6.1: Lottery Game and Pack Data Models
 model LotteryGame {
   game_id     String             @id @default(uuid()) @db.Uuid
+  game_code   String             @unique @db.VarChar(4)
   name        String             @db.VarChar(255)
   description String?            @db.VarChar(500)
-  price       Decimal?           @db.Decimal(10, 2)
+  price       Decimal            @db.Decimal(10, 2)
   status      LotteryGameStatus  @default(ACTIVE)
   created_at  DateTime           @default(now()) @db.Timestamptz(6)
   updated_at  DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
@@ -546,6 +551,9 @@ model LotteryGame {
   packs       LotteryPack[]
   
   @@index([name])
+  @@index([game_code])
+  @@index([status])
+  @@index([price])
   @@map("lottery_games")
 }
 
@@ -553,33 +561,38 @@ model LotteryGame {
 /// Story 6.1: Lottery Game and Pack Data Models
 /// Tenant isolation enforced via store_id foreign key (RLS policies will be implemented in future stories)
 model LotteryPack {
-  pack_id       String             @id @default(uuid()) @db.Uuid
-  game_id       String             @db.Uuid
-  store_id      String             @db.Uuid
-  pack_number   String             @db.VarChar(50)
-  serial_start  String             @db.VarChar(100)
-  serial_end    String             @db.VarChar(100)
-  status        LotteryPackStatus  @default(RECEIVED)
-  current_bin_id String?           @db.Uuid
-  received_at   DateTime?          @db.Timestamptz(6)
-  activated_at  DateTime?          @db.Timestamptz(6)
-  depleted_at   DateTime?          @db.Timestamptz(6)
-  returned_at   DateTime?          @db.Timestamptz(6)
-  created_at    DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
-  
-  game          LotteryGame        @relation(fields: [game_id], references: [game_id], onDelete: Cascade)
-  store         Store              @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  bin           LotteryBin?       @relation(fields: [current_bin_id], references: [bin_id], onDelete: SetNull)
-  shift_openings LotteryShiftOpening[]
-  shift_closings LotteryShiftClosing[]
-  variances     LotteryVariance[]
-  
+  pack_id            String             @id @default(uuid()) @db.Uuid
+  game_id            String             @db.Uuid
+  store_id           String             @db.Uuid
+  pack_number        String             @db.VarChar(50)
+  serial_start       String             @db.VarChar(100)
+  serial_end         String             @db.VarChar(100)
+  status             LotteryPackStatus  @default(RECEIVED)
+  current_bin_id     String?            @db.Uuid
+  tickets_sold_count Int                @default(0)
+  last_sold_at       DateTime?          @db.Timestamptz(6)
+  received_at        DateTime?          @db.Timestamptz(6)
+  activated_at       DateTime?          @db.Timestamptz(6)
+  depleted_at        DateTime?          @db.Timestamptz(6)
+  returned_at        DateTime?          @db.Timestamptz(6)
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
+
+  game               LotteryGame        @relation(fields: [game_id], references: [game_id], onDelete: Cascade)
+  store              Store              @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  bin                LotteryBin?        @relation(fields: [current_bin_id], references: [bin_id], onDelete: SetNull)
+  shift_openings     LotteryShiftOpening[]
+  shift_closings     LotteryShiftClosing[]
+  variances          LotteryVariance[]
+  ticket_serials     LotteryTicketSerial[]
+  bin_history        LotteryPackBinHistory[]
+
   @@index([game_id])
   @@index([store_id])
   @@index([status])
   @@index([pack_number])
   @@index([serial_start, serial_end])
+  @@index([current_bin_id, status])
   @@unique([store_id, pack_number])
   @@map("lottery_packs")
 }
@@ -588,17 +601,23 @@ model LotteryPack {
 /// Story 6.1: Lottery Game and Pack Data Models
 /// Tenant isolation enforced via store_id foreign key (RLS policies will be implemented in future stories)
 model LotteryBin {
-  bin_id     String        @id @default(uuid()) @db.Uuid
-  store_id   String        @db.Uuid
-  name       String        @db.VarChar(255)
-  location   String?       @db.VarChar(255)
-  created_at DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
-  
-  store      Store         @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  packs      LotteryPack[]
-  
+  bin_id        String        @id @default(uuid()) @db.Uuid
+  store_id      String        @db.Uuid
+  name          String        @db.VarChar(255)
+  location      String?       @db.VarChar(255)
+  display_order Int           @default(0)
+  is_active     Boolean       @default(true)
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
+
+  store         Store         @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  packs         LotteryPack[]
+  pack_history  LotteryPackBinHistory[]
+
   @@index([store_id])
+  @@index([store_id, is_active])
+  @@index([store_id, display_order])
+  @@index([store_id, name])
   @@map("lottery_bins")
 }
 
@@ -656,4 +675,69 @@ model LotteryVariance {
   @@index([shift_id])
   @@index([pack_id])
   @@map("lottery_variances")
+}
+
+/// Lottery Ticket Serial - Tracks individual ticket serial numbers within packs
+/// Story 6.13: Lottery Database Enhancements & Bin Management
+/// Tenant isolation enforced via store_id through LotteryPack relationship
+model LotteryTicketSerial {
+  serial_id     String    @id @default(uuid()) @db.Uuid
+  pack_id       String    @db.Uuid
+  serial_number String    @unique @db.VarChar(100)
+  sold_at       DateTime? @db.Timestamptz(6)
+  shift_id      String?   @db.Uuid
+  cashier_id    String?   @db.Uuid
+  transaction_id String?  @db.Uuid
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  pack          LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  shift         Shift?       @relation(fields: [shift_id], references: [shift_id], onDelete: SetNull)
+  cashier       User?        @relation("TicketCashier", fields: [cashier_id], references: [user_id], onDelete: SetNull)
+
+  @@index([pack_id])
+  @@index([pack_id, sold_at])
+  @@index([shift_id])
+  @@index([sold_at])
+  @@index([cashier_id, sold_at])
+  @@map("lottery_ticket_serials")
+}
+
+/// Lottery Pack Bin History - Tracks pack movements between bins
+/// Story 6.13: Lottery Database Enhancements & Bin Management
+/// Tenant isolation enforced via store_id through LotteryPack relationship
+model LotteryPackBinHistory {
+  history_id String    @id @default(uuid()) @db.Uuid
+  pack_id     String    @db.Uuid
+  bin_id      String    @db.Uuid
+  moved_at    DateTime  @default(now()) @db.Timestamptz(6)
+  moved_by    String    @db.Uuid
+  reason      String?   @db.VarChar(500)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  pack        LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  bin         LotteryBin  @relation(fields: [bin_id], references: [bin_id], onDelete: Cascade)
+  mover       User        @relation("PackMover", fields: [moved_by], references: [user_id], onDelete: Cascade)
+
+  @@index([pack_id])
+  @@index([bin_id])
+  @@index([moved_at])
+  @@index([pack_id, moved_at])
+  @@map("lottery_pack_bin_history")
+}
+
+/// Lottery Bin Configuration - Stores bin configuration templates per store
+/// Story 6.13: Lottery Database Enhancements & Bin Management
+/// Tenant isolation enforced via store_id foreign key
+model LotteryBinConfiguration {
+  config_id   String   @id @default(uuid()) @db.Uuid
+  store_id    String   @unique @db.Uuid
+  bin_template Json    @db.JsonB
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  store       Store    @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+
+  @@map("lottery_bin_configurations")
 }
