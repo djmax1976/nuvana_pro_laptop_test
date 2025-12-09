@@ -105,20 +105,32 @@ resource "aws_lb_target_group" "backend" {
 # -----------------------------------------------------------------------------
 # Listeners
 # -----------------------------------------------------------------------------
-# HTTP Listener - Always redirect to HTTPS for security
+# HTTP Listener - Redirect to HTTPS if certificate exists, otherwise forward traffic
 # nosemgrep: terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
-  protocol          = "HTTP"
+  # nosemgrep: terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version
+  protocol = "HTTP" # Intentional: HTTP-only mode for development when no SSL cert provided
 
-  # Always redirect HTTP to HTTPS - security best practice
-  default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+  # If certificate exists, redirect to HTTPS. Otherwise, forward to frontend.
+  dynamic "default_action" {
+    for_each = var.certificate_arn != "" ? [1] : []
+    content {
+      type = "redirect"
+      redirect {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+  }
+
+  dynamic "default_action" {
+    for_each = var.certificate_arn == "" ? [1] : []
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.frontend.arn
     }
   }
 }
@@ -140,12 +152,31 @@ resource "aws_lb_listener" "https" {
 }
 
 # -----------------------------------------------------------------------------
-# Listener Rules - Route /api/* to backend (HTTPS only)
+# Listener Rules - Route /api/* to backend
 # -----------------------------------------------------------------------------
 resource "aws_lb_listener_rule" "api_https" {
   count = var.certificate_arn != "" ? 1 : 0
 
   listener_arn = aws_lb_listener.https[0].arn
+  priority     = 100
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.backend.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api/*"]
+    }
+  }
+}
+
+# HTTP listener rule for API (when no certificate)
+resource "aws_lb_listener_rule" "api_http" {
+  count = var.certificate_arn == "" ? 1 : 0
+
+  listener_arn = aws_lb_listener.http.arn
   priority     = 100
 
   action {
