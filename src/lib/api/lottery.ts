@@ -41,7 +41,9 @@ export interface LotteryPackResponse {
   // Extended fields from joins (optional, populated by backend)
   game?: {
     game_id: string;
+    game_code: string;
     name: string;
+    price: number | null;
   };
   store?: {
     store_id: string;
@@ -349,6 +351,12 @@ export interface BatchReceivePackResponse {
     serial: string;
     error: string;
   }>;
+  games_not_found: Array<{
+    serial: string;
+    game_code: string;
+    pack_number: string;
+    serial_start: string;
+  }>;
 }
 
 export async function receivePackBatch(
@@ -361,6 +369,61 @@ export async function receivePackBatch(
       body: JSON.stringify(data),
     },
   );
+}
+
+/**
+ * Lottery game response
+ */
+export interface LotteryGameResponse {
+  game_id: string;
+  game_code: string;
+  name: string;
+  description: string | null;
+  price: number | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Get all active lottery games
+ * GET /api/lottery/games
+ * @returns List of active lottery games
+ */
+export async function getGames(): Promise<ApiResponse<LotteryGameResponse[]>> {
+  return apiRequest<ApiResponse<LotteryGameResponse[]>>("/api/lottery/games", {
+    method: "GET",
+  });
+}
+
+/**
+ * Create a new lottery game
+ * POST /api/lottery/games
+ * @param data - Game data (game_code, name, optional price and description)
+ * @returns Created game response
+ */
+export interface CreateGameInput {
+  game_code: string;
+  name: string;
+  price?: number;
+  description?: string;
+}
+
+export interface CreateGameResponse {
+  game_id: string;
+  game_code: string;
+  name: string;
+  price: number;
+  status: string;
+}
+
+export async function createGame(
+  data: CreateGameInput,
+): Promise<ApiResponse<CreateGameResponse>> {
+  return apiRequest<ApiResponse<CreateGameResponse>>("/api/lottery/games", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
 }
 
 /**
@@ -450,6 +513,37 @@ export async function getPacks(
     }
     throw error;
   }
+}
+
+/**
+ * Check if a pack exists in a store
+ * GET /api/lottery/packs/check/:storeId/:packNumber
+ * Used for real-time duplicate detection during pack reception
+ * @param storeId - Store UUID
+ * @param packNumber - Pack number to check
+ * @returns Whether pack exists and pack info if found
+ */
+export interface CheckPackExistsResponse {
+  exists: boolean;
+  pack: {
+    pack_id: string;
+    status: string;
+    game: {
+      name: string;
+    };
+  } | null;
+}
+
+export async function checkPackExists(
+  storeId: string,
+  packNumber: string,
+): Promise<ApiResponse<CheckPackExistsResponse>> {
+  return apiRequest<ApiResponse<CheckPackExistsResponse>>(
+    `/api/lottery/packs/check/${storeId}/${packNumber}`,
+    {
+      method: "GET",
+    },
+  );
 }
 
 /**

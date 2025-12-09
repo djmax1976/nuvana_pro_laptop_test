@@ -6,6 +6,8 @@
  *
  * Story: 6.12 - Serialized Pack Reception with Batch Processing
  * AC #1, #2, #3, #4, #5: Serialized input, parsing, validation, batch submission
+ *
+ * Enhanced: Auto-create games when game code not found (Client Dashboard only)
  */
 
 import {
@@ -27,8 +29,15 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, X } from "lucide-react";
-import { receivePackBatch } from "@/lib/api/lottery";
+import {
+  receivePackBatch,
+  getGames,
+  checkPackExists,
+  type BatchReceivePackResponse,
+  type LotteryGameResponse,
+} from "@/lib/api/lottery";
 import { parseSerializedNumber } from "@/lib/utils/lottery-serial-parser";
+import { NewGameModal } from "./NewGameModal";
 
 /**
  * Pack item in reception list
@@ -40,6 +49,7 @@ interface PackItem {
   serial_start: string;
   game_name?: string;
   game_id?: string;
+  game_price?: number;
   error?: string;
   isValidating?: boolean;
 }
@@ -64,10 +74,25 @@ export function PackReceptionForm({
 }: PackReceptionFormProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingGames, setIsLoadingGames] = useState(false);
   const [packList, setPackList] = useState<PackItem[]>([]);
   const [inputValue, setInputValue] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Games cache for checking existence on scan
+  const [gamesCache, setGamesCache] = useState<
+    Map<string, LotteryGameResponse>
+  >(new Map());
+
+  // State for new game creation flow - immediate check on scan
+  const [showNewGameModal, setShowNewGameModal] = useState(false);
+  const [pendingGameToCreate, setPendingGameToCreate] = useState<{
+    serial: string;
+    game_code: string;
+    pack_number: string;
+    serial_start: string;
+  } | null>(null);
 
   // Clear debounce timer on unmount
   useEffect(() => {
@@ -78,11 +103,39 @@ export function PackReceptionForm({
     };
   }, []);
 
+  // Fetch games when dialog opens
+  useEffect(() => {
+    if (open) {
+      const fetchGames = async () => {
+        setIsLoadingGames(true);
+        try {
+          const response = await getGames();
+          if (response.success && response.data) {
+            // Build a map of game_code -> game for quick lookup
+            const gameMap = new Map<string, LotteryGameResponse>();
+            for (const game of response.data) {
+              gameMap.set(game.game_code, game);
+            }
+            setGamesCache(gameMap);
+          }
+        } catch (error) {
+          console.error("Failed to fetch games:", error);
+          // Continue without cache - will show modal for all games
+        } finally {
+          setIsLoadingGames(false);
+        }
+      };
+      fetchGames();
+    }
+  }, [open]);
+
   // Reset form when dialog closes
   useEffect(() => {
     if (!open) {
       setPackList([]);
       setInputValue("");
+      setPendingGameToCreate(null);
+      setShowNewGameModal(false);
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
         debounceTimer.current = null;
@@ -90,27 +143,62 @@ export function PackReceptionForm({
     }
   }, [open]);
 
-  // Maintain focus on input after clearing
+  // Focus input when dialog opens (after animation completes)
   useEffect(() => {
-    if (open && inputRef.current) {
-      inputRef.current.focus();
+    if (open && !isLoadingGames && !showNewGameModal) {
+      const timeoutId = setTimeout(() => {
+        inputRef.current?.focus();
+      }, 150);
+      return () => clearTimeout(timeoutId);
     }
-  }, [open, packList.length]);
+  }, [open, isLoadingGames, showNewGameModal]);
 
   /**
    * Clear input and refocus for next entry
    */
   const clearInputAndFocus = useCallback(() => {
     setInputValue("");
-    // Focus will be maintained via the useEffect that triggers on packList.length changes
+    // Immediately focus after clearing
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
   }, []);
 
   /**
+   * Add pack to list after game is validated/created
+   */
+  const addPackToList = useCallback(
+    (
+      serial: string,
+      parsed: { game_code: string; pack_number: string; serial_start: string },
+      game: LotteryGameResponse,
+    ) => {
+      const newPack: PackItem = {
+        serial,
+        game_code: parsed.game_code,
+        pack_number: parsed.pack_number,
+        serial_start: parsed.serial_start,
+        game_name: game.name,
+        game_id: game.game_id,
+        game_price: game.price ?? undefined,
+      };
+
+      setPackList((prev) => [...prev, newPack]);
+      clearInputAndFocus();
+    },
+    [clearInputAndFocus],
+  );
+
+  // State for checking pack existence
+  const [isCheckingPack, setIsCheckingPack] = useState(false);
+
+  /**
    * Parse and add serialized number to list
-   * Client-side parsing only - validation happens on batch submit
+   * Checks game existence immediately - shows modal if game not found
+   * Also checks server-side if pack already exists in inventory
    */
   const handleSerialComplete = useCallback(
-    (serial: string): void => {
+    async (serial: string): Promise<void> => {
       // Validate format first (client-side)
       if (!/^\d{24}$/.test(serial)) {
         // Not yet 24 digits - wait for more input
@@ -122,30 +210,57 @@ export function PackReceptionForm({
         const parsed = parseSerializedNumber(serial);
 
         // Check if pack already exists in list (duplicate in same session)
-        const existingPack = packList.find((p) => p.serial === serial);
-        if (existingPack) {
+        const existingInList = packList.find((p) => p.serial === serial);
+        if (existingInList) {
           toast({
             title: "Duplicate pack",
             description: "Pack already exists in reception list",
             variant: "destructive",
           });
-          // Clear input and maintain focus for retry
           clearInputAndFocus();
           return;
         }
 
-        // Add to list optimistically (validation happens on submit)
-        const newPack: PackItem = {
-          serial,
-          game_code: parsed.game_code,
-          pack_number: parsed.pack_number,
-          serial_start: parsed.serial_start,
-        };
+        // Check if pack already exists in database (server-side check)
+        setIsCheckingPack(true);
+        try {
+          const checkResponse = await checkPackExists(
+            storeId,
+            parsed.pack_number,
+          );
+          if (checkResponse.success && checkResponse.data?.exists) {
+            const existingPack = checkResponse.data.pack;
+            toast({
+              title: "Pack already in inventory",
+              description: `Pack ${parsed.pack_number} already exists${existingPack?.game?.name ? ` (${existingPack.game.name})` : ""} with status: ${existingPack?.status || "Unknown"}`,
+              variant: "destructive",
+            });
+            clearInputAndFocus();
+            return;
+          }
+        } catch (checkError) {
+          // Log error but continue - don't block reception if check fails
+          console.error("Failed to check pack existence:", checkError);
+        } finally {
+          setIsCheckingPack(false);
+        }
 
-        setPackList((prev) => [...prev, newPack]);
-
-        // Clear input for next entry (focus maintained via useEffect)
-        clearInputAndFocus();
+        // Check if game exists in cache
+        const game = gamesCache.get(parsed.game_code);
+        if (game) {
+          // Game exists - add pack to list immediately
+          addPackToList(serial, parsed, game);
+        } else {
+          // Game not found - show modal to create it
+          setPendingGameToCreate({
+            serial,
+            game_code: parsed.game_code,
+            pack_number: parsed.pack_number,
+            serial_start: parsed.serial_start,
+          });
+          setShowNewGameModal(true);
+          clearInputAndFocus();
+        }
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Invalid serial format";
@@ -158,7 +273,7 @@ export function PackReceptionForm({
         clearInputAndFocus();
       }
     },
-    [packList, toast, clearInputAndFocus],
+    [packList, gamesCache, storeId, toast, clearInputAndFocus, addPackToList],
   );
 
   /**
@@ -195,7 +310,9 @@ export function PackReceptionForm({
    * Handle batch submission
    */
   const handleSubmit = useCallback(async () => {
-    if (packList.length === 0) {
+    const serials = packList.map((pack) => pack.serial);
+
+    if (serials.length === 0) {
       toast({
         title: "No packs to receive",
         description: "Please enter at least one valid pack",
@@ -207,7 +324,6 @@ export function PackReceptionForm({
     setIsSubmitting(true);
     try {
       // Submit all packs via batch API
-      const serials = packList.map((pack) => pack.serial);
       const response = await receivePackBatch({
         serialized_numbers: serials,
         store_id: storeId,
@@ -227,6 +343,12 @@ export function PackReceptionForm({
                 : ""
             }${errorCount > 0 ? `, ${errorCount} error(s)` : ""}`,
           });
+
+          // Reset form
+          setPackList([]);
+          setInputValue("");
+          onOpenChange(false);
+          onSuccess?.();
         } else {
           // Build detailed error message
           let errorDetails = "All packs were duplicates or had errors.";
@@ -245,14 +367,7 @@ export function PackReceptionForm({
             description: errorDetails,
             variant: "destructive",
           });
-          return;
         }
-
-        // Reset form
-        setPackList([]);
-        setInputValue("");
-        onOpenChange(false);
-        onSuccess?.();
       } else {
         throw new Error("Batch submission failed");
       }
@@ -268,6 +383,60 @@ export function PackReceptionForm({
       setIsSubmitting(false);
     }
   }, [packList, storeId, toast, onOpenChange, onSuccess]);
+
+  /**
+   * Handle game created callback - add the pack to list after game creation
+   */
+  const handleGamesCreated = useCallback(
+    (
+      createdGameCodes: string[],
+      createdGames: Map<string, { name: string; price: number }>,
+    ) => {
+      if (!pendingGameToCreate) return;
+
+      // Get the created game data
+      const gameData = createdGames.get(pendingGameToCreate.game_code);
+      if (gameData) {
+        // Create a LotteryGameResponse-like object for the new game
+        const newGame: LotteryGameResponse = {
+          game_id: "", // Will be fetched from server on submit
+          game_code: pendingGameToCreate.game_code,
+          name: gameData.name,
+          description: null,
+          price: gameData.price,
+          status: "ACTIVE",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        // Add to games cache for future lookups
+        setGamesCache((prev) => {
+          const updated = new Map(prev);
+          updated.set(pendingGameToCreate.game_code, newGame);
+          return updated;
+        });
+
+        // Add the pack to list
+        addPackToList(pendingGameToCreate.serial, pendingGameToCreate, newGame);
+      }
+
+      // Clear pending state
+      setPendingGameToCreate(null);
+    },
+    [pendingGameToCreate, addPackToList],
+  );
+
+  /**
+   * Handle new game modal cancel
+   */
+  const handleNewGameCancel = useCallback(() => {
+    setPendingGameToCreate(null);
+    toast({
+      title: "Game creation cancelled",
+      description: "The pack was not added to the list.",
+      variant: "destructive",
+    });
+  }, [toast]);
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!isSubmitting) {
@@ -299,13 +468,24 @@ export function PackReceptionForm({
               value={inputValue}
               onChange={handleInputChange}
               placeholder="000000000000000000000000"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isLoadingGames || isCheckingPack}
               maxLength={24}
               data-testid="serial-input"
               className="font-mono"
-              autoFocus
               aria-label="Enter 24-digit serialized number"
             />
+            {isLoadingGames && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Loading games...
+              </p>
+            )}
+            {isCheckingPack && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Checking inventory...
+              </p>
+            )}
           </div>
 
           {/* Pack List */}
@@ -324,11 +504,9 @@ export function PackReceptionForm({
                   >
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">
-                        {pack.game_name || `Game ${pack.game_code}`}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        Pack: {pack.pack_number} | Serial Start:{" "}
-                        {pack.serial_start}
+                        {pack.game_name || "Unknown Game"} ({pack.game_code}) |
+                        Pack: {pack.pack_number} | $
+                        {pack.game_price?.toFixed(2) ?? "0.00"}
                       </div>
                     </div>
                     <Button
@@ -359,7 +537,7 @@ export function PackReceptionForm({
           </Button>
           <Button
             type="button"
-            onClick={handleSubmit}
+            onClick={() => handleSubmit()}
             disabled={isSubmitting || packList.length === 0}
             data-testid="submit-batch-reception"
           >
@@ -369,6 +547,15 @@ export function PackReceptionForm({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* New Game Modal - shown immediately when game code not found on scan */}
+      <NewGameModal
+        open={showNewGameModal}
+        onOpenChange={setShowNewGameModal}
+        gamesToCreate={pendingGameToCreate ? [pendingGameToCreate] : []}
+        onGamesCreated={handleGamesCreated}
+        onCancel={handleNewGameCancel}
+      />
     </Dialog>
   );
 }

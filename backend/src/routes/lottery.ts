@@ -691,6 +691,20 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                     },
                     description: "Serial numbers that failed with errors",
                   },
+                  games_not_found: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        serial: { type: "string" },
+                        game_code: { type: "string" },
+                        pack_number: { type: "string" },
+                        serial_start: { type: "string" },
+                      },
+                    },
+                    description:
+                      "Packs with game codes not found in database - frontend can prompt user to create games",
+                  },
                 },
               },
             },
@@ -1572,6 +1586,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   type: "object",
                   properties: {
                     game_id: { type: "string", format: "uuid" },
+                    game_code: { type: "string" },
                     name: { type: "string" },
                     description: { type: "string", nullable: true },
                     price: { type: "number", nullable: true },
@@ -1644,6 +1659,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           },
           select: {
             game_id: true,
+            game_code: true,
             name: true,
             description: true,
             price: true,
@@ -1684,6 +1700,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           success: true,
           data: games.map((game) => ({
             game_id: game.game_id,
+            game_code: game.game_code,
             name: game.name,
             description: game.description,
             price: game.price ? Number(game.price) : null,
@@ -2003,7 +2020,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                       type: "object",
                       properties: {
                         game_id: { type: "string", format: "uuid" },
+                        game_code: { type: "string" },
                         name: { type: "string" },
+                        price: { type: "number", nullable: true },
                       },
                     },
                     store: {
@@ -2173,7 +2192,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             game: {
               select: {
                 game_id: true,
+                game_code: true,
                 name: true,
+                price: true,
               },
             },
             store: {
@@ -2249,6 +2270,140 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             code: "INTERNAL_ERROR",
             message: "Failed to query lottery packs",
           },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/lottery/packs/check/:storeId/:packNumber
+   * Check if a pack exists in a store by pack number
+   * Used for real-time duplicate detection during pack reception
+   * Protected route - requires LOTTERY_PACK_READ permission
+   */
+  fastify.get(
+    "/api/lottery/packs/check/:storeId/:packNumber",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_READ),
+      ],
+      schema: {
+        description: "Check if a pack exists in a store by pack number",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["storeId", "packNumber"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+            packNumber: {
+              type: "string",
+              description: "Pack number to check",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  exists: { type: "boolean" },
+                  pack: {
+                    type: "object",
+                    nullable: true,
+                    properties: {
+                      pack_id: { type: "string", format: "uuid" },
+                      status: { type: "string" },
+                      game: {
+                        type: "object",
+                        properties: {
+                          name: { type: "string" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { storeId: string; packNumber: string };
+
+      try {
+        // Get user roles to validate store access
+        const userRoles = await rbacService.getUserRoles(user.id);
+
+        // Validate store exists and get its company_id
+        const store = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+          select: { store_id: true, company_id: true },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: { code: "NOT_FOUND", message: "Store not found" },
+          };
+        }
+
+        // Validate store access
+        if (
+          !validateUserStoreAccess(userRoles, params.storeId, store.company_id)
+        ) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message: "Access denied to this store",
+            },
+          };
+        }
+
+        // Check if pack exists
+        const existingPack = await prisma.lotteryPack.findUnique({
+          where: {
+            store_id_pack_number: {
+              store_id: params.storeId,
+              pack_number: params.packNumber,
+            },
+          },
+          select: {
+            pack_id: true,
+            status: true,
+            game: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        });
+
+        return {
+          success: true,
+          data: {
+            exists: !!existingPack,
+            pack: existingPack || null,
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error checking pack existence");
+        reply.code(500);
+        return {
+          success: false,
+          error: { code: "INTERNAL_ERROR", message: "Failed to check pack" },
         };
       }
     },

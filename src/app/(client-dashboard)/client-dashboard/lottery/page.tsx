@@ -8,7 +8,10 @@ import { LotteryTable } from "@/components/lottery/LotteryTable";
 import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
 import { EditLotteryDialog } from "@/components/lottery/EditLotteryDialog";
 import { DeleteLotteryDialog } from "@/components/lottery/DeleteLotteryDialog";
+import { BinConfigurationCard } from "@/components/lottery/BinConfigurationCard";
 import { Loader2 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useInvalidateLottery } from "@/hooks/useLottery";
 
 /**
  * Client Dashboard Lottery Page
@@ -29,6 +32,7 @@ export default function ClientDashboardLotteryPage() {
     isLoading: dashboardLoading,
     isError: dashboardError,
   } = useClientDashboard();
+  const { invalidatePacks } = useInvalidateLottery();
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingPackId, setEditingPackId] = useState<string | null>(null);
@@ -92,26 +96,19 @@ export default function ClientDashboardLotteryPage() {
     );
   }
 
+  // Get selected store name for display
+  const selectedStore = stores.find((s) => s.store_id === selectedStoreId);
+
   return (
     <div className="space-y-6" data-testid="client-dashboard-lottery-page">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-heading-2 font-bold text-foreground">
-            Lottery Management
-          </h1>
-          <p className="text-muted-foreground">
-            View and manage active lottery packs across your stores
-          </p>
-        </div>
-        <button
-          onClick={() => setIsAddDialogOpen(true)}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-          data-testid="add-new-lottery-button"
-          aria-label="Add new lottery pack"
-        >
-          + Add New Lottery
-        </button>
+      <div className="space-y-1">
+        <h1 className="text-heading-2 font-bold text-foreground">
+          Lottery Management
+        </h1>
+        <p className="text-muted-foreground">
+          View and manage lottery packs and configuration across your stores
+        </p>
       </div>
 
       {/* Store Tabs */}
@@ -121,18 +118,50 @@ export default function ClientDashboardLotteryPage() {
         onStoreSelect={setSelectedStoreId}
       />
 
-      {/* Lottery Table */}
-      {selectedStoreId && (
-        <LotteryTable
-          storeId={selectedStoreId}
-          onEdit={(packId) => {
-            setEditingPackId(packId);
-          }}
-          onDelete={(packId) => {
-            setDeletingPackId(packId);
-          }}
-        />
-      )}
+      {/* Main Content Tabs */}
+      <Tabs defaultValue="inventory" className="w-full">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="inventory">Inventory</TabsTrigger>
+          <TabsTrigger value="configuration">Configuration</TabsTrigger>
+        </TabsList>
+
+        {/* Inventory Tab */}
+        <TabsContent value="inventory" className="space-y-4">
+          <div className="flex justify-end">
+            <button
+              onClick={() => setIsAddDialogOpen(true)}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+              data-testid="add-new-lottery-button"
+              aria-label="Add new lottery pack"
+            >
+              + Add New Lottery
+            </button>
+          </div>
+
+          {/* Lottery Table */}
+          {selectedStoreId && (
+            <LotteryTable
+              storeId={selectedStoreId}
+              onEdit={(packId) => {
+                setEditingPackId(packId);
+              }}
+              onDelete={(packId) => {
+                setDeletingPackId(packId);
+              }}
+            />
+          )}
+        </TabsContent>
+
+        {/* Configuration Tab */}
+        <TabsContent value="configuration" className="space-y-4">
+          {selectedStoreId && selectedStore && (
+            <BinConfigurationCard
+              storeId={selectedStoreId}
+              storeName={selectedStore.name}
+            />
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Pack Reception Form (Serialized Input) */}
       {selectedStoreId && (
@@ -142,7 +171,8 @@ export default function ClientDashboardLotteryPage() {
           storeId={selectedStoreId}
           onSuccess={() => {
             setIsAddDialogOpen(false);
-            // Table will refresh automatically via query invalidation
+            // Invalidate the lottery packs query to refresh the table
+            invalidatePacks();
           }}
         />
       )}

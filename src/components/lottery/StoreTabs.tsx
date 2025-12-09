@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { OwnedStore } from "@/lib/api/client-dashboard";
+import { Store } from "lucide-react";
 
 interface StoreTabsProps {
   stores: OwnedStore[];
@@ -11,12 +12,12 @@ interface StoreTabsProps {
 
 /**
  * StoreTabs component
- * Displays tabs for all accessible stores and handles tab switching
+ * Displays modern pill-style tabs for all accessible stores
  *
  * @requirements
  * - AC #1: Display tabs for all stores the client has access to
  * - AC #1: Implement tab switching functionality
- * - AC #1: Use shadcn/ui Tabs component for consistent styling (or button-based tabs)
+ * - AC #1: Modern pill-style design with smooth transitions
  */
 export function StoreTabs({
   stores,
@@ -27,21 +28,22 @@ export function StoreTabs({
     return null;
   }
 
-  // Single store - no need for tabs
+  // Single store - show as highlighted badge
   if (stores.length === 1) {
     return (
-      <div className="border-b" data-testid="store-tabs">
-        <div className="px-4 py-2 text-sm font-medium text-foreground">
-          {stores[0].name}
+      <div className="pb-2" data-testid="store-tabs">
+        <div className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary/10 text-primary rounded-lg border border-primary/20">
+          <Store className="h-4 w-4" />
+          <span className="text-sm font-semibold">{stores[0].name}</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="border-b" data-testid="store-tabs">
+    <div className="pb-2" data-testid="store-tabs">
       <nav
-        className="flex space-x-1 overflow-x-auto"
+        className="inline-flex items-center gap-1 p-1 bg-muted/50 rounded-xl border border-border/50 overflow-x-auto"
         aria-label="Store tabs"
         role="tablist"
       >
@@ -67,14 +69,13 @@ export function StoreTabs({
                 }
               }}
               className={cn(
-                "px-4 py-2 text-sm font-medium transition-colors",
-                "border-b-2 border-transparent",
-                "hover:text-foreground hover:border-muted-foreground",
-                "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                "relative inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg",
+                "transition-all duration-200 ease-in-out",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
                 "min-w-fit whitespace-nowrap",
                 isActive
-                  ? "text-foreground border-primary"
-                  : "text-muted-foreground",
+                  ? "bg-background text-foreground shadow-sm border border-border/50"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/50",
               )}
               data-testid={`store-tab-${store.store_id}`}
               aria-selected={isActive}
@@ -82,6 +83,12 @@ export function StoreTabs({
               role="tab"
               tabIndex={isActive ? 0 : -1}
             >
+              <Store
+                className={cn(
+                  "h-4 w-4 transition-colors",
+                  isActive ? "text-primary" : "text-muted-foreground",
+                )}
+              />
               {store.name}
             </button>
           );

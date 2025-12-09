@@ -2,11 +2,10 @@
  * Component Tests: LotteryTable
  *
  * Tests LotteryTable component rendering and interactions:
- * - Displays table with correct columns (Bin Number, Dollar Amount, Game Number, Game Name, Pack Number, Status, Actions)
- * - Filters packs to show only ACTIVE status
- * - Sorts bins in order (Bin 1, Bin 2, Bin 3, etc.)
- * - Displays empty state when no active packs exist
- * - Security: XSS prevention in displayed pack data
+ * - Displays table with correct columns (Game Name, Game Number, Dollar Value, Pack Count, Status)
+ * - Groups packs by game and shows aggregate counts
+ * - Displays empty state when no inventory exists
+ * - Security: XSS prevention in displayed game data
  * - Accessibility: ARIA attributes, table semantics
  *
  * @test-level COMPONENT
@@ -18,7 +17,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { LotteryTable } from "@/components/lottery/LotteryTable";
 
 // Mock useLotteryPacks hook
@@ -28,8 +26,8 @@ vi.mock("@/hooks/useLottery", () => ({
 
 import { useLotteryPacks } from "@/hooks/useLottery";
 
-describe("6.10.1-COMPONENT: LotteryTable", () => {
-  const mockActivePacks = [
+describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
+  const mockPacks = [
     {
       pack_id: "pack-1",
       pack_number: "P001",
@@ -45,7 +43,8 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
       returned_at: null,
       game: {
         game_id: "game-1",
-        name: "Game 1",
+        game_code: "001",
+        name: "Mega Millions",
         price: 5.0,
       },
       bin: {
@@ -61,7 +60,7 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
       status: "ACTIVE" as const,
       serial_start: "2001",
       serial_end: "3000",
-      game_id: "game-2",
+      game_id: "game-1",
       store_id: "store-1",
       current_bin_id: "bin-2",
       received_at: new Date(),
@@ -69,9 +68,10 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
       depleted_at: null,
       returned_at: null,
       game: {
-        game_id: "game-2",
-        name: "Game 2",
-        price: 10.0,
+        game_id: "game-1",
+        game_code: "001",
+        name: "Mega Millions",
+        price: 5.0,
       },
       bin: {
         bin_id: "bin-2",
@@ -80,13 +80,34 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
         location: "Location 2",
       },
     },
+    {
+      pack_id: "pack-3",
+      pack_number: "P003",
+      status: "RECEIVED" as const,
+      serial_start: "3001",
+      serial_end: "4000",
+      game_id: "game-2",
+      store_id: "store-1",
+      current_bin_id: null,
+      received_at: new Date(),
+      activated_at: null,
+      depleted_at: null,
+      returned_at: null,
+      game: {
+        game_id: "game-2",
+        game_code: "002",
+        name: "Powerball",
+        price: 10.0,
+      },
+      bin: null,
+    },
   ];
 
   // Test isolation: Clean up after each test
   beforeEach(() => {
     vi.clearAllMocks();
     (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
-      data: mockActivePacks,
+      data: mockPacks,
       isLoading: false,
       isError: false,
       error: null,
@@ -97,8 +118,8 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
     cleanup();
   });
 
-  it("6.10.1-COMPONENT-005: [P2] should display table with correct columns (AC #2)", async () => {
-    // GIVEN: LotteryTable component with active packs
+  it("6.10.1-COMPONENT-005: [P2] should display table with correct columns", async () => {
+    // GIVEN: LotteryTable component with packs
     // WHEN: Component is rendered
     render(
       <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
@@ -106,32 +127,24 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
 
     // THEN: Table headers are displayed
     expect(
-      screen.getByText("Bin Number"),
-      "Bin Number header should be displayed",
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Dollar Amount"),
-      "Dollar Amount header should be displayed",
+      screen.getByText("Game Name"),
+      "Game Name header should be displayed",
     ).toBeInTheDocument();
     expect(
       screen.getByText("Game Number"),
       "Game Number header should be displayed",
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Game Name"),
-      "Game Name header should be displayed",
+      screen.getByText("Dollar Value"),
+      "Dollar Value header should be displayed",
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Pack Number"),
-      "Pack Number header should be displayed",
+      screen.getByText("Pack Count"),
+      "Pack Count header should be displayed",
     ).toBeInTheDocument();
     expect(
       screen.getByText("Status"),
       "Status header should be displayed",
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Actions"),
-      "Actions header should be displayed",
     ).toBeInTheDocument();
 
     // AND: Table has proper data-testid
@@ -141,134 +154,101 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
     ).toBeInTheDocument();
   });
 
-  it("6.10.1-COMPONENT-006: [P2] should display pack data in table rows (AC #2)", async () => {
-    // GIVEN: LotteryTable component with active packs
+  it("6.10.1-COMPONENT-006: [P2] should group packs by game and display counts", async () => {
+    // GIVEN: LotteryTable component with multiple packs of same game
     // WHEN: Component is rendered
     render(
       <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
     );
 
-    // THEN: Pack data is displayed in rows
+    // THEN: Games are displayed (not individual packs)
     expect(
-      screen.getByText("Bin 1"),
-      "Bin name should be displayed",
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("$5.00"),
-      "Dollar amount should be displayed",
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Game 1"),
+      screen.getByText("Mega Millions"),
       "Game name should be displayed",
     ).toBeInTheDocument();
     expect(
-      screen.getByText("P001"),
-      "Pack number should be displayed",
+      screen.getByText("Powerball"),
+      "Second game name should be displayed",
     ).toBeInTheDocument();
-    // Both packs are ACTIVE, so we expect multiple status badges
-    expect(
-      screen.getAllByText("ACTIVE").length,
-      "ACTIVE status should be displayed for both packs",
-    ).toBeGreaterThanOrEqual(1);
 
-    // AND: Each row has data-testid
+    // AND: Pack counts are displayed
     expect(
-      screen.getByTestId("lottery-table-row-pack-1"),
-      "Table row should have data-testid",
+      screen.getByText("2"),
+      "Pack count of 2 should be displayed for Mega Millions",
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("1"),
+      "Pack count of 1 should be displayed for Powerball",
+    ).toBeInTheDocument();
+
+    // AND: Game codes are displayed
+    expect(
+      screen.getByText("001"),
+      "Game code 001 should be displayed",
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("002"),
+      "Game code 002 should be displayed",
+    ).toBeInTheDocument();
+
+    // AND: Dollar values are displayed
+    expect(
+      screen.getByText("$5.00"),
+      "Dollar value $5.00 should be displayed",
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("$10.00"),
+      "Dollar value $10.00 should be displayed",
     ).toBeInTheDocument();
   });
 
-  it("6.10.1-COMPONENT-007: [P2] should filter packs to show only ACTIVE status (AC #3)", async () => {
+  it("6.10.1-COMPONENT-007: [P2] should show status badges with pack counts", async () => {
     // GIVEN: LotteryTable component with mixed status packs
-    const mixedPacks = [
-      ...mockActivePacks,
-      {
-        pack_id: "pack-3",
-        pack_number: "P003",
-        status: "RECEIVED" as const,
-        serial_start: "3001",
-        serial_end: "4000",
-        game_id: "game-3",
-        store_id: "store-1",
-        current_bin_id: "bin-3",
-        received_at: new Date(),
-        activated_at: null,
-        depleted_at: null,
-        returned_at: null,
-        game: {
-          game_id: "game-3",
-          name: "Game 3",
-          price: 15.0,
-        },
-        bin: {
-          bin_id: "bin-3",
-          name: "Bin 3",
-          store_id: "store-1",
-          location: "Location 3",
-        },
-      },
-    ];
-
-    (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
-      data: mixedPacks,
-      isLoading: false,
-      isError: false,
-      error: null,
-    });
-
     // WHEN: Component is rendered
     render(
       <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
     );
 
-    // THEN: Only ACTIVE packs are displayed
+    // THEN: Status badges are displayed with counts
     expect(
-      screen.getByText("P001"),
-      "Active pack P001 should be displayed",
+      screen.getByText("2 Active"),
+      "2 Active badge should be displayed for Mega Millions",
     ).toBeInTheDocument();
     expect(
-      screen.getByText("P002"),
-      "Active pack P002 should be displayed",
+      screen.getByText("1 Received"),
+      "1 Received badge should be displayed for Powerball",
     ).toBeInTheDocument();
-    expect(
-      screen.queryByText("P003"),
-      "Received pack P003 should NOT be displayed",
-    ).not.toBeInTheDocument();
   });
 
-  it("6.10.1-COMPONENT-008: [P2] should sort bins in ascending order (AC #3)", async () => {
-    // GIVEN: LotteryTable component with unsorted bins
-    const unsortedPacks = [
+  it("6.10.1-COMPONENT-008: [P2] should filter out DEPLETED and RETURNED packs from counts", async () => {
+    // GIVEN: LotteryTable component with DEPLETED pack
+    const packsWithDepleted = [
+      ...mockPacks,
       {
-        pack_id: "pack-3",
-        pack_number: "P003",
-        status: "ACTIVE" as const,
-        serial_start: "3001",
-        serial_end: "4000",
-        game_id: "game-3",
+        pack_id: "pack-4",
+        pack_number: "P004",
+        status: "DEPLETED" as const,
+        serial_start: "4001",
+        serial_end: "5000",
+        game_id: "game-1",
         store_id: "store-1",
-        current_bin_id: "bin-3",
+        current_bin_id: "bin-1",
         received_at: new Date(),
         activated_at: new Date(),
-        depleted_at: null,
+        depleted_at: new Date(),
         returned_at: null,
         game: {
-          game_id: "game-3",
-          name: "Game 3",
-          price: 15.0,
+          game_id: "game-1",
+          game_code: "001",
+          name: "Mega Millions",
+          price: 5.0,
         },
-        bin: {
-          bin_id: "bin-3",
-          name: "Bin 3",
-          store_id: "store-1",
-          location: "Location 3",
-        },
+        bin: null,
       },
-      ...mockActivePacks,
     ];
 
     (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
-      data: unsortedPacks,
+      data: packsWithDepleted,
       isLoading: false,
       isError: false,
       error: null,
@@ -279,24 +259,19 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
       <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
     );
 
-    // THEN: Bins are displayed in order (Bin 1, Bin 2, Bin 3)
-    const rows = screen.getAllByTestId(/lottery-table-row-/);
-    expect(rows[0], "First row should be pack-1 (Bin 1)").toHaveAttribute(
-      "data-testid",
-      "lottery-table-row-pack-1",
-    );
-    expect(rows[1], "Second row should be pack-2 (Bin 2)").toHaveAttribute(
-      "data-testid",
-      "lottery-table-row-pack-2",
-    );
-    expect(rows[2], "Third row should be pack-3 (Bin 3)").toHaveAttribute(
-      "data-testid",
-      "lottery-table-row-pack-3",
-    );
+    // THEN: DEPLETED pack is NOT counted (still shows 2 for Mega Millions)
+    expect(
+      screen.getByText("2"),
+      "Pack count should still be 2 (DEPLETED not counted)",
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("2 Active"),
+      "Active count should still be 2",
+    ).toBeInTheDocument();
   });
 
-  it("6.10.1-COMPONENT-009: [P3] should display empty state when no active packs exist (AC #8)", async () => {
-    // GIVEN: LotteryTable component with no active packs
+  it("6.10.1-COMPONENT-009: [P3] should display empty state when no inventory exists", async () => {
+    // GIVEN: LotteryTable component with no packs
     (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
       data: [],
       isLoading: false,
@@ -311,7 +286,7 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
 
     // THEN: Empty state message is displayed
     expect(
-      screen.getByText(/no active lottery packs for this store/i),
+      screen.getByText(/no lottery inventory for this store/i),
       "Empty state message should be displayed",
     ).toBeInTheDocument();
     expect(
@@ -320,52 +295,7 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
     ).toBeInTheDocument();
   });
 
-  it("6.10.1-COMPONENT-010: [P2] should call onEdit when edit button is clicked (AC #5)", async () => {
-    // GIVEN: LotteryTable component with onEdit handler
-    const user = userEvent.setup();
-    const onEdit = vi.fn();
-
-    // WHEN: User clicks edit button for a pack
-    render(
-      <LotteryTable storeId="store-1" onEdit={onEdit} onDelete={vi.fn()} />,
-    );
-    const editButton = screen.getByTestId("edit-pack-pack-1");
-    await user.click(editButton);
-
-    // THEN: onEdit is called with pack ID
-    expect(onEdit, "onEdit should be called with pack ID").toHaveBeenCalledWith(
-      "pack-1",
-    );
-    expect(
-      onEdit,
-      "onEdit should be called exactly once",
-    ).toHaveBeenCalledTimes(1);
-  });
-
-  it("6.10.1-COMPONENT-011: [P2] should call onDelete when delete button is clicked (AC #6)", async () => {
-    // GIVEN: LotteryTable component with onDelete handler
-    const user = userEvent.setup();
-    const onDelete = vi.fn();
-
-    // WHEN: User clicks delete button for a pack
-    render(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={onDelete} />,
-    );
-    const deleteButton = screen.getByTestId("delete-pack-pack-1");
-    await user.click(deleteButton);
-
-    // THEN: onDelete is called with pack ID
-    expect(
-      onDelete,
-      "onDelete should be called with pack ID",
-    ).toHaveBeenCalledWith("pack-1");
-    expect(
-      onDelete,
-      "onDelete should be called exactly once",
-    ).toHaveBeenCalledTimes(1);
-  });
-
-  it("6.10.1-COMPONENT-012: [P2] should display loading state (AC #7)", async () => {
+  it("6.10.1-COMPONENT-012: [P2] should display loading state", async () => {
     // GIVEN: LotteryTable component with loading state
     (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
       data: undefined,
@@ -386,13 +316,13 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
     ).toBeInTheDocument();
   });
 
-  it("6.10.1-COMPONENT-013: [P2] should display error state (AC #7)", async () => {
+  it("6.10.1-COMPONENT-013: [P2] should display error state", async () => {
     // GIVEN: LotteryTable component with error state
     (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
       data: undefined,
       isLoading: false,
       isError: true,
-      error: { message: "Failed to load packs" },
+      error: { message: "Failed to load inventory" },
     });
 
     // WHEN: Component is rendered
@@ -406,22 +336,22 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
       "Error state should have data-testid",
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/failed to load lottery packs/i),
+      screen.getByText(/failed to load lottery inventory/i),
       "Error message should be displayed",
     ).toBeInTheDocument();
   });
 
   // ============ SECURITY TESTS (MANDATORY) ============
 
-  it("6.10.1-COMPONENT-SEC-007: [P0] should prevent XSS in displayed pack data", async () => {
-    // GIVEN: LotteryTable component with pack containing XSS attempt
+  it("6.10.1-COMPONENT-SEC-007: [P0] should prevent XSS in displayed game data", async () => {
+    // GIVEN: LotteryTable component with game containing XSS attempt
     const maliciousPack = {
       pack_id: "pack-xss",
-      pack_number: "<script>alert('XSS')</script>",
+      pack_number: "P001",
       status: "ACTIVE" as const,
       serial_start: "1000",
       serial_end: "2000",
-      game_id: "game-1",
+      game_id: "game-xss",
       store_id: "store-1",
       current_bin_id: "bin-1",
       received_at: new Date(),
@@ -429,16 +359,12 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
       depleted_at: null,
       returned_at: null,
       game: {
-        game_id: "game-1",
+        game_id: "game-xss",
+        game_code: "<script>alert('XSS')</script>",
         name: "<img src=x onerror=alert('XSS')>",
         price: 5.0,
       },
-      bin: {
-        bin_id: "bin-1",
-        name: "Bin 1",
-        store_id: "store-1",
-        location: "Location 1",
-      },
+      bin: null,
     };
 
     (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -454,20 +380,20 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
     );
 
     // THEN: XSS attempts are escaped (React escapes by default)
-    // Verify pack_number is displayed as plain text
-    const packNumberElement = screen.getByText(
-      /<script>alert\('XSS'\)<\/script>/i,
+    // Verify game name is displayed as plain text
+    const gameNameElement = screen.getByText(
+      /<img src=x onerror=alert\('XSS'\)>/i,
     );
     expect(
-      packNumberElement,
+      gameNameElement,
       "XSS attempt should be displayed as plain text, not executed",
     ).toBeInTheDocument();
 
     // Verify it's text content, not executable HTML
     expect(
-      packNumberElement.innerHTML,
+      gameNameElement.innerHTML,
       "XSS should be escaped in HTML",
-    ).toContain("&lt;script&gt;");
+    ).toContain("&lt;img");
   });
 
   // ============ ACCESSIBILITY TESTS ============
@@ -487,7 +413,7 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
     );
     expect(tableRegion, "Table region should have aria-label").toHaveAttribute(
       "aria-label",
-      "Active lottery packs table",
+      "Lottery inventory table",
     );
     expect(
       tableRegion,
@@ -495,38 +421,29 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
     ).toHaveAttribute("id", "lottery-table-store-1");
   });
 
-  it("6.10.1-COMPONENT-A11Y-004: [P2] should have proper ARIA labels for action buttons", async () => {
-    // GIVEN: LotteryTable component
-    // WHEN: Component is rendered
-    render(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
-
-    // THEN: Action buttons have proper ARIA labels
-    const editButton = screen.getByTestId("edit-pack-pack-1");
-    expect(editButton, "Edit button should have aria-label").toHaveAttribute(
-      "aria-label",
-      "Edit pack P001",
-    );
-
-    const deleteButton = screen.getByTestId("delete-pack-pack-1");
-    expect(
-      deleteButton,
-      "Delete button should have aria-label",
-    ).toHaveAttribute("aria-label", "Delete pack P001");
-  });
-
   // ============ EDGE CASES ============
 
-  it("6.10.1-COMPONENT-EDGE-017: [P2] should handle pack with null bin (no bin assigned)", async () => {
-    // GIVEN: LotteryTable component with pack that has no bin
-    const packWithoutBin = {
-      ...mockActivePacks[0],
+  it("6.10.1-COMPONENT-EDGE-017: [P2] should handle pack with null game data", async () => {
+    // GIVEN: LotteryTable component with pack that has no game
+    const packWithoutGame = {
+      pack_id: "pack-no-game",
+      pack_number: "P001",
+      status: "ACTIVE" as const,
+      serial_start: "1000",
+      serial_end: "2000",
+      game_id: null,
+      store_id: "store-1",
+      current_bin_id: "bin-1",
+      received_at: new Date(),
+      activated_at: new Date(),
+      depleted_at: null,
+      returned_at: null,
+      game: null,
       bin: null,
     };
 
     (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
-      data: [packWithoutBin],
+      data: [packWithoutGame],
       isLoading: false,
       isError: false,
       error: null,
@@ -537,29 +454,25 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
       <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
     );
 
-    // THEN: Table displays "N/A" for missing data (bin and game number)
-    // The implementation shows N/A for: bin name (when null), dollar amount (if missing), and game number (always N/A currently)
-    // When bin is null, we expect at least 2 N/A: one for bin name, one for game number
-    const naElements = screen.getAllByText("N/A");
+    // THEN: Table displays fallback values for missing game data
     expect(
-      naElements.length,
-      "N/A should be displayed for missing bin and game number (at least 2)",
-    ).toBeGreaterThanOrEqual(2);
-
-    // Verify the table row exists
-    expect(
-      screen.getByTestId("lottery-table-row-pack-1"),
-      "Table row should be rendered even with null bin",
+      screen.getByText("Unknown Game"),
+      "Unknown Game should be displayed for null game",
     ).toBeInTheDocument();
+    expect(
+      screen.getAllByText("N/A").length,
+      "N/A should be displayed for missing game code and price",
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("6.10.1-COMPONENT-EDGE-018: [P2] should handle pack with missing game price", async () => {
     // GIVEN: LotteryTable component with pack that has no game price
     const packWithoutPrice = {
-      ...mockActivePacks[0],
+      ...mockPacks[0],
       game: {
         game_id: "game-1",
-        name: "Game 1",
+        game_code: "001",
+        name: "Game Without Price",
         price: null as any,
       },
     };
@@ -576,23 +489,38 @@ describe("6.10.1-COMPONENT: LotteryTable", () => {
       <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
     );
 
-    // THEN: Table displays "N/A" for missing data (price and game number)
-    // The implementation shows N/A for: dollar amount (when price is null) and game number (always N/A currently)
-    // We expect at least 2 N/A: one for dollar amount, one for game number
-    const naElements = screen.getAllByText("N/A");
+    // THEN: Table displays "N/A" for missing price
     expect(
-      naElements.length,
-      "N/A should be displayed for missing price and game number (at least 2)",
-    ).toBeGreaterThanOrEqual(2);
-
-    // Verify the table row exists and game name is still displayed
-    expect(
-      screen.getByTestId("lottery-table-row-pack-1"),
-      "Table row should be rendered even with null price",
+      screen.getByText("N/A"),
+      "N/A should be displayed for missing price",
     ).toBeInTheDocument();
+
+    // AND: Game name is still displayed
     expect(
-      screen.getByText("Game 1"),
+      screen.getByText("Game Without Price"),
       "Game name should still be displayed",
     ).toBeInTheDocument();
+  });
+
+  it("6.10.1-COMPONENT-019: [P2] should sort games alphabetically by name", async () => {
+    // GIVEN: LotteryTable component with games in random order
+    // WHEN: Component is rendered
+    render(
+      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
+    );
+
+    // THEN: Games are sorted alphabetically (Mega Millions before Powerball)
+    const rows = screen.getAllByTestId(/lottery-table-row-/);
+    expect(rows.length, "Should have 2 game rows").toBe(2);
+
+    // Verify first row is Mega Millions (alphabetically first)
+    expect(
+      rows[0],
+      "First row should be game-1 (Mega Millions)",
+    ).toHaveAttribute("data-testid", "lottery-table-row-game-1");
+    expect(rows[1], "Second row should be game-2 (Powerball)").toHaveAttribute(
+      "data-testid",
+      "lottery-table-row-game-2",
+    );
   });
 });
