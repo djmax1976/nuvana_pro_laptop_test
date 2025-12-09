@@ -5,13 +5,14 @@
  *
  * Tests the complete client dashboard lottery page functionality:
  * - Store tabs display and switching (AC #1)
- * - Lottery table display with active packs (AC #2, #3)
+ * - Lottery inventory table display grouped by game (AC #2, #3)
  * - Add lottery flow (AC #4)
- * - Edit lottery flow (AC #5)
- * - Delete lottery flow (AC #6)
  * - Empty state display (AC #8)
  * - RLS enforcement (AC #7)
  * - Error handling and loading states (AC #7)
+ *
+ * Note: The LotteryTable component now displays inventory grouped by game
+ * with columns: Game Name, Game Number, Dollar Value, Pack Count, Status
  *
  * @test-level Integration
  * @justification Tests UI components with real API integration, authentication, and data flow
@@ -32,35 +33,37 @@ import {
   createLotteryPack,
   createLotteryBin,
 } from "../support/factories/lottery.factory";
-import { createCompany, createStore, createUser } from "../support/helpers";
+import { createCompany, createStore } from "../support/helpers";
 
 /**
  * Helper function to perform login and wait for client dashboard.
+ * Uses simplified pattern for reliability.
  */
 async function loginAndWaitForClientDashboard(
   page: Page,
   email: string,
   password: string,
 ): Promise<void> {
+  // Navigate to login page
   await page.goto("/login", { waitUntil: "networkidle" });
 
+  // Wait for login form to be visible
   await page.waitForSelector('input[type="email"]', {
     state: "visible",
     timeout: 15000,
   });
 
-  // Removed hard wait - waitForSelector already ensures element is ready
+  // Fill credentials
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
 
-  const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {
-    timeout: 30000,
-    waitUntil: "domcontentloaded",
-  });
-
-  await page.click('button[type="submit"]');
-
-  await navigationPromise;
+  // Click submit and wait for navigation
+  await Promise.all([
+    page.waitForURL(/.*client-dashboard.*/, {
+      timeout: 30000,
+    }),
+    page.click('button[type="submit"]'),
+  ]);
 
   await page
     .waitForLoadState("networkidle", { timeout: 15000 })
@@ -226,7 +229,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       .locator('[data-testid="client-dashboard-lottery-page"]')
       .waitFor({ state: "visible", timeout: 15000 });
 
-    // THEN: Store tabs are displayed
+    // THEN: Store tabs are displayed (for multiple stores)
     const storeTabs = page.locator('[data-testid="store-tabs"]');
     await expect(storeTabs).toBeVisible({ timeout: 10000 });
 
@@ -247,7 +250,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     ).toHaveAttribute("aria-selected", "true", { timeout: 5000 });
   });
 
-  test("6.10.1-UI-002: [P1] Lottery table displays active packs (AC #2, #3)", async ({
+  test("6.10.1-UI-002: [P1] Lottery inventory table displays game summaries (AC #2, #3)", async ({
     page,
   }) => {
     // GIVEN: Client owner with active packs
@@ -267,7 +270,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       pack_number: "PACK-002",
     });
 
-    // Create a RECEIVED pack (should not be shown)
+    // Create a RECEIVED pack (should also be shown in new table view)
     const receivedPack = await createLotteryPack(prisma, {
       game_id: game.game_id,
       store_id: store1.store_id,
@@ -293,7 +296,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
         .locator(`[data-testid="store-tab-${store1.store_id}"]`)
         .click();
 
-      // Wait for table to load (may show table or empty state)
+      // Wait for content to load (table or empty state)
       await Promise.race([
         page
           .locator('[data-testid="lottery-table"]')
@@ -303,37 +306,28 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
           .waitFor({ state: "visible", timeout: 15000 }),
       ]);
 
-      // If table is visible, check for rows
+      // Check if table is visible
       const tableVisible = await page
         .locator('[data-testid="lottery-table"]')
         .isVisible();
+
       if (tableVisible) {
-        // THEN: Table displays active packs
+        // THEN: Table displays game summaries (grouped by game_id)
+        // The new LotteryTable groups packs by game
         await expect(
-          page.locator(
-            `[data-testid="lottery-table-row-${activePack1.pack_id}"]`,
-          ),
-        ).toBeVisible({ timeout: 10000 });
-        await expect(
-          page.locator(
-            `[data-testid="lottery-table-row-${activePack2.pack_id}"]`,
-          ),
+          page.locator(`[data-testid="lottery-table-row-${game.game_id}"]`),
         ).toBeVisible({ timeout: 10000 });
 
-        // AND: Table shows correct columns
+        // AND: Table shows correct columns (new column structure)
         const tableHeader = page.locator("table thead");
-        await expect(tableHeader.locator("text=Bin Number")).toBeVisible();
-        await expect(tableHeader.locator("text=Dollar Amount")).toBeVisible();
-        await expect(tableHeader.locator("text=Game Number")).toBeVisible();
         await expect(tableHeader.locator("text=Game Name")).toBeVisible();
-        await expect(tableHeader.locator("text=Pack Number")).toBeVisible();
+        await expect(tableHeader.locator("text=Game Number")).toBeVisible();
+        await expect(tableHeader.locator("text=Dollar Value")).toBeVisible();
+        await expect(tableHeader.locator("text=Pack Count")).toBeVisible();
         await expect(tableHeader.locator("text=Status")).toBeVisible();
-        await expect(tableHeader.locator("text=Actions")).toBeVisible();
 
-        // AND: RECEIVED pack is not shown
-        await expect(page.locator('text="PACK-RECEIVED"')).not.toBeVisible({
-          timeout: 5000,
-        });
+        // Verify the game name is displayed
+        await expect(page.getByText("Integration Test Game")).toBeVisible();
       }
     } finally {
       // Cleanup
@@ -353,7 +347,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     }
   });
 
-  test("6.10.1-UI-003: [P1] Empty state displayed when no active packs (AC #8)", async ({
+  test("6.10.1-UI-003: [P1] Empty state displayed when no inventory (AC #8)", async ({
     page,
   }) => {
     await loginAndWaitForClientDashboard(page, clientOwner.email, password);
@@ -391,7 +385,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     // THEN: Empty state message is displayed (for store with no packs)
     const emptyState = page.locator('[data-testid="lottery-table-empty"]');
     if (await emptyState.isVisible()) {
-      await expect(emptyState).toContainText(/No active lottery packs/i);
+      // The new empty state message mentions "lottery inventory"
+      await expect(emptyState).toContainText(/No lottery inventory/i);
     }
 
     // AND: Add button is still available
@@ -427,7 +422,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     await page.locator('[data-testid="add-new-lottery-button"]').click();
 
     // THEN: Pack Reception dialog opens (uses serialized input form per Story 6.12)
-    await expect(page.locator('text="Receive Lottery Packs"')).toBeVisible({
+    await expect(page.getByText("Receive Lottery Packs")).toBeVisible({
       timeout: 5000,
     });
 
@@ -436,157 +431,52 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
     // Close dialog
     await page.locator('button:has-text("Cancel")').click();
-    await expect(
-      page.locator('text="Receive Lottery Packs"'),
-    ).not.toBeVisible();
+    await expect(page.getByText("Receive Lottery Packs")).not.toBeVisible();
   });
 
-  test("6.10.1-UI-005: [P1] Edit lottery flow (AC #5)", async ({ page }) => {
-    // GIVEN: Active pack exists
-    const pack = await createLotteryPack(prisma, {
-      game_id: game.game_id,
-      store_id: store1.store_id,
-      status: "ACTIVE",
-      current_bin_id: bin1.bin_id,
-      pack_number: "PACK-EDIT-TEST",
-    });
-
-    try {
-      await loginAndWaitForClientDashboard(page, clientOwner.email, password);
-      await page.goto("/client-dashboard/lottery", {
-        waitUntil: "networkidle",
-      });
-
-      await page
-        .locator('[data-testid="client-dashboard-lottery-page"]')
-        .waitFor({ state: "visible", timeout: 15000 });
-
-      // Wait for store tabs and select store 1
-      await page
-        .locator('[data-testid="store-tabs"]')
-        .waitFor({ state: "visible", timeout: 10000 });
-      const store1Tab = page.locator(
-        `[data-testid="store-tab-${store1.store_id}"]`,
-      );
-      if (await store1Tab.isVisible()) {
-        await store1Tab.click();
-      }
-
-      // Wait for table to load
-      await page
-        .locator('[data-testid="lottery-table"]')
-        .waitFor({ state: "visible", timeout: 15000 });
-
-      // WHEN: Clicking edit button
-      const editButton = page.locator(
-        `[data-testid="edit-pack-${pack.pack_id}"]`,
-      );
-      await editButton.waitFor({ state: "visible", timeout: 10000 });
-      await editButton.click();
-
-      // THEN: Edit dialog opens (title shown even during loading)
-      await expect(page.locator('text="Edit Lottery Pack"')).toBeVisible({
-        timeout: 5000,
-      });
-
-      // Wait for dialog to finish loading (Cancel button appears when loaded)
-      // The dialog has loading states - wait for either Cancel or Close button
-      const cancelOrCloseButton = page
-        .getByRole("button", { name: /cancel|close/i })
-        .first();
-      await cancelOrCloseButton.waitFor({ state: "visible", timeout: 15000 });
-
-      // Close dialog
-      await cancelOrCloseButton.click();
-      await expect(page.locator('text="Edit Lottery Pack"')).not.toBeVisible();
-    } finally {
-      // Cleanup
-      await prisma.lotteryPack
-        .delete({ where: { pack_id: pack.pack_id } })
-        .catch(() => {});
-    }
-  });
-
-  test("6.10.1-UI-006: [P1] Delete lottery flow with confirmation (AC #6)", async ({
+  test("6.10.1-UI-005: [P1] Inventory/Configuration tabs functionality", async ({
     page,
   }) => {
-    // GIVEN: Active pack exists
-    const pack = await createLotteryPack(prisma, {
-      game_id: game.game_id,
-      store_id: store1.store_id,
-      status: "ACTIVE",
-      current_bin_id: bin1.bin_id,
-      pack_number: "PACK-DELETE-TEST",
+    // GIVEN: Client owner logged in
+    await loginAndWaitForClientDashboard(page, clientOwner.email, password);
+    await page.goto("/client-dashboard/lottery", {
+      waitUntil: "networkidle",
     });
 
-    try {
-      await loginAndWaitForClientDashboard(page, clientOwner.email, password);
-      await page.goto("/client-dashboard/lottery", {
-        waitUntil: "networkidle",
-      });
+    await page
+      .locator('[data-testid="client-dashboard-lottery-page"]')
+      .waitFor({ state: "visible", timeout: 15000 });
 
-      await page
-        .locator('[data-testid="client-dashboard-lottery-page"]')
-        .waitFor({ state: "visible", timeout: 15000 });
+    // THEN: Main content tabs are visible (Inventory and Configuration)
+    const inventoryTab = page.locator(
+      'button[role="tab"]:has-text("Inventory")',
+    );
+    const configTab = page.locator(
+      'button[role="tab"]:has-text("Configuration")',
+    );
 
-      // Wait for store tabs and select store 1
-      await page
-        .locator('[data-testid="store-tabs"]')
-        .waitFor({ state: "visible", timeout: 10000 });
-      const store1Tab = page.locator(
-        `[data-testid="store-tab-${store1.store_id}"]`,
-      );
-      if (await store1Tab.isVisible()) {
-        await store1Tab.click();
-      }
+    await expect(inventoryTab).toBeVisible({ timeout: 10000 });
+    await expect(configTab).toBeVisible({ timeout: 10000 });
 
-      // Wait for table to load
-      await page
-        .locator('[data-testid="lottery-table"]')
-        .waitFor({ state: "visible", timeout: 15000 });
+    // WHEN: Clicking Configuration tab
+    await configTab.click();
 
-      // WHEN: Clicking delete button
-      const deleteButton = page.locator(
-        `[data-testid="delete-pack-${pack.pack_id}"]`,
-      );
-      await deleteButton.waitFor({ state: "visible", timeout: 10000 });
-      await deleteButton.click();
+    // THEN: Configuration content is shown (BinConfigurationCard)
+    // The tab switch should happen
+    await expect(configTab).toHaveAttribute("data-state", "active", {
+      timeout: 5000,
+    });
 
-      // THEN: Delete confirmation dialog opens (title shown even during loading)
-      await expect(page.locator('text="Delete Lottery Pack"')).toBeVisible({
-        timeout: 5000,
-      });
+    // WHEN: Clicking back to Inventory tab
+    await inventoryTab.click();
 
-      // Wait for dialog to finish loading - either confirm button or close button
-      // The dialog fetches pack details before showing confirm button
-      const confirmOrCloseButton = await Promise.race([
-        page
-          .locator('[data-testid="confirm-delete-button"]')
-          .waitFor({ state: "visible", timeout: 15000 })
-          .then(() => page.locator('[data-testid="confirm-delete-button"]')),
-        page
-          .getByRole("button", { name: /close/i })
-          .waitFor({ state: "visible", timeout: 15000 })
-          .then(() => page.getByRole("button", { name: /close/i })),
-      ]);
-
-      // Cancel deletion (use Cancel button or Close if in error state)
-      const cancelButton = page
-        .getByRole("button", { name: /cancel|close/i })
-        .first();
-      await cancelButton.click();
-      await expect(
-        page.locator('text="Delete Lottery Pack"'),
-      ).not.toBeVisible();
-    } finally {
-      // Cleanup
-      await prisma.lotteryPack
-        .delete({ where: { pack_id: pack.pack_id } })
-        .catch(() => {});
-    }
+    // THEN: Inventory tab is active
+    await expect(inventoryTab).toHaveAttribute("data-state", "active", {
+      timeout: 5000,
+    });
   });
 
-  test("6.10.1-UI-007: [P1] Loading states displayed during API calls (AC #7)", async ({
+  test("6.10.1-UI-006: [P1] Page displays loading then content states (AC #7)", async ({
     page,
   }) => {
     await loginAndWaitForClientDashboard(page, clientOwner.email, password);
@@ -594,8 +484,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       waitUntil: "networkidle",
     });
 
-    // THEN: Loading state may be briefly visible (or networkidle waits for completion)
-    // The table should eventually load without showing loading spinner indefinitely
+    // THEN: Page should load without getting stuck in loading state
     await page
       .locator('[data-testid="client-dashboard-lottery-page"]')
       .waitFor({ state: "visible", timeout: 15000 });
@@ -624,7 +513,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     await expect(loadingSpinner).not.toBeVisible({ timeout: 5000 });
   });
 
-  test("6.10.1-UI-008: [P1] RLS enforcement - user only sees their stores' packs (AC #7)", async ({
+  test("6.10.1-UI-007: [P1] RLS enforcement - user only sees their stores (AC #7)", async ({
     page,
   }) => {
     // GIVEN: Pack in another user's store
@@ -655,15 +544,18 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
         .locator('[data-testid="store-tabs"]')
         .waitFor({ state: "visible", timeout: 10000 });
 
-      // THEN: Other store's pack is not visible in tabs
+      // THEN: Other store's tab is NOT visible (RLS enforcement)
       await expect(
         page.locator(`[data-testid="store-tab-${otherStore.store_id}"]`),
       ).not.toBeVisible({ timeout: 5000 });
 
-      // AND: Other store's pack is not in table
-      await expect(page.locator('text="OTHER-STORE-PACK"')).not.toBeVisible({
-        timeout: 5000,
-      });
+      // User should only see their own stores (store1 and store2)
+      await expect(
+        page.locator(`[data-testid="store-tab-${store1.store_id}"]`),
+      ).toBeVisible();
+      await expect(
+        page.locator(`[data-testid="store-tab-${store2.store_id}"]`),
+      ).toBeVisible();
     } finally {
       // Cleanup
       await prisma.lotteryPack
@@ -674,6 +566,108 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
         .catch(() => {});
       await prisma.company
         .delete({ where: { company_id: otherCompany.company_id } })
+        .catch(() => {});
+    }
+  });
+
+  test("6.10.1-UI-008: [P1] Single store displays as badge, not tabs", async ({
+    page,
+  }) => {
+    // Create a user with only one store to test single-store behavior
+    const singleStorePasswordHash = await bcrypt.hash(password, 10);
+    const singleStoreUserId = uuidv4();
+    const singleStoreCompanyId = uuidv4();
+    const singleStoreId = uuidv4();
+
+    const singleStoreUser = await prisma.user.create({
+      data: {
+        user_id: singleStoreUserId,
+        email: `integration-single-store-${Date.now()}@test.com`,
+        name: "Single Store User",
+        status: "ACTIVE",
+        password_hash: singleStorePasswordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
+    });
+
+    const singleStoreCompany = await prisma.company.create({
+      data: {
+        company_id: singleStoreCompanyId,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: "Single Store Company",
+        address: "123 Single Store Street",
+        status: "ACTIVE",
+        owner_user_id: singleStoreUser.user_id,
+      },
+    });
+
+    const singleStore = await prisma.store.create({
+      data: {
+        store_id: singleStoreId,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        company_id: singleStoreCompany.company_id,
+        name: "Only Store",
+        timezone: "America/New_York",
+        status: "ACTIVE",
+        location_json: { address: "456 Only Store Ave" },
+      },
+    });
+
+    const clientOwnerRole = await prisma.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
+    });
+
+    if (clientOwnerRole) {
+      await prisma.userRole.create({
+        data: {
+          user_id: singleStoreUser.user_id,
+          role_id: clientOwnerRole.role_id,
+          company_id: singleStoreCompany.company_id,
+        },
+      });
+    }
+
+    try {
+      await loginAndWaitForClientDashboard(
+        page,
+        singleStoreUser.email,
+        password,
+      );
+      await page.goto("/client-dashboard/lottery", {
+        waitUntil: "networkidle",
+      });
+
+      await page
+        .locator('[data-testid="client-dashboard-lottery-page"]')
+        .waitFor({ state: "visible", timeout: 15000 });
+
+      // Wait for store tabs container
+      await page
+        .locator('[data-testid="store-tabs"]')
+        .waitFor({ state: "visible", timeout: 10000 });
+
+      // THEN: For single store, it shows as a badge (not clickable tabs)
+      // The StoreTabs component shows single store as a highlighted badge
+      // There should NOT be multiple tab buttons
+      const storeTabs = page.locator('[data-testid="store-tabs"]');
+      await expect(storeTabs).toBeVisible();
+
+      // Single store shows the store name in a badge format
+      await expect(storeTabs.getByText("Only Store")).toBeVisible();
+    } finally {
+      // Cleanup
+      await prisma.userRole
+        .deleteMany({ where: { user_id: singleStoreUser.user_id } })
+        .catch(() => {});
+      await prisma.store
+        .delete({ where: { store_id: singleStore.store_id } })
+        .catch(() => {});
+      await prisma.company
+        .delete({ where: { company_id: singleStoreCompany.company_id } })
+        .catch(() => {});
+      await prisma.user
+        .delete({ where: { user_id: singleStoreUser.user_id } })
         .catch(() => {});
     }
   });

@@ -11,6 +11,8 @@ async function fixGameCodes() {
     const sql = fs.readFileSync(sqlPath, 'utf8');
 
     console.log('Executing SQL to fix game codes...');
+    // nosemgrep: typescript.prisma.security.audit.prisma-raw-query.prisma-raw-query
+    // Safe: SQL content is read from a controlled migration file, not user input
     await prisma.$executeRawUnsafe(sql);
 
     console.log('Verifying results...');

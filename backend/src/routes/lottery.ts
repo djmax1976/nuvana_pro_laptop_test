@@ -976,13 +976,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             }
 
             // Create batch-level audit log entry
+            // Use store_id as record_id for batch operations since record_id requires UUID format
             try {
               await tx.auditLog.create({
                 data: {
                   user_id: user.id,
                   action: "BATCH_PACK_RECEIVED",
                   table_name: "lottery_packs",
-                  record_id: "batch-operation",
+                  record_id: storeId, // Use store_id as the record reference for batch operations
                   new_values: {
                     total_serials: body.serialized_numbers.length,
                     created_count: created.length,

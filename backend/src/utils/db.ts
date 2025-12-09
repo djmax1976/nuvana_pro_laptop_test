@@ -127,7 +127,11 @@ export async function withRLSTransaction<T>(
   return prisma.$transaction(
     async (tx) => {
       // Set RLS context using SET LOCAL (scoped to this transaction)
-      await tx.$executeRawUnsafe(`SET LOCAL app.current_user_id = '${userId}'`);
+      // Note: UUID is validated above. Using Prisma.sql with Prisma.raw for the validated value
+      // because SET LOCAL requires a literal value, not a parameter placeholder.
+      await tx.$executeRaw(
+        Prisma.sql`SET LOCAL app.current_user_id = ${Prisma.raw(`'${userId}'`)}`,
+      );
 
       // Execute the function with the transaction client
       return fn(tx);

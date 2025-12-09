@@ -217,9 +217,8 @@ export function CreateStoreWizard({
     }
   };
 
-  // Generate temporary ID for terminals
-  const generateTempId = () =>
-    `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  // Generate temporary ID for terminals using crypto API for uniqueness
+  const generateTempId = () => `temp-${crypto.randomUUID()}`;
 
   // Terminal dialog handlers
   const openAddTerminalDialog = () => {

@@ -13,9 +13,16 @@
  * - Batch processing with serialized numbers
  * - Atomic transaction behavior
  * - Duplicate detection (within batch and database)
- * - Partial failure handling
+ * - Partial failure handling with games_not_found separation
  * - Error handling and validation
  * - Audit logging
+ *
+ * RESPONSE STRUCTURE:
+ * - created: Array of successfully created packs
+ * - duplicates: Array of serial numbers that were duplicates
+ * - errors: Array of processing errors (format errors, unexpected failures)
+ * - games_not_found: Array of serials with game codes not in database
+ *   (separated from errors to allow frontend to prompt user to create games)
  *
  * SECURITY TEST COVERAGE:
  * - Authentication bypass attempts (missing/invalid/expired tokens)
@@ -273,19 +280,25 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
       },
     );
 
-    // THEN: Invalid game code is rejected with error
+    // THEN: Invalid game code is tracked in games_not_found (not errors)
+    // The API separates "game not found" from other errors so frontend can prompt user to create games
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.data.created.length, "Only valid pack should be created").toBe(
       1,
     );
-    expect(body.data.errors.length, "Invalid game code should have error").toBe(
-      1,
-    );
     expect(
-      body.data.errors[0].error,
-      "Error should mention game code",
-    ).toContain("Game code");
+      body.data.games_not_found.length,
+      "Invalid game code should be in games_not_found",
+    ).toBe(1);
+    expect(
+      body.data.games_not_found[0].game_code,
+      "games_not_found should include the invalid game code",
+    ).toBe(invalidGameCode);
+    expect(
+      body.data.games_not_found[0].serial,
+      "games_not_found should include the serial",
+    ).toBe(invalidSerial);
   });
 
   test("6.12-API-006: [P0] should handle partial failures gracefully", async ({
@@ -324,14 +337,17 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
       },
     );
 
-    // THEN: Valid packs are created, invalid ones are in errors
+    // THEN: Valid packs are created, invalid game code is in games_not_found
+    // The API separates "game not found" from other errors so frontend can prompt user to create games
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.data.created.length, "Valid packs should be created").toBe(3);
-    expect(body.data.errors.length, "Invalid game code should have error").toBe(
-      1,
-    );
+    expect(
+      body.data.games_not_found.length,
+      "Invalid game code should be in games_not_found",
+    ).toBe(1);
     expect(body.data.duplicates.length, "No duplicates expected").toBe(0);
+    expect(body.data.errors.length, "No processing errors expected").toBe(0);
   });
 
   test("6.12-API-007: [P0] should enforce RLS (store isolation)", async ({
@@ -472,6 +488,9 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
       buildSerialNumber(gameCode, "9876543", "045"),
     ];
 
+    // Record timestamp before the API call for more precise audit log lookup
+    const beforeTimestamp = new Date();
+
     // WHEN: Receiving packs via batch API
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
@@ -482,20 +501,42 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
 
     // THEN: Batch audit log entry is created
     expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.data.created.length, "Packs should be created").toBe(2);
+
+    // Query audit log - first find ANY batch audit log to verify they're being created
+    // The batch audit log includes store_id in new_values
     const batchAuditLog = await prismaClient.auditLog.findFirst({
       where: {
         action: "BATCH_PACK_RECEIVED",
-        user_id: storeManagerUser.user_id,
+        timestamp: {
+          gte: beforeTimestamp,
+        },
       },
       orderBy: {
         timestamp: "desc",
       },
     });
+
+    // If we found an audit log, verify it has the expected content
+    // Note: In parallel test execution, multiple users may create audit logs
+    // so we don't filter by user_id initially
     expect(batchAuditLog, "Batch audit log should exist").not.toBeNull();
     expect(
       batchAuditLog?.new_values,
       "Audit log should contain batch metadata",
     ).toHaveProperty("created_count");
+
+    // Verify the audit log has the expected store_id in new_values
+    const newValues = batchAuditLog?.new_values as Record<string, unknown>;
+    expect(
+      newValues?.store_id,
+      "Audit log should be for the correct store",
+    ).toBe(storeManagerUser.store_id);
+    expect(
+      newValues?.created_count,
+      "Audit log should record 2 created packs",
+    ).toBe(2);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -761,7 +802,7 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     expect(body.data.duplicates.length, "Duplicate should be reported").toBe(1);
   });
 
-  test("6.12-EDGE-004: [P1] should handle all errors scenario (invalid game codes)", async ({
+  test("6.12-EDGE-004: [P1] should handle all games_not_found scenario (invalid game codes)", async ({
     storeManagerApiRequest,
     prismaClient,
   }) => {
@@ -786,11 +827,17 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
       },
     );
 
-    // THEN: No packs created, all errors reported
+    // THEN: No packs created, all invalid game codes in games_not_found
+    // The API separates "game not found" from other errors so frontend can prompt user to create games
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.data.created.length, "No packs should be created").toBe(0);
-    expect(body.data.errors.length, "All errors should be reported").toBe(3);
+    expect(
+      body.data.games_not_found.length,
+      "All invalid game codes should be in games_not_found",
+    ).toBe(3);
+    expect(body.data.errors.length, "No processing errors expected").toBe(0);
+    expect(body.data.duplicates.length, "No duplicates expected").toBe(0);
   });
 
   test("6.12-EDGE-005: [P1] should validate response structure and data types", async ({
@@ -830,6 +877,9 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
       "duplicates",
     );
     expect(body.data, "data should have errors array").toHaveProperty("errors");
+    expect(body.data, "data should have games_not_found array").toHaveProperty(
+      "games_not_found",
+    );
     expect(Array.isArray(body.data.created), "created should be array").toBe(
       true,
     );
@@ -840,6 +890,10 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     expect(Array.isArray(body.data.errors), "errors should be array").toBe(
       true,
     );
+    expect(
+      Array.isArray(body.data.games_not_found),
+      "games_not_found should be array",
+    ).toBe(true);
 
     // AND: Created pack has correct structure and types
     if (body.data.created.length > 0) {

@@ -241,11 +241,12 @@ app.register(cors, {
 });
 
 // Register Helmet for security headers
+// Note: This API server doesn't serve HTML, but CSP headers are set as defense-in-depth
 app.register(helmet, {
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'"],
       scriptSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https:"],
     },
