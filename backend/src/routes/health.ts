@@ -26,9 +26,12 @@ export async function healthRoutes(fastify: FastifyInstance) {
         version: process.env.npm_package_version || "1.0.0",
       };
 
-      // Return 503 if any critical service is unhealthy
-      // This allows proper health checking in CI/CD pipelines and load balancers
-      reply.code(allHealthy ? 200 : 503);
+      // Always return 200 for ALB health checks
+      // ALB target group expects 200 status code to mark targets as healthy
+      // Service degradation is indicated in the response body (status: "degraded")
+      // This allows the application to remain accessible even if Redis/RabbitMQ are temporarily unavailable
+      // Monitoring systems can still detect degraded status from the response body
+      reply.code(200);
 
       return healthStatus;
     },
