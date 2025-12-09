@@ -6,9 +6,9 @@ name: Lean CI
 
 on:
   push:
-    branches: [main, development]
+    branches: [main]
   pull_request:
-    branches: [main, development]
+    branches: [main]
   schedule:
     - cron: '0 2 * * 0'  # Every Sunday at 2 AM UTC - full test suite
   workflow_dispatch:  # Manual trigger for full test runs
