@@ -186,22 +186,14 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
     // WHEN: User clicks Receive Pack button
     await page.click('[data-testid="receive-pack-button"]');
 
-    // THEN: Pack reception dialog opens
-    // The form fields should be visible inside the dialog
-    await expect(page.locator('[data-testid="game-select"]')).toBeVisible({
+    // THEN: Pack reception dialog opens with serialized number input
+    // The form uses 24-digit serialized number input (Story 6.12)
+    await expect(page.locator('[data-testid="serial-input"]')).toBeVisible({
       timeout: 5000,
     });
+    // Submit button should be visible (disabled until packs are added)
     await expect(
-      page.locator('[data-testid="pack-number-input"]'),
-    ).toBeVisible();
-    await expect(
-      page.locator('[data-testid="serial-start-input"]'),
-    ).toBeVisible();
-    await expect(
-      page.locator('[data-testid="serial-end-input"]'),
-    ).toBeVisible();
-    await expect(
-      page.locator('[data-testid="submit-pack-reception"]'),
+      page.locator('[data-testid="submit-batch-reception"]'),
     ).toBeVisible();
   });
 

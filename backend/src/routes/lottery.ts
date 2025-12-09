@@ -1,5 +1,4 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { randomUUID } from "crypto";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
@@ -17,6 +16,84 @@ import {
   validateBinTemplate,
   validateStoreId,
 } from "../utils/lottery-bin-configuration-validator";
+import type { UserRole } from "../services/rbac.service";
+
+/**
+ * Validate user has access to a store via SYSTEM, COMPANY, or STORE scope
+ * SYSTEM scope: Access to all stores
+ * COMPANY scope: Access to all stores in the assigned company
+ * STORE scope: Access to specifically assigned stores
+ *
+ * @param userRoles - User's roles from rbacService.getUserRoles()
+ * @param storeId - The store_id to validate access for
+ * @param storeCompanyId - The company_id of the store (fetched from DB)
+ * @returns true if user has access, false otherwise
+ */
+function validateUserStoreAccess(
+  userRoles: UserRole[],
+  storeId: string,
+  storeCompanyId: string,
+): boolean {
+  // SYSTEM scope grants access to all stores
+  const hasSystemScope = userRoles.some((role) => role.scope === "SYSTEM");
+  if (hasSystemScope) {
+    return true;
+  }
+
+  // COMPANY scope grants access to all stores within the company
+  const hasCompanyAccess = userRoles.some(
+    (role) => role.scope === "COMPANY" && role.company_id === storeCompanyId,
+  );
+  if (hasCompanyAccess) {
+    return true;
+  }
+
+  // STORE scope grants access to specifically assigned stores
+  const hasStoreAccess = userRoles.some(
+    (role) => role.scope === "STORE" && role.store_id === storeId,
+  );
+  if (hasStoreAccess) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Get a store_id from user roles if not explicitly provided
+ * Priority: STORE scope role first, then any store from COMPANY scope
+ *
+ * @param userRoles - User's roles from rbacService.getUserRoles()
+ * @returns store_id if found, null otherwise
+ */
+async function getDefaultStoreIdFromRoles(
+  userRoles: UserRole[],
+): Promise<string | null> {
+  // First check for direct STORE scope assignment
+  const storeRole = userRoles.find(
+    (role) => role.scope === "STORE" && role.store_id,
+  );
+  if (storeRole?.store_id) {
+    return storeRole.store_id;
+  }
+
+  // For COMPANY scope users, get the first store in their company
+  const companyRole = userRoles.find(
+    (role) => role.scope === "COMPANY" && role.company_id,
+  );
+  if (companyRole?.company_id) {
+    const firstStore = await prisma.store.findFirst({
+      where: { company_id: companyRole.company_id },
+      select: { store_id: true },
+      orderBy: { name: "asc" },
+    });
+    if (firstStore) {
+      return firstStore.store_id;
+    }
+  }
+
+  return null;
+}
 
 /**
  * Lottery management routes
@@ -234,56 +311,32 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
 
         // Get user roles to determine store access
         const userRoles = await rbacService.getUserRoles(user.id);
-        const hasSystemScope = userRoles.some(
-          (role) => role.scope === "SYSTEM",
-        );
 
-        // Determine store_id from request body or user's store role
+        // Determine store_id from request body or user's role assignment
         let storeId: string;
         if (body.store_id) {
           storeId = body.store_id;
         } else {
-          // If store_id not provided, get from user's STORE scope role
-          const storeRole = userRoles.find(
-            (role) => role.scope === "STORE" && role.store_id,
-          );
-          if (!storeRole || !storeRole.store_id) {
+          // If store_id not provided, derive from user's role assignments
+          const defaultStoreId = await getDefaultStoreIdFromRoles(userRoles);
+          if (!defaultStoreId) {
             reply.code(400);
             return {
               success: false,
               error: {
                 code: "VALIDATION_ERROR",
                 message:
-                  "store_id is required. Either provide store_id in request body or ensure user has STORE scope role",
+                  "store_id is required. Either provide store_id in request body or ensure user has store access via STORE or COMPANY scope role",
               },
             };
           }
-          storeId = storeRole.store_id;
+          storeId = defaultStoreId;
         }
 
-        // Validate store_id matches user's store (RLS enforcement)
-        // System admins can access any store
-        if (!hasSystemScope) {
-          const userStoreRole = userRoles.find(
-            (role) => role.scope === "STORE" && role.store_id === storeId,
-          );
-          if (!userStoreRole) {
-            reply.code(403);
-            return {
-              success: false,
-              error: {
-                code: "FORBIDDEN",
-                message:
-                  "You can only receive packs for your assigned store. store_id does not match your store access",
-              },
-            };
-          }
-        }
-
-        // Validate store exists
+        // Validate store exists and get company_id for access check
         const store = await prisma.store.findUnique({
           where: { store_id: storeId },
-          select: { store_id: true, name: true },
+          select: { store_id: true, name: true, company_id: true },
         });
 
         if (!store) {
@@ -293,6 +346,19 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             error: {
               code: "NOT_FOUND",
               message: "Store not found",
+            },
+          };
+        }
+
+        // Validate user has access to this store (SYSTEM, COMPANY, or STORE scope)
+        if (!validateUserStoreAccess(userRoles, storeId, store.company_id)) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message:
+                "You do not have access to this store. Ensure you have SYSTEM, COMPANY, or STORE scope access.",
             },
           };
         }
@@ -692,55 +758,32 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
 
         // Get user roles to determine store access
         const userRoles = await rbacService.getUserRoles(user.id);
-        const hasSystemScope = userRoles.some(
-          (role) => role.scope === "SYSTEM",
-        );
 
-        // Determine store_id from request body or user's store role
+        // Determine store_id from request body or user's role assignment
         let storeId: string;
         if (body.store_id) {
           storeId = body.store_id;
         } else {
-          // If store_id not provided, get from user's STORE scope role
-          const storeRole = userRoles.find(
-            (role) => role.scope === "STORE" && role.store_id,
-          );
-          if (!storeRole || !storeRole.store_id) {
+          // If store_id not provided, derive from user's role assignments
+          const defaultStoreId = await getDefaultStoreIdFromRoles(userRoles);
+          if (!defaultStoreId) {
             reply.code(400);
             return {
               success: false,
               error: {
                 code: "VALIDATION_ERROR",
                 message:
-                  "store_id is required. Either provide store_id in request body or ensure user has STORE scope role",
+                  "store_id is required. Either provide store_id in request body or ensure user has store access via STORE or COMPANY scope role",
               },
             };
           }
-          storeId = storeRole.store_id;
+          storeId = defaultStoreId;
         }
 
-        // Validate store_id matches user's store (RLS enforcement)
-        if (!hasSystemScope) {
-          const userStoreRole = userRoles.find(
-            (role) => role.scope === "STORE" && role.store_id === storeId,
-          );
-          if (!userStoreRole) {
-            reply.code(403);
-            return {
-              success: false,
-              error: {
-                code: "FORBIDDEN",
-                message:
-                  "You can only receive packs for your assigned store. store_id does not match your store access",
-              },
-            };
-          }
-        }
-
-        // Validate store exists
+        // Validate store exists and get company_id for access check
         const store = await prisma.store.findUnique({
           where: { store_id: storeId },
-          select: { store_id: true, name: true },
+          select: { store_id: true, name: true, company_id: true },
         });
 
         if (!store) {
@@ -754,12 +797,31 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
+        // Validate user has access to this store (SYSTEM, COMPANY, or STORE scope)
+        if (!validateUserStoreAccess(userRoles, storeId, store.company_id)) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message:
+                "You do not have access to this store. Ensure you have SYSTEM, COMPANY, or STORE scope access.",
+            },
+          };
+        }
+
         // Process batch in transaction for atomicity
         const result = await prisma.$transaction(
           async (tx) => {
             const created: any[] = [];
             const duplicates: string[] = [];
             const errors: Array<{ serial: string; error: string }> = [];
+            const gamesNotFound: Array<{
+              serial: string;
+              game_code: string;
+              pack_number: string;
+              serial_start: string;
+            }> = [];
 
             // Track seen pack numbers in this batch to detect duplicates within batch
             const seenPackNumbers = new Set<string>();
@@ -795,9 +857,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 try {
                   game = await lookupGameByCode(parsed.game_code);
                 } catch (lookupError: any) {
-                  errors.push({
+                  // Track games not found separately for frontend to handle
+                  gamesNotFound.push({
                     serial,
-                    error: lookupError.message || "Game code not found",
+                    game_code: parsed.game_code,
+                    pack_number: parsed.pack_number,
+                    serial_start: parsed.serial_start,
                   });
                   continue;
                 }
@@ -903,7 +968,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   user_id: user.id,
                   action: "BATCH_PACK_RECEIVED",
                   table_name: "lottery_packs",
-                  record_id: randomUUID(),
+                  record_id: null,
                   new_values: {
                     total_serials: body.serialized_numbers.length,
                     created_count: created.length,
@@ -928,6 +993,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               created,
               duplicates,
               errors,
+              games_not_found: gamesNotFound,
             };
           },
           {
@@ -1635,6 +1701,229 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to query lottery games",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * POST /api/lottery/games
+   * Create a new lottery game
+   * Protected route - requires LOTTERY_PACK_RECEIVE permission (game creation is part of pack reception workflow)
+   * Used when receiving packs with unknown game codes
+   */
+  fastify.post(
+    "/api/lottery/games",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_RECEIVE),
+      ],
+      schema: {
+        description: "Create a new lottery game",
+        tags: ["lottery"],
+        body: {
+          type: "object",
+          required: ["game_code", "name"],
+          properties: {
+            game_code: {
+              type: "string",
+              pattern: "^\\d{4}$",
+              description: "4-digit game code",
+            },
+            name: {
+              type: "string",
+              minLength: 1,
+              maxLength: 255,
+              description: "Game name (will be stored uppercase)",
+            },
+            price: {
+              type: "number",
+              minimum: 0,
+              description: "Ticket price (defaults to 0 if not provided)",
+            },
+            description: {
+              type: "string",
+              maxLength: 500,
+              description: "Optional game description",
+            },
+          },
+        },
+        response: {
+          201: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  game_id: { type: "string", format: "uuid" },
+                  game_code: { type: "string" },
+                  name: { type: "string" },
+                  price: { type: "number" },
+                  status: { type: "string" },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          409: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const body = request.body as {
+        game_code: string;
+        name: string;
+        price?: number;
+        description?: string;
+      };
+
+      try {
+        // Validate game_code format
+        if (!/^\d{4}$/.test(body.game_code)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Game code must be exactly 4 digits",
+            },
+          };
+        }
+
+        // Normalize name to uppercase
+        const normalizedName = body.name.trim().toUpperCase();
+
+        if (normalizedName.length === 0) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Game name is required",
+            },
+          };
+        }
+
+        // Check if game_code already exists
+        const existingGame = await prisma.lotteryGame.findUnique({
+          where: { game_code: body.game_code },
+        });
+
+        if (existingGame) {
+          reply.code(409);
+          return {
+            success: false,
+            error: {
+              code: "DUPLICATE_GAME_CODE",
+              message: `Game with code ${body.game_code} already exists`,
+            },
+          };
+        }
+
+        // Create the game
+        const newGame = await prisma.lotteryGame.create({
+          data: {
+            game_code: body.game_code,
+            name: normalizedName,
+            price: body.price ?? 0,
+            description: body.description?.trim() || null,
+            status: "ACTIVE",
+          },
+        });
+
+        // Audit log
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        try {
+          await prisma.auditLog.create({
+            data: {
+              user_id: user.id,
+              action: "LOTTERY_GAME_CREATED",
+              table_name: "lottery_games",
+              record_id: newGame.game_id,
+              new_values: {
+                game_id: newGame.game_id,
+                game_code: newGame.game_code,
+                name: newGame.name,
+                price: Number(newGame.price),
+              } as Record<string, any>,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              reason: `Lottery game created by ${user.email} - ${newGame.name} (${newGame.game_code})`,
+            },
+          });
+        } catch (auditError) {
+          fastify.log.error(
+            { error: auditError },
+            "Failed to create audit log for game creation",
+          );
+        }
+
+        reply.code(201);
+        return {
+          success: true,
+          data: {
+            game_id: newGame.game_id,
+            game_code: newGame.game_code,
+            name: newGame.name,
+            price: Number(newGame.price),
+            status: newGame.status,
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error creating lottery game");
+
+        // Handle unique constraint violation
+        if (error.code === "P2002") {
+          reply.code(409);
+          return {
+            success: false,
+            error: {
+              code: "DUPLICATE_GAME_CODE",
+              message: `Game with code ${body.game_code} already exists`,
+            },
+          };
+        }
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to create lottery game",
           },
         };
       }
@@ -2999,13 +3288,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               success: { type: "boolean" },
-              error: {
-                type: "object",
-                properties: {
-                  code: { type: "string" },
-                  message: { type: "string" },
-                },
-              },
+              error: { type: "object" },
             },
           },
         },
@@ -3890,7 +4173,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               user_id: user.id,
               action: "LOTTERY_BIN_READ",
               table_name: "lottery_bins",
-              record_id: crypto.randomUUID(),
+              record_id: null,
               new_values: {
                 store_id: params.storeId,
                 bin_count: bins.length,
@@ -4792,7 +5075,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               user_id: user.id,
               action: "LOTTERY_BIN_DISPLAY_READ",
               table_name: "lottery_bins",
-              record_id: crypto.randomUUID(),
+              record_id: null,
               new_values: {
                 store_id: params.storeId,
                 bin_count: displayData.length,

@@ -228,9 +228,21 @@ export function PackReceptionForm({
             }${errorCount > 0 ? `, ${errorCount} error(s)` : ""}`,
           });
         } else {
+          // Build detailed error message
+          let errorDetails = "All packs were duplicates or had errors.";
+          if (response.data.errors.length > 0) {
+            // Show first error for brevity, include serial for debugging
+            const firstError = response.data.errors[0];
+            errorDetails = `Error: ${firstError.error}`;
+            if (response.data.errors.length > 1) {
+              errorDetails += ` (+${response.data.errors.length - 1} more errors)`;
+            }
+          } else if (duplicateCount > 0) {
+            errorDetails = `All ${duplicateCount} pack(s) already exist in the system.`;
+          }
           toast({
             title: "No packs received",
-            description: "All packs were duplicates or had errors",
+            description: errorDetails,
             variant: "destructive",
           });
           return;
