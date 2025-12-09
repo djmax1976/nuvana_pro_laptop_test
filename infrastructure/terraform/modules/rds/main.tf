@@ -101,6 +101,9 @@ resource "aws_db_instance" "main" {
   # Monitoring
   performance_insights_enabled = false # Not available on t3.micro
 
+  # CloudWatch Logs - Required for security compliance
+  enabled_cloudwatch_logs_exports = ["postgresql", "upgrade"]
+
   # Protection settings (configurable via variables)
   auto_minor_version_upgrade = true
   deletion_protection        = var.deletion_protection

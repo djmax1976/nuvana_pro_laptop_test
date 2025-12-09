@@ -29,6 +29,9 @@ resource "aws_internet_gateway" "main" {
 # -----------------------------------------------------------------------------
 # Public Subnets
 # -----------------------------------------------------------------------------
+# Public subnets require public IPs for ALB and NAT Gateway placement
+# This is intentional - private resources use private subnets below
+# nosemgrep: terraform.aws.security.aws-subnet-has-public-ip-address.aws-subnet-has-public-ip-address
 resource "aws_subnet" "public" {
   count = length(var.availability_zones)
 
