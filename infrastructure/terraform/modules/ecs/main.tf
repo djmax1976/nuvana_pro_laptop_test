@@ -388,8 +388,8 @@ resource "aws_ecs_task_definition" "migration" {
   family                   = "${var.name_prefix}-migration"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"   # Minimal CPU for migrations
-  memory                   = "512"   # Minimal memory for migrations
+  cpu                      = "256" # Minimal CPU for migrations
+  memory                   = "512" # Minimal memory for migrations
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
