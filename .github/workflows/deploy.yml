@@ -59,6 +59,35 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Get database URL from Secrets Manager
+        id: get-db-url
+        env:
+          ENVIRONMENT: ${{ steps.set-env.outputs.environment }}
+        run: |
+          DB_URL=$(aws secretsmanager get-secret-value \
+            --secret-id /nuvana-$ENVIRONMENT/database/url \
+            --query 'SecretString' \
+            --output text)
+          echo "database_url=$DB_URL" >> $GITHUB_OUTPUT
+          echo "✓ Retrieved database URL from Secrets Manager"
+
+      - name: Generate Prisma Client
+        run: cd backend && npx prisma generate
+        env:
+          DATABASE_URL: ${{ steps.get-db-url.outputs.database_url }}
+
+      - name: Run database migrations
+        run: cd backend && npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ steps.get-db-url.outputs.database_url }}
+        continue-on-error: false
+
+      - name: Seed RBAC roles and permissions
+        run: cd backend && npx tsx src/db/seeds/rbac.seed.ts
+        env:
+          DATABASE_URL: ${{ steps.get-db-url.outputs.database_url }}
+        continue-on-error: true
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076  # v2.0.1
@@ -108,10 +137,27 @@ jobs:
         env:
           CLUSTER: nuvana-${{ steps.set-env.outputs.environment }}-cluster
           SERVICE: nuvana-${{ steps.set-env.outputs.environment }}-frontend
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
+          # Get current task definition
+          TASK_DEF=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --query 'services[0].taskDefinition' --output text)
+          
+          # Get task definition JSON and update image
+          NEW_IMAGE="$ECR_REGISTRY/nuvana-${{ steps.set-env.outputs.environment }}-frontend:$IMAGE_TAG"
+          aws ecs describe-task-definition --task-definition $TASK_DEF --query 'taskDefinition' > task-def.json
+          
+          # Update image in task definition and remove fields that can't be set
+          jq ".containerDefinitions[0].image = \"$NEW_IMAGE\" | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)" task-def.json > task-def-updated.json
+          
+          # Register new task definition
+          NEW_TASK_DEF=$(aws ecs register-task-definition --cli-input-json file://task-def-updated.json --query 'taskDefinition.taskDefinitionArn' --output text)
+          
+          # Update service with new task definition
           aws ecs update-service \
             --cluster $CLUSTER \
             --service $SERVICE \
+            --task-definition $NEW_TASK_DEF \
             --force-new-deployment
 
       - name: Update backend ECS service
