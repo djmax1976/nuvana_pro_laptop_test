@@ -220,18 +220,20 @@ async function restoreData() {
     }
 
     // 8. Terminals (depends on stores)
-    if (backup.terminals?.length > 0) {
-      console.log(`Restoring ${backup.terminals.length} terminals...`);
-      for (const terminal of backup.terminals) {
+    // Handle both 'terminals' and 'posTerminals' keys for compatibility
+    const terminals = backup.terminals || backup.posTerminals || [];
+    if (terminals.length > 0) {
+      console.log(`Restoring ${terminals.length} terminals...`);
+      for (const terminal of terminals) {
         try {
-          await prisma.posTerminal.upsert({
-            where: { terminal_id: terminal.terminal_id },
+          await prisma.pOSTerminal.upsert({
+            where: { pos_terminal_id: terminal.pos_terminal_id },
             update: terminal,
             create: terminal,
           });
         } catch (e) {
           if (!e.message.includes('Unique constraint')) {
-            console.error('  Error restoring terminal:', terminal.name, e.message);
+            console.error('  Error restoring terminal:', terminal.name || terminal.device_id, e.message);
           }
         }
       }
@@ -414,36 +416,14 @@ async function restoreData() {
       console.log('  ✓ Company allowed roles restored');
     }
 
-    // 18. Client Roles
-    if (backup.clientRoles?.length > 0) {
-      console.log(`Restoring ${backup.clientRoles.length} client roles...`);
-      for (const cr of backup.clientRoles) {
-        try {
-          await prisma.clientRole.upsert({
-            where: { client_role_id: cr.client_role_id },
-            update: cr,
-            create: cr,
-          });
-        } catch (e) {
-          if (!e.message.includes('Unique constraint')) {
-            console.error('  Error restoring client role:', e.message);
-          }
-        }
-      }
-      console.log('  ✓ Client roles restored');
-    }
-
-    // 19. Client Role Permissions
+    // 18. Client Role Permissions (no separate ClientRole model exists)
     if (backup.clientRolePermissions?.length > 0) {
       console.log(`Restoring ${backup.clientRolePermissions.length} client role permissions...`);
       for (const crp of backup.clientRolePermissions) {
         try {
           await prisma.clientRolePermission.upsert({
             where: { 
-              client_role_id_permission_id: {
-                client_role_id: crp.client_role_id,
-                permission_id: crp.permission_id,
-              }
+              client_role_permission_id: crp.client_role_permission_id
             },
             update: crp,
             create: crp,
@@ -457,7 +437,7 @@ async function restoreData() {
       console.log('  ✓ Client role permissions restored');
     }
 
-    // 20. Bulk Import Jobs
+    // 19. Bulk Import Jobs
     if (backup.bulkImportJobs?.length > 0) {
       console.log(`Restoring ${backup.bulkImportJobs.length} bulk import jobs...`);
       for (const job of backup.bulkImportJobs) {
