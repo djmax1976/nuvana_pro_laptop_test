@@ -38,6 +38,11 @@ output "worker_task_definition_arn" {
   value       = aws_ecs_task_definition.worker.arn
 }
 
+output "migration_task_definition_arn" {
+  description = "Migration task definition ARN"
+  value       = aws_ecs_task_definition.migration.arn
+}
+
 output "ecs_security_group_id" {
   description = "Security group ID for ECS tasks"
   value       = aws_security_group.ecs_tasks.id

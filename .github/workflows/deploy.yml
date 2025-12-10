@@ -76,18 +76,6 @@ jobs:
         env:
           DATABASE_URL: ${{ steps.get-db-url.outputs.database_url }}
 
-      - name: Run database migrations
-        run: cd backend && npx prisma migrate deploy
-        env:
-          DATABASE_URL: ${{ steps.get-db-url.outputs.database_url }}
-        continue-on-error: false
-
-      - name: Seed RBAC roles and permissions
-        run: cd backend && npx tsx src/db/seeds/rbac.seed.ts
-        env:
-          DATABASE_URL: ${{ steps.get-db-url.outputs.database_url }}
-        continue-on-error: true
-
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076  # v2.0.1
@@ -132,6 +120,95 @@ jobs:
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
             ./backend
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Get ECS cluster and subnet info
+        id: get-ecs-info
+        env:
+          ENVIRONMENT: ${{ steps.set-env.outputs.environment }}
+        run: |
+          CLUSTER_NAME="nuvana-$ENVIRONMENT-cluster"
+          echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+          
+          # Get private subnet IDs from VPC
+          VPC_ID=$(aws ec2 describe-vpcs \
+            --filters "Name=tag:Name,Values=nuvana-$ENVIRONMENT-vpc" \
+            --query 'Vpcs[0].VpcId' \
+            --output text)
+          
+          # Get subnet IDs as JSON array
+          SUBNET_IDS_JSON=$(aws ec2 describe-subnets \
+            --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=nuvana-$ENVIRONMENT-private-*" \
+            --query 'Subnets[*].SubnetId' \
+            --output json)
+          
+          echo "subnet_ids_json=$SUBNET_IDS_JSON" >> $GITHUB_OUTPUT
+          echo "✓ Retrieved ECS cluster and subnet information"
+
+      - name: Get security group ID
+        id: get-sg-id
+        env:
+          ENVIRONMENT: ${{ steps.set-env.outputs.environment }}
+        run: |
+          SG_ID=$(aws ec2 describe-security-groups \
+            --filters "Name=tag:Name,Values=nuvana-$ENVIRONMENT-ecs-tasks-sg" \
+            --query 'SecurityGroups[0].GroupId' \
+            --output text)
+          echo "security_group_id=$SG_ID" >> $GITHUB_OUTPUT
+          echo "✓ Retrieved ECS security group ID"
+
+      - name: Run database migrations via ECS
+        env:
+          CLUSTER: ${{ steps.get-ecs-info.outputs.cluster_name }}
+          TASK_DEFINITION: nuvana-${{ steps.set-env.outputs.environment }}-migration
+          SUBNET_IDS_JSON: ${{ steps.get-ecs-info.outputs.subnet_ids_json }}
+          SECURITY_GROUP_ID: ${{ steps.get-sg-id.outputs.security_group_id }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/nuvana-${{ steps.set-env.outputs.environment }}-backend:${{ github.sha }}
+        run: |
+          echo "Running database migrations via ECS task..."
+          
+          # Create network configuration JSON
+          NETWORK_CONFIG=$(echo "{\"awsvpcConfiguration\":{\"subnets\":$SUBNET_IDS_JSON,\"securityGroups\":[\"$SECURITY_GROUP_ID\"],\"assignPublicIp\":\"DISABLED\"}}")
+          
+          # Run the migration task with the new image
+          TASK_ARN=$(aws ecs run-task \
+            --cluster $CLUSTER \
+            --task-definition $TASK_DEFINITION \
+            --launch-type FARGATE \
+            --network-configuration "$NETWORK_CONFIG" \
+            --overrides "{\"containerOverrides\":[{\"name\":\"migration\",\"image\":\"$IMAGE\"}]}" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+          
+          echo "Migration task ARN: $TASK_ARN"
+          echo "Waiting for migration task to complete..."
+          
+          # Wait for task to complete (max 10 minutes)
+          aws ecs wait tasks-stopped \
+            --cluster $CLUSTER \
+            --tasks $TASK_ARN \
+            --max-attempts 60 \
+            --delay 10 || true
+          
+          # Get task exit code
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster $CLUSTER \
+            --tasks $TASK_ARN \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+          
+          if [ "$EXIT_CODE" != "0" ] && [ "$EXIT_CODE" != "null" ]; then
+            echo "❌ Migration failed with exit code: $EXIT_CODE"
+            echo "Checking logs..."
+            aws logs tail "/ecs/$CLUSTER/migration" --since 10m --format short || true
+            exit 1
+          else
+            echo "✓ Database migrations completed successfully"
+          fi
+
+      # Note: RBAC seed is skipped in production as tsx is not available in production image
+      # Seeds should be run manually or via a separate process that includes dev dependencies
+      # - name: Seed RBAC roles and permissions (via ECS)
 
       - name: Update frontend ECS service
         env:

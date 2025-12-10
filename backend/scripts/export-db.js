@@ -52,7 +52,7 @@ async function exportData() {
     console.log(`  ✓ Exported ${backup.stores.length} stores`);
 
     console.log('Exporting terminals...');
-    backup.terminals = await prisma.posTerminal.findMany();
+    backup.terminals = await prisma.pOSTerminal.findMany();
     console.log(`  ✓ Exported ${backup.terminals.length} terminals`);
 
     console.log('Exporting cashiers...');
@@ -83,10 +83,7 @@ async function exportData() {
     backup.companyAllowedRoles = await prisma.companyAllowedRole.findMany();
     console.log(`  ✓ Exported ${backup.companyAllowedRoles.length} company allowed roles`);
 
-    console.log('Exporting client roles...');
-    backup.clientRoles = await prisma.clientRole.findMany();
-    console.log(`  ✓ Exported ${backup.clientRoles.length} client roles`);
-
+    // ClientRole model doesn't exist - only ClientRolePermission
     console.log('Exporting client role permissions...');
     backup.clientRolePermissions = await prisma.clientRolePermission.findMany();
     console.log(`  ✓ Exported ${backup.clientRolePermissions.length} client role permissions`);

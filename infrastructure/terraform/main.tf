@@ -112,6 +112,9 @@ module "rds" {
   # Get password from Secrets Manager
   db_password_secret_arn = module.secrets.db_password_secret_arn
 
+  # Allow ECS tasks to access RDS
+  ecs_security_group_id = module.ecs.ecs_security_group_id
+
   tags = local.common_tags
 }
 

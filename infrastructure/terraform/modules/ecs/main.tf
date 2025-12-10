@@ -40,6 +40,13 @@ resource "aws_cloudwatch_log_group" "worker" {
   tags = var.tags
 }
 
+resource "aws_cloudwatch_log_group" "migration" {
+  name              = "/ecs/${var.name_prefix}/migration"
+  retention_in_days = 30
+
+  tags = var.tags
+}
+
 # -----------------------------------------------------------------------------
 # IAM Role for ECS Task Execution
 # -----------------------------------------------------------------------------
@@ -366,6 +373,55 @@ resource "aws_ecs_task_definition" "worker" {
           "awslogs-group"         = aws_cloudwatch_log_group.worker.name
           "awslogs-region"        = data.aws_region.current.name
           "awslogs-stream-prefix" = "worker"
+        }
+      }
+    }
+  ])
+
+  tags = var.tags
+}
+
+# -----------------------------------------------------------------------------
+# Migration Task Definition (for running Prisma migrations)
+# -----------------------------------------------------------------------------
+resource "aws_ecs_task_definition" "migration" {
+  family                   = "${var.name_prefix}-migration"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "256" # Minimal CPU for migrations
+  memory                   = "512" # Minimal memory for migrations
+  execution_role_arn       = aws_iam_role.ecs_execution.arn
+  task_role_arn            = aws_iam_role.ecs_task.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "migration"
+      image     = var.backend_image
+      essential = true
+
+      # Override command to run migrations
+      command = ["sh", "-c", "cd /app && npx prisma migrate deploy"]
+
+      environment = [
+        {
+          name  = "NODE_ENV"
+          value = "production"
+        }
+      ]
+
+      secrets = [
+        {
+          name      = "DATABASE_URL"
+          valueFrom = var.database_url_secret_arn
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.migration.name
+          "awslogs-region"        = data.aws_region.current.name
+          "awslogs-stream-prefix" = "migration"
         }
       }
     }
