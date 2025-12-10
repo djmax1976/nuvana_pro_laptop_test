@@ -261,15 +261,15 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     const gameCode = game.game_code;
 
     // Create a non-existent game code using a very unlikely code
-    // Use "0000" which is excluded from test game generation
-    const invalidGameCode = "0000";
+    // Use "8888" which doesn't exist in seed data or performance tests
+    const invalidGameCode = "8888";
     const validSerial = buildSerialNumber(gameCode, "1234567", "012");
     const invalidSerial = buildSerialNumber(invalidGameCode, "7654321", "045");
 
     // AND: Batch contains serial with invalid game code
     const serializedNumbers = [
       validSerial, // Valid game_code
-      invalidSerial, // Invalid game_code: 0000 (not in database)
+      invalidSerial, // Invalid game_code: 8888 (not in database)
     ];
 
     // WHEN: Receiving packs via batch API
@@ -317,8 +317,8 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     const validSerial1 = buildSerialNumber(gameCode, "1234567", "012");
     const validSerial2 = buildSerialNumber(gameCode, "9876543", "045");
     const validSerial3 = buildSerialNumber(gameCode, "5555555", "012");
-    // Use "0000" which is excluded from test game generation
-    const invalidGameCodeSerial = buildSerialNumber("0000", "7890123", "078");
+    // Use "8888" which doesn't exist in seed data or performance tests
+    const invalidGameCodeSerial = buildSerialNumber("8888", "7890123", "078");
 
     // AND: Batch contains mix of valid serials and one with invalid game code
     // Note: Invalid format serials are caught by schema validation (400), so we only test game code errors
@@ -814,10 +814,10 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     });
 
     // Build serials with invalid/non-existent game codes
-    // Use "0000" which is excluded from test game generation
-    const invalidSerial1 = buildSerialNumber("0000", "1234567", "012");
-    const invalidSerial2 = buildSerialNumber("0000", "2345678", "012");
-    const invalidSerial3 = buildSerialNumber("0000", "3456789", "012");
+    // Use "8888" which doesn't exist in seed data or performance tests
+    const invalidSerial1 = buildSerialNumber("8888", "1234567", "012");
+    const invalidSerial2 = buildSerialNumber("8888", "2345678", "012");
+    const invalidSerial3 = buildSerialNumber("8888", "3456789", "012");
 
     // WHEN: Attempting to receive all invalid game code serials
     const response = await storeManagerApiRequest.post(

@@ -168,8 +168,10 @@ jobs:
         run: |
           echo "Running database migrations via ECS task..."
           
-          # Convert space-separated subnet IDs to JSON array
-          SUBNET_IDS_ARRAY=$(echo "$SUBNET_IDS" | tr ' ' '\n' | sed 's/^/"/;s/$/"/' | tr '\n' ',' | sed 's/,$//' | sed 's/^/[/;s/$/]/')
+          # Convert tab/space-separated subnet IDs to JSON array (handle both tabs and spaces)
+          # First normalize to spaces, then split and create JSON array
+          SUBNET_IDS_NORMALIZED=$(echo "$SUBNET_IDS" | tr '\t' ' ' | xargs)
+          SUBNET_IDS_ARRAY=$(echo "$SUBNET_IDS_NORMALIZED" | awk '{for(i=1;i<=NF;i++){printf "\"%s\"", $i; if(i<NF)printf ","}}' | awk '{printf "[%s]", $0}')
           
           # Create network configuration JSON
           NETWORK_CONFIG=$(echo "{\"awsvpcConfiguration\":{\"subnets\":$SUBNET_IDS_ARRAY,\"securityGroups\":[\"$SECURITY_GROUP_ID\"],\"assignPublicIp\":\"DISABLED\"}}")
