@@ -135,13 +135,14 @@ jobs:
             --query 'Vpcs[0].VpcId' \
             --output text)
           
-          # Get subnet IDs as JSON array
-          SUBNET_IDS_JSON=$(aws ec2 describe-subnets \
+          # Get subnet IDs as space-separated list
+          SUBNET_IDS=$(aws ec2 describe-subnets \
             --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=nuvana-$ENVIRONMENT-private-*" \
             --query 'Subnets[*].SubnetId' \
-            --output json)
+            --output text)
           
-          echo "subnet_ids_json=$SUBNET_IDS_JSON" >> $GITHUB_OUTPUT
+          # Store as space-separated (we'll convert to JSON in the migration step)
+          echo "subnet_ids=$SUBNET_IDS" >> $GITHUB_OUTPUT
           echo "✓ Retrieved ECS cluster and subnet information"
 
       - name: Get security group ID
@@ -160,15 +161,18 @@ jobs:
         env:
           CLUSTER: ${{ steps.get-ecs-info.outputs.cluster_name }}
           TASK_DEFINITION: nuvana-${{ steps.set-env.outputs.environment }}-migration
-          SUBNET_IDS_JSON: ${{ steps.get-ecs-info.outputs.subnet_ids_json }}
+          SUBNET_IDS: ${{ steps.get-ecs-info.outputs.subnet_ids }}
           SECURITY_GROUP_ID: ${{ steps.get-sg-id.outputs.security_group_id }}
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE: ${{ steps.login-ecr.outputs.registry }}/nuvana-${{ steps.set-env.outputs.environment }}-backend:${{ github.sha }}
         run: |
           echo "Running database migrations via ECS task..."
           
+          # Convert space-separated subnet IDs to JSON array
+          SUBNET_IDS_ARRAY=$(echo "$SUBNET_IDS" | tr ' ' '\n' | sed 's/^/"/;s/$/"/' | tr '\n' ',' | sed 's/,$//' | sed 's/^/[/;s/$/]/')
+          
           # Create network configuration JSON
-          NETWORK_CONFIG=$(echo "{\"awsvpcConfiguration\":{\"subnets\":$SUBNET_IDS_JSON,\"securityGroups\":[\"$SECURITY_GROUP_ID\"],\"assignPublicIp\":\"DISABLED\"}}")
+          NETWORK_CONFIG=$(echo "{\"awsvpcConfiguration\":{\"subnets\":$SUBNET_IDS_ARRAY,\"securityGroups\":[\"$SECURITY_GROUP_ID\"],\"assignPublicIp\":\"DISABLED\"}}")
           
           # Run the migration task with the new image
           TASK_ARN=$(aws ecs run-task \
