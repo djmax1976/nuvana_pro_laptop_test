@@ -41,6 +41,10 @@ ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
+# Debug: Print environment variables to verify they are set
+RUN echo "Building with NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}" && \
+    echo "Building with NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}"
+
 # Build the application
 RUN npm run build
 
