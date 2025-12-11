@@ -1,6 +1,5 @@
 import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
-import { rbacService } from "./rbac.service";
 import { getRedisClient } from "../utils/redis";
 import { withRLSTransaction } from "../utils/db";
 
