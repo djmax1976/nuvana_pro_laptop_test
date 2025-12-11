@@ -187,27 +187,72 @@ jobs:
             --output text 2>/dev/null || echo "")
 
           if [ -z "$LATEST_TASK_DEF_ARN" ] || [ "$LATEST_TASK_DEF_ARN" == "None" ]; then
-            echo "❌ Task definition $TASK_DEFINITION not found. Please create it first in AWS ECS."
-            echo "You can create it using the AWS Console or CLI with a base configuration."
-            exit 1
+            echo "⚠️ Task definition $TASK_DEFINITION not found. Creating it from backend task definition..."
+            
+            # Get backend service task definition to use as template
+            BACKEND_SERVICE="nuvana-${{ steps.set-env.outputs.environment }}-backend"
+            echo "Getting backend service task definition from: $BACKEND_SERVICE"
+            BACKEND_TASK_DEF=$(aws ecs describe-services \
+              --cluster $CLUSTER \
+              --services $BACKEND_SERVICE \
+              --query 'services[0].taskDefinition' \
+              --output text)
+            
+            if [ -z "$BACKEND_TASK_DEF" ] || [ "$BACKEND_TASK_DEF" == "None" ]; then
+              echo "❌ Backend service $BACKEND_SERVICE not found. Cannot create migration task definition."
+              echo "Please ensure the backend service exists first."
+              exit 1
+            fi
+            
+            echo "Using backend task definition as template: $BACKEND_TASK_DEF"
+            
+            # Get backend task definition JSON
+            aws ecs describe-task-definition --task-definition "$BACKEND_TASK_DEF" --query 'taskDefinition' > backend-task-def.json
+            
+            # Create migration task definition from backend template
+            # Modify: family name, command (for migrations), image, and remove read-only fields
+            jq ".family = \"$TASK_DEFINITION\" | \
+                .containerDefinitions[0].command = [\"npx\", \"prisma\", \"migrate\", \"deploy\"] | \
+                .containerDefinitions[0].image = \"$IMAGE\" | \
+                del(.taskDefinitionArn) | \
+                del(.revision) | \
+                del(.status) | \
+                del(.requiresAttributes) | \
+                del(.compatibilities) | \
+                del(.registeredAt) | \
+                del(.registeredBy)" \
+                backend-task-def.json > migration-task-def.json
+            
+            # Register the new migration task definition
+            echo "Registering new migration task definition..."
+            REGISTERED_TASK_DEF_ARN=$(aws ecs register-task-definition \
+              --cli-input-json file://migration-task-def.json \
+              --query 'taskDefinition.taskDefinitionArn' \
+              --output text)
+            
+            echo "✓ Created migration task definition: $REGISTERED_TASK_DEF_ARN"
+            
+            # Use the newly created task definition directly (image is already set correctly)
+            NEW_TASK_DEF="$REGISTERED_TASK_DEF_ARN"
+            echo "Using newly created migration task definition: $NEW_TASK_DEF"
+          else
+            echo "Found existing task definition: $LATEST_TASK_DEF_ARN"
+            
+            # Extract revision number from ARN (format: arn:aws:ecs:region:account:task-definition/family:revision)
+            TASK_DEF_WITH_REVISION=$(echo "$LATEST_TASK_DEF_ARN" | awk -F'/' '{print $2}')
+
+            # Update migration task definition with new image before running
+            # Get current task definition and update the image
+            echo "Describing task definition: $TASK_DEF_WITH_REVISION"
+            aws ecs describe-task-definition --task-definition "$TASK_DEF_WITH_REVISION" --query 'taskDefinition' > migration-task-def.json
+
+            # Update image in task definition and remove fields that can't be set
+            jq ".containerDefinitions[0].image = \"$IMAGE\" | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)" migration-task-def.json > migration-task-def-updated.json
+
+            # Register new task definition with updated image
+            NEW_TASK_DEF=$(aws ecs register-task-definition --cli-input-json file://migration-task-def-updated.json --query 'taskDefinition.taskDefinitionArn' --output text)
+            echo "Registered new migration task definition: $NEW_TASK_DEF"
           fi
-
-          echo "Found existing task definition: $LATEST_TASK_DEF_ARN"
-          
-          # Extract revision number from ARN (format: arn:aws:ecs:region:account:task-definition/family:revision)
-          TASK_DEF_WITH_REVISION=$(echo "$LATEST_TASK_DEF_ARN" | awk -F'/' '{print $2}')
-
-          # Update migration task definition with new image before running
-          # Get current task definition and update the image
-          echo "Describing task definition: $TASK_DEF_WITH_REVISION"
-          aws ecs describe-task-definition --task-definition "$TASK_DEF_WITH_REVISION" --query 'taskDefinition' > migration-task-def.json
-
-          # Update image in task definition and remove fields that can't be set
-          jq ".containerDefinitions[0].image = \"$IMAGE\" | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)" migration-task-def.json > migration-task-def-updated.json
-
-          # Register new task definition with updated image
-          NEW_TASK_DEF=$(aws ecs register-task-definition --cli-input-json file://migration-task-def-updated.json --query 'taskDefinition.taskDefinitionArn' --output text)
-          echo "Registered new migration task definition: $NEW_TASK_DEF"
 
           # Run the migration task with the updated task definition
           TASK_ARN=$(aws ecs run-task \
