@@ -181,9 +181,28 @@ export class AuthService {
     // RLS policies on user_roles table require app.current_user_id PostgreSQL session variable
     // Using withRLSTransaction ensures the session variable is set on the same connection
     // This is critical in AWS environments with connection pooling (RDS Proxy/PgBouncer)
+    //
+    // IMPORTANT: The RLS policy has a condition: user_id::text = current_setting('app.current_user_id', true)
+    // This allows users to see their own roles, bypassing the circular dependency with app.is_system_admin()
     const userRoles = await withRLSTransaction(user_id, async (tx) => {
+      // First, verify the session variable is set correctly
+      const sessionCheck = await tx.$queryRaw<
+        Array<{ current_user_id: string | null }>
+      >`
+        SELECT current_setting('app.current_user_id', true) as current_user_id
+      `;
+
+      // Log in all environments to debug staging issues
+      console.log("[AuthService] RLS context check:", {
+        user_id,
+        sessionUserId: sessionCheck[0]?.current_user_id,
+        match: sessionCheck[0]?.current_user_id === user_id,
+        environment: process.env.NODE_ENV,
+      });
+
       // Use the transaction client to ensure queries run on the same connection
       // where SET LOCAL was executed
+      // The RLS policy should allow this query because user_id matches current_setting
       const userRoles = await tx.userRole.findMany({
         where: {
           user_id: user_id,
@@ -200,6 +219,30 @@ export class AuthService {
           },
         },
       });
+
+      // Log in all environments to debug staging issues
+      console.log("[AuthService] Fetched user roles:", {
+        user_id,
+        roleCount: userRoles.length,
+        roles: userRoles.map((ur) => ur.role.code),
+        permissions: userRoles.flatMap((ur) =>
+          ur.role.role_permissions.map((rp: any) => rp.permission.code),
+        ),
+        environment: process.env.NODE_ENV,
+      });
+
+      // If no roles found, this is a critical error - log it
+      if (userRoles.length === 0) {
+        console.error(
+          "[AuthService] CRITICAL: No roles found for user during token generation!",
+          {
+            user_id,
+            email,
+            sessionUserId: sessionCheck[0]?.current_user_id,
+            environment: process.env.NODE_ENV,
+          },
+        );
+      }
 
       // Transform to UserRole format (matching rbacService.getUserRoles format)
       return userRoles.map((ur: any) => ({
@@ -235,6 +278,16 @@ export class AuthService {
     }
 
     const permissions = Array.from(permissionsSet);
+
+    // Log final token generation details
+    console.log("[AuthService] Token generation summary:", {
+      user_id,
+      email,
+      roles,
+      permissions,
+      hasAdminPermission: permissions.includes("ADMIN_SYSTEM_CONFIG"),
+      environment: process.env.NODE_ENV,
+    });
 
     return {
       accessToken: this.generateAccessToken(
