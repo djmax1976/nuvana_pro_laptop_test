@@ -1062,19 +1062,16 @@ jobs:
         with:
           name: build-output
           path: ./build-output
-      - name: Setup Trivy with VEX Hub
+      - name: Setup Trivy
         uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1  # v0.2.4
         with:
           version: 'v0.68.1'
-      - name: Initialize VEX Repository
-        run: trivy vex repo init
       - name: Run Trivy vulnerability scanner (blocking - HIGH/CRITICAL with fixes)
         id: trivy_blocking
         run: |
           trivy fs ./build-output \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
-            --vex repo \
             --ignorefile .trivyignore.yaml \
             --format sarif \
             --output trivy-bundle-results.sarif \
@@ -1085,7 +1082,6 @@ jobs:
         run: |
           trivy fs ./build-output \
             --severity LOW,MEDIUM,HIGH,CRITICAL \
-            --vex repo \
             --ignorefile .trivyignore.yaml \
             --format json \
             --output trivy-full-report.json \
@@ -1095,7 +1091,6 @@ jobs:
         run: |
           trivy fs ./build-output \
             --severity HIGH,CRITICAL \
-            --vex repo \
             --ignorefile .trivyignore.yaml \
             --format table \
             --show-suppressed \

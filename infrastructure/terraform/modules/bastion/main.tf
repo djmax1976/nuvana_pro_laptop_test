@@ -115,6 +115,13 @@ resource "aws_instance" "bastion" {
   # Enable detailed monitoring (optional)
   monitoring = false
 
+  # Enforce IMDSv2 for security (prevents SSRF credential theft)
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
+
   # User data to install PostgreSQL client tools
   user_data = <<-EOF
     #!/bin/bash
