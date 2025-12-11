@@ -266,24 +266,61 @@ jobs:
           echo "Migration task ARN: $TASK_ARN"
           echo "Waiting for migration task to complete..."
 
-          # Wait for task to complete (max 10 minutes)
-          aws ecs wait tasks-stopped \
+          # Wait for task to complete (max 10 minutes = 600 seconds)
+          # aws ecs wait tasks-stopped polls every 15 seconds by default
+          timeout 600 aws ecs wait tasks-stopped \
+            --cluster $CLUSTER \
+            --tasks $TASK_ARN || {
+            echo "⚠️ Wait timeout reached. Checking task status..."
+            TIMEOUT_REACHED=true
+          }
+
+          # Get task status and exit code
+          TASK_STATUS=$(aws ecs describe-tasks \
             --cluster $CLUSTER \
             --tasks $TASK_ARN \
-            --max-attempts 60 \
-            --delay 10 || true
-
-          # Get task exit code
+            --query 'tasks[0].lastStatus' \
+            --output text)
+          
           EXIT_CODE=$(aws ecs describe-tasks \
             --cluster $CLUSTER \
             --tasks $TASK_ARN \
             --query 'tasks[0].containers[0].exitCode' \
             --output text)
+          
+          echo "Task status: $TASK_STATUS"
+          echo "Exit code: $EXIT_CODE"
 
-          if [ "$EXIT_CODE" != "0" ] && [ "$EXIT_CODE" != "null" ]; then
+          # Get log group name from task definition
+          LOG_GROUP=$(aws ecs describe-task-definition \
+            --task-definition $NEW_TASK_DEF \
+            --query 'taskDefinition.containerDefinitions[0].logConfiguration.options."awslogs-group"' \
+            --output text 2>/dev/null || echo "")
+
+          if [ "$EXIT_CODE" == "None" ] || [ -z "$EXIT_CODE" ]; then
+            if [ "$TASK_STATUS" != "STOPPED" ]; then
+              echo "⚠️ Task is still running (status: $TASK_STATUS). This may indicate a timeout or the task is taking longer than expected."
+              if [ -n "$LOG_GROUP" ] && [ "$LOG_GROUP" != "None" ]; then
+                echo "Checking logs from: $LOG_GROUP"
+                aws logs tail "$LOG_GROUP" --since 10m --format short || true
+              fi
+              exit 1
+            else
+              echo "⚠️ Exit code is None but task is stopped. This may indicate the container failed to start."
+              if [ -n "$LOG_GROUP" ] && [ "$LOG_GROUP" != "None" ]; then
+                echo "Checking logs from: $LOG_GROUP"
+                aws logs tail "$LOG_GROUP" --since 10m --format short || true
+              fi
+              exit 1
+            fi
+          elif [ "$EXIT_CODE" != "0" ]; then
             echo "❌ Migration failed with exit code: $EXIT_CODE"
-            echo "Checking logs..."
-            aws logs tail "/ecs/$CLUSTER/migration" --since 10m --format short || true
+            if [ -n "$LOG_GROUP" ] && [ "$LOG_GROUP" != "None" ]; then
+              echo "Checking logs from: $LOG_GROUP"
+              aws logs tail "$LOG_GROUP" --since 10m --format short || true
+            else
+              echo "⚠️ Could not determine log group name. Task definition may not have log configuration."
+            fi
             exit 1
           else
             echo "✓ Database migrations completed successfully"
