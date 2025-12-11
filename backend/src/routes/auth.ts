@@ -111,10 +111,16 @@ export async function authRoutes(fastify: FastifyInstance) {
           await authService.generateTokenPairWithRBAC(user.user_id, user.email);
 
         // Set httpOnly cookies
+        // Determine if request is over HTTPS (check protocol or x-forwarded-proto header)
+        // Only use secure cookies if actually over HTTPS, not just in production
+        const isSecure =
+          request.protocol === "https" ||
+          request.headers["x-forwarded-proto"] === "https";
+
         // Access token cookie (15 min expiry)
         (reply as any).setCookie("access_token", accessToken, {
           httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
+          secure: isSecure,
           sameSite: "lax",
           path: "/",
           maxAge: 15 * 60, // 15 minutes in seconds
@@ -123,7 +129,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         // Refresh token cookie (7 days expiry)
         (reply as any).setCookie("refresh_token", refreshToken, {
           httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
+          secure: isSecure,
           sameSite: "lax",
           path: "/",
           maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
@@ -351,10 +357,15 @@ export async function authRoutes(fastify: FastifyInstance) {
         }
 
         // Set httpOnly cookies
+        // Determine if request is over HTTPS (check protocol or x-forwarded-proto header)
+        const isSecure =
+          request.protocol === "https" ||
+          request.headers["x-forwarded-proto"] === "https";
+
         // Access token cookie (15 min expiry)
         (reply as any).setCookie("access_token", accessToken, {
           httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
+          secure: isSecure,
           sameSite: "lax",
           path: "/",
           maxAge: 15 * 60, // 15 minutes in seconds
@@ -363,7 +374,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         // Refresh token cookie (7 days expiry)
         (reply as any).setCookie("refresh_token", refreshToken, {
           httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
+          secure: isSecure,
           sameSite: "lax",
           path: "/",
           maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
@@ -483,10 +494,15 @@ export async function authRoutes(fastify: FastifyInstance) {
           );
 
         // Set new httpOnly cookies with secure flags
+        // Determine if request is over HTTPS
+        const isSecure =
+          request.protocol === "https" ||
+          request.headers["x-forwarded-proto"] === "https";
+
         // Access token cookie (15 min expiry)
         (reply as any).setCookie("access_token", newAccessToken, {
           httpOnly: true,
-          secure: true, // HTTPS only
+          secure: isSecure,
           sameSite: "strict", // CSRF protection
           path: "/",
           maxAge: 15 * 60, // 15 minutes in seconds
@@ -495,7 +511,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         // Refresh token cookie (7 days expiry) - rotated
         (reply as any).setCookie("refresh_token", newRefreshToken, {
           httpOnly: true,
-          secure: true, // HTTPS only
+          secure: isSecure,
           sameSite: "strict", // CSRF protection
           path: "/",
           maxAge: 7 * 24 * 60 * 60, // 7 days in seconds

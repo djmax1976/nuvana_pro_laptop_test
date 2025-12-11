@@ -135,9 +135,21 @@ variable "worker_desired_count" {
 # SSL Certificate (optional)
 # -----------------------------------------------------------------------------
 variable "certificate_arn" {
-  description = "ARN of ACM certificate for HTTPS (optional)"
+  description = "ARN of ACM certificate for HTTPS (optional). Leave empty to create certificate via ACM module."
   type        = string
   default     = ""
+}
+
+variable "domain_name" {
+  description = "Domain name for SSL certificate (e.g., 'example.com' or 'app.example.com')"
+  type        = string
+  default     = ""
+}
+
+variable "create_certificate" {
+  description = "Whether to create ACM certificate via Terraform"
+  type        = bool
+  default     = false
 }
 
 # -----------------------------------------------------------------------------

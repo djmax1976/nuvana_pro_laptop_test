@@ -24,6 +24,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
   }
 
   backend "s3" {
@@ -96,6 +100,23 @@ module "secrets" {
 }
 
 # =============================================================================
+# Bastion Host (SSH Tunnel Gateway)
+# =============================================================================
+module "bastion" {
+  source = "./modules/bastion"
+
+  name_prefix       = local.name_prefix
+  vpc_id            = module.vpc.vpc_id
+  public_subnet_ids = module.vpc.public_subnet_ids
+
+  # Allow SSH from anywhere (restrict in production!)
+  # TODO: Update this to your specific IP for better security
+  allowed_cidr_blocks = ["0.0.0.0/0"]
+
+  tags = local.common_tags
+}
+
+# =============================================================================
 # RDS PostgreSQL
 # =============================================================================
 module "rds" {
@@ -114,6 +135,9 @@ module "rds" {
 
   # Allow ECS tasks to access RDS
   ecs_security_group_id = module.ecs.ecs_security_group_id
+
+  # Allow bastion host to access RDS
+  bastion_security_group_id = module.bastion.security_group_id
 
   tags = local.common_tags
 }
@@ -152,6 +176,24 @@ module "amazonmq" {
 }
 
 # =============================================================================
+# ACM Certificate (if domain_name provided)
+# =============================================================================
+module "acm" {
+  count = var.create_certificate && var.domain_name != "" ? 1 : 0
+
+  source = "./modules/acm"
+
+  name_prefix = local.name_prefix
+  domain_name = var.domain_name
+
+  # Manual DNS validation (no Route 53)
+  create_validation_records = false
+  hosted_zone_id            = ""
+
+  tags = local.common_tags
+}
+
+# =============================================================================
 # Application Load Balancer
 # =============================================================================
 module "alb" {
@@ -161,7 +203,8 @@ module "alb" {
   vpc_id            = module.vpc.vpc_id
   public_subnet_ids = module.vpc.public_subnet_ids
 
-  certificate_arn = var.certificate_arn
+  # Use certificate from ACM module if created, otherwise use provided ARN
+  certificate_arn = var.create_certificate && var.domain_name != "" ? module.acm[0].certificate_arn : var.certificate_arn
 
   tags = local.common_tags
 }
@@ -187,6 +230,7 @@ module "ecs" {
   # Service discovery
   alb_security_group_id = module.alb.security_group_id
   alb_dns_name          = module.alb.dns_name
+  frontend_url          = var.domain_name != "" ? "https://${var.domain_name}" : ""
 
   # Database connection
   database_url_secret_arn = module.secrets.database_url_secret_arn

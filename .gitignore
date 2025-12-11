@@ -59,6 +59,10 @@ test-results/
 # IDE workspace files
 .claude/
 
+# Database backups and temporary scripts
+**/db-backup.json
+**/restore-to-aws-tunnel.js
+
 # BMAD-specific ignores (DO NOT commit framework files)
 nuvana_docs/
 nuvana_control/

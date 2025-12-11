@@ -205,11 +205,11 @@ resource "aws_ecs_task_definition" "frontend" {
         },
         {
           name  = "NEXT_PUBLIC_BACKEND_URL"
-          value = "http://${var.alb_dns_name}" # ALB URL for client-side API calls
+          value = var.frontend_url != "" ? var.frontend_url : "http://${var.alb_dns_name}" # HTTPS domain for client-side API calls
         },
         {
           name  = "NEXT_PUBLIC_API_URL"
-          value = "http://${var.alb_dns_name}" # ALB URL for client-side API calls
+          value = var.frontend_url != "" ? var.frontend_url : "http://${var.alb_dns_name}" # HTTPS domain for client-side API calls
         }
       ]
 

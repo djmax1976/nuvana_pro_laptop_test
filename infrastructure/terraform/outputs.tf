@@ -37,8 +37,14 @@ output "backend_ecr_repository_url" {
 # RDS
 # -----------------------------------------------------------------------------
 output "rds_endpoint" {
-  description = "RDS instance endpoint"
+  description = "RDS instance endpoint (full connection string)"
   value       = module.rds.endpoint
+  sensitive   = true
+}
+
+output "rds_address" {
+  description = "RDS instance address (hostname only, for SSH tunnel)"
+  value       = module.rds.address
   sensitive   = true
 }
 
@@ -89,6 +95,20 @@ output "alb_zone_id" {
 }
 
 # -----------------------------------------------------------------------------
+# ACM Certificate
+# -----------------------------------------------------------------------------
+output "certificate_arn" {
+  description = "ARN of the ACM certificate (if created)"
+  value       = var.create_certificate && var.domain_name != "" ? module.acm[0].certificate_arn : var.certificate_arn
+}
+
+output "certificate_validation_records" {
+  description = "DNS validation records for the certificate (add these to your domain DNS)"
+  value       = var.create_certificate && var.domain_name != "" ? module.acm[0].validation_records : null
+  sensitive   = false
+}
+
+# -----------------------------------------------------------------------------
 # ECS
 # -----------------------------------------------------------------------------
 output "ecs_cluster_name" {
@@ -104,6 +124,40 @@ output "frontend_service_name" {
 output "backend_service_name" {
   description = "Name of the backend ECS service"
   value       = module.ecs.backend_service_name
+}
+
+# -----------------------------------------------------------------------------
+# Bastion Host
+# -----------------------------------------------------------------------------
+output "bastion_public_ip" {
+  description = "Public IP address of the bastion host"
+  value       = module.bastion.public_ip
+}
+
+output "bastion_public_dns" {
+  description = "Public DNS name of the bastion host"
+  value       = module.bastion.public_dns
+}
+
+output "bastion_key_name" {
+  description = "Name of the key pair for the bastion host"
+  value       = module.bastion.key_name
+}
+
+output "bastion_private_key" {
+  description = "Private key for the bastion host (sensitive - save this securely!)"
+  value       = module.bastion.private_key_pem
+  sensitive   = true
+}
+
+output "bastion_ssh_command" {
+  description = "SSH command to connect to bastion host"
+  value       = "ssh -i <key-file> ec2-user@${module.bastion.public_ip}"
+}
+
+output "bastion_tunnel_command" {
+  description = "SSH tunnel command to forward RDS port"
+  value       = "ssh -i <key-file> -L 5432:${module.rds.address}:5432 ec2-user@${module.bastion.public_ip}"
 }
 
 # -----------------------------------------------------------------------------

@@ -41,8 +41,14 @@ variable "alb_security_group_id" {
 }
 
 variable "alb_dns_name" {
-  description = "DNS name of the ALB (for frontend API URL configuration)"
+  description = "DNS name of the ALB (for internal routing)"
   type        = string
+}
+
+variable "frontend_url" {
+  description = "Frontend domain URL (e.g., 'https://staging.nuvanaapp.com') for client-side API calls"
+  type        = string
+  default     = ""
 }
 
 # Database
