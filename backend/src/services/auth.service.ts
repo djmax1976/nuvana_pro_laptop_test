@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
-import { rbacService } from "./rbac.service";
 import { getRedisClient } from "../utils/redis";
+import { withRLSTransaction } from "../utils/db";
 
 /**
  * JWT token payload structure
@@ -177,8 +177,45 @@ export class AuthService {
     user_id: string,
     email: string,
   ): Promise<TokenPair> {
-    // Fetch user roles from database
-    const userRoles = await rbacService.getUserRoles(user_id);
+    // Fetch user roles from database with RLS transaction
+    // RLS policies on user_roles table require app.current_user_id PostgreSQL session variable
+    // Using withRLSTransaction ensures the session variable is set on the same connection
+    // This is critical in AWS environments with connection pooling (RDS Proxy/PgBouncer)
+    const userRoles = await withRLSTransaction(user_id, async (tx) => {
+      // Use the transaction client to ensure queries run on the same connection
+      // where SET LOCAL was executed
+      const userRoles = await tx.userRole.findMany({
+        where: {
+          user_id: user_id,
+        },
+        include: {
+          role: {
+            include: {
+              role_permissions: {
+                include: {
+                  permission: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // Transform to UserRole format (matching rbacService.getUserRoles format)
+      return userRoles.map((ur: any) => ({
+        user_role_id: ur.user_role_id,
+        user_id: ur.user_id,
+        role_id: ur.role_id,
+        role_code: ur.role.code,
+        scope: ur.role.scope as "SYSTEM" | "COMPANY" | "STORE" | "CLIENT",
+        client_id: ur.client_id,
+        company_id: ur.company_id,
+        store_id: ur.store_id,
+        permissions: ur.role.role_permissions.map(
+          (rp: any) => rp.permission.code,
+        ),
+      }));
+    });
 
     // Extract role codes, collect permissions, and find client_id
     const roles: string[] = [];
