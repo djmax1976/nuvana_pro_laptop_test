@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useRoles, useAssignRole, useRevokeRole } from "@/lib/api/admin-users";
 import { useCompanies } from "@/lib/api/companies";
+import { useStoresByCompany } from "@/lib/api/stores";
 import { AdminUser, UserRoleDetail, ScopeType } from "@/types/admin-user";
 import { Button } from "@/components/ui/button";
 import {
@@ -94,9 +95,6 @@ export function RoleAssignmentDialog({
   // State for cascading selectors
   const [selectedScopeType, setSelectedScopeType] =
     useState<ScopeType>("SYSTEM");
-  const [stores, setStores] = useState<
-    Array<{ store_id: string; name: string }>
-  >([]);
 
   const form = useForm<RoleAssignmentFormValues>({
     resolver: zodResolver(roleAssignmentSchema),
@@ -107,6 +105,16 @@ export function RoleAssignmentDialog({
       store_id: "",
     },
   });
+
+  // Watch company_id for store fetching
+  const watchCompanyId = form.watch("company_id");
+
+  // Fetch stores when a company is selected and scope is STORE
+  const { data: storesData } = useStoresByCompany(
+    watchCompanyId || undefined,
+    { limit: 100 },
+    { enabled: !!watchCompanyId && selectedScopeType === "STORE" },
+  );
 
   // Update scope type when role changes
   const watchRoleId = form.watch("role_id");
@@ -121,19 +129,14 @@ export function RoleAssignmentDialog({
         // Reset scope fields when role changes
         form.setValue("company_id", "");
         form.setValue("store_id", "");
-        setStores([]);
       }
     }
   }, [watchRoleId, rolesData, form]);
 
-  // Reset stores when company changes
-  const watchCompanyId = form.watch("company_id");
+  // Reset store_id when company changes
   useEffect(() => {
     if (watchCompanyId) {
-      // In a real implementation, fetch stores for this company
-      // For now, clear stores
       form.setValue("store_id", "");
-      setStores([]);
     }
   }, [watchCompanyId, form]);
 
@@ -343,21 +346,23 @@ export function RoleAssignmentDialog({
                       <Select
                         onValueChange={field.onChange}
                         value={field.value}
-                        disabled={!form.watch("company_id")}
+                        disabled={
+                          !form.watch("company_id") || !storesData?.data
+                        }
                       >
                         <FormControl>
                           <SelectTrigger data-testid="store-select">
                             <SelectValue
                               placeholder={
-                                form.watch("company_id")
-                                  ? "Select a store"
-                                  : "Select a company first"
+                                !form.watch("company_id")
+                                  ? "Select a company first"
+                                  : "Select a store"
                               }
                             />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {stores.map((store) => (
+                          {storesData?.data?.map((store) => (
                             <SelectItem
                               key={store.store_id}
                               value={store.store_id}
