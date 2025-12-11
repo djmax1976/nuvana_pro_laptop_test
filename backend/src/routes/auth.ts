@@ -4,7 +4,7 @@ import { getUserById } from "../services/user.service";
 import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { z } from "zod";
-import { prisma } from "../utils/db";
+import { prisma, withRLSTransaction } from "../utils/db";
 
 // NOTE: OAuth has been removed from this application
 // Using local email/password authentication with bcrypt
@@ -136,9 +136,13 @@ export async function authRoutes(fastify: FastifyInstance) {
         });
 
         // Fetch user roles to determine routing
-        const userRoles = await prisma.userRole.findMany({
-          where: { user_id: user.user_id },
-          include: { role: { select: { code: true, scope: true } } },
+        // Use RLS transaction to ensure RLS policies allow the query
+        // This is critical in AWS environments with connection pooling
+        const userRoles = await withRLSTransaction(user.user_id, async (tx) => {
+          return await tx.userRole.findMany({
+            where: { user_id: user.user_id },
+            include: { role: { select: { code: true, scope: true } } },
+          });
         });
 
         // Extract role codes for routing logic
