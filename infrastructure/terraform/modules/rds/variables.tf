@@ -56,3 +56,9 @@ variable "ecs_security_group_id" {
   type        = string
   default     = ""
 }
+
+variable "bastion_security_group_id" {
+  description = "Security group ID of bastion host (for SSH tunnel access)"
+  type        = string
+  default     = ""
+}

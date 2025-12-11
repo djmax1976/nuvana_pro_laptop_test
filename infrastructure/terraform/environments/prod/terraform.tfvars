@@ -48,10 +48,11 @@ frontend_desired_count = 2
 backend_desired_count  = 2
 worker_desired_count   = 2
 
-# SSL Certificate (add your ACM certificate ARN)
-certificate_arn = ""
+# SSL Certificate Configuration
+create_certificate = true
+domain_name        = "staging.nuvanaapp.com"
+certificate_arn    = ""
 
 # CORS Configuration
-# Set to your production frontend domain(s)
-# For multiple origins, use comma-separated list: "https://example.com,https://www.example.com"
-cors_origin = "https://your-production-domain.com"
+# Will update to HTTPS after certificate is validated
+cors_origin = "https://staging.nuvanaapp.com"

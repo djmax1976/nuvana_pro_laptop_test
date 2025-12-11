@@ -17,7 +17,7 @@ resource "aws_security_group" "rds" {
   description = "Security group for RDS PostgreSQL"
   vpc_id      = var.vpc_id
 
-  # Allow access from ECS security group if provided, otherwise fall back to VPC CIDR
+  # Allow access from ECS security group if provided
   dynamic "ingress" {
     for_each = var.ecs_security_group_id != "" ? [1] : []
     content {
@@ -29,8 +29,21 @@ resource "aws_security_group" "rds" {
     }
   }
 
+  # Allow access from bastion host if provided
   dynamic "ingress" {
-    for_each = var.ecs_security_group_id == "" ? [1] : []
+    for_each = var.bastion_security_group_id != "" ? [1] : []
+    content {
+      description     = "PostgreSQL from bastion host"
+      from_port       = 5432
+      to_port         = 5432
+      protocol        = "tcp"
+      security_groups = [var.bastion_security_group_id]
+    }
+  }
+
+  # Fallback to VPC CIDR if no security groups provided
+  dynamic "ingress" {
+    for_each = var.ecs_security_group_id == "" && var.bastion_security_group_id == "" ? [1] : []
     content {
       description = "PostgreSQL from VPC (fallback)"
       from_port   = 5432
