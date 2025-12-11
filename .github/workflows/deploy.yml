@@ -71,11 +71,6 @@ jobs:
           echo "database_url=$DB_URL" >> $GITHUB_OUTPUT
           echo "✓ Retrieved database URL from Secrets Manager"
 
-      - name: Generate Prisma Client
-        run: cd backend && npx prisma generate
-        env:
-          DATABASE_URL: ${{ steps.get-db-url.outputs.database_url }}
-
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076  # v2.0.1
@@ -326,9 +321,93 @@ jobs:
             echo "✓ Database migrations completed successfully"
           fi
 
-      # Note: RBAC seed is skipped in production as tsx is not available in production image
-      # Seeds should be run manually or via a separate process that includes dev dependencies
-      # - name: Seed RBAC roles and permissions (via ECS)
+      - name: Seed RBAC roles and permissions (via ECS)
+        env:
+          CLUSTER: ${{ steps.get-ecs-info.outputs.cluster_name }}
+          TASK_DEFINITION: nuvana-${{ steps.set-env.outputs.environment }}-migration
+          SUBNET_IDS: ${{ steps.get-ecs-info.outputs.subnet_ids }}
+          SECURITY_GROUP_ID: ${{ steps.get-sg-id.outputs.security_group_id }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/nuvana-${{ steps.set-env.outputs.environment }}-backend:${{ github.sha }}
+        run: |
+          echo "Seeding RBAC roles and permissions via ECS task..."
+
+          # Convert subnet IDs to JSON array
+          SUBNET_IDS_NORMALIZED=$(echo "$SUBNET_IDS" | tr '\t' ' ' | xargs)
+          SUBNET_IDS_ARRAY=$(echo "$SUBNET_IDS_NORMALIZED" | awk '{for(i=1;i<=NF;i++){printf "\"%s\"", $i; if(i<NF)printf ","}}' | awk '{printf "[%s]", $0}')
+          NETWORK_CONFIG=$(echo "{\"awsvpcConfiguration\":{\"subnets\":$SUBNET_IDS_ARRAY,\"securityGroups\":[\"$SECURITY_GROUP_ID\"],\"assignPublicIp\":\"DISABLED\"}}")
+
+          # Get latest migration task definition as template
+          LATEST_TASK_DEF_ARN=$(aws ecs list-task-definitions \
+            --family-prefix "$TASK_DEFINITION" \
+            --sort DESC \
+            --max-items 1 \
+            --query 'taskDefinitionArns[0]' \
+            --output text 2>/dev/null || echo "")
+
+          if [ -z "$LATEST_TASK_DEF_ARN" ] || [ "$LATEST_TASK_DEF_ARN" == "None" ]; then
+            echo "❌ Migration task definition not found. Cannot seed RBAC."
+            exit 1
+          fi
+
+          TASK_DEF_WITH_REVISION=$(echo "$LATEST_TASK_DEF_ARN" | awk -F'/' '{print $2}')
+          aws ecs describe-task-definition --task-definition "$TASK_DEF_WITH_REVISION" --query 'taskDefinition' > rbac-seed-task-def.json
+
+          # Update command to run compiled RBAC seed script
+          jq ".containerDefinitions[0].command = [\"node\", \"dist/db/seeds/rbac.seed.js\"] | \
+              .containerDefinitions[0].image = \"$IMAGE\" | \
+              del(.taskDefinitionArn) | del(.revision) | del(.status) | \
+              del(.requiresAttributes) | del(.compatibilities) | \
+              del(.registeredAt) | del(.registeredBy)" \
+              rbac-seed-task-def.json > rbac-seed-task-def-updated.json
+
+          NEW_TASK_DEF=$(aws ecs register-task-definition \
+            --cli-input-json file://rbac-seed-task-def-updated.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          TASK_ARN=$(aws ecs run-task \
+            --cluster $CLUSTER \
+            --task-definition $NEW_TASK_DEF \
+            --launch-type FARGATE \
+            --network-configuration "$NETWORK_CONFIG" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "RBAC seed task ARN: $TASK_ARN"
+          echo "Waiting for RBAC seed to complete..."
+          timeout 600 aws ecs wait tasks-stopped --cluster $CLUSTER --tasks $TASK_ARN || {
+            echo "⚠️ Wait timeout reached. Checking task status..."
+            TIMEOUT_REACHED=true
+          }
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster $CLUSTER \
+            --tasks $TASK_ARN \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          LOG_GROUP=$(aws ecs describe-task-definition \
+            --task-definition $NEW_TASK_DEF \
+            --query 'taskDefinition.containerDefinitions[0].logConfiguration.options."awslogs-group"' \
+            --output text 2>/dev/null || echo "")
+
+          if [ "$EXIT_CODE" == "None" ] || [ -z "$EXIT_CODE" ]; then
+            echo "⚠️ Exit code is None. Checking logs..."
+            if [ -n "$LOG_GROUP" ] && [ "$LOG_GROUP" != "None" ]; then
+              aws logs tail "$LOG_GROUP" --since 10m --format short || true
+            fi
+            exit 1
+          elif [ "$EXIT_CODE" != "0" ]; then
+            echo "❌ RBAC seed failed with exit code: $EXIT_CODE"
+            if [ -n "$LOG_GROUP" ] && [ "$LOG_GROUP" != "None" ]; then
+              echo "Checking logs from: $LOG_GROUP"
+              aws logs tail "$LOG_GROUP" --since 10m --format short || true
+            fi
+            exit 1
+          else
+            echo "✓ RBAC roles and permissions seeded successfully"
+          fi
 
       - name: Update frontend ECS service
         env:
