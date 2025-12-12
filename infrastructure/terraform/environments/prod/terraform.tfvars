@@ -13,27 +13,24 @@ availability_zones = ["us-east-1a", "us-east-1b"]
 # RDS PostgreSQL
 db_name     = "nuvana"
 db_username = "nuvana_admin"
-# Fixed-performance instance (db.m5.large) provides sustained CPU/memory without burst credits.
-# General-purpose M5 family offers 2 vCPU, 8 GiB RAM, and baseline network performance.
-# Use db.r5.large if memory-optimized workloads are required (13 GiB RAM, same vCPU).
+# Free tier eligible instance (db.t3.micro) - 2 vCPU (burstable), 1 GiB RAM
+# Note: This is a significant downgrade from db.m5.large. Suitable for development/testing only.
 # Monitor CloudWatch metrics (CPUUtilization, DatabaseConnections, ReadLatency, WriteLatency)
 # to validate sizing and adjust based on actual production load patterns.
-db_instance_class = "db.m5.large"
+db_instance_class = "db.t3.micro"
 
 # ElastiCache Redis
-# Fixed-performance instance (cache.m5.large) provides sustained throughput without burst credits.
-# M5 family offers 2 vCPU, 6.64 GiB usable memory, and baseline network performance.
+# Free tier eligible instance (cache.t3.micro) - 2 vCPU (burstable), 0.5 GiB usable memory
+# Note: This is a significant downgrade from cache.m5.large. Suitable for development/testing only.
 # Monitor CloudWatch metrics (CPUUtilization, NetworkBytesIn/Out, Evictions, CacheHits/Misses)
-# to validate sizing. Consider cache.r5.large (13.07 GiB) if memory-bound, or cache.m5.xlarge
-# (4 vCPU, 13.31 GiB) if CPU-bound workloads are observed.
-redis_node_type = "cache.m5.large"
+# to validate sizing.
+redis_node_type = "cache.t3.micro"
 
 # Amazon MQ (RabbitMQ)
-# Fixed-performance instance (mq.m5.large) provides sustained CPU/memory for message processing.
-# M5 family offers 2 vCPU, 8 GiB RAM, and baseline network performance suitable for production workloads.
+# Free tier eligible instance (mq.t3.micro) - 2 vCPU (burstable), 1 GiB RAM
+# Note: This is a significant downgrade from mq.m5.large. Suitable for development/testing only.
 # Monitor CloudWatch metrics (QueueDepth, MessageCount, ConsumerCount, PublishRate) to validate sizing.
-# Consider mq.m5.xlarge (4 vCPU, 16 GiB) if high message throughput or large queue depths are observed.
-rabbitmq_instance_type = "mq.m5.large"
+rabbitmq_instance_type = "mq.t3.micro"
 
 # ECS Task Sizing (production-ready)
 frontend_cpu    = 512
