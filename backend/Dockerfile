@@ -71,7 +71,14 @@ COPY --from=prod-deps /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
 
+# Copy source files needed for startup scripts (RBAC seed, bootstrap admin)
+# These are needed because tsx will run TypeScript files directly
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+
 # Switch to non-root user
+# Note: We switch user AFTER copying files to avoid permission issues
 USER fastify
 
 # Expose port
