@@ -242,18 +242,15 @@ jobs:
         working-directory: infrastructure/terraform
         run: terraform init
 
-      - name: Taint MQ Broker (force replacement for downgrade)
-        working-directory: infrastructure/terraform
-        run: |
-          # Taint the MQ broker to force replacement (AWS doesn't allow instance type downgrades)
-          terraform taint -var-file=environments/prod/terraform.tfvars module.amazonmq.aws_mq_broker.main || true
-        continue-on-error: true
-
       - name: Terraform Apply
         working-directory: infrastructure/terraform
         run: |
+          # Force replacement of resources that cannot be downgraded in-place
+          # AWS doesn't allow downgrading MQ broker or ElastiCache cluster instance types
           terraform apply \
             -var-file=environments/prod/terraform.tfvars \
+            -replace=module.amazonmq.aws_mq_broker.main \
+            -replace=module.elasticache.aws_elasticache_cluster.main \
             -auto-approve
 
       - name: Get Outputs
