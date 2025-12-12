@@ -242,16 +242,148 @@ jobs:
         working-directory: infrastructure/terraform
         run: terraform init
 
-      - name: Terraform Apply
+      - name: Check if MQ and ElastiCache exist in state
         working-directory: infrastructure/terraform
+        id: check_resources
         run: |
-          # Force replacement of resources that cannot be downgraded in-place
-          # AWS doesn't allow downgrading MQ broker or ElastiCache cluster instance types
-          terraform apply \
-            -var-file=environments/prod/terraform.tfvars \
-            -replace=module.amazonmq.aws_mq_broker.main \
-            -replace=module.elasticache.aws_elasticache_cluster.main \
-            -auto-approve
+          # Check if MQ broker and ElastiCache exist in state
+          # For downgrade scenarios, we need to destroy and recreate these resources
+          echo "Checking if MQ broker and ElastiCache exist in Terraform state..."
+          
+          if terraform state list | grep -q "module.amazonmq.aws_mq_broker.main"; then
+            echo "mq_exists=true" >> $GITHUB_OUTPUT
+            echo "✓ MQ broker exists in state"
+          else
+            echo "mq_exists=false" >> $GITHUB_OUTPUT
+            echo "✗ MQ broker does not exist in state"
+          fi
+          
+          if terraform state list | grep -q "module.elasticache.aws_elasticache_cluster.main"; then
+            echo "elasticache_exists=true" >> $GITHUB_OUTPUT
+            echo "✓ ElastiCache cluster exists in state"
+          else
+            echo "elasticache_exists=false" >> $GITHUB_OUTPUT
+            echo "✗ ElastiCache cluster does not exist in state"
+          fi
+
+      - name: Destroy MQ broker and ElastiCache for downgrade
+        working-directory: infrastructure/terraform
+        id: destroy_resources
+        if: steps.check_resources.outputs.mq_exists == 'true' || steps.check_resources.outputs.elasticache_exists == 'true'
+        continue-on-error: false
+        timeout-minutes: 20
+        run: |
+          # AWS doesn't allow downgrading instance types - must destroy and recreate
+          # Destroy resources first to avoid name conflicts (AWS MQ doesn't allow duplicate names)
+          echo "=========================================="
+          echo "Destroying resources for downgrade"
+          echo "=========================================="
+          echo "AWS MQ and ElastiCache cannot be downgraded in-place."
+          echo "We must destroy the existing resources and recreate them."
+          echo ""
+          
+          DESTROY_TARGETS=""
+          if [ "${{ steps.check_resources.outputs.mq_exists }}" = "true" ]; then
+            DESTROY_TARGETS="$DESTROY_TARGETS -target=module.amazonmq.aws_mq_broker.main"
+            echo "✓ Will destroy MQ broker"
+          fi
+          if [ "${{ steps.check_resources.outputs.elasticache_exists }}" = "true" ]; then
+            DESTROY_TARGETS="$DESTROY_TARGETS -target=module.elasticache.aws_elasticache_cluster.main"
+            echo "✓ Will destroy ElastiCache cluster"
+          fi
+          
+          if [ -z "$DESTROY_TARGETS" ]; then
+            echo "No resources to destroy. Skipping destroy step."
+            exit 0
+          fi
+          
+          echo ""
+          echo "Starting destruction..."
+          
+          # Retry logic for destroy
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if terraform destroy \
+              -var-file=environments/prod/terraform.tfvars \
+              $DESTROY_TARGETS \
+              -auto-approve; then
+              echo ""
+              echo "✅ Destruction completed successfully"
+              exit 0
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                WAIT_TIME=$((2 ** RETRY_COUNT * 60))  # 60s, 120s, 240s
+                echo ""
+                echo "⚠️  Destruction failed. Retrying in ${WAIT_TIME} seconds... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
+                sleep $WAIT_TIME
+                echo "Re-initializing Terraform..."
+                terraform init -reconfigure
+              fi
+            fi
+          done
+          echo ""
+          echo "❌ Destruction failed after $MAX_RETRIES attempts"
+          exit 1
+
+      - name: Remove destroyed resources from state
+        working-directory: infrastructure/terraform
+        if: steps.destroy_resources.conclusion == 'success'
+        run: |
+          # Remove destroyed resources from state to force Terraform to treat them as new
+          # This prevents Terraform from trying to do create-before-destroy
+          echo "Removing destroyed resources from Terraform state..."
+          if [ "${{ steps.check_resources.outputs.mq_exists }}" = "true" ]; then
+            terraform state rm module.amazonmq.aws_mq_broker.main || true
+            echo "✓ Removed MQ broker from state"
+          fi
+          if [ "${{ steps.check_resources.outputs.elasticache_exists }}" = "true" ]; then
+            terraform state rm module.elasticache.aws_elasticache_cluster.main || true
+            echo "✓ Removed ElastiCache cluster from state"
+          fi
+
+      - name: Wait for AWS resource cleanup
+        working-directory: infrastructure/terraform
+        if: steps.destroy_resources.conclusion == 'success'
+        run: |
+          # AWS needs time to fully clean up destroyed resources
+          # MQ broker names are globally unique and must be fully deleted before reuse
+          echo "Waiting for AWS to complete resource cleanup..."
+          echo "MQ broker names are globally unique - must wait for full deletion."
+          echo "Waiting 90 seconds to ensure resources are fully removed..."
+          sleep 90
+          echo "✓ Cleanup wait complete - resources should now be available for recreation"
+
+      - name: Terraform Apply (complete configuration)
+        working-directory: infrastructure/terraform
+        id: terraform_apply
+        continue-on-error: false
+        timeout-minutes: 30
+        run: |
+          # Final apply to ensure all resources are in the desired state
+          # Retry logic: try up to 3 times with exponential backoff
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if terraform apply \
+              -var-file=environments/prod/terraform.tfvars \
+              -auto-approve; then
+              echo "Apply completed successfully"
+              exit 0
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                WAIT_TIME=$((2 ** RETRY_COUNT * 60))  # 60s, 120s, 240s
+                echo "Apply failed. Retrying in ${WAIT_TIME} seconds... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
+                sleep $WAIT_TIME
+                # Re-initialize in case of state issues
+                terraform init -reconfigure
+              fi
+            fi
+          done
+          echo "Apply failed after $MAX_RETRIES attempts"
+          exit 1
 
       - name: Get Outputs
         working-directory: infrastructure/terraform

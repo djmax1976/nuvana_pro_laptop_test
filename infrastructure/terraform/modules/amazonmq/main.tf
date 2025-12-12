@@ -114,9 +114,9 @@ resource "aws_mq_broker" "main" {
     Name = "${var.name_prefix}-rabbitmq"
   })
 
-  # Force replacement when instance type changes (AWS doesn't allow downgrades)
-  # Note: If downgrading, manually taint this resource first: terraform taint module.amazonmq.aws_mq_broker.main
+  # AWS doesn't allow downgrading instance types - must destroy and recreate
+  # Use destroy-before-create to avoid name conflicts
   lifecycle {
-    create_before_destroy = true
+    create_before_destroy = false
   }
 }
