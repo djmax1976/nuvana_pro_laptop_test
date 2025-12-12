@@ -115,10 +115,8 @@ resource "aws_mq_broker" "main" {
   })
 
   # Force replacement when instance type changes (AWS doesn't allow downgrades)
+  # Note: If downgrading, manually taint this resource first: terraform taint module.amazonmq.aws_mq_broker.main
   lifecycle {
     create_before_destroy = true
-    replace_triggered_by = [
-      var.instance_type
-    ]
   }
 }
