@@ -343,17 +343,56 @@ jobs:
             echo "✓ Removed ElastiCache cluster from state"
           fi
 
-      - name: Wait for AWS resource cleanup
+      - name: Verify AWS resources are fully deleted
         working-directory: infrastructure/terraform
         if: steps.destroy_resources.conclusion == 'success'
         run: |
-          # AWS needs time to fully clean up destroyed resources
-          # MQ broker names are globally unique and must be fully deleted before reuse
-          echo "Waiting for AWS to complete resource cleanup..."
-          echo "MQ broker names are globally unique - must wait for full deletion."
-          echo "Waiting 90 seconds to ensure resources are fully removed..."
-          sleep 90
-          echo "✓ Cleanup wait complete - resources should now be available for recreation"
+          # AWS MQ broker names are globally unique and must be fully deleted before reuse
+          # Verify the broker is actually deleted, not just removed from Terraform state
+          echo "Verifying AWS resources are fully deleted..."
+          
+          MAX_WAIT=300  # 5 minutes max wait
+          WAIT_INTERVAL=15  # Check every 15 seconds
+          ELAPSED=0
+          
+          if [ "${{ steps.check_resources.outputs.mq_exists }}" = "true" ]; then
+            echo "Checking if MQ broker 'nuvana-prod-rabbitmq' is deleted..."
+            while [ $ELAPSED -lt $MAX_WAIT ]; do
+              # Check if broker still exists - if command fails with NotFound, broker is deleted
+              if ! aws mq describe-broker --broker-id "nuvana-prod-rabbitmq" --region us-east-1 2>&1 | grep -q "BrokerId"; then
+                echo "✓ MQ broker is fully deleted (not found in AWS)"
+                break
+              else
+                echo "  Broker still exists in AWS, waiting ${WAIT_INTERVAL}s... (${ELAPSED}s elapsed)"
+                sleep $WAIT_INTERVAL
+                ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+              fi
+            done
+            
+            if [ $ELAPSED -ge $MAX_WAIT ]; then
+              echo "⚠️  Warning: Could not verify MQ broker deletion after ${MAX_WAIT}s"
+              echo "   Proceeding anyway - if creation fails, broker may still exist"
+            fi
+          fi
+          
+          if [ "${{ steps.check_resources.outputs.elasticache_exists }}" = "true" ]; then
+            echo "Checking if ElastiCache cluster 'nuvana-prod-redis' is deleted..."
+            ELAPSED=0
+            while [ $ELAPSED -lt $MAX_WAIT ]; do
+              # Check if cluster still exists - if command fails, cluster is deleted
+              if ! aws elasticache describe-cache-clusters --cache-cluster-id "nuvana-prod-redis" --region us-east-1 2>&1 | grep -q "CacheClusterId"; then
+                echo "✓ ElastiCache cluster is fully deleted (not found in AWS)"
+                break
+              else
+                echo "  Cluster still exists in AWS, waiting ${WAIT_INTERVAL}s... (${ELAPSED}s elapsed)"
+                sleep $WAIT_INTERVAL
+                ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+              fi
+            done
+          fi
+          
+          echo ""
+          echo "✓ Verification complete - proceeding with resource creation"
 
       - name: Terraform Apply (complete configuration)
         working-directory: infrastructure/terraform
