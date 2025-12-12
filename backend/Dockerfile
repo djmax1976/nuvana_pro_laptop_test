@@ -53,6 +53,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+# Install wget for health checks (before switching user)
+RUN apk add --no-cache wget
+
 # Create non-root user for security
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 fastify
@@ -77,20 +80,20 @@ COPY --from=builder /app/src ./src
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
+# Copy startup script with executable permissions (as root, before switching user)
+COPY --from=builder --chmod=755 /app/start.sh ./start.sh
+
 # Switch to non-root user
-# Note: We switch user AFTER copying files to avoid permission issues
+# Note: We switch user AFTER copying files and setting permissions
 USER fastify
 
 # Expose port
 EXPOSE 3001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3001/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"
-
-# Copy startup script
-COPY start.sh ./start.sh
-RUN chmod +x ./start.sh
+# Health check (Railway sets PORT automatically, health check uses that port)
+# Note: Railway exposes services on PORT env var, which defaults to the EXPOSE port
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT:-3001}/api/health || exit 1
 
 # Start the application (runs migrations first)
 CMD ["./start.sh"]
