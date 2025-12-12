@@ -453,6 +453,17 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
       }),
     ]);
 
+    // First, get the total count to understand the current state
+    const countResponse = await superadminApiRequest.get(
+      "/api/stores?limit=1&offset=0",
+    );
+    expect(countResponse.status()).toBe(200);
+    const countBody = await countResponse.json();
+    const totalStores = countBody.meta.total;
+
+    // Ensure we have at least 4 stores for pagination test to be meaningful
+    expect(totalStores).toBeGreaterThanOrEqual(4);
+
     // WHEN: Requesting with limit=2
     const response1 = await superadminApiRequest.get(
       "/api/stores?limit=2&offset=0",
@@ -470,14 +481,17 @@ test.describe("2.2-API: System Admin Store Access Control", () => {
       "/api/stores?limit=2&offset=2",
     );
 
-    // THEN: Next 2 stores returned
+    // THEN: Response succeeds and returns stores (may be fewer if near end of list)
     expect(response2.status()).toBe(200);
     const body2 = await response2.json();
-    expect(body2.data).toHaveLength(2);
+    // Second page should have stores (at least 2 if total >= 4, or remaining stores)
+    const expectedSecondPageLength = Math.min(2, Math.max(0, totalStores - 2));
+    expect(body2.data.length).toBeGreaterThanOrEqual(expectedSecondPageLength);
+    expect(body2.data.length).toBeLessThanOrEqual(2);
     expect(body2.meta.limit).toBe(2);
     expect(body2.meta.offset).toBe(2);
 
-    // AND: Different stores are returned (pagination works)
+    // AND: Different stores are returned (pagination works - no overlap)
     const firstPageIds = body1.data.map((s: any) => s.store_id);
     const secondPageIds = body2.data.map((s: any) => s.store_id);
     const overlap = firstPageIds.filter((id: string) =>
