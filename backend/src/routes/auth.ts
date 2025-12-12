@@ -601,6 +601,16 @@ export async function authRoutes(fastify: FastifyInstance) {
         };
       }
 
+      // Log permissions for debugging (especially in staging)
+      console.log("[Auth] /api/auth/me response:", {
+        userId: dbUser.user_id,
+        email: dbUser.email,
+        roles: user.roles,
+        permissions: user.permissions,
+        hasAdminPermission: user.permissions.includes("ADMIN_SYSTEM_CONFIG"),
+        environment: process.env.NODE_ENV,
+      });
+
       reply.code(200);
       return {
         user: {
