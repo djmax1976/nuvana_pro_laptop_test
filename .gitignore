@@ -76,3 +76,5 @@ nuvana_control/workflows/11-ci_pipeline/*
 !nuvana_control/workflows/11-ci_pipeline/scripts/
 my-files/
 bmad/
+# Local Netlify folder
+.netlify
