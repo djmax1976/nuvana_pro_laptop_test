@@ -1,0 +1,58 @@
+# Netlify Configuration for Nuvana
+# This file configures how Netlify builds and deploys your application
+
+[build]
+  # Build command for Next.js
+  command = "npm run build"
+  
+  # Publish directory for Next.js (will be set by plugin)
+  # The @netlify/plugin-nextjs plugin handles this automatically
+  
+  # Environment variables are set in Netlify dashboard
+  # Required variables:
+  # - DATABASE_URL (Neon PostgreSQL connection string)
+  # - NEXTAUTH_SECRET (or your auth secret)
+  # - NEXTAUTH_URL (your Netlify site URL)
+  # - Any other environment variables your app needs
+
+[build.environment]
+  # Node.js version
+  NODE_VERSION = "20"
+  
+  # Next.js build settings
+  NEXT_TELEMETRY_DISABLED = "1"
+
+# Redirects are handled automatically by @netlify/plugin-nextjs
+# Next.js handles all routing including API routes
+
+# Headers for security and performance
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Functions configuration (if using Netlify Functions)
+# Note: Next.js API routes are handled automatically by @netlify/plugin-nextjs
+# Only configure this if you're using standalone Netlify Functions
+# [functions]
+#   node_bundler = "esbuild"
+
+# Plugin configuration
+# @netlify/plugin-nextjs is required for Next.js on Netlify
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+

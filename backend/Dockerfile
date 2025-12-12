@@ -64,11 +64,21 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=prod-deps /app/prisma ./prisma
 COPY --from=prod-deps /app/node_modules/.prisma ./node_modules/.prisma
 
+# Copy Prisma CLI for migrations
+COPY --from=prod-deps /app/node_modules/prisma ./node_modules/prisma
+
 # Copy built application
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
 
+# Copy source files needed for startup scripts (RBAC seed, bootstrap admin)
+# These are needed because tsx will run TypeScript files directly
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+
 # Switch to non-root user
+# Note: We switch user AFTER copying files to avoid permission issues
 USER fastify
 
 # Expose port
@@ -78,5 +88,9 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3001/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"
 
-# Start the application
-CMD ["node", "dist/app.js"]
+# Copy startup script
+COPY start.sh ./start.sh
+RUN chmod +x ./start.sh
+
+# Start the application (runs migrations first)
+CMD ["./start.sh"]

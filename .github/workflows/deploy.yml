@@ -1,47 +1,31 @@
-# Deploy Pipeline - Deployment Only (push-triggered)
-# Trusts that CI passed on PR before merge
-# IMPORTANT: Requires branch protection with required status checks enabled
+# Deploy Pipeline - Railway Deployment
+# Railway auto-deploys on push to connected branch
+# This workflow runs pre-deployment checks and validates builds
 
 name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, development]
+  workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   NODE_VERSION: "20"
-  AWS_REGION: us-east-1
-
-concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: false  # Don't cancel in-progress deployments
 
 jobs:
-  deploy:
-    name: Deploy to AWS
+  # Pre-deployment validation checks
+  pre-deploy:
+    name: Pre-deployment Checks
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
-      - name: Determine environment
-        id: set-env
-        run: |
-          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            echo "environment=prod" >> $GITHUB_OUTPUT
-          else
-            echo "environment=dev" >> $GITHUB_OUTPUT
-          fi
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -52,500 +36,33 @@ jobs:
       - name: Install backend dependencies
         run: cd backend && npm ci
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Get database URL from Secrets Manager
-        id: get-db-url
-        env:
-          ENVIRONMENT: ${{ steps.set-env.outputs.environment }}
-        run: |
-          DB_URL=$(aws secretsmanager get-secret-value \
-            --secret-id /nuvana-$ENVIRONMENT/database/url \
-            --query 'SecretString' \
-            --output text)
-          echo "database_url=$DB_URL" >> $GITHUB_OUTPUT
-          echo "✓ Retrieved database URL from Secrets Manager"
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076  # v2.0.1
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
-
-      - name: Get ALB DNS name
-        id: get-alb-dns
-        env:
-          ENVIRONMENT: ${{ steps.set-env.outputs.environment }}
-        run: |
-          ALB_DNS=$(aws elbv2 describe-load-balancers \
-            --query "LoadBalancers[?contains(LoadBalancerName, 'nuvana-$ENVIRONMENT')].DNSName" \
-            --output text)
-          echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
-          echo "ALB DNS: $ALB_DNS"
-
-      - name: Get frontend URL (HTTPS domain or HTTP ALB)
-        id: get-frontend-url
-        env:
-          ENVIRONMENT: ${{ steps.set-env.outputs.environment }}
-        run: |
-          # For production, use HTTPS domain; for dev, use HTTP ALB
-          if [ "$ENVIRONMENT" == "prod" ]; then
-            FRONTEND_URL="https://staging.nuvanaapp.com"
-          else
-            FRONTEND_URL="http://${{ steps.get-alb-dns.outputs.alb_dns }}"
-          fi
-          echo "frontend_url=$FRONTEND_URL" >> $GITHUB_OUTPUT
-          echo "Frontend URL: $FRONTEND_URL"
-
-      - name: Build and push frontend image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: nuvana-${{ steps.set-env.outputs.environment }}-frontend
-          IMAGE_TAG: ${{ github.sha }}
-          FRONTEND_URL: ${{ steps.get-frontend-url.outputs.frontend_url }}
-        run: |
-          docker build \
-            -f Dockerfile.frontend \
-            --build-arg NEXT_PUBLIC_BACKEND_URL=$FRONTEND_URL \
-            --build-arg NEXT_PUBLIC_API_URL=$FRONTEND_URL \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-            .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-
-      - name: Build and push backend image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: nuvana-${{ steps.set-env.outputs.environment }}-backend
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build \
-            -f backend/Dockerfile \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-            ./backend
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-
-      - name: Get ECS cluster and subnet info
-        id: get-ecs-info
-        env:
-          ENVIRONMENT: ${{ steps.set-env.outputs.environment }}
-        run: |
-          CLUSTER_NAME="nuvana-$ENVIRONMENT-cluster"
-          echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
-          
-          # Get private subnet IDs from VPC
-          VPC_ID=$(aws ec2 describe-vpcs \
-            --filters "Name=tag:Name,Values=nuvana-$ENVIRONMENT-vpc" \
-            --query 'Vpcs[0].VpcId' \
-            --output text)
-          
-          # Get subnet IDs as space-separated list
-          SUBNET_IDS=$(aws ec2 describe-subnets \
-            --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=nuvana-$ENVIRONMENT-private-*" \
-            --query 'Subnets[*].SubnetId' \
-            --output text)
-          
-          # Store as space-separated (we'll convert to JSON in the migration step)
-          echo "subnet_ids=$SUBNET_IDS" >> $GITHUB_OUTPUT
-          echo "✓ Retrieved ECS cluster and subnet information"
-
-      - name: Get security group ID
-        id: get-sg-id
-        env:
-          ENVIRONMENT: ${{ steps.set-env.outputs.environment }}
-        run: |
-          SG_ID=$(aws ec2 describe-security-groups \
-            --filters "Name=tag:Name,Values=nuvana-$ENVIRONMENT-ecs-tasks-sg" \
-            --query 'SecurityGroups[0].GroupId' \
-            --output text)
-          echo "security_group_id=$SG_ID" >> $GITHUB_OUTPUT
-          echo "✓ Retrieved ECS security group ID"
-
-      - name: Run database migrations via ECS
-        env:
-          CLUSTER: ${{ steps.get-ecs-info.outputs.cluster_name }}
-          TASK_DEFINITION: nuvana-${{ steps.set-env.outputs.environment }}-migration
-          SUBNET_IDS: ${{ steps.get-ecs-info.outputs.subnet_ids }}
-          SECURITY_GROUP_ID: ${{ steps.get-sg-id.outputs.security_group_id }}
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE: ${{ steps.login-ecr.outputs.registry }}/nuvana-${{ steps.set-env.outputs.environment }}-backend:${{ github.sha }}
-        run: |
-          echo "Running database migrations via ECS task..."
-
-          # Convert tab/space-separated subnet IDs to JSON array (handle both tabs and spaces)
-          # First normalize to spaces, then split and create JSON array
-          SUBNET_IDS_NORMALIZED=$(echo "$SUBNET_IDS" | tr '\t' ' ' | xargs)
-          SUBNET_IDS_ARRAY=$(echo "$SUBNET_IDS_NORMALIZED" | awk '{for(i=1;i<=NF;i++){printf "\"%s\"", $i; if(i<NF)printf ","}}' | awk '{printf "[%s]", $0}')
-
-          # Create network configuration JSON
-          NETWORK_CONFIG=$(echo "{\"awsvpcConfiguration\":{\"subnets\":$SUBNET_IDS_ARRAY,\"securityGroups\":[\"$SECURITY_GROUP_ID\"],\"assignPublicIp\":\"DISABLED\"}}")
-
-          # Get the latest revision of the task definition
-          # First, check if task definition exists by listing task definitions for this family
-          echo "Checking for existing task definition: $TASK_DEFINITION"
-          LATEST_TASK_DEF_ARN=$(aws ecs list-task-definitions \
-            --family-prefix "$TASK_DEFINITION" \
-            --sort DESC \
-            --max-items 1 \
-            --query 'taskDefinitionArns[0]' \
-            --output text 2>/dev/null || echo "")
-
-          if [ -z "$LATEST_TASK_DEF_ARN" ] || [ "$LATEST_TASK_DEF_ARN" == "None" ]; then
-            echo "⚠️ Task definition $TASK_DEFINITION not found. Creating it from backend task definition..."
-            
-            # Get backend service task definition to use as template
-            BACKEND_SERVICE="nuvana-${{ steps.set-env.outputs.environment }}-backend"
-            echo "Getting backend service task definition from: $BACKEND_SERVICE"
-            BACKEND_TASK_DEF=$(aws ecs describe-services \
-              --cluster $CLUSTER \
-              --services $BACKEND_SERVICE \
-              --query 'services[0].taskDefinition' \
-              --output text)
-            
-            if [ -z "$BACKEND_TASK_DEF" ] || [ "$BACKEND_TASK_DEF" == "None" ]; then
-              echo "❌ Backend service $BACKEND_SERVICE not found. Cannot create migration task definition."
-              echo "Please ensure the backend service exists first."
-              exit 1
-            fi
-            
-            echo "Using backend task definition as template: $BACKEND_TASK_DEF"
-            
-            # Get backend task definition JSON
-            aws ecs describe-task-definition --task-definition "$BACKEND_TASK_DEF" --query 'taskDefinition' > backend-task-def.json
-            
-            # Create migration task definition from backend template
-            # Modify: family name, command (for migrations), image, and remove read-only fields
-            jq ".family = \"$TASK_DEFINITION\" | \
-                .containerDefinitions[0].command = [\"npx\", \"prisma\", \"migrate\", \"deploy\"] | \
-                .containerDefinitions[0].image = \"$IMAGE\" | \
-                del(.taskDefinitionArn) | \
-                del(.revision) | \
-                del(.status) | \
-                del(.requiresAttributes) | \
-                del(.compatibilities) | \
-                del(.registeredAt) | \
-                del(.registeredBy)" \
-                backend-task-def.json > migration-task-def.json
-            
-            # Register the new migration task definition
-            echo "Registering new migration task definition..."
-            REGISTERED_TASK_DEF_ARN=$(aws ecs register-task-definition \
-              --cli-input-json file://migration-task-def.json \
-              --query 'taskDefinition.taskDefinitionArn' \
-              --output text)
-            
-            echo "✓ Created migration task definition: $REGISTERED_TASK_DEF_ARN"
-            
-            # Use the newly created task definition directly (image is already set correctly)
-            NEW_TASK_DEF="$REGISTERED_TASK_DEF_ARN"
-            echo "Using newly created migration task definition: $NEW_TASK_DEF"
-          else
-            echo "Found existing task definition: $LATEST_TASK_DEF_ARN"
-            
-            # Extract revision number from ARN (format: arn:aws:ecs:region:account:task-definition/family:revision)
-            TASK_DEF_WITH_REVISION=$(echo "$LATEST_TASK_DEF_ARN" | awk -F'/' '{print $2}')
-
-            # Update migration task definition with new image before running
-            # Get current task definition and update the image
-            echo "Describing task definition: $TASK_DEF_WITH_REVISION"
-            aws ecs describe-task-definition --task-definition "$TASK_DEF_WITH_REVISION" --query 'taskDefinition' > migration-task-def.json
-
-            # Update image in task definition and remove fields that can't be set
-            jq ".containerDefinitions[0].image = \"$IMAGE\" | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)" migration-task-def.json > migration-task-def-updated.json
-
-            # Register new task definition with updated image
-            NEW_TASK_DEF=$(aws ecs register-task-definition --cli-input-json file://migration-task-def-updated.json --query 'taskDefinition.taskDefinitionArn' --output text)
-            echo "Registered new migration task definition: $NEW_TASK_DEF"
-          fi
-
-          # Run the migration task with the updated task definition
-          TASK_ARN=$(aws ecs run-task \
-            --cluster $CLUSTER \
-            --task-definition $NEW_TASK_DEF \
-            --launch-type FARGATE \
-            --network-configuration "$NETWORK_CONFIG" \
-            --query 'tasks[0].taskArn' \
-            --output text)
-
-          echo "Migration task ARN: $TASK_ARN"
-          echo "Waiting for migration task to complete..."
-
-          # Wait for task to complete (max 10 minutes = 600 seconds)
-          # aws ecs wait tasks-stopped polls every 15 seconds by default
-          timeout 600 aws ecs wait tasks-stopped \
-            --cluster $CLUSTER \
-            --tasks $TASK_ARN || {
-            echo "⚠️ Wait timeout reached. Checking task status..."
-            TIMEOUT_REACHED=true
-          }
-
-          # Get task status and exit code
-          TASK_STATUS=$(aws ecs describe-tasks \
-            --cluster $CLUSTER \
-            --tasks $TASK_ARN \
-            --query 'tasks[0].lastStatus' \
-            --output text)
-          
-          EXIT_CODE=$(aws ecs describe-tasks \
-            --cluster $CLUSTER \
-            --tasks $TASK_ARN \
-            --query 'tasks[0].containers[0].exitCode' \
-            --output text)
-          
-          echo "Task status: $TASK_STATUS"
-          echo "Exit code: $EXIT_CODE"
-
-          # Get log group name from task definition
-          LOG_GROUP=$(aws ecs describe-task-definition \
-            --task-definition $NEW_TASK_DEF \
-            --query 'taskDefinition.containerDefinitions[0].logConfiguration.options."awslogs-group"' \
-            --output text 2>/dev/null || echo "")
-
-          if [ "$EXIT_CODE" == "None" ] || [ -z "$EXIT_CODE" ]; then
-            if [ "$TASK_STATUS" != "STOPPED" ]; then
-              echo "⚠️ Task is still running (status: $TASK_STATUS). This may indicate a timeout or the task is taking longer than expected."
-              if [ -n "$LOG_GROUP" ] && [ "$LOG_GROUP" != "None" ]; then
-                echo "Checking logs from: $LOG_GROUP"
-                aws logs tail "$LOG_GROUP" --since 10m --format short || true
-              fi
-              exit 1
-            else
-              echo "⚠️ Exit code is None but task is stopped. This may indicate the container failed to start."
-              if [ -n "$LOG_GROUP" ] && [ "$LOG_GROUP" != "None" ]; then
-                echo "Checking logs from: $LOG_GROUP"
-                aws logs tail "$LOG_GROUP" --since 10m --format short || true
-              fi
-              exit 1
-            fi
-          elif [ "$EXIT_CODE" != "0" ]; then
-            echo "❌ Migration failed with exit code: $EXIT_CODE"
-            if [ -n "$LOG_GROUP" ] && [ "$LOG_GROUP" != "None" ]; then
-              echo "Checking logs from: $LOG_GROUP"
-              aws logs tail "$LOG_GROUP" --since 10m --format short || true
-            else
-              echo "⚠️ Could not determine log group name. Task definition may not have log configuration."
-            fi
-            exit 1
-          else
-            echo "✓ Database migrations completed successfully"
-          fi
-
-      - name: Seed RBAC roles and permissions (via ECS)
-        env:
-          CLUSTER: ${{ steps.get-ecs-info.outputs.cluster_name }}
-          TASK_DEFINITION: nuvana-${{ steps.set-env.outputs.environment }}-migration
-          SUBNET_IDS: ${{ steps.get-ecs-info.outputs.subnet_ids }}
-          SECURITY_GROUP_ID: ${{ steps.get-sg-id.outputs.security_group_id }}
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE: ${{ steps.login-ecr.outputs.registry }}/nuvana-${{ steps.set-env.outputs.environment }}-backend:${{ github.sha }}
-        run: |
-          echo "Seeding RBAC roles and permissions via ECS task..."
-
-          # Convert subnet IDs to JSON array
-          SUBNET_IDS_NORMALIZED=$(echo "$SUBNET_IDS" | tr '\t' ' ' | xargs)
-          SUBNET_IDS_ARRAY=$(echo "$SUBNET_IDS_NORMALIZED" | awk '{for(i=1;i<=NF;i++){printf "\"%s\"", $i; if(i<NF)printf ","}}' | awk '{printf "[%s]", $0}')
-          NETWORK_CONFIG=$(echo "{\"awsvpcConfiguration\":{\"subnets\":$SUBNET_IDS_ARRAY,\"securityGroups\":[\"$SECURITY_GROUP_ID\"],\"assignPublicIp\":\"DISABLED\"}}")
-
-          # Get latest migration task definition as template
-          LATEST_TASK_DEF_ARN=$(aws ecs list-task-definitions \
-            --family-prefix "$TASK_DEFINITION" \
-            --sort DESC \
-            --max-items 1 \
-            --query 'taskDefinitionArns[0]' \
-            --output text 2>/dev/null || echo "")
-
-          if [ -z "$LATEST_TASK_DEF_ARN" ] || [ "$LATEST_TASK_DEF_ARN" == "None" ]; then
-            echo "❌ Migration task definition not found. Cannot seed RBAC."
-            exit 1
-          fi
-
-          TASK_DEF_WITH_REVISION=$(echo "$LATEST_TASK_DEF_ARN" | awk -F'/' '{print $2}')
-          aws ecs describe-task-definition --task-definition "$TASK_DEF_WITH_REVISION" --query 'taskDefinition' > rbac-seed-task-def.json
-
-          # Update command to run compiled RBAC seed script
-          jq ".containerDefinitions[0].command = [\"node\", \"dist/db/seeds/rbac.seed.js\"] | \
-              .containerDefinitions[0].image = \"$IMAGE\" | \
-              del(.taskDefinitionArn) | del(.revision) | del(.status) | \
-              del(.requiresAttributes) | del(.compatibilities) | \
-              del(.registeredAt) | del(.registeredBy)" \
-              rbac-seed-task-def.json > rbac-seed-task-def-updated.json
-
-          NEW_TASK_DEF=$(aws ecs register-task-definition \
-            --cli-input-json file://rbac-seed-task-def-updated.json \
-            --query 'taskDefinition.taskDefinitionArn' \
-            --output text)
-
-          TASK_ARN=$(aws ecs run-task \
-            --cluster $CLUSTER \
-            --task-definition $NEW_TASK_DEF \
-            --launch-type FARGATE \
-            --network-configuration "$NETWORK_CONFIG" \
-            --query 'tasks[0].taskArn' \
-            --output text)
-
-          echo "RBAC seed task ARN: $TASK_ARN"
-          echo "Waiting for RBAC seed to complete..."
-          timeout 600 aws ecs wait tasks-stopped --cluster $CLUSTER --tasks $TASK_ARN || {
-            echo "⚠️ Wait timeout reached. Checking task status..."
-            TIMEOUT_REACHED=true
-          }
-
-          EXIT_CODE=$(aws ecs describe-tasks \
-            --cluster $CLUSTER \
-            --tasks $TASK_ARN \
-            --query 'tasks[0].containers[0].exitCode' \
-            --output text)
-
-          LOG_GROUP=$(aws ecs describe-task-definition \
-            --task-definition $NEW_TASK_DEF \
-            --query 'taskDefinition.containerDefinitions[0].logConfiguration.options."awslogs-group"' \
-            --output text 2>/dev/null || echo "")
-
-          if [ "$EXIT_CODE" == "None" ] || [ -z "$EXIT_CODE" ]; then
-            echo "⚠️ Exit code is None. Checking logs..."
-            if [ -n "$LOG_GROUP" ] && [ "$LOG_GROUP" != "None" ]; then
-              aws logs tail "$LOG_GROUP" --since 10m --format short || true
-            fi
-            exit 1
-          elif [ "$EXIT_CODE" != "0" ]; then
-            echo "❌ RBAC seed failed with exit code: $EXIT_CODE"
-            if [ -n "$LOG_GROUP" ] && [ "$LOG_GROUP" != "None" ]; then
-              echo "Checking logs from: $LOG_GROUP"
-              aws logs tail "$LOG_GROUP" --since 10m --format short || true
-            fi
-            exit 1
-          else
-            echo "✓ RBAC roles and permissions seeded successfully"
-          fi
-
-      - name: Update frontend ECS service
-        env:
-          CLUSTER: nuvana-${{ steps.set-env.outputs.environment }}-cluster
-          SERVICE: nuvana-${{ steps.set-env.outputs.environment }}-frontend
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          # Get current task definition
-          TASK_DEF=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --query 'services[0].taskDefinition' --output text)
-          
-          # Get task definition JSON and update image
-          NEW_IMAGE="$ECR_REGISTRY/nuvana-${{ steps.set-env.outputs.environment }}-frontend:$IMAGE_TAG"
-          aws ecs describe-task-definition --task-definition $TASK_DEF --query 'taskDefinition' > task-def.json
-          
-          # Update image in task definition and remove fields that can't be set
-          jq ".containerDefinitions[0].image = \"$NEW_IMAGE\" | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)" task-def.json > task-def-updated.json
-          
-          # Register new task definition
-          NEW_TASK_DEF=$(aws ecs register-task-definition --cli-input-json file://task-def-updated.json --query 'taskDefinition.taskDefinitionArn' --output text)
-          
-          # Update service with new task definition
-          aws ecs update-service \
-            --cluster $CLUSTER \
-            --service $SERVICE \
-            --task-definition $NEW_TASK_DEF \
-            --force-new-deployment
-
-      - name: Update backend ECS service
-        env:
-          CLUSTER: nuvana-${{ steps.set-env.outputs.environment }}-cluster
-          SERVICE: nuvana-${{ steps.set-env.outputs.environment }}-backend
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          # Get current task definition
-          TASK_DEF=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --query 'services[0].taskDefinition' --output text)
-          
-          # Get task definition JSON and update image
-          NEW_IMAGE="$ECR_REGISTRY/nuvana-${{ steps.set-env.outputs.environment }}-backend:$IMAGE_TAG"
-          aws ecs describe-task-definition --task-definition $TASK_DEF --query 'taskDefinition' > task-def.json
-          
-          # Update image in task definition and remove fields that can't be set
-          jq ".containerDefinitions[0].image = \"$NEW_IMAGE\" | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)" task-def.json > task-def-updated.json
-          
-          # Register new task definition
-          NEW_TASK_DEF=$(aws ecs register-task-definition --cli-input-json file://task-def-updated.json --query 'taskDefinition.taskDefinitionArn' --output text)
-          
-          # Update service with new task definition
-          aws ecs update-service \
-            --cluster $CLUSTER \
-            --service $SERVICE \
-            --task-definition $NEW_TASK_DEF \
-            --force-new-deployment
-
-      - name: Update worker ECS service
-        env:
-          CLUSTER: nuvana-${{ steps.set-env.outputs.environment }}-cluster
-          SERVICE: nuvana-${{ steps.set-env.outputs.environment }}-worker
-        run: |
-          aws ecs update-service \
-            --cluster $CLUSTER \
-            --service $SERVICE \
-            --force-new-deployment
-
-      - name: Wait for frontend deployment
-        env:
-          CLUSTER: nuvana-${{ steps.set-env.outputs.environment }}-cluster
-          SERVICE: nuvana-${{ steps.set-env.outputs.environment }}-frontend
-        timeout-minutes: 5
+      - name: Run linting
+        run: npm run lint
         continue-on-error: true
-        run: |
-          echo "Checking frontend service status..."
-          # Wait up to 3 minutes for service to stabilize
-          # Use timeout to limit wait time, then check if tasks are at least running
-          timeout 180 aws ecs wait services-stable \
-            --cluster $CLUSTER \
-            --services $SERVICE || {
-            echo "⚠️ Frontend service did not fully stabilize within 3 minutes, checking task status..."
-            RUNNING=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --query 'services[0].runningCount' --output text)
-            DESIRED=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --query 'services[0].desiredCount' --output text)
-            echo "Running tasks: $RUNNING / Desired: $DESIRED"
-            if [ "$RUNNING" -ge "$DESIRED" ]; then
-              echo "✓ Frontend tasks are running ($RUNNING/$DESIRED), deployment may continue despite health check issues"
-              exit 0
-            else
-              echo "✗ Not enough frontend tasks running ($RUNNING/$DESIRED)"
-              exit 1
-            fi
-          }
 
-      - name: Wait for backend deployment
+      - name: Build check (Frontend)
+        run: npm run build
         env:
-          CLUSTER: nuvana-${{ steps.set-env.outputs.environment }}-cluster
-          SERVICE: nuvana-${{ steps.set-env.outputs.environment }}-backend
-        timeout-minutes: 15
-        continue-on-error: true
-        run: |
-          echo "Waiting for backend service to stabilize (with timeout)..."
-          # Wait up to 15 minutes for service to stabilize
-          # Continue even if it doesn't fully stabilize (tasks may be running but health checks failing)
-          timeout 900 aws ecs wait services-stable \
-            --cluster $CLUSTER \
-            --services $SERVICE || {
-            echo "⚠️ Service did not fully stabilize within timeout, but checking status..."
-            # Check if tasks are at least running
-            RUNNING=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --query 'services[0].runningCount' --output text)
-            DESIRED=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --query 'services[0].desiredCount' --output text)
-            echo "Running tasks: $RUNNING / Desired: $DESIRED"
-            if [ "$RUNNING" -ge "$DESIRED" ]; then
-              echo "✓ Tasks are running, deployment may continue despite health check issues"
-              exit 0
-            else
-              echo "✗ Not enough tasks running"
-              exit 1
-            fi
-          }
+          # Use dummy values for build check
+          DATABASE_URL: "postgresql://dummy:dummy@dummy:5432/dummy"
+          NODE_ENV: "production"
+          NEXT_PUBLIC_BACKEND_URL: "https://dummy.up.railway.app"
+
+      - name: Build check (Backend)
+        run: cd backend && npm run build
+        env:
+          DATABASE_URL: "postgresql://dummy:dummy@dummy:5432/dummy"
+          NODE_ENV: "production"
 
       - name: Deployment summary
         run: |
-          echo "## Deployment Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "## Pre-deployment Checks Complete! ✅" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** ${{ steps.set-env.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "CI validation was completed on the PR before merge." >> $GITHUB_STEP_SUMMARY
+          echo "Railway will automatically deploy this commit to production." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Services:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend: https://frontend-production-2025.up.railway.app" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend: https://backend-production-6cdf.up.railway.app" >> $GITHUB_STEP_SUMMARY
