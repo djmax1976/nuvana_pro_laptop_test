@@ -113,4 +113,12 @@ resource "aws_mq_broker" "main" {
   tags = merge(var.tags, {
     Name = "${var.name_prefix}-rabbitmq"
   })
+
+  # Force replacement when instance type changes (AWS doesn't allow downgrades)
+  lifecycle {
+    create_before_destroy = true
+    replace_triggered_by = [
+      var.instance_type
+    ]
+  }
 }
