@@ -656,12 +656,13 @@ test.describe("4.7-E2E: Shift Management UI", () => {
   });
 
   test("4.7-E2E-SEC-004: [P1] Should reject requests without authentication token", async ({
-    page,
+    apiRequest,
   }) => {
-    // GIVEN: User attempts to access API without token
+    // GIVEN: User attempts to access backend API without token
 
     // WHEN: Attempting to make API request without token
-    const response = await page.request.get("/api/shifts");
+    // Note: Using apiRequest to hit the backend directly (not the frontend)
+    const response = await apiRequest.get("/api/shifts");
 
     // THEN: Should return 401 (unauthorized)
     expect(response.status()).toBe(401);
