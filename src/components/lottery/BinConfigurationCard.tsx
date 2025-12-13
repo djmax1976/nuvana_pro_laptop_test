@@ -23,7 +23,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Settings, Check, AlertCircle } from "lucide-react";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 
 interface BinConfigurationCardProps {
   storeId: string;
