@@ -31,7 +31,9 @@ railway variables set PORT=3001
 railway variables set DAILY_UPLOAD_COUNT=10000
 railway variables set UPLOAD_RATE_LIMIT_MAX=1000
 
-Write-Host "✅ Backend variables configured" -ForegroundColor Green
+# Note: CORS_ORIGIN will be set after frontend URL is known (Step 3)
+
+Write-Host "✅ Backend variables configured (CORS will be set in Step 3)" -ForegroundColor Green
 Write-Host ""
 
 Write-Host "Step 2: Configuring Frontend Service Variables..." -ForegroundColor Blue
@@ -56,16 +58,38 @@ railway variables set NEXT_TELEMETRY_DISABLED=1
 Write-Host "✅ Frontend variables configured" -ForegroundColor Green
 Write-Host ""
 
+Write-Host "Step 3: Configuring Backend CORS for Frontend..." -ForegroundColor Blue
+
+# Switch back to backend service to set CORS
+railway service backend
+
+# Get frontend URL for CORS (user needs to provide this after frontend deploys)
+Write-Host "⚠️  Please provide your frontend service URL for CORS:" -ForegroundColor Yellow
+Write-Host "   (Get it from Railway dashboard after frontend deploys)" -ForegroundColor Yellow
+$frontendUrl = Read-Host "Enter frontend URL (or press Enter to use placeholder)"
+
+if ([string]::IsNullOrWhiteSpace($frontendUrl)) {
+    $frontendUrl = "https://frontend-production.up.railway.app"
+    Write-Host "Using placeholder URL. Update this after frontend deploys!" -ForegroundColor Yellow
+}
+
+railway variables set CORS_ORIGIN="$frontendUrl"
+
+Write-Host "✅ Backend CORS configured for frontend" -ForegroundColor Green
+Write-Host ""
+
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "Configuration Complete!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Next steps:"
 Write-Host "  1. Wait for services to deploy"
-Write-Host "  2. Get actual backend URL from Railway dashboard"
-Write-Host "  3. Update frontend NEXT_PUBLIC_BACKEND_URL if needed:"
+Write-Host "  2. Get actual URLs from Railway dashboard"
+Write-Host "  3. Update variables if needed:"
 Write-Host "     railway service frontend"
-Write-Host "     railway variables set NEXT_PUBLIC_BACKEND_URL='<actual-url>'"
+Write-Host "     railway variables --set NEXT_PUBLIC_BACKEND_URL='<actual-backend-url>'"
+Write-Host "     railway service backend"
+Write-Host "     railway variables --set CORS_ORIGIN='<actual-frontend-url>'"
 Write-Host ""
 Write-Host "View project: https://railway.com/project/ef54c8e0-0edf-4782-a583-4f7f0022c507" -ForegroundColor Cyan
 Write-Host ""
