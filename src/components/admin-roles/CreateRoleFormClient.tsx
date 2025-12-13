@@ -1,0 +1,143 @@
+"use client";
+
+/**
+ * Client wrapper for CreateRoleForm component
+ * Receives authorization status from server component and passes it down
+ * Also provides defensive client-side authorization checks
+ *
+ * For cross-origin deployments (e.g., Railway), this component handles
+ * the primary authorization check since server can't access cookies.
+ */
+
+import { CreateRoleForm } from "./CreateRoleForm";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+
+interface CreateRoleFormClientProps {
+  isAuthorized: boolean;
+  isCrossOrigin?: boolean; // True when server can't verify auth (cross-origin deployment)
+}
+
+const ADMIN_SYSTEM_CONFIG_PERMISSION = "ADMIN_SYSTEM_CONFIG";
+
+/**
+ * Top-level BACKEND_URL constant with environment validation at module initialization.
+ * This ensures configuration failures fail fast and are not masked as authorization errors.
+ */
+const BACKEND_URL: string = (() => {
+  const backendUrlEnv = process.env.NEXT_PUBLIC_BACKEND_URL;
+  const isProduction = process.env.NODE_ENV === "production";
+
+  if (!backendUrlEnv) {
+    if (isProduction) {
+      throw new Error(
+        "NEXT_PUBLIC_BACKEND_URL is required in production but is undefined. Please set this environment variable before deploying.",
+      );
+    } else {
+      console.warn(
+        "NEXT_PUBLIC_BACKEND_URL is not set. Falling back to http://localhost:3001 for local development.",
+      );
+      return "http://localhost:3001";
+    }
+  }
+
+  return backendUrlEnv;
+})();
+
+/**
+ * Check if user has Super Admin permission on the client side
+ * This is a defensive check that validates permissions from the API
+ */
+async function checkClientSuperAdminPermission(): Promise<{
+  isAuthorized: boolean;
+  isAuthenticated: boolean;
+}> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
+      method: "GET",
+      credentials: "include", // Send httpOnly cookies
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return { isAuthorized: false, isAuthenticated: false };
+    }
+
+    const data = await response.json();
+    const permissions = data.user?.permissions || [];
+
+    const hasPermission =
+      permissions.includes(ADMIN_SYSTEM_CONFIG_PERMISSION) ||
+      permissions.includes("*"); // Wildcard permission grants all access
+
+    return {
+      isAuthorized: hasPermission,
+      isAuthenticated: true,
+    };
+  } catch (error) {
+    console.error("Error checking Super Admin permission:", error);
+    return { isAuthorized: false, isAuthenticated: false };
+  }
+}
+
+export function CreateRoleFormClient({
+  isAuthorized: serverIsAuthorized,
+  isCrossOrigin = false,
+}: CreateRoleFormClientProps) {
+  const router = useRouter();
+  const [clientAuth, setClientAuth] = useState<{
+    isAuthorized: boolean;
+    isAuthenticated: boolean;
+  }>({
+    isAuthorized: serverIsAuthorized,
+    isAuthenticated: true,
+  });
+  const [isValidating, setIsValidating] = useState(true);
+
+  // Defensive client-side authorization check
+  // This validates permissions on the client side as an additional security layer
+  // In cross-origin mode, this is the PRIMARY auth check since server can't access cookies
+  useEffect(() => {
+    const validateClientAuth = async () => {
+      setIsValidating(true);
+      const clientCheck = await checkClientSuperAdminPermission();
+      setClientAuth(clientCheck);
+      setIsValidating(false);
+
+      // If client-side check fails, redirect (defensive measure)
+      // In cross-origin mode, this is the primary authorization check
+      if (!clientCheck.isAuthenticated) {
+        router.push("/login");
+      } else if (!clientCheck.isAuthorized) {
+        router.push("/admin/roles?error=unauthorized");
+      }
+    };
+
+    // Always validate in cross-origin mode (server couldn't verify)
+    // Otherwise, only validate if server said we're authorized (optimization)
+    if (isCrossOrigin || serverIsAuthorized) {
+      validateClientAuth();
+    } else {
+      setIsValidating(false);
+    }
+  }, [serverIsAuthorized, isCrossOrigin, router]);
+
+  // Show loading state while validating
+  if (isValidating) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="space-y-4 text-center">
+          <div className="h-8 w-8 mx-auto animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <p className="text-muted-foreground">Verifying permissions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render if not authorized (defensive check)
+  if (!clientAuth.isAuthorized) {
+    return null;
+  }
+
+  return <CreateRoleForm />;
+}
