@@ -1,5 +1,5 @@
-# Netlify Configuration for Nuvana
-# This file configures how Netlify builds and deploys your application
+# Netlify Configuration for outstanding-contentment
+# This file configures how Netlify builds and deploys your Next.js application
 
 [build]
   # Build command for Next.js
