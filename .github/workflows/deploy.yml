@@ -60,9 +60,16 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Project:** outstanding-contentment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Railway will automatically deploy this commit to production." >> $GITHUB_STEP_SUMMARY
+          echo "### Railway Deployment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Services:**" >> $GITHUB_STEP_SUMMARY
-          echo "- Frontend: https://frontend-production-2025.up.railway.app" >> $GITHUB_STEP_SUMMARY
-          echo "- Backend: https://backend-production-6cdf.up.railway.app" >> $GITHUB_STEP_SUMMARY
+          echo "**Railway Services:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend and Backend services will auto-deploy on push to connected branch" >> $GITHUB_STEP_SUMMARY
+          echo "- Check Railway dashboard for deployment status" >> $GITHUB_STEP_SUMMARY
+          echo "- Verify all environment variables are set in Railway" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Verify environment variables are set in deployment platforms" >> $GITHUB_STEP_SUMMARY
+          echo "2. Check deployment logs if issues occur" >> $GITHUB_STEP_SUMMARY
+          echo "3. Test deployed services after deployment completes" >> $GITHUB_STEP_SUMMARY
