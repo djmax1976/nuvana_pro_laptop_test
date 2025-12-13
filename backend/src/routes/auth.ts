@@ -117,11 +117,18 @@ export async function authRoutes(fastify: FastifyInstance) {
           request.protocol === "https" ||
           request.headers["x-forwarded-proto"] === "https";
 
+        // Determine SameSite policy based on deployment context
+        // For cross-origin deployments (e.g., Railway where frontend/backend are different domains),
+        // we need SameSite=None with Secure=true for cookies to be sent cross-origin
+        // For same-origin deployments (localhost or same domain), SameSite=Lax provides better CSRF protection
+        const isCrossOrigin = isSecure && process.env.NODE_ENV === "production";
+        const sameSitePolicy = isCrossOrigin ? "none" : "lax";
+
         // Access token cookie (15 min expiry)
         (reply as any).setCookie("access_token", accessToken, {
           httpOnly: true,
           secure: isSecure,
-          sameSite: "lax",
+          sameSite: sameSitePolicy,
           path: "/",
           maxAge: 15 * 60, // 15 minutes in seconds
         });
@@ -130,7 +137,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         (reply as any).setCookie("refresh_token", refreshToken, {
           httpOnly: true,
           secure: isSecure,
-          sameSite: "lax",
+          sameSite: sameSitePolicy,
           path: "/",
           maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
         });
@@ -366,11 +373,15 @@ export async function authRoutes(fastify: FastifyInstance) {
           request.protocol === "https" ||
           request.headers["x-forwarded-proto"] === "https";
 
+        // Determine SameSite policy based on deployment context
+        const isCrossOrigin = isSecure && process.env.NODE_ENV === "production";
+        const sameSitePolicy = isCrossOrigin ? "none" : "lax";
+
         // Access token cookie (15 min expiry)
         (reply as any).setCookie("access_token", accessToken, {
           httpOnly: true,
           secure: isSecure,
-          sameSite: "lax",
+          sameSite: sameSitePolicy,
           path: "/",
           maxAge: 15 * 60, // 15 minutes in seconds
         });
@@ -379,7 +390,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         (reply as any).setCookie("refresh_token", refreshToken, {
           httpOnly: true,
           secure: isSecure,
-          sameSite: "lax",
+          sameSite: sameSitePolicy,
           path: "/",
           maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
         });
@@ -503,11 +514,17 @@ export async function authRoutes(fastify: FastifyInstance) {
           request.protocol === "https" ||
           request.headers["x-forwarded-proto"] === "https";
 
+        // Determine SameSite policy based on deployment context
+        // For cross-origin deployments, use "none" with Secure=true
+        // For same-origin, use "strict" for best CSRF protection
+        const isCrossOrigin = isSecure && process.env.NODE_ENV === "production";
+        const sameSitePolicy = isCrossOrigin ? "none" : "strict";
+
         // Access token cookie (15 min expiry)
         (reply as any).setCookie("access_token", newAccessToken, {
           httpOnly: true,
           secure: isSecure,
-          sameSite: "strict", // CSRF protection
+          sameSite: sameSitePolicy,
           path: "/",
           maxAge: 15 * 60, // 15 minutes in seconds
         });
@@ -516,7 +533,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         (reply as any).setCookie("refresh_token", newRefreshToken, {
           httpOnly: true,
           secure: isSecure,
-          sameSite: "strict", // CSRF protection
+          sameSite: sameSitePolicy,
           path: "/",
           maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
         });
