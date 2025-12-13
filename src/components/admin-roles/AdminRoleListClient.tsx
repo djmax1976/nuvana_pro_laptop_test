@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 interface AdminRoleListClientProps {
   isAuthorized: boolean;
   userPermissions: string[];
+  isCrossOrigin?: boolean; // True when server can't verify auth (cross-origin deployment)
 }
 
 const ADMIN_SYSTEM_CONFIG_PERMISSION = "ADMIN_SYSTEM_CONFIG";
@@ -80,6 +81,7 @@ async function checkClientSuperAdminPermission(): Promise<{
 export function AdminRoleListClient({
   isAuthorized: serverIsAuthorized,
   userPermissions: serverUserPermissions,
+  isCrossOrigin = false,
 }: AdminRoleListClientProps) {
   const router = useRouter();
   const [clientAuth, setClientAuth] = useState<{
@@ -93,6 +95,7 @@ export function AdminRoleListClient({
 
   // Defensive client-side authorization check
   // This validates permissions on the client side as an additional security layer
+  // In cross-origin mode, this is the PRIMARY auth check since server can't access cookies
   useEffect(() => {
     const validateClientAuth = async () => {
       setIsValidating(true);
@@ -103,18 +106,20 @@ export function AdminRoleListClient({
       // If client-side check fails, redirect (defensive measure)
       // Note: Server-side check should have already prevented access,
       // but this provides an additional layer of protection
+      // In cross-origin mode, this is the primary authorization check
       if (!clientCheck.isAuthorized) {
         router.push("/dashboard?error=unauthorized");
       }
     };
 
-    // Only validate if server said we're authorized (optimization)
-    if (serverIsAuthorized) {
+    // Always validate in cross-origin mode (server couldn't verify)
+    // Otherwise, only validate if server said we're authorized (optimization)
+    if (isCrossOrigin || serverIsAuthorized) {
       validateClientAuth();
     } else {
       setIsValidating(false);
     }
-  }, [serverIsAuthorized, router]);
+  }, [serverIsAuthorized, isCrossOrigin, router]);
 
   // Show loading state while validating
   if (isValidating) {

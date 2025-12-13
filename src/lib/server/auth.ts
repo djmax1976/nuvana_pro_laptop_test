@@ -57,16 +57,36 @@ interface AuthMeResponse {
 }
 
 /**
+ * Check if we're in a cross-origin deployment where cookies are on a different domain.
+ * In cross-origin deployments (e.g., Railway), cookies set by backend are not accessible
+ * to the frontend server, so we need to let client-side handle authorization.
+ */
+function isCrossOriginDeployment(): boolean {
+  // In production with NEXT_PUBLIC_BACKEND_URL set to a different domain,
+  // cookies won't be accessible server-side
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+  const isProduction = process.env.NODE_ENV === "production";
+
+  // If we're in production and backend URL is set (implying cross-origin),
+  // server-side cookie access won't work
+  return isProduction && !!backendUrl && !backendUrl.includes("localhost");
+}
+
+/**
  * Check if the current user has Super Admin permission (ADMIN_SYSTEM_CONFIG)
  * This function makes a server-side request to the backend API to verify permissions
  *
- * @returns Object with isAuthorized boolean, isAuthenticated boolean, and user info if authorized
+ * For cross-origin deployments, returns a special state indicating client-side
+ * should handle authorization (since cookies aren't accessible server-side).
+ *
+ * @returns Object with isAuthorized boolean, isAuthenticated boolean, user info, and isCrossOrigin flag
  * @throws Error if authentication fails
  */
 export async function checkSuperAdminPermission(): Promise<{
   isAuthorized: boolean;
   isAuthenticated: boolean;
   user: ServerUser | null;
+  isCrossOrigin?: boolean;
 }> {
   try {
     // Get cookies from Next.js server-side API
@@ -74,6 +94,16 @@ export async function checkSuperAdminPermission(): Promise<{
     const accessToken = cookieStore.get("access_token");
 
     if (!accessToken) {
+      // In cross-origin deployments, cookies are on the backend domain
+      // and not accessible here. Let client-side handle authorization.
+      if (isCrossOriginDeployment()) {
+        return {
+          isAuthorized: true, // Optimistically allow - client will verify
+          isAuthenticated: true,
+          user: null,
+          isCrossOrigin: true,
+        };
+      }
       return { isAuthorized: false, isAuthenticated: false, user: null };
     }
 
