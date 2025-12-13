@@ -58,11 +58,15 @@ async function apiRequest<T>(
   const data = await response.json();
 
   if (!response.ok || data.success === false) {
-    throw new Error(
+    // Handle error object format: { error: { code: "...", message: "..." } }
+    // or simple error string: { error: "..." }
+    const errorMessage =
       data.message ||
-        data.error ||
-        `HTTP ${response.status}: ${response.statusText}`,
-    );
+      (typeof data.error === "object" && data.error?.message
+        ? data.error.message
+        : data.error) ||
+      `HTTP ${response.status}: ${response.statusText}`;
+    throw new Error(errorMessage);
   }
 
   return data;

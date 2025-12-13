@@ -487,7 +487,9 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           message.includes("scope requires") ||
           message.includes("does not belong") ||
           message.includes("Invalid scope") ||
-          message.includes("already has this role")
+          message.includes("already has this role") ||
+          message.includes("already has a role assigned") ||
+          message.includes("already has a CLIENT_OWNER")
         ) {
           reply.code(400);
           reply.send({

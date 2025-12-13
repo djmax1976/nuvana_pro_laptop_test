@@ -26,6 +26,13 @@ export interface TokenPair {
 }
 
 /**
+ * Token generation result with role metadata for cookie expiry
+ */
+export interface TokenPairWithMeta extends TokenPair {
+  roles: string[];
+}
+
+/**
  * JWT service for token generation and validation
  * Implements secure JWT token generation with access and refresh tokens
  */
@@ -73,6 +80,27 @@ export class AuthService {
     return isSuperAdmin
       ? this.superAdminAccessTokenExpiry
       : this.defaultAccessTokenExpiry;
+  }
+
+  /**
+   * Get cookie maxAge in seconds based on user roles
+   * - SUPERADMIN: 8 hours (28800 seconds)
+   * - CLIENT_USER: undefined (session cookie - no expiry, lasts until browser close or logout)
+   * - All others: 1 hour (3600 seconds)
+   * @param roles - User roles array
+   * @returns Cookie maxAge in seconds, or undefined for session cookies
+   */
+  static getCookieMaxAge(roles: string[] = []): number | undefined {
+    // CLIENT_USER gets session cookie (no maxAge = expires when browser closes)
+    if (roles.includes("CLIENT_USER")) {
+      return undefined;
+    }
+    // SUPERADMIN gets 8 hours
+    if (roles.includes("SUPERADMIN")) {
+      return 8 * 60 * 60; // 8 hours in seconds
+    }
+    // All other users get 1 hour
+    return 60 * 60; // 1 hour in seconds
   }
 
   /**
@@ -176,7 +204,7 @@ export class AuthService {
   async generateTokenPairWithRBAC(
     user_id: string,
     email: string,
-  ): Promise<TokenPair> {
+  ): Promise<TokenPairWithMeta> {
     // Fetch user roles from database with RLS transaction
     // RLS policies on user_roles table require app.current_user_id PostgreSQL session variable
     // Using withRLSTransaction ensures the session variable is set on the same connection
@@ -298,6 +326,7 @@ export class AuthService {
         client_id,
       ),
       refreshToken: await this.generateRefreshToken(user_id, email),
+      roles, // Include roles for cookie expiry determination
     };
   }
 

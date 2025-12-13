@@ -107,7 +107,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         // Generate JWT tokens with RBAC
         const authService = new AuthService();
-        const { accessToken, refreshToken } =
+        const { accessToken, refreshToken, roles } =
           await authService.generateTokenPairWithRBAC(user.user_id, user.email);
 
         // Set httpOnly cookies
@@ -124,23 +124,44 @@ export async function authRoutes(fastify: FastifyInstance) {
         const isCrossOrigin = isSecure && process.env.NODE_ENV === "production";
         const sameSitePolicy = isCrossOrigin ? "none" : "lax";
 
-        // Access token cookie (15 min expiry)
-        (reply as any).setCookie("access_token", accessToken, {
-          httpOnly: true,
-          secure: isSecure,
-          sameSite: sameSitePolicy,
-          path: "/",
-          maxAge: 15 * 60, // 15 minutes in seconds
-        });
+        // Get cookie maxAge based on role:
+        // - SUPERADMIN: 8 hours
+        // - CLIENT_USER: undefined (session cookie - no expiry until logout)
+        // - Others: 1 hour
+        const cookieMaxAge = AuthService.getCookieMaxAge(roles);
 
-        // Refresh token cookie (7 days expiry)
-        (reply as any).setCookie("refresh_token", refreshToken, {
+        // Access token cookie with role-based expiry
+        const accessCookieOptions: any = {
           httpOnly: true,
           secure: isSecure,
           sameSite: sameSitePolicy,
           path: "/",
-          maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
-        });
+        };
+        if (cookieMaxAge !== undefined) {
+          accessCookieOptions.maxAge = cookieMaxAge;
+        }
+        (reply as any).setCookie(
+          "access_token",
+          accessToken,
+          accessCookieOptions,
+        );
+
+        // Refresh token cookie (7 days expiry, or session for CLIENT_USER)
+        const refreshCookieOptions: any = {
+          httpOnly: true,
+          secure: isSecure,
+          sameSite: sameSitePolicy,
+          path: "/",
+        };
+        if (cookieMaxAge !== undefined) {
+          // For non-session cookies, refresh token gets 7 days
+          refreshCookieOptions.maxAge = 7 * 24 * 60 * 60; // 7 days in seconds
+        }
+        (reply as any).setCookie(
+          "refresh_token",
+          refreshToken,
+          refreshCookieOptions,
+        );
 
         // Fetch user roles to determine routing
         // Use RLS transaction to ensure RLS policies allow the query
@@ -340,7 +361,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         // Generate JWT tokens with RBAC
         const authService = new AuthService();
-        const { accessToken, refreshToken } =
+        const { accessToken, refreshToken, roles } =
           await authService.generateTokenPairWithRBAC(user.user_id, user.email);
 
         // Log client login to AuditLog
@@ -377,23 +398,42 @@ export async function authRoutes(fastify: FastifyInstance) {
         const isCrossOrigin = isSecure && process.env.NODE_ENV === "production";
         const sameSitePolicy = isCrossOrigin ? "none" : "lax";
 
-        // Access token cookie (15 min expiry)
-        (reply as any).setCookie("access_token", accessToken, {
-          httpOnly: true,
-          secure: isSecure,
-          sameSite: sameSitePolicy,
-          path: "/",
-          maxAge: 15 * 60, // 15 minutes in seconds
-        });
+        // Get cookie maxAge based on role:
+        // - CLIENT_USER: undefined (session cookie - no expiry until logout)
+        // - Others: role-based expiry
+        const cookieMaxAge = AuthService.getCookieMaxAge(roles);
 
-        // Refresh token cookie (7 days expiry)
-        (reply as any).setCookie("refresh_token", refreshToken, {
+        // Access token cookie with role-based expiry
+        const accessCookieOptions: any = {
           httpOnly: true,
           secure: isSecure,
           sameSite: sameSitePolicy,
           path: "/",
-          maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
-        });
+        };
+        if (cookieMaxAge !== undefined) {
+          accessCookieOptions.maxAge = cookieMaxAge;
+        }
+        (reply as any).setCookie(
+          "access_token",
+          accessToken,
+          accessCookieOptions,
+        );
+
+        // Refresh token cookie (7 days expiry, or session for CLIENT_USER)
+        const refreshCookieOptions: any = {
+          httpOnly: true,
+          secure: isSecure,
+          sameSite: sameSitePolicy,
+          path: "/",
+        };
+        if (cookieMaxAge !== undefined) {
+          refreshCookieOptions.maxAge = 7 * 24 * 60 * 60; // 7 days in seconds
+        }
+        (reply as any).setCookie(
+          "refresh_token",
+          refreshToken,
+          refreshCookieOptions,
+        );
 
         // Return success response with user data
         reply.code(200);
@@ -502,11 +542,14 @@ export async function authRoutes(fastify: FastifyInstance) {
         const localUser = await getUserById(decoded.user_id);
 
         // Generate new token pair with roles and permissions from database (token rotation - old refresh token is now invalid)
-        const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
-          await authService.generateTokenPairWithRBAC(
-            localUser.user_id,
-            localUser.email,
-          );
+        const {
+          accessToken: newAccessToken,
+          refreshToken: newRefreshToken,
+          roles,
+        } = await authService.generateTokenPairWithRBAC(
+          localUser.user_id,
+          localUser.email,
+        );
 
         // Set new httpOnly cookies with secure flags
         // Determine if request is over HTTPS
@@ -520,23 +563,43 @@ export async function authRoutes(fastify: FastifyInstance) {
         const isCrossOrigin = isSecure && process.env.NODE_ENV === "production";
         const sameSitePolicy = isCrossOrigin ? "none" : "strict";
 
-        // Access token cookie (15 min expiry)
-        (reply as any).setCookie("access_token", newAccessToken, {
-          httpOnly: true,
-          secure: isSecure,
-          sameSite: sameSitePolicy,
-          path: "/",
-          maxAge: 15 * 60, // 15 minutes in seconds
-        });
+        // Get cookie maxAge based on role:
+        // - CLIENT_USER: undefined (session cookie - no expiry until logout)
+        // - SUPERADMIN: 8 hours
+        // - Others: 1 hour
+        const cookieMaxAge = AuthService.getCookieMaxAge(roles);
 
-        // Refresh token cookie (7 days expiry) - rotated
-        (reply as any).setCookie("refresh_token", newRefreshToken, {
+        // Access token cookie with role-based expiry
+        const accessCookieOptions: any = {
           httpOnly: true,
           secure: isSecure,
           sameSite: sameSitePolicy,
           path: "/",
-          maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
-        });
+        };
+        if (cookieMaxAge !== undefined) {
+          accessCookieOptions.maxAge = cookieMaxAge;
+        }
+        (reply as any).setCookie(
+          "access_token",
+          newAccessToken,
+          accessCookieOptions,
+        );
+
+        // Refresh token cookie (7 days expiry, or session for CLIENT_USER) - rotated
+        const refreshCookieOptions: any = {
+          httpOnly: true,
+          secure: isSecure,
+          sameSite: sameSitePolicy,
+          path: "/",
+        };
+        if (cookieMaxAge !== undefined) {
+          refreshCookieOptions.maxAge = 7 * 24 * 60 * 60; // 7 days in seconds
+        }
+        (reply as any).setCookie(
+          "refresh_token",
+          newRefreshToken,
+          refreshCookieOptions,
+        );
 
         // Return success response
         reply.code(200);

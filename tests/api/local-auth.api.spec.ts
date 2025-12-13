@@ -65,8 +65,11 @@ test.describe("Local Authentication API", () => {
         expect(accessTokenCookie).toContain("HttpOnly");
         expect(accessTokenCookie).toContain("Path=/");
         expect(accessTokenCookie).toMatch(/SameSite=(Lax|Strict)/i);
-        // Verify access token has correct maxAge (15 minutes = 900 seconds)
-        expect(accessTokenCookie).toMatch(/Max-Age=900/i);
+        // Verify access token has correct maxAge based on role
+        // CASHIER (default role) gets 1 hour = 3600 seconds
+        // SUPERADMIN gets 8 hours = 28800 seconds
+        // CLIENT_USER gets session cookie (no Max-Age)
+        expect(accessTokenCookie).toMatch(/Max-Age=3600/i);
 
         // Verify security attributes for refresh token
         expect(refreshTokenCookie).toContain("HttpOnly");

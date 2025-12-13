@@ -887,6 +887,39 @@ export class UserAdminService {
             }
           }
 
+          // BUSINESS RULE: One role per user - users can only have one role assigned
+          const existingUserRoles = await tx.userRole.findMany({
+            where: { user_id: userId },
+            select: { user_role_id: true, role: { select: { code: true } } },
+          });
+
+          if (existingUserRoles.length > 0) {
+            const existingRoleCodes = existingUserRoles
+              .map((ur) => ur.role.code)
+              .join(", ");
+            throw new Error(
+              `User already has a role assigned (${existingRoleCodes}). A user can only have one role.`,
+            );
+          }
+
+          // BUSINESS RULE: One CLIENT_OWNER per company
+          // If assigning CLIENT_OWNER role, check if company already has a CLIENT_OWNER
+          if (role.code === "CLIENT_OWNER" && company_id) {
+            const existingClientOwner = await tx.userRole.findFirst({
+              where: {
+                company_id: company_id,
+                role: { code: "CLIENT_OWNER" },
+              },
+              include: { user: { select: { email: true } } },
+            });
+
+            if (existingClientOwner) {
+              throw new Error(
+                `Company already has a CLIENT_OWNER assigned (${existingClientOwner.user.email}). Each company can only have one owner.`,
+              );
+            }
+          }
+
           // Create user role assignment
           const userRole = await tx.userRole.create({
             data: {
