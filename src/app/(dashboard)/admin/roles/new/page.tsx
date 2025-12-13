@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { checkSuperAdminPermission } from "@/lib/server/auth";
-import { CreateRoleForm } from "@/components/admin-roles/CreateRoleForm";
+import { CreateRoleFormClient } from "@/components/admin-roles/CreateRoleFormClient";
 
 /**
  * Create Role Page
@@ -10,6 +10,9 @@ import { CreateRoleForm } from "@/components/admin-roles/CreateRoleForm";
  * ADMIN_SYSTEM_CONFIG permission can access this page.
  * This prevents client-side bypass of authorization.
  *
+ * For cross-origin deployments (e.g., Railway), server-side cookie access
+ * is not possible, so the client-side component handles authorization.
+ *
  * If user is not authenticated, they are redirected to login.
  * If user is authenticated but not authorized, they are redirected to the
  * roles list page with an error parameter indicating unauthorized access.
@@ -17,22 +20,29 @@ import { CreateRoleForm } from "@/components/admin-roles/CreateRoleForm";
 export default async function CreateRolePage() {
   // Server-side authorization check
   // This runs on the server before any client-side code executes
-  const { isAuthorized, isAuthenticated } = await checkSuperAdminPermission();
+  const { isAuthorized, isAuthenticated, isCrossOrigin } =
+    await checkSuperAdminPermission();
 
-  if (!isAuthenticated) {
-    // Redirect unauthenticated users to login
-    redirect("/login");
-  }
+  // In cross-origin mode, skip server redirect and let client handle auth
+  if (!isCrossOrigin) {
+    if (!isAuthenticated) {
+      // Redirect unauthenticated users to login
+      redirect("/login");
+    }
 
-  if (!isAuthorized) {
-    // Redirect unauthorized users - prevents access to the page
-    // The redirect happens server-side, so client-side bypass is not possible
-    redirect("/admin/roles?error=unauthorized");
+    if (!isAuthorized) {
+      // Redirect unauthorized users - prevents access to the page
+      // The redirect happens server-side, so client-side bypass is not possible
+      redirect("/admin/roles?error=unauthorized");
+    }
   }
 
   return (
     <div className="container mx-auto py-6">
-      <CreateRoleForm />
+      <CreateRoleFormClient
+        isAuthorized={isAuthorized}
+        isCrossOrigin={isCrossOrigin}
+      />
     </div>
   );
 }

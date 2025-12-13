@@ -1890,3 +1890,211 @@ test.describe("2.8-API: User Management API - User Deletion Operations", () => {
     expect(auditLog?.reason).toContain("owned company");
   });
 });
+
+test.describe("2.8-API: User Management API - CLIENT_OWNER Role Assignment Business Rules", () => {
+  test("2.8-API-049: [P0] POST /api/admin/users/:userId/roles - should reject CLIENT_OWNER assignment to company that already has an owner", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A company that already has an owner with CLIENT_OWNER role assigned
+    const existingOwner = await prismaClient.user.create({
+      data: createUser({ name: "Test Existing Company Owner" }),
+    });
+
+    const clientOwnerRole = await prismaClient.role.findFirst({
+      where: { code: "CLIENT_OWNER" },
+    });
+    if (!clientOwnerRole) {
+      throw new Error("CLIENT_OWNER role not found in database");
+    }
+
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Test Company With Existing Owner",
+        status: "ACTIVE",
+        owner_user_id: existingOwner.user_id,
+      }),
+    });
+
+    // Assign CLIENT_OWNER role to the existing owner
+    await prismaClient.userRole.create({
+      data: {
+        user_id: existingOwner.user_id,
+        role_id: clientOwnerRole.role_id,
+        company_id: company.company_id,
+      },
+    });
+
+    // AND: A different user who we want to make owner
+    const newUser = await prismaClient.user.create({
+      data: createAdminUser({ name: "Test User Trying To Become Owner" }),
+    });
+
+    // WHEN: Attempting to assign CLIENT_OWNER role to the new user for the same company
+    const response = await superadminApiRequest.post(
+      `/api/admin/users/${newUser.user_id}/roles`,
+      {
+        role_id: clientOwnerRole.role_id,
+        scope_type: "COMPANY",
+        company_id: company.company_id,
+      },
+    );
+
+    // THEN: Assignment is rejected - company already has an owner
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.message).toMatch(/already.*CLIENT_OWNER|one owner/i);
+  });
+
+  test("2.8-API-050: [P0] POST /api/admin/users/:userId/roles - should reject role assignment when user already has a role", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A user who already has a role assigned
+    const existingUser = await prismaClient.user.create({
+      data: createAdminUser({ name: "Test User With Existing Role" }),
+    });
+
+    // Assign a SYSTEM role to the user first
+    const systemRole = await prismaClient.role.findFirst({
+      where: { scope: "SYSTEM" },
+    });
+    if (!systemRole) {
+      throw new Error("SYSTEM scope role not found in database");
+    }
+
+    await prismaClient.userRole.create({
+      data: {
+        user_id: existingUser.user_id,
+        role_id: systemRole.role_id,
+      },
+    });
+
+    // AND: A COMPANY-scoped role and company to try to assign
+    const companyRole = await prismaClient.role.findFirst({
+      where: { scope: "COMPANY" },
+    });
+    if (!companyRole) {
+      throw new Error("COMPANY scope role not found in database");
+    }
+
+    // Create a company for the role assignment
+    const companyOwner = await prismaClient.user.create({
+      data: createUser({ name: "Test Company Owner For Role Test" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Test Company For Role Test",
+        status: "ACTIVE",
+        owner_user_id: companyOwner.user_id,
+      }),
+    });
+
+    // WHEN: Attempting to assign a second role to the user
+    const response = await superadminApiRequest.post(
+      `/api/admin/users/${existingUser.user_id}/roles`,
+      {
+        role_id: companyRole.role_id,
+        scope_type: "COMPANY",
+        company_id: company.company_id,
+      },
+    );
+
+    // THEN: Assignment is rejected - user can only have one role
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.message).toMatch(/already.*role|one role/i);
+  });
+
+  test("2.8-API-051: [P0] POST /api/admin/users/:userId/roles - should successfully assign CLIENT_OWNER to company without owner", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A company that does NOT have an owner assigned yet
+    // (This simulates a company created without CLIENT_OWNER assignment, or owner was removed)
+    const tempOwner = await prismaClient.user.create({
+      data: createUser({ name: "Temp Owner For Setup" }),
+    });
+
+    const company = await prismaClient.company.create({
+      data: createCompany({
+        name: "Test Company Without CLIENT_OWNER Role",
+        status: "ACTIVE",
+        owner_user_id: tempOwner.user_id, // Required by schema, but no CLIENT_OWNER role assigned
+      }),
+    });
+
+    // AND: A user who will become the owner
+    const newOwner = await prismaClient.user.create({
+      data: createAdminUser({ name: "New Company Owner" }),
+    });
+
+    const clientOwnerRole = await prismaClient.role.findFirst({
+      where: { code: "CLIENT_OWNER" },
+    });
+    if (!clientOwnerRole) {
+      throw new Error("CLIENT_OWNER role not found in database");
+    }
+
+    // WHEN: Assigning CLIENT_OWNER role to the new user
+    const response = await superadminApiRequest.post(
+      `/api/admin/users/${newOwner.user_id}/roles`,
+      {
+        role_id: clientOwnerRole.role_id,
+        scope_type: "COMPANY",
+        company_id: company.company_id,
+      },
+    );
+
+    // THEN: Assignment succeeds
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty("user_role_id");
+
+    // AND: User role is created with correct company_id
+    const userRole = await prismaClient.userRole.findFirst({
+      where: {
+        user_id: newOwner.user_id,
+        role_id: clientOwnerRole.role_id,
+      },
+    });
+    expect(userRole).not.toBeNull();
+    expect(userRole?.company_id).toBe(company.company_id);
+  });
+
+  test("2.8-API-052: [P1] POST /api/admin/users/:userId/roles - should reject CLIENT_OWNER assignment without company_id", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A user and CLIENT_OWNER role
+    const user = await prismaClient.user.create({
+      data: createAdminUser({ name: "User For Missing Company Test" }),
+    });
+
+    const clientOwnerRole = await prismaClient.role.findFirst({
+      where: { code: "CLIENT_OWNER" },
+    });
+    if (!clientOwnerRole) {
+      throw new Error("CLIENT_OWNER role not found in database");
+    }
+
+    // WHEN: Attempting to assign CLIENT_OWNER without company_id
+    const response = await superadminApiRequest.post(
+      `/api/admin/users/${user.user_id}/roles`,
+      {
+        role_id: clientOwnerRole.role_id,
+        scope_type: "COMPANY",
+        // company_id is missing
+      },
+    );
+
+    // THEN: Validation error is returned
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.message).toMatch(/company.*required/i);
+  });
+});
