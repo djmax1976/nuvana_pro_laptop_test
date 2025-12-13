@@ -5,7 +5,12 @@
 
 import { cookies } from "next/headers";
 
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
+// Use BACKEND_URL for server-to-server calls, with NEXT_PUBLIC_BACKEND_URL as fallback
+// NEXT_PUBLIC_ variables are available on both client and server in Next.js
+const BACKEND_URL =
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  "http://localhost:3001";
 const ADMIN_SYSTEM_CONFIG_PERMISSION = "ADMIN_SYSTEM_CONFIG";
 
 // Parse and validate AUTH_REQUEST_TIMEOUT_MS with safe fallback
