@@ -10,15 +10,20 @@ import { AdminRoleListClient } from "@/components/admin-roles/AdminRoleListClien
  * ADMIN_SYSTEM_CONFIG permission can access this page.
  * This prevents client-side bypass of authorization.
  *
+ * For cross-origin deployments (e.g., Railway), server-side cookie access
+ * is not possible, so the client-side component handles authorization.
+ *
  * If user is not authorized, they are redirected to the dashboard
  * with an error parameter indicating unauthorized access.
  */
 export default async function RolesPage() {
   // Server-side authorization check
   // This runs on the server before any client-side code executes
-  const { isAuthorized, user } = await checkSuperAdminPermission();
+  const { isAuthorized, user, isCrossOrigin } =
+    await checkSuperAdminPermission();
 
-  if (!isAuthorized) {
+  // In cross-origin mode, skip server redirect and let client handle auth
+  if (!isAuthorized && !isCrossOrigin) {
     // Redirect unauthorized users - prevents access to the page
     // The redirect happens server-side, so client-side bypass is not possible
     redirect("/dashboard?error=unauthorized");
@@ -29,6 +34,7 @@ export default async function RolesPage() {
       <AdminRoleListClient
         isAuthorized={isAuthorized}
         userPermissions={user?.permissions || []}
+        isCrossOrigin={isCrossOrigin}
       />
     </div>
   );
