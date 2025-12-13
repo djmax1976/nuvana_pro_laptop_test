@@ -1,28 +1,61 @@
 # Deploy Pipeline - Railway Deployment
-# Railway auto-deploys on push to connected branch
-# This workflow runs pre-deployment checks and validates builds
+# Triggered ONLY on push to main (after PR merge with passing CI)
+# Railway auto-deploys via GitHub integration when connected
+# This workflow provides deployment verification and optional manual triggers
 
 name: Deploy
 
 on:
   push:
-    branches: [main, development]
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+      skip_health_check:
+        description: 'Skip post-deployment health check'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
+  deployments: write
 
 env:
   NODE_VERSION: "20"
+  RAILWAY_PROJECT_ID: "ef54c8e0-0edf-4782-a583-4f7f0022c507"
+  BACKEND_URL: "https://backend-production-5c11.up.railway.app"
+  FRONTEND_URL: "https://frontend-production-be71.up.railway.app"
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false  # Never cancel in-progress deployments
 
 jobs:
-  # Pre-deployment validation checks
+  # =============================================================================
+  # Pre-deployment validation (fast sanity check)
+  # =============================================================================
   pre-deploy:
-    name: Pre-deployment Checks
+    name: Pre-deployment Validation
     runs-on: ubuntu-latest
+    outputs:
+      deploy_sha: ${{ steps.info.outputs.sha }}
+      deploy_time: ${{ steps.info.outputs.time }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Capture deployment info
+        id: info
+        run: |
+          echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -36,40 +69,110 @@ jobs:
       - name: Install backend dependencies
         run: cd backend && npm ci
 
-      - name: Run linting
-        run: npm run lint
-        continue-on-error: true
-
-      - name: Build check (Frontend)
-        run: npm run build
-        env:
-          # Use dummy values for build check
-          DATABASE_URL: "postgresql://dummy:dummy@dummy:5432/dummy"
-          NODE_ENV: "production"
-          NEXT_PUBLIC_BACKEND_URL: "https://dummy.up.railway.app"
-
-      - name: Build check (Backend)
-        run: cd backend && npm run build
-        env:
-          DATABASE_URL: "postgresql://dummy:dummy@dummy:5432/dummy"
-          NODE_ENV: "production"
-
-      - name: Deployment summary
+      - name: Validate builds
         run: |
-          echo "## Pre-deployment Checks Complete! ✅" >> $GITHUB_STEP_SUMMARY
+          echo "Building frontend..."
+          npm run build
+          echo "Building backend..."
+          cd backend && npm run build
+        env:
+          DATABASE_URL: "postgresql://dummy:dummy@dummy:5432/dummy"
+          NODE_ENV: "production"
+          NEXT_PUBLIC_BACKEND_URL: "${{ env.BACKEND_URL }}"
+
+  # =============================================================================
+  # Railway Deployment (triggered by GitHub integration OR manual)
+  # =============================================================================
+  deploy:
+    name: Deploy to Railway
+    needs: pre-deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ env.FRONTEND_URL }}
+    steps:
+      - name: Deployment started
+        run: |
+          echo "## Deployment Started" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ needs.pre-deploy.outputs.deploy_sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Time:** ${{ needs.pre-deploy.outputs.deploy_time }}" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Project:** outstanding-contentment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Railway Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "Railway will auto-deploy via GitHub integration." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Railway Services:**" >> $GITHUB_STEP_SUMMARY
-          echo "- Frontend and Backend services will auto-deploy on push to connected branch" >> $GITHUB_STEP_SUMMARY
-          echo "- Check Railway dashboard for deployment status" >> $GITHUB_STEP_SUMMARY
-          echo "- Verify all environment variables are set in Railway" >> $GITHUB_STEP_SUMMARY
+          echo "### Services" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend:** ${{ env.FRONTEND_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend:** ${{ env.BACKEND_URL }}" >> $GITHUB_STEP_SUMMARY
+
+      # Optional: Use Railway CLI for explicit deployment control
+      # Uncomment and add RAILWAY_TOKEN secret if you want CLI-based deployments
+      # - name: Install Railway CLI
+      #   run: npm install -g @railway/cli
+      #
+      # - name: Deploy Backend
+      #   run: railway up --service backend
+      #   env:
+      #     RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      #
+      # - name: Deploy Frontend
+      #   run: railway up --service frontend
+      #   env:
+      #     RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+  # =============================================================================
+  # Post-deployment health verification
+  # =============================================================================
+  health-check:
+    name: Verify Deployment Health
+    needs: [pre-deploy, deploy]
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_health_check }}
+    steps:
+      - name: Wait for Railway deployment propagation
+        run: sleep 60  # Give Railway time to complete deployment
+
+      - name: Check Backend Health
+        id: backend_health
+        run: |
+          echo "Checking backend health..."
+          for i in {1..10}; do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ env.BACKEND_URL }}/api/health" || echo "000")
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "Backend is healthy!"
+              echo "status=healthy" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "Attempt $i: Backend returned $HTTP_STATUS, retrying in 30s..."
+            sleep 30
+          done
+          echo "status=unhealthy" >> $GITHUB_OUTPUT
+          echo "::warning::Backend health check failed after 10 attempts"
+
+      - name: Check Frontend Health
+        id: frontend_health
+        run: |
+          echo "Checking frontend health..."
+          for i in {1..10}; do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ env.FRONTEND_URL }}" || echo "000")
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "Frontend is healthy!"
+              echo "status=healthy" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "Attempt $i: Frontend returned $HTTP_STATUS, retrying in 30s..."
+            sleep 30
+          done
+          echo "status=unhealthy" >> $GITHUB_OUTPUT
+          echo "::warning::Frontend health check failed after 10 attempts"
+
+      - name: Deployment Summary
+        run: |
+          echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "1. Verify environment variables are set in deployment platforms" >> $GITHUB_STEP_SUMMARY
-          echo "2. Check deployment logs if issues occur" >> $GITHUB_STEP_SUMMARY
-          echo "3. Test deployed services after deployment completes" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Status | URL |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend | ${{ steps.backend_health.outputs.status == 'healthy' && '✅ Healthy' || '⚠️ Check Required' }} | ${{ env.BACKEND_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend | ${{ steps.frontend_health.outputs.status == 'healthy' && '✅ Healthy' || '⚠️ Check Required' }} | ${{ env.FRONTEND_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed Commit:** \`${{ needs.pre-deploy.outputs.deploy_sha }}\`" >> $GITHUB_STEP_SUMMARY
