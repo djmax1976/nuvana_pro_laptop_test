@@ -24,6 +24,20 @@ const PUBLIC_ROUTES = [
   "/client-login", // Legacy redirect
 ];
 
+// Routes that should be allowed through middleware even without cookie
+// (client-side auth in AuthContext will handle protection)
+// This is needed for cross-origin deployments where cookies are set on backend domain
+const CLIENT_AUTH_ROUTES = [
+  "/dashboard",
+  "/companies",
+  "/stores",
+  "/admin",
+  "/transactions",
+  "/client-dashboard",
+  "/mystore",
+  "/terminal",
+];
+
 // Static assets and system paths that should bypass auth
 const BYPASS_PATTERNS = [
   "/_next", // Next.js internals
@@ -61,6 +75,25 @@ function isPublicRoute(pathname: string): boolean {
     // For non-root routes, also match nested paths (e.g., /login/callback)
     // Root "/" should NOT match nested paths like "/dashboard"
     if (route !== "/" && pathname.startsWith(`${route}/`)) {
+      return true;
+    }
+    return false;
+  });
+}
+
+/**
+ * Check if a route should use client-side auth instead of cookie-based middleware auth
+ *
+ * For cross-origin deployments (e.g., Railway where frontend and backend are on different domains),
+ * cookies set by the backend are not accessible to the frontend domain. In these cases,
+ * we let the route through and let client-side AuthContext handle authentication.
+ */
+function isClientAuthRoute(pathname: string): boolean {
+  return CLIENT_AUTH_ROUTES.some((route) => {
+    if (pathname === route) {
+      return true;
+    }
+    if (pathname.startsWith(`${route}/`)) {
       return true;
     }
     return false;
@@ -154,7 +187,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 3. Check authentication for all other routes
+  // 3. For client-auth routes, allow through - client-side AuthContext handles auth
+  // This is needed for cross-origin deployments where cookies are on a different domain
+  if (isClientAuthRoute(pathname)) {
+    return NextResponse.next();
+  }
+
+  // 4. Check authentication for all other routes
   if (!hasValidToken(request)) {
     // Redirect to login with return URL
     const loginUrl = new URL("/login", request.url);
