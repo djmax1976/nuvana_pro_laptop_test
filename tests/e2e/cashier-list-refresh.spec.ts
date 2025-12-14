@@ -113,6 +113,40 @@ test.describe("4.9-E2E: Cashier List Refresh After Create", () => {
       .locator('[data-testid="cashier-store"]')
       .waitFor({ state: "visible", timeout: 15000 });
 
+    // Wait for stores to load and check if store is auto-selected
+    // The form shows a loading spinner while fetching stores
+    await page
+      .waitForLoadState("networkidle", { timeout: 10000 })
+      .catch(() => {});
+
+    // Check if store dropdown has a value or shows placeholder
+    const storeDropdown = page.locator('[data-testid="cashier-store"]');
+    const storeDropdownText = await storeDropdown.textContent();
+    console.log("Store dropdown text:", storeDropdownText);
+
+    // If store shows "Select a store" placeholder, we need to select one
+    if (storeDropdownText?.includes("Select a store")) {
+      console.log("Store not auto-selected, clicking to select first store...");
+      await storeDropdown.click();
+
+      // Wait for dropdown content to appear
+      await page.waitForSelector('[role="option"]', {
+        state: "visible",
+        timeout: 5000,
+      });
+
+      // Select the first store
+      const firstOption = page.locator('[role="option"]').first();
+      const firstOptionText = await firstOption.textContent();
+      console.log("Selecting store:", firstOptionText);
+      await firstOption.click();
+
+      // Wait for dropdown to close
+      await page.waitForTimeout(500);
+    } else {
+      console.log("Store already selected:", storeDropdownText);
+    }
+
     // Step 5: Fill in form - "cashier 4" with PIN "0829"
     const cashierName = "cashier 4";
     const nameInput = page.locator('[data-testid="cashier-name"]');
