@@ -6,17 +6,35 @@
  *
  * Bug: After adding a cashier in client dashboard, the page doesn't refresh
  * and show the new cashier - user has to manually refresh the page.
+ *
+ * IMPORTANT: This test requires a real user account with stores and cashier access.
+ * It is SKIPPED by default in CI. To run locally:
+ *
+ *   CASHIER_REFRESH_TEST=true npm run test:e2e -- tests/e2e/cashier-list-refresh.spec.ts
+ *
+ * You can also override credentials via environment variables:
+ *   TEST_CLIENT_EMAIL=your@email.com TEST_CLIENT_PASSWORD=yourpassword CASHIER_REFRESH_TEST=true npm run test:e2e -- tests/e2e/cashier-list-refresh.spec.ts
  */
 
 import { test, expect } from "@playwright/test";
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
-// Test credentials from user
-const TEST_EMAIL = "kfpllcusa@gmail.com";
-const TEST_PASSWORD = "Milkey27#";
+// Test credentials - use environment variables or defaults for manual testing
+const TEST_EMAIL = process.env.TEST_CLIENT_EMAIL || "kfpllcusa@gmail.com";
+const TEST_PASSWORD = process.env.TEST_CLIENT_PASSWORD || "Milkey27#";
+
+// Skip this test unless CASHIER_REFRESH_TEST=true is set
+// This test requires a real user account that doesn't exist in the test database
+const shouldRunTest = process.env.CASHIER_REFRESH_TEST === "true";
 
 test.describe("4.9-E2E: Cashier List Refresh After Create", () => {
+  // Skip entire suite unless explicitly enabled
+  test.skip(
+    !shouldRunTest,
+    "Skipped: Set CASHIER_REFRESH_TEST=true to run this test with real credentials",
+  );
+
   test("should show new cashier in list immediately after creation without page refresh", async ({
     page,
   }) => {
