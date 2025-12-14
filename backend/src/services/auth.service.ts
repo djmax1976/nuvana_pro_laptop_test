@@ -41,6 +41,7 @@ export class AuthService {
   private readonly jwtRefreshSecret: string;
   private readonly defaultAccessTokenExpiry: string;
   private readonly superAdminAccessTokenExpiry: string;
+  private readonly clientUserAccessTokenExpiry: string;
   private readonly refreshTokenExpiry: string;
 
   constructor() {
@@ -57,6 +58,9 @@ export class AuthService {
     this.defaultAccessTokenExpiry = process.env.ACCESS_TOKEN_EXPIRY || "1h";
     this.superAdminAccessTokenExpiry =
       process.env.SUPER_ADMIN_TOKEN_EXPIRY || "8h";
+    // CLIENT_USER gets 30 days - effectively "indefinite" for session-based login
+    this.clientUserAccessTokenExpiry =
+      process.env.CLIENT_USER_TOKEN_EXPIRY || "30d";
     this.refreshTokenExpiry = process.env.REFRESH_TOKEN_EXPIRY || "7d";
 
     // Log configuration in non-production environments for debugging
@@ -64,6 +68,7 @@ export class AuthService {
       console.log("[AuthService] Token expiry configuration:", {
         defaultAccessTokenExpiry: this.defaultAccessTokenExpiry,
         superAdminAccessTokenExpiry: this.superAdminAccessTokenExpiry,
+        clientUserAccessTokenExpiry: this.clientUserAccessTokenExpiry,
         refreshTokenExpiry: this.refreshTokenExpiry,
       });
     }
@@ -71,35 +76,40 @@ export class AuthService {
 
   /**
    * Determine access token expiry based on user roles
-   * Super admins get 8 hours, all other users get 1 hour
+   * - SUPERADMIN: 8 hours (configurable via SUPER_ADMIN_TOKEN_EXPIRY)
+   * - CLIENT_USER: 30 days (configurable via CLIENT_USER_TOKEN_EXPIRY) - effectively "indefinite"
+   * - All others (CLIENT_OWNER): 1 hour (configurable via ACCESS_TOKEN_EXPIRY)
    * @param roles - User roles array
-   * @returns Token expiry string (e.g., "1h" or "8h")
+   * @returns Token expiry string (e.g., "1h", "8h", or "30d")
    */
   private getAccessTokenExpiry(roles: string[] = []): string {
-    const isSuperAdmin = roles.includes("SUPERADMIN");
-    return isSuperAdmin
-      ? this.superAdminAccessTokenExpiry
-      : this.defaultAccessTokenExpiry;
+    if (roles.includes("SUPERADMIN")) {
+      return this.superAdminAccessTokenExpiry;
+    }
+    if (roles.includes("CLIENT_USER")) {
+      return this.clientUserAccessTokenExpiry;
+    }
+    return this.defaultAccessTokenExpiry;
   }
 
   /**
    * Get cookie maxAge in seconds based on user roles
    * - SUPERADMIN: 8 hours (28800 seconds)
-   * - CLIENT_USER: undefined (session cookie - no expiry, lasts until browser close or logout)
-   * - All others: 1 hour (3600 seconds)
+   * - CLIENT_USER: 30 days (2592000 seconds) - effectively "indefinite" for long-term login
+   * - All others (CLIENT_OWNER): 1 hour (3600 seconds)
    * @param roles - User roles array
-   * @returns Cookie maxAge in seconds, or undefined for session cookies
+   * @returns Cookie maxAge in seconds
    */
-  static getCookieMaxAge(roles: string[] = []): number | undefined {
-    // CLIENT_USER gets session cookie (no maxAge = expires when browser closes)
-    if (roles.includes("CLIENT_USER")) {
-      return undefined;
-    }
+  static getCookieMaxAge(roles: string[] = []): number {
     // SUPERADMIN gets 8 hours
     if (roles.includes("SUPERADMIN")) {
       return 8 * 60 * 60; // 8 hours in seconds
     }
-    // All other users get 1 hour
+    // CLIENT_USER gets 30 days - effectively "indefinite" for long-term login
+    if (roles.includes("CLIENT_USER")) {
+      return 30 * 24 * 60 * 60; // 30 days in seconds
+    }
+    // All other users (CLIENT_OWNER) get 1 hour
     return 60 * 60; // 1 hour in seconds
   }
 

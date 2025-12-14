@@ -437,9 +437,12 @@ export function useCreateCashier() {
       data: CreateCashierInput;
     }) => createCashier(storeId, data),
     onSuccess: (_, variables) => {
-      // Invalidate cashier lists for this store
+      // Invalidate ALL cashier list queries for this store (regardless of filters)
+      // Using partial key match to invalidate both filtered and unfiltered queries
+      // refetchType: "all" ensures queries refetch even when navigating between pages
       queryClient.invalidateQueries({
-        queryKey: cashierKeys.list(variables.storeId),
+        queryKey: ["cashiers", "list", variables.storeId],
+        refetchType: "all",
       });
     },
   });
@@ -463,12 +466,15 @@ export function useUpdateCashier() {
       data: UpdateCashierInput;
     }) => updateCashier(storeId, cashierId, data),
     onSuccess: (_, variables) => {
-      // Invalidate cashier lists and detail for this store
+      // Invalidate ALL cashier list queries for this store (regardless of filters)
+      // refetchType: "all" ensures queries refetch even when navigating between pages
       queryClient.invalidateQueries({
-        queryKey: cashierKeys.list(variables.storeId),
+        queryKey: ["cashiers", "list", variables.storeId],
+        refetchType: "all",
       });
       queryClient.invalidateQueries({
         queryKey: cashierKeys.detail(variables.storeId, variables.cashierId),
+        refetchType: "all",
       });
     },
   });
@@ -490,9 +496,11 @@ export function useDeleteCashier() {
       cashierId: string;
     }) => deleteCashier(storeId, cashierId),
     onSuccess: (_, variables) => {
-      // Invalidate cashier lists for this store
+      // Invalidate ALL cashier list queries for this store (regardless of filters)
+      // refetchType: "all" ensures queries refetch even when navigating between pages
       queryClient.invalidateQueries({
-        queryKey: cashierKeys.list(variables.storeId),
+        queryKey: ["cashiers", "list", variables.storeId],
+        refetchType: "all",
       });
     },
   });
