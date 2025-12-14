@@ -198,13 +198,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [backendUrl, user, router]);
 
   // Proactive token refresh to keep users logged in during active sessions
-  // Refreshes access token every 10 minutes (before 15-minute expiry)
+  // Refresh intervals are role-based to match backend token expiry:
+  // - SUPERADMIN: Refresh every 7 hours (before 8-hour expiry)
+  // - CLIENT_OWNER: Refresh every 50 minutes (before 1-hour expiry)
+  // - CLIENT_USER: Refresh every 7 days (before 30-day expiry)
   useEffect(() => {
     if (!user) {
       return; // Only run when user is authenticated
     }
 
-    const REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes in milliseconds
+    // Determine refresh interval based on user role
+    const roles = user.roles || [];
+    let refreshIntervalMs: number;
+
+    if (roles.includes("SUPERADMIN")) {
+      refreshIntervalMs = 7 * 60 * 60 * 1000; // 7 hours in milliseconds
+    } else if (roles.includes("CLIENT_USER")) {
+      refreshIntervalMs = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+    } else {
+      // CLIENT_OWNER and other roles
+      refreshIntervalMs = 50 * 60 * 1000; // 50 minutes in milliseconds
+    }
 
     const refreshInterval = setInterval(async () => {
       try {
@@ -221,7 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Network error or backend unavailable - logout for security
         await logout();
       }
-    }, REFRESH_INTERVAL);
+    }, refreshIntervalMs);
 
     // Cleanup interval on unmount or when user logs out
     return () => clearInterval(refreshInterval);
