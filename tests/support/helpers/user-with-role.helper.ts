@@ -61,7 +61,7 @@ export async function createUserWithRole(
 ): Promise<UserWithRoleResult> {
   const email =
     input.email ||
-    `test-${Date.now()}-${Math.random().toString(36).substring(2, 9)}@example.com`;
+    `test_${Date.now()}-${Math.random().toString(36).substring(2, 9)}@test.nuvana.local`;
   const name = input.name || faker.person.fullName();
   const password = input.password || "TestPassword123!";
   const status = input.status || "ACTIVE";

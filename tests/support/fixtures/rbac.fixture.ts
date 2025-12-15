@@ -187,6 +187,7 @@ type RBACFixture = {
     email: string;
     name: string;
     company_id: string;
+    store_id: string;
     roles: string[];
     permissions: string[];
     token: string;
@@ -270,6 +271,18 @@ type RBACFixture = {
   };
   cashierPage: import("@playwright/test").Page;
   clientOwnerPage: import("@playwright/test").Page;
+  cashierApiRequest: ApiRequestHelper;
+  systemAdminApiRequest: ApiRequestHelper;
+  anotherStoreManagerUser: {
+    user_id: string;
+    email: string;
+    name: string;
+    company_id: string;
+    store_id: string;
+    roles: string[];
+    permissions: string[];
+    token: string;
+  };
 };
 
 export const test = base.extend<RBACFixture>({
@@ -593,6 +606,15 @@ export const test = base.extend<RBACFixture>({
     // Create company
     const company = await prismaClient.company.create({ data: companyData });
 
+    // Create store for the corporate admin (needed by EPIC 10 tests)
+    const storeData = createStore({ company_id: company.company_id });
+    const store = await prismaClient.store.create({
+      data: {
+        ...storeData,
+        location_json: storeData.location_json as any,
+      },
+    });
+
     // Create user
     const user = await prismaClient.user.create({ data: userData });
 
@@ -639,6 +661,7 @@ export const test = base.extend<RBACFixture>({
       email: user.email,
       name: user.name,
       company_id: company.company_id,
+      store_id: store.store_id,
       roles: ["CORPORATE_ADMIN"],
       permissions: [
         "USER_READ",
@@ -1766,6 +1789,7 @@ export const test = base.extend<RBACFixture>({
       "CLIENT_EMPLOYEE_CREATE",
       "CLIENT_EMPLOYEE_READ",
       "CLIENT_EMPLOYEE_DELETE",
+      "CLIENT_EMPLOYEE_MANAGE",
       // Cashier Management
       "CASHIER_CREATE",
       "CASHIER_READ",
@@ -2537,6 +2561,337 @@ export const test = base.extend<RBACFixture>({
     await page.evaluate(() => {
       localStorage.clear();
       sessionStorage.clear();
+    });
+  },
+
+  cashierApiRequest: async ({ request, cashierUser, backendUrl }, use) => {
+    const cashierApiRequest = {
+      get: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.get(`${backendUrl}${path}`, {
+          headers: {
+            Cookie: `access_token=${cashierUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      post: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.post(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${cashierUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      put: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${cashierUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
+        return request.put(`${backendUrl}${path}`, {
+          data,
+          headers,
+        });
+      },
+      delete: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.delete(`${backendUrl}${path}`, {
+          headers: {
+            Cookie: `access_token=${cashierUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      patch: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${cashierUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
+        return request.fetch(`${backendUrl}${path}`, {
+          method: "PATCH",
+          data,
+          headers,
+        });
+      },
+    };
+
+    await use(cashierApiRequest);
+  },
+
+  systemAdminApiRequest: async (
+    { request, superadminUser, backendUrl },
+    use,
+  ) => {
+    // systemAdminApiRequest is an alias for superadminApiRequest
+    const systemAdminApiRequest = {
+      get: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.get(`${backendUrl}${path}`, {
+          headers: {
+            Cookie: `access_token=${superadminUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      post: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.post(`${backendUrl}${path}`, {
+          data,
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `access_token=${superadminUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      put: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${superadminUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
+        return request.put(`${backendUrl}${path}`, {
+          data,
+          headers,
+        });
+      },
+      delete: async (
+        path: string,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        return request.delete(`${backendUrl}${path}`, {
+          headers: {
+            Cookie: `access_token=${superadminUser.token}`,
+            ...options?.headers,
+          },
+        });
+      },
+      patch: async (
+        path: string,
+        data?: unknown,
+        options?: { headers?: Record<string, string> },
+      ) => {
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${superadminUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
+        return request.fetch(`${backendUrl}${path}`, {
+          method: "PATCH",
+          data,
+          headers,
+        });
+      },
+    };
+
+    await use(systemAdminApiRequest);
+  },
+
+  anotherStoreManagerUser: async ({ prismaClient }, use) => {
+    // Setup: Create another store manager user with a DIFFERENT company and store
+    // Useful for cross-store/cross-company isolation tests
+    const userData = createUser({});
+    const ownerUser = await prismaClient.user.create({
+      data: createUser({ name: "Another Store Company Owner" }),
+    });
+    const companyData = createCompany({ owner_user_id: ownerUser.user_id });
+
+    // Create company
+    const company = await prismaClient.company.create({ data: companyData });
+
+    // Create store
+    const storeData = createStore({ company_id: company.company_id });
+    const store = await prismaClient.store.create({
+      data: {
+        ...storeData,
+        location_json: storeData.location_json as any,
+      },
+    });
+
+    // Create user
+    const user = await prismaClient.user.create({ data: userData });
+
+    // Get STORE_MANAGER role (must exist in database)
+    const role = await prismaClient.role.findUnique({
+      where: { code: "STORE_MANAGER" },
+    });
+    if (!role) {
+      throw new Error(
+        "STORE_MANAGER role not found in database. Run database seed first.",
+      );
+    }
+
+    // Assign STORE_MANAGER role to user with store_id (STORE scope)
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: role.role_id,
+          company_id: company.company_id,
+          store_id: store.store_id,
+        },
+      });
+    });
+
+    // Clear RBAC cache
+    await clearUserRbacCache(user.user_id);
+
+    const token = createJWTAccessToken({
+      user_id: user.user_id,
+      email: user.email,
+      roles: ["STORE_MANAGER"],
+      permissions: [
+        "STORE_READ",
+        "SHIFT_OPEN",
+        "SHIFT_CLOSE",
+        "SHIFT_READ",
+        "SHIFT_REPORT_VIEW",
+        "INVENTORY_READ",
+        "TRANSACTION_READ",
+        "LOTTERY_PACK_ACTIVATE",
+        "LOTTERY_PACK_RECEIVE",
+        "LOTTERY_GAME_READ",
+        "LOTTERY_PACK_READ",
+        "LOTTERY_VARIANCE_READ",
+        "LOTTERY_BIN_READ",
+        "LOTTERY_BIN_MANAGE",
+        "LOTTERY_BIN_CONFIG_READ",
+        "LOTTERY_BIN_CONFIG_WRITE",
+      ],
+    });
+
+    const anotherStoreManagerUser = {
+      user_id: user.user_id,
+      email: user.email,
+      name: user.name,
+      company_id: company.company_id,
+      store_id: store.store_id,
+      roles: ["STORE_MANAGER"],
+      permissions: [
+        "STORE_READ",
+        "SHIFT_OPEN",
+        "SHIFT_CLOSE",
+        "SHIFT_READ",
+        "SHIFT_REPORT_VIEW",
+        "INVENTORY_READ",
+        "TRANSACTION_READ",
+        "LOTTERY_PACK_ACTIVATE",
+        "LOTTERY_PACK_RECEIVE",
+        "LOTTERY_GAME_READ",
+        "LOTTERY_PACK_READ",
+        "LOTTERY_VARIANCE_READ",
+        "LOTTERY_BIN_READ",
+        "LOTTERY_BIN_MANAGE",
+        "LOTTERY_BIN_CONFIG_READ",
+        "LOTTERY_BIN_CONFIG_WRITE",
+      ],
+      token,
+    };
+
+    await use(anotherStoreManagerUser);
+
+    // Cleanup - delete in correct order respecting foreign key constraints
+    await withBypassClient(async (bypassClient) => {
+      // 1. Find shifts for the user
+      const userShifts = await bypassClient.shift.findMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+        select: { shift_id: true },
+      });
+      const shiftIds = userShifts.map((s) => s.shift_id);
+
+      if (shiftIds.length > 0) {
+        await bypassClient.transactionPayment.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        await bypassClient.transactionLineItem.deleteMany({
+          where: { transaction: { shift_id: { in: shiftIds } } },
+        });
+        await bypassClient.transaction.deleteMany({
+          where: { shift_id: { in: shiftIds } },
+        });
+      }
+
+      await bypassClient.shift.deleteMany({
+        where: {
+          OR: [{ cashier_id: user.user_id }, { opened_by: user.user_id }],
+        },
+      });
+
+      await bypassClient.userRole.deleteMany({
+        where: { user_id: user.user_id },
+      });
+
+      await bypassClient.bulkImportJob.deleteMany({
+        where: { user_id: user.user_id },
+      });
+
+      await bypassClient.pOSTerminal.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
+        },
+      });
+
+      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+
+      await bypassClient.store.delete({ where: { store_id: store.store_id } });
+
+      await bypassClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+
+      await bypassClient.cashier.deleteMany({
+        where: {
+          OR: [
+            { created_by: ownerUser.user_id },
+            { updated_by: ownerUser.user_id },
+          ],
+        },
+      });
+
+      await bypassClient.user.delete({ where: { user_id: ownerUser.user_id } });
     });
   },
 });

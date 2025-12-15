@@ -15,6 +15,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -36,14 +37,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useUpdateStartingCash } from "@/lib/api/shifts";
 import { Loader2, DollarSign, Receipt, XCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -86,7 +79,7 @@ export function TerminalShiftPageContent({
   cashierName,
   terminalId,
 }: TerminalShiftPageContentProps) {
-  const [showEndShiftDialog, setShowEndShiftDialog] = useState(false);
+  const router = useRouter();
   const [sessionError, setSessionError] = useState<string | null>(null);
   const { session } = useCashierSession();
   const updateStartingCashMutation = useUpdateStartingCash();
@@ -317,33 +310,18 @@ export function TerminalShiftPageContent({
         <CardContent>
           <Button
             variant="destructive"
-            onClick={() => setShowEndShiftDialog(true)}
-            disabled
+            onClick={() => {
+              router.push(
+                `/mystore/terminal/shift-closing/lottery?shiftId=${shift.shift_id}`,
+              );
+            }}
             className="w-full md:w-auto"
+            data-testid="end-shift-button"
           >
             End Shift
           </Button>
-          <p className="text-sm text-muted-foreground mt-2">
-            End shift functionality will be available in a future update.
-          </p>
         </CardContent>
       </Card>
-
-      {/* End Shift Dialog (Placeholder) */}
-      <Dialog open={showEndShiftDialog} onOpenChange={setShowEndShiftDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>End Shift</DialogTitle>
-            <DialogDescription>
-              This feature is coming soon. End shift functionality will be
-              available in a future update.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button onClick={() => setShowEndShiftDialog(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

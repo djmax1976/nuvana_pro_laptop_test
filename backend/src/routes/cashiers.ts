@@ -4,6 +4,7 @@ import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
 import { cashierService, AuditContext } from "../services/cashier.service";
 import { cashierSessionService } from "../services/cashier-session.service";
+import { prisma } from "../utils/db";
 import { z } from "zod";
 
 /**
@@ -673,6 +674,153 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to authenticate cashier",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * Get active shift cashiers for a store
+   * GET /api/stores/:storeId/active-shift-cashiers
+   * Returns list of cashiers with active shifts at the specified store
+   * Active shifts are those with status: OPEN, ACTIVE, CLOSING, RECONCILING and closed_at IS NULL
+   */
+  fastify.get(
+    "/api/stores/:storeId/active-shift-cashiers",
+    {
+      schema: {
+        description: "Get cashiers with active shifts at a store",
+        tags: ["cashiers"],
+        params: {
+          type: "object",
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+          required: ["storeId"],
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string", format: "uuid" },
+                    name: { type: "string" },
+                    shiftId: { type: "string", format: "uuid" },
+                  },
+                  required: ["id", "name", "shiftId"],
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+      preHandler: [
+        authMiddleware, // Requires authenticated user
+        permissionMiddleware(PERMISSIONS.CASHIER_READ), // Requires cashier read permission
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { storeId } = request.params as { storeId: string };
+
+        // API-001: VALIDATION - Validate storeId is a valid UUID
+        if (!storeId || typeof storeId !== "string") {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Store ID is required and must be a valid UUID",
+            },
+          };
+        }
+
+        // SEC-006: SQL_INJECTION - Use parameterized query via Prisma ORM
+        // Query shifts with active status and get associated cashiers
+        const activeShifts = await prisma.shift.findMany({
+          where: {
+            store_id: storeId,
+            status: {
+              in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"],
+            },
+            closed_at: null, // Only active shifts (not closed)
+            cashier: {
+              disabled_at: null, // Only active cashiers
+            },
+          },
+          include: {
+            cashier: {
+              select: {
+                cashier_id: true,
+                name: true,
+              },
+            },
+          },
+        });
+
+        // Map to response format
+        const cashiers = activeShifts.map((shift) => ({
+          id: shift.cashier.cashier_id,
+          name: shift.cashier.name,
+          shiftId: shift.shift_id,
+        }));
+
+        // Remove duplicates (in case a cashier has multiple active shifts)
+        const uniqueCashiers = Array.from(
+          new Map(cashiers.map((c) => [c.id, c])).values(),
+        );
+
+        reply.code(200);
+        return {
+          success: true,
+          data: uniqueCashiers,
+        };
+      } catch (error: unknown) {
+        // API-003: ERROR_HANDLING - Generic error message, don't leak implementation details
+        fastify.log.error({ error }, "Error getting active shift cashiers");
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to get active shift cashiers",
           },
         };
       }

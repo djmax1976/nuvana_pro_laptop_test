@@ -1,0 +1,222 @@
+/**
+ * Lottery Serial Parser Unit Tests (Add Bin Story)
+ *
+ * Tests for parseSerializedNumber() function used in add bin pack scanning.
+ * These are UNIT tests - testing pure function logic in isolation.
+ *
+ * @test-level Unit
+ * @justification Tests pure function logic without external dependencies
+ * @story 10-5 - Add Bin Functionality
+ * @priority P1 (High - Core parsing logic)
+ *
+ * RED PHASE: These tests will fail until parseSerializedNumber() is implemented
+ * or imported correctly.
+ */
+
+import { describe, it, expect } from "vitest";
+import {
+  parseSerializedNumber,
+  isValidSerialNumber,
+  extractGameCode,
+  InvalidSerialNumberError,
+} from "@/lib/utils/lottery-serial-parser";
+
+describe("10-5-UNIT: Lottery Serial Parser (Add Bin)", () => {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HAPPY PATH TESTS (P1)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it("10-5-UNIT-001: [P1] should parse valid 24-digit serial number correctly", () => {
+    // GIVEN: A valid 24-digit serial number
+    const serial = "000112345670123456789012";
+
+    // WHEN: Parsing the serial number
+    const result = parseSerializedNumber(serial);
+
+    // THEN: Components are extracted correctly
+    expect(result.game_code).toBe("0001");
+    expect(result.pack_number).toBe("1234567");
+    expect(result.serial_start).toBe("012");
+  });
+
+  it("10-5-UNIT-002: [P1] should parse serial with different game code", () => {
+    // GIVEN: A serial number with game code "9999"
+    const serial = "999912345670123456789012";
+
+    // WHEN: Parsing the serial number
+    const result = parseSerializedNumber(serial);
+
+    // THEN: Game code is extracted correctly
+    expect(result.game_code).toBe("9999");
+    expect(result.pack_number).toBe("1234567");
+    expect(result.serial_start).toBe("012");
+  });
+
+  it("10-5-UNIT-003: [P1] should parse serial with different pack number", () => {
+    // GIVEN: A serial number with pack number "9999999"
+    const serial = "000199999990123456789012";
+
+    // WHEN: Parsing the serial number
+    const result = parseSerializedNumber(serial);
+
+    // THEN: Pack number is extracted correctly
+    expect(result.game_code).toBe("0001");
+    expect(result.pack_number).toBe("9999999");
+    expect(result.serial_start).toBe("012");
+  });
+
+  it("10-5-UNIT-004: [P1] should parse serial with different starting serial", () => {
+    // GIVEN: A serial number with starting serial "999"
+    const serial = "00011234567999123456789012";
+
+    // WHEN: Parsing the serial number
+    const result = parseSerializedNumber(serial);
+
+    // THEN: Starting serial is extracted correctly
+    expect(result.game_code).toBe("0001");
+    expect(result.pack_number).toBe("1234567");
+    expect(result.serial_start).toBe("999");
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ERROR CASES (P1)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it("10-5-UNIT-005: [P1] should throw InvalidSerialNumberError for non-numeric input", () => {
+    // GIVEN: A serial number with non-numeric characters
+    const serial = "00011234567012345678901a";
+
+    // WHEN: Parsing the serial number
+    // THEN: InvalidSerialNumberError is thrown
+    expect(() => parseSerializedNumber(serial)).toThrow(
+      InvalidSerialNumberError,
+    );
+    expect(() => parseSerializedNumber(serial)).toThrow(
+      "Invalid serial number format. Must be 24 digits.",
+    );
+  });
+
+  it("10-5-UNIT-006: [P1] should throw InvalidSerialNumberError for too short input", () => {
+    // GIVEN: A serial number with less than 24 digits
+    const serial = "00011234567012345678901"; // 23 digits
+
+    // WHEN: Parsing the serial number
+    // THEN: InvalidSerialNumberError is thrown
+    expect(() => parseSerializedNumber(serial)).toThrow(
+      InvalidSerialNumberError,
+    );
+  });
+
+  it("10-5-UNIT-007: [P1] should throw InvalidSerialNumberError for too long input", () => {
+    // GIVEN: A serial number with more than 24 digits
+    const serial = "0001123456701234567890123"; // 25 digits
+
+    // WHEN: Parsing the serial number
+    // THEN: InvalidSerialNumberError is thrown
+    expect(() => parseSerializedNumber(serial)).toThrow(
+      InvalidSerialNumberError,
+    );
+  });
+
+  it("10-5-UNIT-008: [P1] should throw InvalidSerialNumberError for empty string", () => {
+    // GIVEN: An empty string
+    const serial = "";
+
+    // WHEN: Parsing the serial number
+    // THEN: InvalidSerialNumberError is thrown
+    expect(() => parseSerializedNumber(serial)).toThrow(
+      InvalidSerialNumberError,
+    );
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // VALIDATION HELPER TESTS (P1)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it("10-5-UNIT-009: [P1] isValidSerialNumber should return true for valid 24-digit serial", () => {
+    // GIVEN: A valid 24-digit serial number
+    const serial = "000112345670123456789012";
+
+    // WHEN: Validating the serial number
+    const result = isValidSerialNumber(serial);
+
+    // THEN: Validation returns true
+    expect(result).toBe(true);
+  });
+
+  it("10-5-UNIT-010: [P1] isValidSerialNumber should return false for invalid serial", () => {
+    // GIVEN: An invalid serial number (23 digits)
+    const serial = "00011234567012345678901";
+
+    // WHEN: Validating the serial number
+    const result = isValidSerialNumber(serial);
+
+    // THEN: Validation returns false
+    expect(result).toBe(false);
+  });
+
+  it("10-5-UNIT-011: [P1] extractGameCode should return game code for valid serial", () => {
+    // GIVEN: A valid 24-digit serial number
+    const serial = "000112345670123456789012";
+
+    // WHEN: Extracting game code
+    const result = extractGameCode(serial);
+
+    // THEN: Game code is extracted correctly
+    expect(result).toBe("0001");
+  });
+
+  it("10-5-UNIT-012: [P1] extractGameCode should return null for invalid serial", () => {
+    // GIVEN: An invalid serial number
+    const serial = "123"; // Too short
+
+    // WHEN: Extracting game code
+    const result = extractGameCode(serial);
+
+    // THEN: Returns null
+    expect(result).toBeNull();
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EDGE CASES (P2)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it("10-5-UNIT-013: [P2] should handle serial with all zeros", () => {
+    // GIVEN: A serial number with all zeros
+    const serial = "000000000000000000000000";
+
+    // WHEN: Parsing the serial number
+    const result = parseSerializedNumber(serial);
+
+    // THEN: Components are extracted correctly (all zeros)
+    expect(result.game_code).toBe("0000");
+    expect(result.pack_number).toBe("0000000");
+    expect(result.serial_start).toBe("000");
+  });
+
+  it("10-5-UNIT-014: [P2] should handle serial with all nines", () => {
+    // GIVEN: A serial number with all nines
+    const serial = "999999999999999999999999";
+
+    // WHEN: Parsing the serial number
+    const result = parseSerializedNumber(serial);
+
+    // THEN: Components are extracted correctly (all nines)
+    expect(result.game_code).toBe("9999");
+    expect(result.pack_number).toBe("9999999");
+    expect(result.serial_start).toBe("999");
+  });
+
+  it("10-5-UNIT-015: [P2] should handle serial with leading zeros in pack number", () => {
+    // GIVEN: A serial number with leading zeros in pack number
+    const serial = "000100012340123456789012";
+
+    // WHEN: Parsing the serial number
+    const result = parseSerializedNumber(serial);
+
+    // THEN: Pack number preserves leading zeros
+    expect(result.game_code).toBe("0001");
+    expect(result.pack_number).toBe("0001234");
+    expect(result.serial_start).toBe("012");
+  });
+});

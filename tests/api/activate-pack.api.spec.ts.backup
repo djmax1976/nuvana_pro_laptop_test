@@ -1,0 +1,513 @@
+/**
+ * Pack Activation API Tests
+ *
+ * Tests for the pack activation API endpoint:
+ * - POST /api/stores/:storeId/lottery/packs/activate
+ * - Pack validation (status must be RECEIVED)
+ * - Transaction handling (pack update, history, audit log)
+ * - Previous pack replacement logic
+ * - Authorization and RLS enforcement
+ *
+ * @test-level API
+ * @justification Tests API contracts, transaction logic, and data integrity
+ * @story 10-6 - Activate Pack During Shift
+ * @priority P0 (Critical - Data Integrity & Transactions)
+ *
+ * RED PHASE: These tests will fail until pack activation endpoint is implemented.
+ */
+
+import { test, expect } from "../support/fixtures/rbac.fixture";
+import {
+  createLotteryGame,
+  createLotteryPack,
+  createLotteryBin,
+  createLotteryShiftOpening,
+} from "../support/factories/lottery.factory";
+import { createShift, createCashier } from "../support/helpers";
+import { ShiftStatus, LotteryPackStatus } from "@prisma/client";
+
+test.describe("10-6-API: Pack Activation Endpoint", () => {
+  test("10-6-API-001: [P0] should activate pack and update all fields", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Store with RECEIVED pack, bin, and active shift
+    const shift = await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: storeManagerUser.user_id,
+        status: ShiftStatus.ACTIVE,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const game = await createLotteryGame(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_code: "0001",
+      name: "$5 Powerball",
+      price: 5.0,
+    });
+
+    const pack = await createLotteryPack(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_id: game.game_id,
+      pack_number: "1234567",
+      serial_start: "001",
+      serial_end: "100",
+      status: LotteryPackStatus.RECEIVED,
+    });
+
+    const bin = await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      bin_number: 1,
+      name: "Bin 1",
+    });
+
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        pin: "1234",
+      },
+      prismaClient,
+    );
+
+    // WHEN: Activating pack
+    const response = await storeManagerApiRequest.post(
+      `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
+      {
+        data: {
+          pack_id: pack.pack_id,
+          bin_id: bin.bin_id,
+          serial_start: pack.serial_start,
+          activated_by: cashier.cashier_id,
+          activated_shift_id: shift.shift_id,
+        },
+      },
+    );
+
+    // THEN: Returns success with updated bin
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      success: true,
+      data: {
+        updatedBin: expect.objectContaining({
+          bin_id: bin.bin_id,
+          pack: expect.objectContaining({
+            pack_id: pack.pack_id,
+          }),
+        }),
+      },
+    });
+
+    // AND: Pack is updated in database
+    const updatedPack = await prismaClient.lotteryPack.findUnique({
+      where: { pack_id: pack.pack_id },
+    });
+    expect(updatedPack?.status).toBe(LotteryPackStatus.ACTIVE);
+    expect(updatedPack?.current_bin_id).toBe(bin.bin_id);
+    expect(updatedPack?.activated_by).toBe(cashier.cashier_id);
+    expect(updatedPack?.activated_shift_id).toBe(shift.shift_id);
+    expect(updatedPack?.activated_at).not.toBeNull();
+  });
+
+  test("10-6-API-002: [P0] should create LotteryShiftOpening record", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Store with RECEIVED pack, bin, and active shift
+    const shift = await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: storeManagerUser.user_id,
+        status: ShiftStatus.ACTIVE,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const game = await createLotteryGame(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_code: "0001",
+      name: "$5 Powerball",
+      price: 5.0,
+    });
+
+    const pack = await createLotteryPack(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_id: game.game_id,
+      pack_number: "1234567",
+      serial_start: "001",
+      serial_end: "100",
+      status: LotteryPackStatus.RECEIVED,
+    });
+
+    const bin = await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      bin_number: 1,
+      name: "Bin 1",
+    });
+
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        pin: "1234",
+      },
+      prismaClient,
+    );
+
+    // WHEN: Activating pack
+    const response = await storeManagerApiRequest.post(
+      `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
+      {
+        data: {
+          pack_id: pack.pack_id,
+          bin_id: bin.bin_id,
+          serial_start: pack.serial_start,
+          activated_by: cashier.cashier_id,
+          activated_shift_id: shift.shift_id,
+        },
+      },
+    );
+
+    // THEN: LotteryShiftOpening record is created
+    expect(response.status()).toBe(200);
+
+    const shiftOpening = await prismaClient.lotteryShiftOpening.findFirst({
+      where: {
+        shift_id: shift.shift_id,
+        bin_id: bin.bin_id,
+        starting_serial: pack.serial_start,
+      },
+    });
+
+    expect(shiftOpening).not.toBeNull();
+    expect(shiftOpening?.starting_serial).toBe(pack.serial_start);
+  });
+
+  test("10-6-API-003: [P0] should create AuditLog with cashier info", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Store with RECEIVED pack, bin, and active shift
+    const shift = await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: storeManagerUser.user_id,
+        status: ShiftStatus.ACTIVE,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const game = await createLotteryGame(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_code: "0001",
+      name: "$5 Powerball",
+      price: 5.0,
+    });
+
+    const pack = await createLotteryPack(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_id: game.game_id,
+      pack_number: "1234567",
+      serial_start: "001",
+      serial_end: "100",
+      status: LotteryPackStatus.RECEIVED,
+    });
+
+    const bin = await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      bin_number: 1,
+      name: "Bin 1",
+    });
+
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        pin: "1234",
+      },
+      prismaClient,
+    );
+
+    // WHEN: Activating pack
+    const response = await storeManagerApiRequest.post(
+      `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
+      {
+        data: {
+          pack_id: pack.pack_id,
+          bin_id: bin.bin_id,
+          serial_start: pack.serial_start,
+          activated_by: cashier.cashier_id,
+          activated_shift_id: shift.shift_id,
+        },
+      },
+    );
+
+    // THEN: AuditLog entry is created with all details
+    expect(response.status()).toBe(200);
+
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        action: "PACK_ACTIVATED",
+        entity_type: "lottery_pack",
+        entity_id: pack.pack_id,
+      },
+    });
+
+    expect(auditLog).not.toBeNull();
+    expect(auditLog?.user_id).toBe(cashier.cashier_id);
+    expect(auditLog?.metadata).toMatchObject({
+      pack_id: pack.pack_id,
+      bin_id: bin.bin_id,
+      shift_id: shift.shift_id,
+    });
+  });
+
+  test("10-6-API-004: [P0] should handle replacing existing pack in bin", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Store with bin that has active pack, and new RECEIVED pack
+    const shift = await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: storeManagerUser.user_id,
+        status: ShiftStatus.ACTIVE,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const game = await createLotteryGame(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_code: "0001",
+      name: "$5 Powerball",
+      price: 5.0,
+    });
+
+    const previousPack = await createLotteryPack(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_id: game.game_id,
+      pack_number: "1111111",
+      serial_start: "001",
+      serial_end: "100",
+      status: LotteryPackStatus.ACTIVE,
+    });
+
+    const newPack = await createLotteryPack(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_id: game.game_id,
+      pack_number: "2222222",
+      serial_start: "001",
+      serial_end: "100",
+      status: LotteryPackStatus.RECEIVED,
+    });
+
+    const bin = await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      bin_number: 1,
+      name: "Bin 1",
+    });
+
+    // Set previous pack in bin
+    await prismaClient.lotteryPack.update({
+      where: { pack_id: previousPack.pack_id },
+      data: { current_bin_id: bin.bin_id },
+    });
+
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        pin: "1234",
+      },
+      prismaClient,
+    );
+
+    // WHEN: Activating new pack in bin with existing pack
+    const response = await storeManagerApiRequest.post(
+      `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
+      {
+        data: {
+          pack_id: newPack.pack_id,
+          bin_id: bin.bin_id,
+          serial_start: newPack.serial_start,
+          activated_by: cashier.cashier_id,
+          activated_shift_id: shift.shift_id,
+        },
+      },
+    );
+
+    // THEN: Returns success with previous pack info
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.data.previousPack).toMatchObject({
+      pack_id: previousPack.pack_id,
+    });
+
+    // AND: Previous pack is marked for closing
+    const updatedPreviousPack = await prismaClient.lotteryPack.findUnique({
+      where: { pack_id: previousPack.pack_id },
+    });
+    // Previous pack should be marked for closing (status might change or flag set)
+    expect(updatedPreviousPack?.current_bin_id).toBeNull(); // Removed from bin
+
+    // AND: New pack is active in bin
+    const updatedNewPack = await prismaClient.lotteryPack.findUnique({
+      where: { pack_id: newPack.pack_id },
+    });
+    expect(updatedNewPack?.status).toBe(LotteryPackStatus.ACTIVE);
+    expect(updatedNewPack?.current_bin_id).toBe(bin.bin_id);
+  });
+
+  test("10-6-API-005: [P0] should reject pack with status not RECEIVED", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Store with ACTIVE pack (not RECEIVED)
+    const shift = await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: storeManagerUser.user_id,
+        status: ShiftStatus.ACTIVE,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const game = await createLotteryGame(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_code: "0001",
+      name: "$5 Powerball",
+      price: 5.0,
+    });
+
+    const pack = await createLotteryPack(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_id: game.game_id,
+      pack_number: "1234567",
+      serial_start: "001",
+      serial_end: "100",
+      status: LotteryPackStatus.ACTIVE, // Already active
+    });
+
+    const bin = await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      bin_number: 1,
+      name: "Bin 1",
+    });
+
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        pin: "1234",
+      },
+      prismaClient,
+    );
+
+    // WHEN: Attempting to activate pack
+    const response = await storeManagerApiRequest.post(
+      `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
+      {
+        data: {
+          pack_id: pack.pack_id,
+          bin_id: bin.bin_id,
+          serial_start: pack.serial_start,
+          activated_by: cashier.cashier_id,
+          activated_shift_id: shift.shift_id,
+        },
+      },
+    );
+
+    // THEN: Returns error
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.error).toContain("not available");
+  });
+
+  test("10-6-API-006: [P0] should create LotteryPackBinHistory record", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Store with RECEIVED pack, bin, and active shift
+    const shift = await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: storeManagerUser.user_id,
+        status: ShiftStatus.ACTIVE,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const game = await createLotteryGame(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_code: "0001",
+      name: "$5 Powerball",
+      price: 5.0,
+    });
+
+    const pack = await createLotteryPack(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      game_id: game.game_id,
+      pack_number: "1234567",
+      serial_start: "001",
+      serial_end: "100",
+      status: LotteryPackStatus.RECEIVED,
+    });
+
+    const bin = await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      bin_number: 1,
+      name: "Bin 1",
+    });
+
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        pin: "1234",
+      },
+      prismaClient,
+    );
+
+    // WHEN: Activating pack
+    const response = await storeManagerApiRequest.post(
+      `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
+      {
+        data: {
+          pack_id: pack.pack_id,
+          bin_id: bin.bin_id,
+          serial_start: pack.serial_start,
+          activated_by: cashier.cashier_id,
+          activated_shift_id: shift.shift_id,
+        },
+      },
+    );
+
+    // THEN: LotteryPackBinHistory record is created
+    expect(response.status()).toBe(200);
+
+    const history = await prismaClient.lotteryPackBinHistory.findFirst({
+      where: {
+        pack_id: pack.pack_id,
+        bin_id: bin.bin_id,
+      },
+    });
+
+    expect(history).not.toBeNull();
+    expect(history?.action).toBe("ACTIVATED");
+  });
+});

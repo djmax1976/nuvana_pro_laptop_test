@@ -13,7 +13,7 @@
  * @priority P0 (Critical - Data Integrity)
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { createLotteryGame } from "../../support/factories/lottery.factory";
 
@@ -22,14 +22,53 @@ const prisma = new PrismaClient();
 // Test data - isolated per test suite
 let testGames: any[] = [];
 
+// Test-specific game codes to clean up - unique per test
+const TEST_GAME_CODES = [
+  "1234",
+  "5678",
+  "9999",
+  "ABCD",
+  "9876",
+  "0001",
+  "0002",
+  "0003",
+];
+
 // ═══════════════════════════════════════════════════════════════════════════
 // TEST SETUP & TEARDOWN
 // ═══════════════════════════════════════════════════════════════════════════
 
-afterAll(async () => {
-  // Clean up test data
+beforeAll(async () => {
+  // Clean up any leftover test data from previous runs
+  await prisma.lotteryPack.deleteMany({
+    where: { game: { game_code: { in: TEST_GAME_CODES } } },
+  });
   await prisma.lotteryGame.deleteMany({
-    where: { game_id: { in: testGames.map((g) => g.game_id) } },
+    where: { game_code: { in: TEST_GAME_CODES } },
+  });
+});
+
+afterEach(async () => {
+  // Clean up after each test to ensure isolation
+  if (testGames.length > 0) {
+    const gameIds = testGames.map((g) => g.game_id);
+    await prisma.lotteryPack.deleteMany({
+      where: { game_id: { in: gameIds } },
+    });
+    await prisma.lotteryGame.deleteMany({
+      where: { game_id: { in: gameIds } },
+    });
+    testGames = [];
+  }
+});
+
+afterAll(async () => {
+  // Final cleanup of any remaining test data
+  await prisma.lotteryPack.deleteMany({
+    where: { game: { game_code: { in: TEST_GAME_CODES } } },
+  });
+  await prisma.lotteryGame.deleteMany({
+    where: { game_code: { in: TEST_GAME_CODES } },
   });
   await prisma.$disconnect();
 });
@@ -56,12 +95,7 @@ describe("6.13-INTEGRATION: Lottery Game Code Uniqueness and Constraints", () =>
           price: 10.0,
         }),
       ).rejects.toThrow();
-
-      // Clean up
-      await prisma.lotteryGame.deleteMany({
-        where: { game_id: { in: testGames.map((g) => g.game_id) } },
-      });
-      testGames = [];
+      // afterEach handles cleanup
     });
 
     it("6.13-INTEGRATION-007: should allow different game codes", async () => {

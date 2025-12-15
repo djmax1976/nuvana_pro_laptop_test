@@ -58,6 +58,7 @@ export const LOTTERY_SHIFT_OPEN = "LOTTERY_SHIFT_OPEN";
 export const LOTTERY_SHIFT_CLOSE = "LOTTERY_SHIFT_CLOSE";
 export const LOTTERY_SHIFT_RECONCILE = "LOTTERY_SHIFT_RECONCILE";
 export const LOTTERY_REPORT = "LOTTERY_REPORT";
+export const LOTTERY_MANUAL_ENTRY = "LOTTERY_MANUAL_ENTRY";
 
 // Report Permissions
 export const REPORT_SHIFT = "REPORT_SHIFT";
@@ -77,6 +78,7 @@ export const CLIENT_DASHBOARD_ACCESS = "CLIENT_DASHBOARD_ACCESS";
 export const CLIENT_EMPLOYEE_CREATE = "CLIENT_EMPLOYEE_CREATE";
 export const CLIENT_EMPLOYEE_READ = "CLIENT_EMPLOYEE_READ";
 export const CLIENT_EMPLOYEE_DELETE = "CLIENT_EMPLOYEE_DELETE";
+export const CLIENT_EMPLOYEE_MANAGE = "CLIENT_EMPLOYEE_MANAGE";
 
 // Client Role Management Permissions
 export const CLIENT_ROLE_MANAGE = "CLIENT_ROLE_MANAGE";
@@ -141,6 +143,7 @@ export const PERMISSIONS = {
   LOTTERY_SHIFT_CLOSE,
   LOTTERY_SHIFT_RECONCILE,
   LOTTERY_REPORT,
+  LOTTERY_MANUAL_ENTRY,
 
   // Reports
   REPORT_SHIFT,
@@ -160,6 +163,7 @@ export const PERMISSIONS = {
   CLIENT_EMPLOYEE_CREATE,
   CLIENT_EMPLOYEE_READ,
   CLIENT_EMPLOYEE_DELETE,
+  CLIENT_EMPLOYEE_MANAGE,
 
   // Client Role Management
   CLIENT_ROLE_MANAGE,
@@ -236,6 +240,8 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [LOTTERY_SHIFT_CLOSE]: "Close shifts with lottery pack closings",
   [LOTTERY_SHIFT_RECONCILE]: "Reconcile lottery during shift",
   [LOTTERY_REPORT]: "Generate lottery reports",
+  [LOTTERY_MANUAL_ENTRY]:
+    "Override mandatory barcode scanning for manual lottery serial entry",
 
   // Reports
   [REPORT_SHIFT]: "Generate shift reports",
@@ -256,6 +262,8 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [CLIENT_EMPLOYEE_CREATE]: "Create employees for owned stores",
   [CLIENT_EMPLOYEE_READ]: "View employees for owned stores",
   [CLIENT_EMPLOYEE_DELETE]: "Delete employees for owned stores",
+  [CLIENT_EMPLOYEE_MANAGE]:
+    "Manage employee credentials (email, password) for owned stores",
 
   // Client Role Management
   [CLIENT_ROLE_MANAGE]: "Manage role permissions for owned stores",
@@ -319,6 +327,7 @@ export const PERMISSION_CATEGORIES = {
       LOTTERY_SHIFT_CLOSE,
       LOTTERY_SHIFT_RECONCILE,
       LOTTERY_REPORT,
+      LOTTERY_MANUAL_ENTRY,
     ],
   },
   REPORTS: {
@@ -411,6 +420,7 @@ export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
   LOTTERY_SHIFT_CLOSE,
   LOTTERY_SHIFT_RECONCILE,
   LOTTERY_REPORT,
+  LOTTERY_MANUAL_ENTRY,
 
   // Reports - Shift and daily reporting
   REPORT_SHIFT,
@@ -422,6 +432,7 @@ export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
   CLIENT_EMPLOYEE_CREATE,
   CLIENT_EMPLOYEE_READ,
   CLIENT_EMPLOYEE_DELETE,
+  CLIENT_EMPLOYEE_MANAGE,
 
   // Cashier Management - Managing cashiers for stores
   CASHIER_CREATE,

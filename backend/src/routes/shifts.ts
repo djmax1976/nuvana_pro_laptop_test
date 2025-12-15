@@ -2568,6 +2568,24 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                     description:
                       "Closing serial number within pack range and >= opening serial",
                   },
+                  entry_method: {
+                    type: "string",
+                    enum: ["SCAN", "MANUAL"],
+                    description:
+                      "Entry method: 'SCAN' for barcode scanning, 'MANUAL' for manual entry",
+                  },
+                  manual_entry_authorized_by: {
+                    type: "string",
+                    format: "uuid",
+                    description:
+                      "User ID who authorized manual entry (required if entry_method is 'MANUAL')",
+                  },
+                  manual_entry_authorized_at: {
+                    type: "string",
+                    format: "date-time",
+                    description:
+                      "Timestamp when manual entry was authorized (required if entry_method is 'MANUAL')",
+                  },
                 },
               },
             },
@@ -2851,6 +2869,12 @@ export async function shiftRoutes(fastify: FastifyInstance) {
               pack,
               opening,
               closingSerial,
+              entry_method: packClosing.entry_method || "SCAN", // Default to 'SCAN' if not provided
+              manual_entry_authorized_by:
+                packClosing.manual_entry_authorized_by || null,
+              manual_entry_authorized_at: packClosing.manual_entry_authorized_at
+                ? new Date(packClosing.manual_entry_authorized_at)
+                : null,
             });
           } catch (error) {
             errors.push({
@@ -2879,11 +2903,17 @@ export async function shiftRoutes(fastify: FastifyInstance) {
 
         for (const validatedPack of validatedPacks) {
           // Create LotteryShiftClosing record
+          // Story 10.4: Include entry_method and authorization tracking
           const closing = await prisma.lotteryShiftClosing.create({
             data: {
               shift_id: validatedShiftId,
               pack_id: validatedPack.pack.pack_id,
               closing_serial: validatedPack.closingSerial,
+              entry_method: validatedPack.entry_method,
+              manual_entry_authorized_by:
+                validatedPack.manual_entry_authorized_by,
+              manual_entry_authorized_at:
+                validatedPack.manual_entry_authorized_at,
             },
             include: {
               pack: {
@@ -2898,6 +2928,53 @@ export async function shiftRoutes(fastify: FastifyInstance) {
               },
             },
           });
+
+          // Check if pack is depleted (ending_serial = serial_end) - Story 10.2: Pack depletion tracking
+          const isDepleted =
+            validatedPack.closingSerial === validatedPack.pack.serial_end;
+
+          // If pack is depleted, update pack status and set depletion tracking fields
+          if (isDepleted) {
+            await prisma.lotteryPack.update({
+              where: { pack_id: validatedPack.pack.pack_id },
+              data: {
+                status: "DEPLETED",
+                depleted_at: new Date(),
+                depleted_by: user.id, // Story 10.2: Track who closed the shift (cashier)
+                depleted_shift_id: validatedShiftId, // Story 10.2: Track which shift the pack was depleted in
+              },
+            });
+
+            // Create AuditLog entry for pack depletion - Story 10.2: Audit trail
+            try {
+              await prisma.auditLog.create({
+                data: {
+                  user_id: user.id,
+                  action: "PACK_DEPLETED",
+                  table_name: "lottery_packs",
+                  record_id: validatedPack.pack.pack_id,
+                  new_values: {
+                    pack_id: validatedPack.pack.pack_id,
+                    pack_number: validatedPack.pack.pack_number,
+                    status: "DEPLETED",
+                    depleted_at: new Date().toISOString(),
+                    depleted_by: user.id,
+                    depleted_shift_id: validatedShiftId,
+                    closing_serial: validatedPack.closingSerial,
+                  } as Record<string, any>,
+                  ip_address: auditContext.ipAddress,
+                  user_agent: auditContext.userAgent,
+                  reason: `Lottery pack depleted during shift closing by ${user.email} - Pack #${validatedPack.pack.pack_number}`,
+                },
+              });
+            } catch (auditError) {
+              // Log the audit failure but don't fail the shift closing
+              fastify.log.error(
+                { error: auditError },
+                "Failed to create audit log for pack depletion",
+              );
+            }
+          }
 
           // Use service method to detect variance and create LotteryVariance if needed
           const varianceResult = await detectVariance(
@@ -2957,6 +3034,13 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                 actual_count: item.actualCount,
                 difference: item.difference,
                 game_id: item.closing.pack.game.game_id,
+                entry_method: item.closing.entry_method, // Story 10.4: Track entry method
+                manual_entry_authorized_by:
+                  item.closing.manual_entry_authorized_by, // Story 10.4: Track authorization
+                manual_entry_authorized_at: item.closing
+                  .manual_entry_authorized_at
+                  ? item.closing.manual_entry_authorized_at.toISOString()
+                  : null, // Story 10.4: Track authorization timestamp
               })),
             },
             ip_address: auditContext.ipAddress,

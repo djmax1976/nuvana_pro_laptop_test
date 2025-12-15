@@ -10,8 +10,10 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   useCashiers,
+  useCashiersMultiStore,
   useDeleteCashier,
   type Cashier,
+  type CashierWithStore,
 } from "@/lib/api/cashiers";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -90,28 +92,50 @@ export function CashierList({
   // Get stores list
   const stores = dashboardData?.stores || [];
 
-  // Determine which store to fetch cashiers for
-  // If "all stores" is selected and there's only one store, use that store
-  // If "all stores" is selected and there are multiple stores, we'll need to aggregate
+  // Determine if we should use multi-store mode
+  // Multi-store mode is when "All Stores" is selected AND there are multiple stores
+  const isMultiStoreMode = storeFilter === ALL_STORES && stores.length > 1;
+
+  // For single-store mode, get the selected store ID
   const selectedStoreId =
     storeFilter === ALL_STORES
       ? stores.length === 1
         ? stores[0]?.store_id
-        : stores[0]?.store_id
+        : undefined // Will use multi-store mode
       : storeFilter;
 
-  // Fetch cashiers for the selected store
+  // Create store name map for multi-store mode
+  const storeNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    stores.forEach((store) => {
+      map.set(store.store_id, store.name);
+    });
+    return map;
+  }, [stores]);
+
+  // Fetch cashiers for single store mode
+  const singleStoreQuery = useCashiers(
+    selectedStoreId,
+    { is_active: showInactive ? undefined : true },
+    { enabled: !isMultiStoreMode && !!selectedStoreId },
+  );
+
+  // Fetch cashiers for multi-store mode (aggregated from all stores)
+  const multiStoreQuery = useCashiersMultiStore(
+    stores.map((s) => s.store_id),
+    storeNameMap,
+    { is_active: showInactive ? undefined : true },
+    { enabled: isMultiStoreMode },
+  );
+
+  // Use appropriate query based on mode
   const {
     data: cashiers,
     isLoading: isLoadingCashiers,
     isError,
     error,
     refetch,
-  } = useCashiers(
-    selectedStoreId,
-    { is_active: showInactive ? undefined : true },
-    { enabled: !!selectedStoreId },
-  );
+  } = isMultiStoreMode ? multiStoreQuery : singleStoreQuery;
 
   // Delete mutation
   const deleteCashierMutation = useDeleteCashier();
@@ -131,12 +155,14 @@ export function CashierList({
 
   // Handle delete
   const handleDelete = async () => {
-    if (!cashierToDelete || !selectedStoreId) return;
+    // Use the cashier's store_id (works for both single and multi-store modes)
+    const storeIdForDelete = cashierToDelete?.store_id;
+    if (!cashierToDelete || !storeIdForDelete) return;
 
     setIsDeleting(true);
     try {
       await deleteCashierMutation.mutateAsync({
-        storeId: selectedStoreId,
+        storeId: storeIdForDelete,
         cashierId: cashierToDelete.cashier_id,
       });
       toast({
@@ -210,6 +236,7 @@ export function CashierList({
                 <SelectValue placeholder="Select store" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value={ALL_STORES}>All Stores</SelectItem>
                 {stores.map((store) => (
                   <SelectItem key={store.store_id} value={store.store_id}>
                     {store.name}
@@ -259,6 +286,7 @@ export function CashierList({
               <SelectValue placeholder="Select store" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={ALL_STORES}>All Stores</SelectItem>
               {stores.map((store) => (
                 <SelectItem key={store.store_id} value={store.store_id}>
                   {store.name}
@@ -297,6 +325,7 @@ export function CashierList({
             <TableRow>
               <TableHead>Employee ID</TableHead>
               <TableHead>Name</TableHead>
+              {isMultiStoreMode && <TableHead>Store</TableHead>}
               <TableHead>Hired On</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="w-[120px]">Actions</TableHead>
@@ -306,7 +335,7 @@ export function CashierList({
             {filteredCashiers.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={isMultiStoreMode ? 6 : 5}
                   className="h-24 text-center text-muted-foreground"
                 >
                   No cashiers found matching your search.
@@ -322,6 +351,11 @@ export function CashierList({
                     {cashier.employee_id}
                   </TableCell>
                   <TableCell className="font-medium">{cashier.name}</TableCell>
+                  {isMultiStoreMode && (
+                    <TableCell className="text-muted-foreground">
+                      {(cashier as CashierWithStore).store_name}
+                    </TableCell>
+                  )}
                   <TableCell>{formatDate(cashier.hired_on)}</TableCell>
                   <TableCell>
                     <Badge

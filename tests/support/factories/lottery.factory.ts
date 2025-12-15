@@ -19,6 +19,7 @@ import {
  *
  * @param prisma - PrismaClient instance to use for database operations
  * @param overrides - Optional fields to override default values
+ *   Note: store_id is accepted but ignored - LotteryGame is global (not store-scoped)
  * @returns LotteryGame object for test use
  */
 export const createLotteryGame = async (
@@ -29,6 +30,7 @@ export const createLotteryGame = async (
     description: string;
     price: number;
     status: LotteryGameStatus;
+    store_id: string; // Accepted for backward compatibility but ignored (games are global)
   }> = {},
 ) => {
   // Generate unique game_code using random 4-digit number to avoid collisions
@@ -110,7 +112,11 @@ export const createLotteryPack = async (
     current_bin_id?: string;
     received_at?: Date;
     activated_at?: Date;
+    activated_by?: string;
+    activated_shift_id?: string;
     depleted_at?: Date;
+    depleted_by?: string;
+    depleted_shift_id?: string;
     returned_at?: Date;
   },
 ) => {
@@ -171,7 +177,11 @@ export const createLotteryPack = async (
       current_bin_id: overrides.current_bin_id || null,
       received_at,
       activated_at,
+      activated_by: overrides.activated_by || null,
+      activated_shift_id: overrides.activated_shift_id || null,
       depleted_at,
+      depleted_by: overrides.depleted_by || null,
+      depleted_shift_id: overrides.depleted_shift_id || null,
       returned_at,
     },
   });
@@ -209,6 +219,8 @@ export const createLotteryPacks = async (
  *
  * @param prisma - PrismaClient instance to use for database operations
  * @param overrides - Required store_id, plus optional fields
+ *   - bin_number: Convenience field to auto-generate name as "Bin {bin_number}"
+ *     and set display_order to bin_number
  * @returns LotteryBin object for test use
  */
 export const createLotteryBin = async (
@@ -219,14 +231,24 @@ export const createLotteryBin = async (
     location?: string;
     display_order?: number;
     is_active?: boolean;
+    bin_number?: number; // Convenience field: auto-generates name and display_order
   },
 ) => {
+  // If bin_number is provided, use it for name and display_order (unless explicitly overridden)
+  const binNumber = overrides.bin_number;
+  const name =
+    overrides.name ||
+    (binNumber !== undefined
+      ? `Bin ${binNumber}`
+      : `Bin ${faker.string.alphanumeric(4)}`);
+  const displayOrder = overrides.display_order ?? binNumber ?? 0;
+
   return await prisma.lotteryBin.create({
     data: {
       store_id: overrides.store_id,
-      name: overrides.name || `Bin ${faker.string.alphanumeric(4)}`,
+      name,
       location: overrides.location || faker.location.streetAddress(),
-      display_order: overrides.display_order ?? 0,
+      display_order: displayOrder,
       is_active: overrides.is_active ?? true,
     },
   });
@@ -362,7 +384,7 @@ export const createLotteryShiftOpening = async (
  * Create a single LotteryShiftClosing with required shift_id, pack_id, and closing_serial
  *
  * @param prisma - PrismaClient instance to use for database operations
- * @param overrides - Required shift_id, pack_id, and closing_serial
+ * @param overrides - Required shift_id, pack_id, and closing_serial, plus optional entry_method tracking
  * @returns LotteryShiftClosing object for test use
  */
 export const createLotteryShiftClosing = async (
@@ -371,6 +393,9 @@ export const createLotteryShiftClosing = async (
     shift_id: string;
     pack_id: string;
     closing_serial: string;
+    entry_method?: "SCAN" | "MANUAL";
+    manual_entry_authorized_by?: string;
+    manual_entry_authorized_at?: Date;
   },
 ) => {
   return await prisma.lotteryShiftClosing.create({
@@ -378,6 +403,9 @@ export const createLotteryShiftClosing = async (
       shift_id: overrides.shift_id,
       pack_id: overrides.pack_id,
       closing_serial: overrides.closing_serial,
+      entry_method: overrides.entry_method || null,
+      manual_entry_authorized_by: overrides.manual_entry_authorized_by || null,
+      manual_entry_authorized_at: overrides.manual_entry_authorized_at || null,
     },
   });
 };

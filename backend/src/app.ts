@@ -25,10 +25,12 @@ import { contactRoutes } from "./routes/contact";
 import { adminUserRoutes } from "./routes/admin-users";
 import { clientDashboardRoutes } from "./routes/client-dashboard";
 import { clientEmployeeRoutes } from "./routes/client-employees";
+import { clientStoreRoutes } from "./routes/client-stores";
 import { clientRoleRoutes } from "./routes/client-roles";
 import { cashierRoutes } from "./routes/cashiers";
 import { adminRolesRoutes } from "./routes/admin-roles";
 import { lotteryRoutes } from "./routes/lottery";
+import { shiftClosingRoutes } from "./routes/shift-closing";
 import { rlsPlugin } from "./middleware/rls.middleware";
 
 // Load environment variables
@@ -328,6 +330,9 @@ app.register(clientDashboardRoutes);
 // Register client employee management routes
 app.register(clientEmployeeRoutes);
 
+// Register client store settings routes
+app.register(clientStoreRoutes);
+
 // Register client role permission management routes
 app.register(clientRoleRoutes);
 
@@ -336,6 +341,9 @@ app.register(cashierRoutes);
 
 // Register lottery management routes
 app.register(lotteryRoutes);
+
+// Register shift closing routes
+app.register(shiftClosingRoutes);
 
 // Root endpoint - API information and status
 app.get("/", async () => {

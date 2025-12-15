@@ -28,7 +28,7 @@ export const test = base.extend<LayoutFixture>({
     // Setup: Configure authenticated user state
     const user = {
       id: "user-123",
-      email: "user@example.com",
+      email: "test_user@test.nuvana.local",
       name: "Test User",
     };
 

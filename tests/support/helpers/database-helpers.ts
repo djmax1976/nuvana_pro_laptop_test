@@ -211,6 +211,7 @@ export async function createCashier(
     created_by: string;
     name?: string;
     employee_id?: string;
+    pin?: string;
   },
   prisma?: PrismaClient,
 ): Promise<{
@@ -228,6 +229,7 @@ export async function createCashier(
     created_by: string;
     name?: string;
     employee_id?: string;
+    pin?: string;
   } = {
     store_id: overrides.store_id,
     created_by: overrides.created_by,
@@ -238,6 +240,9 @@ export async function createCashier(
   }
   if (overrides.employee_id !== undefined) {
     factoryOverrides.employee_id = overrides.employee_id;
+  }
+  if (overrides.pin !== undefined) {
+    factoryOverrides.pin = overrides.pin;
   }
 
   const cashierData = await createCashierFactory(factoryOverrides);
