@@ -939,8 +939,6 @@ export async function authRoutes(fastify: FastifyInstance) {
         };
       } catch (error: unknown) {
         // API-003: ERROR_HANDLING - Generic error message, don't leak implementation details
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error verifying cashier permission");
 
         reply.code(500);

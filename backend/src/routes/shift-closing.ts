@@ -500,7 +500,6 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const user = (request as any).user as UserIdentity;
       const params = request.params as { storeId: string };
       const body = request.body as {
         bin_name: string;
@@ -850,7 +849,6 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const user = (request as any).user as UserIdentity;
       const params = request.params as { storeId: string };
       const body = request.body as {
         pack_id: string;

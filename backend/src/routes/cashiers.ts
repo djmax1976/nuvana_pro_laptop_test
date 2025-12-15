@@ -4,6 +4,7 @@ import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
 import { cashierService, AuditContext } from "../services/cashier.service";
 import { cashierSessionService } from "../services/cashier-session.service";
+import { prisma } from "../utils/db";
 import { z } from "zod";
 
 /**
@@ -779,8 +780,8 @@ export async function cashierRoutes(fastify: FastifyInstance) {
               in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"],
             },
             closed_at: null, // Only active shifts (not closed)
-            cashier_id: {
-              not: null, // Only shifts with cashiers
+            cashier: {
+              disabled_at: null, // Only active cashiers
             },
           },
           include: {
@@ -789,21 +790,16 @@ export async function cashierRoutes(fastify: FastifyInstance) {
                 cashier_id: true,
                 name: true,
               },
-              where: {
-                disabled_at: null, // Only active cashiers
-              },
             },
           },
         });
 
-        // Filter out shifts without cashiers and map to response format
-        const cashiers = activeShifts
-          .filter((shift) => shift.cashier !== null)
-          .map((shift) => ({
-            id: shift.cashier!.cashier_id,
-            name: shift.cashier!.name,
-            shiftId: shift.shift_id,
-          }));
+        // Map to response format
+        const cashiers = activeShifts.map((shift) => ({
+          id: shift.cashier.cashier_id,
+          name: shift.cashier.name,
+          shiftId: shift.shift_id,
+        }));
 
         // Remove duplicates (in case a cashier has multiple active shifts)
         const uniqueCashiers = Array.from(
@@ -817,8 +813,6 @@ export async function cashierRoutes(fastify: FastifyInstance) {
         };
       } catch (error: unknown) {
         // API-003: ERROR_HANDLING - Generic error message, don't leak implementation details
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
         fastify.log.error({ error }, "Error getting active shift cashiers");
 
         reply.code(500);
