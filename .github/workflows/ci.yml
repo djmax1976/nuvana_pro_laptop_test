@@ -55,7 +55,7 @@ jobs:
         run: cd backend && npx tsc --noEmit 2>&1 | tee ../typecheck-backend.log
       - name: Upload lint/typecheck logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: lint-typecheck-logs
           path: |
@@ -232,7 +232,7 @@ jobs:
           npm run test:api
       - name: Upload API test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: api-full-test-results
           path: |
@@ -253,7 +253,7 @@ jobs:
           done
       - name: Upload backend and worker logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: backend-logs-api-full
           path: |
@@ -466,7 +466,7 @@ jobs:
           npm run test:e2e
       - name: Upload E2E test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: e2e-full-test-results
           path: |
@@ -487,7 +487,7 @@ jobs:
           done
       - name: Upload backend, frontend, and worker logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: backend-logs-e2e-full
           path: |
@@ -536,14 +536,14 @@ jobs:
           CI: "true"
       - name: Upload component coverage
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: coverage-component
           path: coverage
           retention-days: 7
       - name: Upload component test results (includes slow tests)
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: component-test-results
           path: |
@@ -618,14 +618,14 @@ jobs:
           CI: "true"
       - name: Upload unit coverage
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: coverage-unit
           path: coverage
           retention-days: 7
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: unit-integration-test-results
           path: |
@@ -758,14 +758,14 @@ jobs:
           fi
       - name: Upload backend logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: backend-logs-api-smoke
           path: backend.log
           retention-days: 7
       - name: Upload API test results (includes slow tests)
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: api-smoke-test-results
           path: |
@@ -798,7 +798,7 @@ jobs:
         run: npm run build 2>&1 | tee build.log
       - name: Upload build logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: build-logs
           path: build.log
@@ -837,7 +837,7 @@ jobs:
         with:
           output: sbom.xml
       - name: Upload SBOM
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: sbom-node
           path: sbom.xml
@@ -989,7 +989,7 @@ jobs:
           fi
       - name: Upload backend logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: backend-logs-security-dynamic
           path: backend.log
@@ -1040,7 +1040,7 @@ jobs:
           subject-path: |
             frontend-build.tar.gz
       - name: Upload bundle
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: build-output
           path: |
@@ -1107,7 +1107,7 @@ jobs:
           sarif_file: 'trivy-bundle-results.sarif'
       - name: Upload Trivy results artifact
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: trivy-bundle-scan
           path: |
