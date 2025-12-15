@@ -187,6 +187,7 @@ type RBACFixture = {
     email: string;
     name: string;
     company_id: string;
+    store_id: string;
     roles: string[];
     permissions: string[];
     token: string;
@@ -605,6 +606,15 @@ export const test = base.extend<RBACFixture>({
     // Create company
     const company = await prismaClient.company.create({ data: companyData });
 
+    // Create store for the corporate admin (needed by EPIC 10 tests)
+    const storeData = createStore({ company_id: company.company_id });
+    const store = await prismaClient.store.create({
+      data: {
+        ...storeData,
+        location_json: storeData.location_json as any,
+      },
+    });
+
     // Create user
     const user = await prismaClient.user.create({ data: userData });
 
@@ -651,6 +661,7 @@ export const test = base.extend<RBACFixture>({
       email: user.email,
       name: user.name,
       company_id: company.company_id,
+      store_id: store.store_id,
       roles: ["CORPORATE_ADMIN"],
       permissions: [
         "USER_READ",

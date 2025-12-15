@@ -179,7 +179,7 @@ export default function LotteryShiftClosingPage() {
           toast({
             title: "Variances Detected",
             description: `${summary.variances.length} variance(s) detected. Please review.`,
-            variant: "warning",
+            // Note: Using "default" variant - "warning" is not available in shadcn/ui toast
           });
           // TODO: Show VarianceSummaryDialog component
         }

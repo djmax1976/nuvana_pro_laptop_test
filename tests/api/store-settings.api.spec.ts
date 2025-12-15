@@ -756,6 +756,7 @@ test.describe("Store Settings API", () => {
           pin_hash: await bcrypt.hash("1234", 10),
           hired_on: new Date(),
           is_active: true,
+          created_by: clientUser.user_id,
         },
       });
 
@@ -801,6 +802,7 @@ test.describe("Store Settings API", () => {
           pin_hash: await bcrypt.hash("1234", 10),
           hired_on: new Date(),
           is_active: true,
+          created_by: clientUser.user_id,
         },
       });
 
@@ -854,6 +856,7 @@ test.describe("Store Settings API", () => {
           pin_hash: await bcrypt.hash("1234", 10),
           hired_on: new Date(),
           is_active: true,
+          created_by: owner2.user_id,
         },
       });
 

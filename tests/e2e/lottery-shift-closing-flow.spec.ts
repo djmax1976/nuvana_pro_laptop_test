@@ -159,9 +159,9 @@ test.describe("10-1-E2E: Lottery Shift Closing Flow (Critical Journey)", () => {
     // Wait for redirect/auth check to complete (deterministic wait)
     await page.waitForURL(
       (url) =>
-        url.includes("/login") ||
-        url.includes("/auth") ||
-        url.includes("/shift-closing"),
+        url.toString().includes("/login") ||
+        url.toString().includes("/auth") ||
+        url.toString().includes("/shift-closing"),
       { timeout: 10000 },
     );
     const url = page.url();

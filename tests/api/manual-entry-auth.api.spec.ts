@@ -34,23 +34,32 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
       prismaClient,
     );
 
-    const cashier1 = await createCashier(prismaClient, {
-      store_id: storeManagerUser.store_id,
-      name: "Cashier 1",
-      employee_id: "EMP001",
-    });
+    const cashier1 = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        name: "Cashier 1",
+        employee_id: "EMP001",
+      },
+      prismaClient,
+    );
 
-    const cashier2 = await createCashier(prismaClient, {
-      store_id: storeManagerUser.store_id,
-      name: "Cashier 2",
-      employee_id: "EMP002",
-    });
+    const cashier2 = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        name: "Cashier 2",
+        employee_id: "EMP002",
+      },
+      prismaClient,
+    );
 
     // Create active shifts for cashiers
     await createShift(
       {
         store_id: storeManagerUser.store_id,
-        opened_by: cashier1.user_id,
+        opened_by: storeManagerUser.user_id,
+        cashier_id: cashier1.cashier_id,
         status: ShiftStatus.ACTIVE,
         opening_cash: 50.0,
       },
@@ -60,7 +69,8 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     await createShift(
       {
         store_id: storeManagerUser.store_id,
-        opened_by: cashier2.user_id,
+        opened_by: storeManagerUser.user_id,
+        cashier_id: cashier2.cashier_id,
         status: ShiftStatus.ACTIVE,
         opening_cash: 75.0,
       },
@@ -98,19 +108,23 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     prismaClient,
   }) => {
     // GIVEN: Cashier with known PIN
-    const cashier = await createCashier(prismaClient, {
-      store_id: storeManagerUser.store_id,
-      name: "Test Cashier",
-      employee_id: "EMP001",
-      pin: "1234", // Known PIN
-    });
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        name: "Test Cashier",
+        employee_id: "EMP001",
+        pin: "1234", // Known PIN
+      },
+      prismaClient,
+    );
 
     // WHEN: Verifying PIN
     const response = await storeManagerApiRequest.post(
       "/api/auth/verify-cashier-permission",
       {
         data: {
-          cashierId: cashier.user_id,
+          cashierId: cashier.cashier_id,
           pin: "1234",
           permission: "LOTTERY_MANUAL_ENTRY",
           storeId: storeManagerUser.store_id,
@@ -123,7 +137,7 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     const body = await response.json();
     expect(body).toMatchObject({
       valid: true,
-      userId: cashier.user_id,
+      userId: cashier.cashier_id,
       name: "Test Cashier",
     });
   });
@@ -134,12 +148,16 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     prismaClient,
   }) => {
     // GIVEN: Shift Manager with LOTTERY_MANUAL_ENTRY permission
-    const shiftManager = await createCashier(prismaClient, {
-      store_id: storeManagerUser.store_id,
-      name: "Shift Manager",
-      employee_id: "SM001",
-      pin: "5678",
-    });
+    const shiftManager = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        name: "Shift Manager",
+        employee_id: "SM001",
+        pin: "5678",
+      },
+      prismaClient,
+    );
 
     // Assign LOTTERY_MANUAL_ENTRY permission (default for SHIFT_MANAGER role)
     // (Permission assignment would be done via role assignment)
@@ -149,7 +167,7 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
       "/api/auth/verify-cashier-permission",
       {
         data: {
-          cashierId: shiftManager.user_id,
+          cashierId: shiftManager.cashier_id,
           pin: "5678",
           permission: "LOTTERY_MANUAL_ENTRY",
           storeId: storeManagerUser.store_id,
@@ -163,7 +181,7 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     expect(body).toMatchObject({
       valid: true,
       hasPermission: true,
-      userId: shiftManager.user_id,
+      userId: shiftManager.cashier_id,
     });
   });
 
@@ -173,12 +191,16 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     prismaClient,
   }) => {
     // GIVEN: Cashier without LOTTERY_MANUAL_ENTRY permission
-    const cashier = await createCashier(prismaClient, {
-      store_id: storeManagerUser.store_id,
-      name: "Regular Cashier",
-      employee_id: "CASH001",
-      pin: "9999",
-    });
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        name: "Regular Cashier",
+        employee_id: "CASH001",
+        pin: "9999",
+      },
+      prismaClient,
+    );
 
     // Cashier does NOT have LOTTERY_MANUAL_ENTRY permission
 
@@ -187,7 +209,7 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
       "/api/auth/verify-cashier-permission",
       {
         data: {
-          cashierId: cashier.user_id,
+          cashierId: cashier.cashier_id,
           pin: "9999",
           permission: "LOTTERY_MANUAL_ENTRY",
           storeId: storeManagerUser.store_id,
@@ -201,7 +223,7 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     expect(body).toMatchObject({
       valid: true, // PIN is valid
       hasPermission: false, // But permission not granted
-      userId: cashier.user_id,
+      userId: cashier.cashier_id,
     });
   });
 
@@ -211,19 +233,23 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     prismaClient,
   }) => {
     // GIVEN: Cashier with known PIN
-    const cashier = await createCashier(prismaClient, {
-      store_id: storeManagerUser.store_id,
-      name: "Test Cashier",
-      employee_id: "EMP001",
-      pin: "1234",
-    });
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        name: "Test Cashier",
+        employee_id: "EMP001",
+        pin: "1234",
+      },
+      prismaClient,
+    );
 
     // WHEN: Verifying with wrong PIN
     const response = await storeManagerApiRequest.post(
       "/api/auth/verify-cashier-permission",
       {
         data: {
-          cashierId: cashier.user_id,
+          cashierId: cashier.cashier_id,
           pin: "9999", // Wrong PIN
           permission: "LOTTERY_MANUAL_ENTRY",
           storeId: storeManagerUser.store_id,
@@ -289,12 +315,16 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     prismaClient,
   }) => {
     // GIVEN: Cashier with known PIN
-    const cashier = await createCashier(prismaClient, {
-      store_id: storeManagerUser.store_id,
-      name: "Test Cashier",
-      employee_id: "EMP001",
-      pin: "1234",
-    });
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        name: "Test Cashier",
+        employee_id: "EMP001",
+        pin: "1234",
+      },
+      prismaClient,
+    );
 
     // GIVEN: SQL injection attempts in storeId
     const sqlInjectionAttempts = [
@@ -309,7 +339,7 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
         "/api/auth/verify-cashier-permission",
         {
           data: {
-            cashierId: cashier.user_id,
+            cashierId: cashier.cashier_id,
             pin: "1234",
             permission: "LOTTERY_MANUAL_ENTRY",
             storeId: maliciousInput,
@@ -331,19 +361,23 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     prismaClient,
   }) => {
     // GIVEN: Cashier with known PIN
-    const cashier = await createCashier(prismaClient, {
-      store_id: storeManagerUser.store_id,
-      name: "Test Cashier",
-      employee_id: "EMP001",
-      pin: "1234",
-    });
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        name: "Test Cashier",
+        employee_id: "EMP001",
+        pin: "1234",
+      },
+      prismaClient,
+    );
 
     // WHEN: Making request without authentication token
     const response = await apiRequest.post(
       "/api/auth/verify-cashier-permission",
       {
         data: {
-          cashierId: cashier.user_id,
+          cashierId: cashier.cashier_id,
           pin: "1234",
           permission: "LOTTERY_MANUAL_ENTRY",
           storeId: storeManagerUser.store_id,
@@ -402,12 +436,16 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     prismaClient,
   }) => {
     // GIVEN: Cashier with known PIN
-    const cashier = await createCashier(prismaClient, {
-      store_id: storeManagerUser.store_id,
-      name: "Test Cashier",
-      employee_id: "EMP001",
-      pin: "1234",
-    });
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        name: "Test Cashier",
+        employee_id: "EMP001",
+        pin: "1234",
+      },
+      prismaClient,
+    );
 
     // GIVEN: Invalid PIN formats
     const invalidPINs = [
@@ -428,7 +466,7 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
         "/api/auth/verify-cashier-permission",
         {
           data: {
-            cashierId: cashier.user_id,
+            cashierId: cashier.cashier_id,
             pin: invalidPIN,
             permission: "LOTTERY_MANUAL_ENTRY",
             storeId: storeManagerUser.store_id,
@@ -452,12 +490,16 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     prismaClient,
   }) => {
     // GIVEN: Cashier with known PIN
-    const cashier = await createCashier(prismaClient, {
-      store_id: storeManagerUser.store_id,
-      name: "Test Cashier",
-      employee_id: "EMP001",
-      pin: "1234",
-    });
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        name: "Test Cashier",
+        employee_id: "EMP001",
+        pin: "1234",
+      },
+      prismaClient,
+    );
 
     // WHEN: Missing cashierId
     const response1 = await storeManagerApiRequest.post(
@@ -477,7 +519,7 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
       "/api/auth/verify-cashier-permission",
       {
         data: {
-          cashierId: cashier.user_id,
+          cashierId: cashier.cashier_id,
           permission: "LOTTERY_MANUAL_ENTRY",
           storeId: storeManagerUser.store_id,
         },
@@ -490,7 +532,7 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
       "/api/auth/verify-cashier-permission",
       {
         data: {
-          cashierId: cashier.user_id,
+          cashierId: cashier.cashier_id,
           pin: "1234",
           storeId: storeManagerUser.store_id,
         },
@@ -503,7 +545,7 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
       "/api/auth/verify-cashier-permission",
       {
         data: {
-          cashierId: cashier.user_id,
+          cashierId: cashier.cashier_id,
           pin: "1234",
           permission: "LOTTERY_MANUAL_ENTRY",
         },
@@ -518,19 +560,23 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     prismaClient,
   }) => {
     // GIVEN: Cashier with known PIN
-    const cashier = await createCashier(prismaClient, {
-      store_id: storeManagerUser.store_id,
-      name: "Test Cashier",
-      employee_id: "EMP001",
-      pin: "1234",
-    });
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        name: "Test Cashier",
+        employee_id: "EMP001",
+        pin: "1234",
+      },
+      prismaClient,
+    );
 
     // WHEN: Verifying PIN successfully
     const response = await storeManagerApiRequest.post(
       "/api/auth/verify-cashier-permission",
       {
         data: {
-          cashierId: cashier.user_id,
+          cashierId: cashier.cashier_id,
           pin: "1234",
           permission: "LOTTERY_MANUAL_ENTRY",
           storeId: storeManagerUser.store_id,
@@ -566,19 +612,23 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
     anotherStoreManagerUser,
   }) => {
     // GIVEN: Cashier in a different store
-    const cashier = await createCashier(prismaClient, {
-      store_id: anotherStoreManagerUser.store_id,
-      name: "Other Store Cashier",
-      employee_id: "EMP001",
-      pin: "1234",
-    });
+    const cashier = await createCashier(
+      {
+        store_id: anotherStoreManagerUser.store_id,
+        created_by: anotherStoreManagerUser.user_id,
+        name: "Other Store Cashier",
+        employee_id: "EMP001",
+        pin: "1234",
+      },
+      prismaClient,
+    );
 
     // WHEN: Attempting to verify cashier from different store
     const response = await storeManagerApiRequest.post(
       "/api/auth/verify-cashier-permission",
       {
         data: {
-          cashierId: cashier.user_id,
+          cashierId: cashier.cashier_id,
           pin: "1234",
           permission: "LOTTERY_MANUAL_ENTRY",
           storeId: storeManagerUser.store_id, // Wrong store
@@ -613,16 +663,21 @@ test.describe("10-4-API: Manual Entry Authorization", () => {
       prismaClient,
     );
 
-    const cashier = await createCashier(prismaClient, {
-      store_id: storeManagerUser.store_id,
-      name: "Test Cashier",
-      employee_id: "EMP001",
-    });
+    const cashier = await createCashier(
+      {
+        store_id: storeManagerUser.store_id,
+        created_by: storeManagerUser.user_id,
+        name: "Test Cashier",
+        employee_id: "EMP001",
+      },
+      prismaClient,
+    );
 
     await createShift(
       {
         store_id: storeManagerUser.store_id,
-        opened_by: cashier.user_id,
+        opened_by: storeManagerUser.user_id,
+        cashier_id: cashier.cashier_id,
         status: ShiftStatus.ACTIVE,
         opening_cash: 50.0,
       },

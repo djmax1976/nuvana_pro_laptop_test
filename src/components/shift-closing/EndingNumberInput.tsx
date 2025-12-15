@@ -83,7 +83,7 @@ export const EndingNumberInput = forwardRef<
   },
   ref,
 ) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const previousValueRef = useRef<string>(value);
   const [error, setError] = useState<string | undefined>();
   const [isValid, setIsValid] = useState<boolean>(false);
@@ -103,11 +103,10 @@ export const EndingNumberInput = forwardRef<
   // In manual entry mode, validate 3-digit input against range only (skip pack validation)
   useEffect(() => {
     // Only validate and trigger onComplete when transitioning from 2 to 3 digits (manual entry)
-    // Barcode scans trigger onComplete via validation callback
+    // Barcode scans (24 digits) are handled separately in handleBarcodeScan
     if (
       value.length === 3 &&
       previousValueRef.current.length < 3 &&
-      value.length !== 24 && // Not a barcode scan
       !error // Only if no validation error
     ) {
       // If manual entry mode is active, validate 3-digit input
@@ -325,9 +324,10 @@ export const EndingNumberInput = forwardRef<
     inputRef.current = element;
     if (typeof ref === "function") {
       ref(element);
-    } else if (ref) {
-      (ref as React.MutableRefObject<HTMLInputElement | null>).current =
-        element;
+    } else if (ref && "current" in ref) {
+      // Use Object.assign to bypass TypeScript read-only check for RefObject
+      // This is safe because forwardRef guarantees the ref is mutable
+      Object.assign(ref, { current: element });
     }
   };
 

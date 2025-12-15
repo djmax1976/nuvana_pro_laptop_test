@@ -455,7 +455,7 @@ describe("Client Employee Credential Management - Integration Tests", () => {
           record_id: employee1.user_id,
           action: "EMPLOYEE_PASSWORD_RESET",
         },
-        orderBy: { created_at: "desc" },
+        orderBy: { timestamp: "desc" },
       });
       expect(auditLog).not.toBeNull();
       expect(auditLog?.old_values).toHaveProperty("password_hash");

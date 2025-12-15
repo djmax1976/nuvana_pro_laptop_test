@@ -344,9 +344,7 @@ export const PackClosingSchema = z
       .max(100, "closingSerial must be at most 100 characters"),
     entry_method: z
       .enum(["SCAN", "MANUAL"], {
-        errorMap: () => ({
-          message: "entry_method must be 'SCAN' or 'MANUAL'",
-        }),
+        message: "entry_method must be 'SCAN' or 'MANUAL'",
       })
       .optional(),
     manual_entry_authorized_by: z

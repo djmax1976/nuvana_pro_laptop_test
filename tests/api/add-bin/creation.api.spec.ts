@@ -219,13 +219,26 @@ test.describe("10-5-API: Bin Creation", () => {
       status: "RECEIVED",
     });
 
+    // Create a cashier first for the shift
+    const cashier = await prismaClient.cashier.create({
+      data: {
+        store_id: storeManagerUser.store_id,
+        name: "Test Cashier",
+        employee_id: `EMP-${Date.now()}`,
+        pin_hash: "hashed_pin",
+        created_by: storeManagerUser.user_id,
+        hired_on: new Date(),
+      },
+    });
+
     // Create a shift for testing
     const shift = await prismaClient.shift.create({
       data: {
         store_id: storeManagerUser.store_id,
-        user_id: storeManagerUser.user_id,
+        opened_by: storeManagerUser.user_id,
+        cashier_id: cashier.cashier_id,
         status: "OPEN",
-        started_at: new Date(),
+        opening_cash: 100.0,
       },
     });
 
@@ -342,8 +355,8 @@ test.describe("10-5-API: Bin Creation", () => {
 
     const auditLog = await prismaClient.auditLog.findFirst({
       where: {
-        entity_type: "LOTTERY_BIN",
-        entity_id: binId,
+        table_name: "lottery_bin",
+        record_id: binId,
         action: "CREATE",
       },
     });

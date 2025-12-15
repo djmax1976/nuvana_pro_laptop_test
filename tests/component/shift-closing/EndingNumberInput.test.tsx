@@ -370,7 +370,7 @@ describe("10-1-COMPONENT: EndingNumberInput", () => {
     const input = screen.getByTestId("ending-number-input-bin-1");
 
     // WHEN: User types rapidly "12345"
-    await user.type(input, "12345", { delay: 10 });
+    await user.type(input, "12345");
 
     // THEN: Input is limited to 3 digits
     expect(mockOnChange).toHaveBeenLastCalledWith("123");
@@ -1240,13 +1240,15 @@ describe("10-3-COMPONENT: EndingNumberInput - Barcode Scanning", () => {
 
       // AND: Result structure is validated
       const callArgs = vi.mocked(validateEndingSerial).mock.results[0].value;
-      await callArgs.then((result) => {
-        expect(result).toHaveProperty("valid");
-        expect(result).toHaveProperty("endingNumber");
-        expect(typeof result.valid).toBe("boolean");
-        expect(typeof result.endingNumber).toBe("string");
-        expect(result.endingNumber?.length).toBe(3);
-      });
+      await callArgs.then(
+        (result: { valid: boolean; endingNumber?: string }) => {
+          expect(result).toHaveProperty("valid");
+          expect(result).toHaveProperty("endingNumber");
+          expect(typeof result.valid).toBe("boolean");
+          expect(typeof result.endingNumber).toBe("string");
+          expect(result.endingNumber?.length).toBe(3);
+        },
+      );
     });
   });
 

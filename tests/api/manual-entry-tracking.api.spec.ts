@@ -95,7 +95,7 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
     const closing = await prismaClient.lotteryShiftClosing.findFirst({
       where: {
         shift_id: shift.shift_id,
-        bin_id: bin.bin_id,
+        pack_id: pack.pack_id,
       },
     });
 
@@ -180,7 +180,7 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
     const closing = await prismaClient.lotteryShiftClosing.findFirst({
       where: {
         shift_id: shift.shift_id,
-        bin_id: bin.bin_id,
+        pack_id: pack.pack_id,
       },
     });
 
@@ -260,11 +260,11 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
     // Note: Actual audit log structure depends on implementation
     const auditLog = await prismaClient.auditLog.findFirst({
       where: {
-        entity_type: "LotteryShiftClosing",
+        table_name: "lottery_shift_closings",
         action: "CREATE",
       },
       orderBy: {
-        created_at: "desc",
+        timestamp: "desc",
       },
     });
 
@@ -273,11 +273,11 @@ test.describe("10-4-API: Manual Entry Tracking", () => {
     // Note: Actual field name depends on audit log schema
 
     // Assertion: Audit log should have required fields
-    expect(auditLog).toHaveProperty("entity_type");
+    expect(auditLog).toHaveProperty("table_name");
     expect(auditLog).toHaveProperty("action");
-    expect(auditLog).toHaveProperty("created_at");
-    // Assertion: Entity type should match
-    expect(auditLog?.entity_type).toBe("LotteryShiftClosing");
+    expect(auditLog).toHaveProperty("timestamp");
+    // Assertion: table_name should match
+    expect(auditLog?.table_name).toBe("lottery_shift_closings");
     // Assertion: Action should be CREATE
     expect(auditLog?.action).toBe("CREATE");
   });

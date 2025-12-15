@@ -14,7 +14,7 @@
  * @enhanced-by workflow-9 on 2025-12-14
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { VarianceSummaryDialog } from "@/components/shift-closing/VarianceSummaryDialog";

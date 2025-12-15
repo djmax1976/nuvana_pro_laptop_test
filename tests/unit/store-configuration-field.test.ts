@@ -5,7 +5,7 @@
  */
 // tests/unit/store-configuration-field.test.ts
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 
 /**
  * Store Configuration Field Unit Tests
@@ -22,15 +22,28 @@ describe("Store Configuration Field Handling", () => {
   let prisma: PrismaClient;
   let testCompanyId: string;
   let testStoreId: string;
+  let testUserId: string;
 
   beforeEach(async () => {
     prisma = new PrismaClient();
 
-    // Create test company
+    // Create test owner user
+    const owner = await prisma.user.create({
+      data: {
+        email: `owner-${Date.now()}@test.nuvana.local`,
+        password_hash: "hashed",
+        name: "Test Owner",
+        public_id: `TO-${Date.now()}`,
+      },
+    });
+    testUserId = owner.user_id;
+
+    // Create test company with owner
     const company = await prisma.company.create({
       data: {
         name: `Test Company ${Date.now()}`,
         public_id: `COM${Date.now()}`,
+        owner_user_id: owner.user_id,
       },
     });
     testCompanyId = company.company_id;
@@ -46,6 +59,11 @@ describe("Store Configuration Field Handling", () => {
     if (testCompanyId) {
       await prisma.company
         .delete({ where: { company_id: testCompanyId } })
+        .catch(() => {});
+    }
+    if (testUserId) {
+      await prisma.user
+        .delete({ where: { user_id: testUserId } })
         .catch(() => {});
     }
     await prisma.$disconnect();
@@ -164,7 +182,7 @@ describe("Store Configuration Field Handling", () => {
           company_id: testCompanyId,
           name: "Test Store",
           public_id: `STR${Date.now()}`,
-          configuration: null,
+          configuration: Prisma.DbNull,
         },
       });
       testStoreId = store.store_id;

@@ -76,12 +76,24 @@ beforeAll(async () => {
     display_order: 1,
   });
 
+  // Create a cashier record for the shift
+  const cashier = await prisma.cashier.create({
+    data: {
+      store_id: testStore.store_id,
+      name: "Test Shift Cashier",
+      employee_id: `EMP-${Date.now()}`,
+      pin_hash: "hashed_pin",
+      created_by: testUser.user_id,
+      hired_on: new Date(),
+    },
+  });
+
   // Create active shift for cashier
   testShift = await prisma.shift.create({
     data: {
       store_id: testStore.store_id,
       opened_by: testCashier.user_id,
-      opened_at: new Date(),
+      cashier_id: cashier.cashier_id,
       status: ShiftStatus.OPEN,
       opening_cash: 100.0,
     },

@@ -40,8 +40,16 @@ vi.mock("@/hooks/use-toast", () => ({
 
 describe("ChangeEmailModal Component", () => {
   const employee = {
-    userId: "123e4567-e89b-12d3-a456-426614174000",
-    currentEmail: "employee@test.nuvana.local",
+    user_id: "123e4567-e89b-12d3-a456-426614174000",
+    email: "employee@test.nuvana.local",
+    name: "Test Employee",
+    status: "active",
+    created_at: "2025-01-01T00:00:00Z",
+    store_id: "store-123",
+    store_name: "Test Store",
+    company_id: "company-123",
+    company_name: "Test Company",
+    roles: [],
   };
 
   const mockUpdateMutation = {
@@ -87,7 +95,7 @@ describe("ChangeEmailModal Component", () => {
       // WHEN: Component renders
       // THEN: Current email is displayed
       const emailInput = screen.getByRole("textbox", { name: /email/i });
-      expect(emailInput).toHaveValue(employee.currentEmail);
+      expect(emailInput).toHaveValue(employee.email);
     });
 
     it("should have email input field", () => {
@@ -220,7 +228,7 @@ describe("ChangeEmailModal Component", () => {
       // THEN: updateEmployeeEmail mutation is called
       await waitFor(() => {
         expect(mutateAsync).toHaveBeenCalledWith({
-          userId: employee.userId,
+          userId: employee.user_id,
           email: "newemail@test.nuvana.local",
         });
       });

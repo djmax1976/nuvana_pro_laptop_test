@@ -39,7 +39,16 @@ vi.mock("@/hooks/use-toast", () => ({
 
 describe("ResetPasswordModal Component", () => {
   const employee = {
-    userId: "123e4567-e89b-12d3-a456-426614174000",
+    user_id: "123e4567-e89b-12d3-a456-426614174000",
+    email: "employee@test.nuvana.local",
+    name: "Test Employee",
+    status: "active",
+    created_at: "2025-01-01T00:00:00Z",
+    store_id: "store-123",
+    store_name: "Test Store",
+    company_id: "company-123",
+    company_name: "Test Company",
+    roles: [],
   };
 
   const mockResetMutation = {
@@ -230,7 +239,7 @@ describe("ResetPasswordModal Component", () => {
       // THEN: resetEmployeePassword mutation is called
       await waitFor(() => {
         expect(mutateAsync).toHaveBeenCalledWith({
-          userId: employee.userId,
+          userId: employee.user_id,
           password: "ValidPass123!",
         });
       });

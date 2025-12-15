@@ -233,7 +233,7 @@ test.describe("10-6-E2E: Activate Pack Flow (Critical Journey)", () => {
 
     // WHEN: User enters invalid serial
     await page.fill('[data-testid="serial-input"]', "999912345670123456789012");
-    await page.blur('[data-testid="serial-input"]'); // Trigger validation
+    await page.locator('[data-testid="serial-input"]').blur(); // Trigger validation
 
     // THEN: Error message is displayed
     await expect(page.locator('[data-testid="scan-error"]')).toBeVisible();

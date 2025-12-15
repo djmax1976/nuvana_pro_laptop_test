@@ -70,7 +70,13 @@ test.describe("Employee Email Update API", () => {
 
     // Verify employee was created with correct store association
     // Use explicit wait for database consistency with retry logic
-    const employeeUser = await expect(async () => {
+    type EmployeeUserType = {
+      user_id: string;
+      user_roles: Array<{ store: { company: { owner_user_id: string } } }>;
+    };
+    let employeeUser: EmployeeUserType | null = null;
+
+    await expect(async () => {
       const user = await prismaClient.user.findUnique({
         where: { user_id: employeeId },
         include: {
@@ -86,12 +92,14 @@ test.describe("Employee Email Update API", () => {
         },
       });
       expect(user).not.toBeNull();
-      expect(user?.user_roles.length).toBeGreaterThan(0);
+      expect(user?.user_roles?.length).toBeGreaterThan(0);
+      employeeUser = user as unknown as EmployeeUserType;
       return user;
     }).toPass({ timeout: 2000 });
 
     // Verify the employee's store belongs to clientUser's company
-    const employeeStore = employeeUser?.user_roles[0]?.store;
+    expect(employeeUser).not.toBeNull();
+    const employeeStore = employeeUser!.user_roles[0]?.store;
     expect(employeeStore).toBeDefined();
     expect(employeeStore?.company.owner_user_id).toBe(clientUser.user_id);
 

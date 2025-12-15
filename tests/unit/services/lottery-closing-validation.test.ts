@@ -17,7 +17,7 @@
  * Priority: P0 (Critical - Data Integrity)
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   validateEndingSerial,
   ValidationResult,
@@ -404,7 +404,6 @@ describe("10-3-UNIT: validateEndingSerial", () => {
     it("should reject invalid binData structure (missing pack_number)", async () => {
       // GIVEN: Invalid binData (missing required field)
       const scannedSerial = "000112345670123456789012";
-      // @ts-expect-error - Testing invalid binData structure
       const invalidBinData = {
         starting_serial: "045",
         serial_end: "150",
@@ -412,6 +411,7 @@ describe("10-3-UNIT: validateEndingSerial", () => {
       };
 
       // WHEN: Validating
+      // @ts-expect-error - Testing invalid binData structure (missing pack_number)
       const result = await validateEndingSerial(scannedSerial, invalidBinData);
 
       // THEN: Validation fails with invalid bin data error
@@ -423,7 +423,6 @@ describe("10-3-UNIT: validateEndingSerial", () => {
     it("should reject invalid binData structure (missing starting_serial)", async () => {
       // GIVEN: Invalid binData (missing required field)
       const scannedSerial = "000112345670123456789012";
-      // @ts-expect-error - Testing invalid binData structure
       const invalidBinData = {
         pack_number: "1234567",
         serial_end: "150",
@@ -431,6 +430,7 @@ describe("10-3-UNIT: validateEndingSerial", () => {
       };
 
       // WHEN: Validating
+      // @ts-expect-error - Testing invalid binData structure (missing starting_serial)
       const result = await validateEndingSerial(scannedSerial, invalidBinData);
 
       // THEN: Validation fails with invalid bin data error
@@ -442,7 +442,6 @@ describe("10-3-UNIT: validateEndingSerial", () => {
     it("should reject invalid binData structure (missing serial_end)", async () => {
       // GIVEN: Invalid binData (missing required field)
       const scannedSerial = "000112345670123456789012";
-      // @ts-expect-error - Testing invalid binData structure
       const invalidBinData = {
         pack_number: "1234567",
         starting_serial: "045",
@@ -450,6 +449,7 @@ describe("10-3-UNIT: validateEndingSerial", () => {
       };
 
       // WHEN: Validating
+      // @ts-expect-error - Testing invalid binData structure (missing serial_end)
       const result = await validateEndingSerial(scannedSerial, invalidBinData);
 
       // THEN: Validation fails with invalid bin data error

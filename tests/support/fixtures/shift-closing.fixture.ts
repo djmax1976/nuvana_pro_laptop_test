@@ -18,6 +18,7 @@ import {
 } from "../factories/lottery.factory";
 
 type ShiftClosingFixture = {
+  prisma: PrismaClient;
   authenticatedUser: {
     userId: string;
     storeId: string;
@@ -52,6 +53,12 @@ type ShiftClosingFixture = {
 };
 
 export const test = base.extend<ShiftClosingFixture>({
+  prisma: async ({}, use) => {
+    const prisma = new PrismaClient();
+    await use(prisma);
+    await prisma.$disconnect();
+  },
+
   authenticatedUser: async ({ prisma }, use) => {
     // Setup: Create user, store, shift, and generate auth token
     // Note: This will fail until implementation exists (RED phase)

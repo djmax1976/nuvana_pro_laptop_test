@@ -389,13 +389,13 @@ describe("4.9-COMPONENT: Cashier Multi-Store Hook", () => {
       /**
        * When a specific store is selected, should use single-store mode
        */
-      const ALL_STORES = "all";
+      const ALL_STORES = "all" as const;
       const stores = [
         { store_id: "store-1", name: "Store 1" },
         { store_id: "store-2", name: "Store 2" },
       ];
 
-      const storeFilter = "store-1"; // Specific store selected
+      const storeFilter: string = "store-1"; // Specific store selected
       const isMultiStoreMode = storeFilter === ALL_STORES && stores.length > 1;
 
       expect(isMultiStoreMode).toBe(false);
