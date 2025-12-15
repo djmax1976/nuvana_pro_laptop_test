@@ -28,76 +28,61 @@
 import { test, expect, Page } from "@playwright/test";
 import bcrypt from "bcrypt";
 import { PrismaClient } from "@prisma/client";
+import { v4 as uuidv4 } from "uuid";
 import { createCashier } from "../support/helpers/database-helpers";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
 
 /**
- * Helper function to perform login and wait for redirect.
- * Uses network-first pattern for reliability.
+ * Helper function to perform login and wait for redirect to client-dashboard.
+ * Uses the simple, proven pattern from lottery-management-flow tests.
  */
 async function loginAsClientOwner(
   page: Page,
   email: string,
   password: string,
 ): Promise<void> {
-  // Network-first pattern: Intercept API calls BEFORE navigation
-  const loginResponsePromise = page.waitForResponse(
-    (resp) =>
-      (resp.url().includes("/api/auth/login") ||
-        resp.url().includes("/api/client/auth/login")) &&
-      resp.status() === 200,
-    { timeout: 30000 },
-  );
+  // Navigate to login page and wait for full load
+  await page.goto("/login");
 
-  // Navigate to login page
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
+  // Fill credentials using name/type selectors that work reliably
+  await page.fill('input[name="email"], input[type="email"]', email);
+  await page.fill('input[name="password"], input[type="password"]', password);
 
-  // Wait for login form
-  await page.waitForSelector('input[type="email"]', {
-    state: "visible",
-    timeout: 15000,
-  });
-
-  // Fill credentials
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', password);
-
-  // Set up navigation promise BEFORE clicking submit
-  const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {
-    timeout: 30000,
-    waitUntil: "domcontentloaded",
-  });
-
-  // Click submit
-  await page.click('button[type="submit"]');
-
-  // Wait for login response
-  await loginResponsePromise;
-
-  // Wait for navigation
-  await navigationPromise;
+  // Wait for navigation to /client-dashboard after form submission
+  await Promise.all([
+    page.waitForURL(/.*client-dashboard.*/, { timeout: 30000 }),
+    page.click('button[type="submit"]'),
+  ]);
 }
 
-test.describe("Store Settings Flow (Critical Journey)", () => {
+test.describe.serial("Store Settings Flow (Critical Journey)", () => {
   let prisma: PrismaClient;
   let clientOwnerEmail: string;
   let clientOwnerPassword: string;
   let storeId: string;
-  let companyId: string;
+  let testCompanyId: string;
   let employeeUserId: string;
   let cashierId: string;
-  let storeRoleId: string;
+  let testOwnerId: string;
 
   test.beforeAll(async () => {
     prisma = new PrismaClient();
     // Setup test data
     // GIVEN: A client owner with a store for testing
     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+    const userId = uuidv4();
+    const companyId = uuidv4();
+    const storeIdGen = uuidv4();
 
     const testOwner = await prisma.user.create({
       data: {
-        email: `clientowner-${Date.now()}@test.com`,
+        user_id: userId,
+        email: `e2e-settings-owner-${Date.now()}@test.com`,
         name: "Test Client Owner",
-        public_id: `USR${Date.now()}`,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         password_hash: hashedPassword,
         status: "ACTIVE",
         is_client_user: true,
@@ -105,21 +90,27 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
     });
     clientOwnerEmail = testOwner.email;
     clientOwnerPassword = "TestPassword123!";
+    testOwnerId = testOwner.user_id;
 
     const testCompany = await prisma.company.create({
       data: {
+        company_id: companyId,
         name: `Test Company ${Date.now()}`,
         owner_user_id: testOwner.user_id,
-        public_id: `COM${Date.now()}`,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        status: "ACTIVE",
       },
     });
-    companyId = testCompany.company_id;
+    testCompanyId = testCompany.company_id;
 
     const testStore = await prisma.store.create({
       data: {
+        store_id: storeIdGen,
         company_id: testCompany.company_id,
         name: `Test Store ${Date.now()}`,
-        public_id: `STR${Date.now()}`,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        timezone: "America/New_York",
+        status: "ACTIVE",
         configuration: {
           contact_email: "store@test.com",
           timezone: "America/New_York",
@@ -127,6 +118,22 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
       },
     });
     storeId = testStore.store_id;
+
+    // CRITICAL: Assign CLIENT_OWNER role to the user for the company
+    // CLIENT_OWNER is required to access /client-dashboard
+    const clientOwnerRole = await prisma.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
+    });
+    if (!clientOwnerRole) {
+      throw new Error("CLIENT_OWNER role not found - run RBAC seed first");
+    }
+    await prisma.userRole.create({
+      data: {
+        user_id: testOwner.user_id,
+        role_id: clientOwnerRole.role_id,
+        company_id: testCompany.company_id,
+      },
+    });
 
     // Get a STORE scope role for employee assignment
     const storeRole = await prisma.role.findFirst({
@@ -136,15 +143,14 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
     if (!storeRole) {
       throw new Error("No STORE scope role found - run RBAC seed first");
     }
-    storeRoleId = storeRole.role_id;
 
     // Create an employee for testing email change functionality
     const employeePassword = await bcrypt.hash("EmployeePassword123!", 10);
     const employeeUser = await prisma.user.create({
       data: {
-        email: `employee-${Date.now()}@test.com`,
+        email: `e2e-employee-${Date.now()}@test.com`,
         name: "Test Employee",
-        public_id: `USR${Date.now()}-EMP`,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
         password_hash: employeePassword,
         status: "ACTIVE",
         is_client_user: true,
@@ -180,65 +186,48 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
     // Cleanup test data in reverse order of dependencies
     // Use try-catch for each deletion to ensure cleanup continues even if one fails
     try {
+      // Delete cashier first
       if (cashierId) {
-        try {
-          await prisma.cashier.delete({ where: { cashier_id: cashierId } });
-        } catch (error) {
-          // Ignore if already deleted or doesn't exist
-          console.warn("Failed to delete cashier:", error);
-        }
+        await prisma.cashier
+          .delete({ where: { cashier_id: cashierId } })
+          .catch(() => {});
       }
+
+      // Delete employee user roles and user
       if (employeeUserId) {
-        // Delete user roles first
-        try {
-          await prisma.userRole.deleteMany({
-            where: { user_id: employeeUserId },
-          });
-        } catch (error) {
-          console.warn("Failed to delete user roles:", error);
-        }
-        // Then delete user
-        try {
-          await prisma.user.delete({ where: { user_id: employeeUserId } });
-        } catch (error) {
-          // Ignore if already deleted
-          console.warn("Failed to delete employee user:", error);
-        }
+        await prisma.userRole
+          .deleteMany({ where: { user_id: employeeUserId } })
+          .catch(() => {});
+        await prisma.user
+          .delete({ where: { user_id: employeeUserId } })
+          .catch(() => {});
       }
+
+      // Delete store
       if (storeId) {
-        try {
-          const store = await prisma.store.findUnique({
-            where: { store_id: storeId },
-            include: { company: true },
-          });
-          if (store) {
-            await prisma.store.delete({ where: { store_id: storeId } });
-            if (store.company) {
-              await prisma.company.delete({
-                where: { company_id: store.company.company_id },
-              });
-            }
-          }
-        } catch (error) {
-          console.warn("Failed to delete store/company:", error);
-        }
+        await prisma.store
+          .delete({ where: { store_id: storeId } })
+          .catch(() => {});
       }
-      if (clientOwnerEmail) {
-        try {
-          const owner = await prisma.user.findUnique({
-            where: { email: clientOwnerEmail },
-          });
-          if (owner) {
-            // Delete user roles first
-            await prisma.userRole.deleteMany({
-              where: { user_id: owner.user_id },
-            });
-            // Then delete user
-            await prisma.user.delete({ where: { user_id: owner.user_id } });
-          }
-        } catch (error) {
-          console.warn("Failed to delete client owner:", error);
-        }
+
+      // Delete company
+      if (testCompanyId) {
+        await prisma.company
+          .delete({ where: { company_id: testCompanyId } })
+          .catch(() => {});
+      }
+
+      // Delete client owner user roles and user
+      if (testOwnerId) {
+        await prisma.userRole
+          .deleteMany({ where: { user_id: testOwnerId } })
+          .catch(() => {});
+        await prisma.auditLog
+          .deleteMany({ where: { user_id: testOwnerId } })
+          .catch(() => {});
+        await prisma.user
+          .delete({ where: { user_id: testOwnerId } })
+          .catch(() => {});
       }
     } finally {
       // Always disconnect Prisma client
@@ -268,18 +257,22 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
     // AND: Settings page is displayed
     await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
 
-    // AND: Store tabs are displayed (StoreTabs component shows for single or multiple stores)
-    // Note: StoreTabs component always renders with data-testid="store-tabs" even for single store
-    const storeTabs = page.locator('[data-testid="store-tabs"]');
-    // StoreTabs component renders for both single and multiple stores
-    await expect(storeTabs).toBeVisible({ timeout: 5000 });
+    // NOTE: StoreTabs component only renders when stores.length > 1 (per page.tsx:119)
+    // For a single store, no store tabs are shown - the store is auto-selected
+    // This is correct behavior - we verify the internal tabs instead
 
-    // AND: Store Info tab is selected by default
-    await expect(page.locator('[data-testid="store-info-tab"]')).toBeVisible();
+    // AND: Store Info tab button is visible and selected by default
+    // Note: There are two elements with store-info-tab testid - the TabsTrigger button and the content div
+    // We specifically check for the button using role="tab"
+    await expect(
+      page.locator('button[data-testid="store-info-tab"]'),
+    ).toBeVisible({
+      timeout: 10000,
+    });
 
-    // AND: Store configuration is displayed
+    // AND: Store configuration is displayed within StoreInfoTab component
     await expect(page.locator('[data-testid="store-name"]')).toBeVisible({
-      timeout: 5000,
+      timeout: 10000,
     });
     await expect(page.locator('[data-testid="timezone-select"]')).toBeVisible();
     await expect(
@@ -443,13 +436,15 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
       await employeesTab.click();
 
       // THEN: Employee table is displayed with correct columns
-      await expect(page.locator('[data-testid="employee-table"]')).toBeVisible({
-        timeout: 10000,
-      });
-      await expect(page.locator("text=Name")).toBeVisible();
-      await expect(page.locator("text=Email")).toBeVisible();
-      await expect(page.locator("text=Role")).toBeVisible();
-      await expect(page.locator("text=Status")).toBeVisible();
+      const employeeTable = page.locator('[data-testid="employee-table"]');
+      await expect(employeeTable).toBeVisible({ timeout: 10000 });
+
+      // Verify column headers exist within the table header
+      const tableHeader = employeeTable.locator("thead");
+      await expect(tableHeader.locator("text=Name")).toBeVisible();
+      await expect(tableHeader.locator("text=Email")).toBeVisible();
+      await expect(tableHeader.locator("text=Role")).toBeVisible();
+      await expect(tableHeader.locator("text=Status")).toBeVisible();
     });
 
     test("6.14-E2E-006: [P1-AC-4] should display Change Email and Reset Password buttons for each employee", async ({
