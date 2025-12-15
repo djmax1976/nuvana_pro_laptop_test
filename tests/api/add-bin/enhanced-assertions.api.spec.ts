@@ -17,6 +17,7 @@ import {
   createLotteryGame,
   createLotteryPack,
 } from "../../support/factories/lottery.factory";
+import { createCashier } from "../../support/helpers";
 
 test.describe("10-5-API: Enhanced Assertions", () => {
   // ═══════════════════════════════════════════════════════════════════════════
@@ -33,7 +34,7 @@ test.describe("10-5-API: Enhanced Assertions", () => {
     const game = await createLotteryGame(prismaClient, {
       name: "$5 Powerball",
       price: 5.0,
-      game_code: "0001",
+      // game_code will be auto-generated to avoid collisions in parallel tests
     });
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
@@ -89,6 +90,40 @@ test.describe("10-5-API: Enhanced Assertions", () => {
     expect(typeof body.data.pack.pack_id, "Pack ID should be string").toBe(
       "string",
     );
+    // Verify pack_id is a valid UUID format (36 characters with hyphens)
+    expect(
+      body.data.pack.pack_id.length,
+      "Pack ID should be valid UUID length",
+    ).toBe(36);
+    expect(body.data.pack.pack_id, "Pack ID should match created pack ID").toBe(
+      pack.pack_id,
+    );
+    // Verify pack has serial_start field
+    expect(
+      body.data.pack,
+      "Pack should have serial_start field",
+    ).toHaveProperty("serial_start");
+    expect(
+      typeof body.data.pack.serial_start,
+      "Serial start should be string",
+    ).toBe("string");
+    expect(body.data.pack.serial_start, "Serial start should match").toBe(
+      pack.serial_start,
+    );
+    // Verify pack has serial_end field
+    expect(body.data.pack, "Pack should have serial_end field").toHaveProperty(
+      "serial_end",
+    );
+    expect(
+      typeof body.data.pack.serial_end,
+      "Serial end should be string",
+    ).toBe("string");
+    expect(body.data.pack.serial_end, "Serial end should match").toBe(
+      pack.serial_end,
+    );
+    // Verify game data matches
+    expect(body.data.game.name, "Game name should match").toBe("$5 Powerball");
+    expect(body.data.game.price, "Game price should match").toBe(5.0);
   });
 
   test("10-5-API-ENH-002: [P1] POST /api/stores/:storeId/lottery/bins/create-with-pack - should return correct response structure", async ({
@@ -102,7 +137,7 @@ test.describe("10-5-API: Enhanced Assertions", () => {
     const game = await createLotteryGame(prismaClient, {
       name: "$5 Powerball",
       price: 5.0,
-      game_code: "0001",
+      // game_code will be auto-generated to avoid collisions in parallel tests
     });
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
@@ -113,23 +148,21 @@ test.describe("10-5-API: Enhanced Assertions", () => {
       status: "RECEIVED",
     });
     // Create a cashier first for the shift
-    const cashier = await prismaClient.cashier.create({
-      data: {
+    const cashier = await createCashier(
+      {
         store_id: storeManagerUser.store_id,
-        name: "Test Cashier",
-        employee_id: `EMP-${Date.now()}`,
-        pin_hash: "hashed_pin",
         created_by: storeManagerUser.user_id,
-        hired_on: new Date(),
+        pin: "1234",
       },
-    });
+      prismaClient,
+    );
 
     const shift = await prismaClient.shift.create({
       data: {
         store_id: storeManagerUser.store_id,
         opened_by: storeManagerUser.user_id,
         cashier_id: cashier.cashier_id,
-        status: "OPEN",
+        status: "ACTIVE", // Endpoint requires ACTIVE status, not OPEN
         opening_cash: 100.0,
       },
     });
@@ -139,6 +172,7 @@ test.describe("10-5-API: Enhanced Assertions", () => {
       `/api/stores/${storeManagerUser.store_id}/lottery/bins/create-with-pack`,
       {
         bin_name: "Bin 1",
+        display_order: 0, // Required field - must be provided
         pack_number: pack.pack_number,
         serial_start: "001",
         activated_by: storeManagerUser.user_id,
@@ -147,7 +181,8 @@ test.describe("10-5-API: Enhanced Assertions", () => {
     );
 
     // THEN: Response has correct structure
-    expect(response.status(), "Expected 201 Created status").toBe(201);
+    // Note: Implementation returns 200 (not 201) per schema definition
+    expect(response.status(), "Expected 200 OK status").toBe(200);
     const body = await response.json();
     expect(body, "Response should be an object").toBeInstanceOf(Object);
     expect(body, "Response should have success field").toHaveProperty(
@@ -167,10 +202,15 @@ test.describe("10-5-API: Enhanced Assertions", () => {
     expect(typeof body.data.bin.bin_id, "Bin ID should be string").toBe(
       "string",
     );
+    // Verify bin_id is a valid UUID format (36 characters with hyphens)
     expect(
       body.data.bin.bin_id.length,
       "Bin ID should be valid UUID length",
-    ).toBeGreaterThan(0);
+    ).toBe(36);
+    // Verify UUID format (contains hyphens at positions 8, 13, 18, 23)
+    expect(body.data.bin.bin_id, "Bin ID should be valid UUID format").toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
     expect(body.data.bin, "Bin should have name field").toHaveProperty("name");
     expect(typeof body.data.bin.name, "Bin name should be string").toBe(
       "string",
@@ -194,11 +234,30 @@ test.describe("10-5-API: Enhanced Assertions", () => {
       body.data.bin.display_order,
       "Display order should be non-negative",
     ).toBeGreaterThanOrEqual(0);
+    expect(
+      body.data.bin.display_order,
+      "Display order should match request",
+    ).toBe(0);
     expect(body.data.bin, "Bin should have is_active field").toHaveProperty(
       "is_active",
     );
     expect(typeof body.data.bin.is_active, "Is active should be boolean").toBe(
       "boolean",
     );
+    expect(body.data.bin.is_active, "Bin should be active by default").toBe(
+      true,
+    );
+    // Verify location field exists (nullable but should be present)
+    expect(body.data.bin, "Bin should have location field").toHaveProperty(
+      "location",
+    );
+    // Location can be null or string
+    expect(
+      body.data.bin.location === null ||
+        typeof body.data.bin.location === "string",
+      "Location should be null or string",
+    ).toBe(true);
+    // Verify bin name matches request
+    expect(body.data.bin.name, "Bin name should match request").toBe("Bin 1");
   });
 });

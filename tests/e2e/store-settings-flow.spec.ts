@@ -28,6 +28,7 @@
 import { test, expect, Page } from "@playwright/test";
 import bcrypt from "bcrypt";
 import { PrismaClient } from "@prisma/client";
+import { createCashier } from "../support/helpers/database-helpers";
 
 /**
  * Helper function to perform login and wait for redirect.
@@ -81,6 +82,10 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
   let clientOwnerEmail: string;
   let clientOwnerPassword: string;
   let storeId: string;
+  let companyId: string;
+  let employeeUserId: string;
+  let cashierId: string;
+  let storeRoleId: string;
 
   test.beforeAll(async () => {
     prisma = new PrismaClient();
@@ -108,6 +113,7 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
         public_id: `COM${Date.now()}`,
       },
     });
+    companyId = testCompany.company_id;
 
     const testStore = await prisma.store.create({
       data: {
@@ -121,10 +127,76 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
       },
     });
     storeId = testStore.store_id;
+
+    // Get a STORE scope role for employee assignment
+    const storeRole = await prisma.role.findFirst({
+      where: { scope: "STORE" },
+    });
+
+    if (!storeRole) {
+      throw new Error("No STORE scope role found - run RBAC seed first");
+    }
+    storeRoleId = storeRole.role_id;
+
+    // Create an employee for testing email change functionality
+    const employeePassword = await bcrypt.hash("EmployeePassword123!", 10);
+    const employeeUser = await prisma.user.create({
+      data: {
+        email: `employee-${Date.now()}@test.com`,
+        name: "Test Employee",
+        public_id: `USR${Date.now()}-EMP`,
+        password_hash: employeePassword,
+        status: "ACTIVE",
+        is_client_user: true,
+      },
+    });
+    employeeUserId = employeeUser.user_id;
+
+    // Assign STORE scope role to employee
+    await prisma.userRole.create({
+      data: {
+        user_id: employeeUser.user_id,
+        role_id: storeRole.role_id,
+        store_id: testStore.store_id,
+        company_id: testCompany.company_id,
+        assigned_by: testOwner.user_id,
+      },
+    });
+
+    // Create a cashier for testing cashier tab
+    const cashier = await createCashier(
+      {
+        store_id: testStore.store_id,
+        created_by: testOwner.user_id,
+        name: "Test Cashier",
+        pin: "1234",
+      },
+      prisma,
+    );
+    cashierId = cashier.cashier_id;
   });
 
   test.afterAll(async () => {
-    // Cleanup test data
+    // Cleanup test data in reverse order of dependencies
+    if (cashierId) {
+      try {
+        await prisma.cashier.delete({ where: { cashier_id: cashierId } });
+      } catch (error) {
+        // Ignore if already deleted
+      }
+    }
+    if (employeeUserId) {
+      // Delete user roles first
+      await prisma.userRole.deleteMany({
+        where: { user_id: employeeUserId },
+      });
+      // Then delete user
+      try {
+        await prisma.user.delete({ where: { user_id: employeeUserId } });
+      } catch (error) {
+        // Ignore if already deleted
+      }
+    }
     if (storeId) {
       const store = await prisma.store.findUnique({
         where: { store_id: storeId },
@@ -144,6 +216,11 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
         where: { email: clientOwnerEmail },
       });
       if (owner) {
+        // Delete user roles first
+        await prisma.userRole.deleteMany({
+          where: { user_id: owner.user_id },
+        });
+        // Then delete user
         await prisma.user.delete({ where: { user_id: owner.user_id } });
       }
     }
@@ -157,26 +234,36 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
     await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
 
     // WHEN: User clicks "Settings" in sidebar navigation
-    await page.click('[data-testid="settings-nav-link"]');
+    // Note: ClientSidebar uses generateTestId("Settings") which converts to "settings"
+    await page.click('[data-testid="client-nav-link-settings"]');
 
     // THEN: User is navigated to /client-dashboard/settings
-    await expect(page).toHaveURL(/.*\/client-dashboard\/settings.*/);
+    await expect(page).toHaveURL(/.*\/client-dashboard\/settings.*/, {
+      timeout: 10000,
+    });
 
-    // AND: Settings page displays with store tabs
-    await expect(page.locator('[data-testid="store-tabs"]')).toBeVisible();
+    // AND: Settings page is displayed
+    await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+
+    // AND: Store tabs are displayed (if multiple stores exist)
+    // Note: Store tabs only show if stores.length > 1, but we check for the container
+    const storeTabs = page.locator('[data-testid="store-tabs"]');
+    const storeTabsCount = await storeTabs.count();
+    if (storeTabsCount > 0) {
+      await expect(storeTabs.first()).toBeVisible();
+    }
 
     // AND: Store Info tab is selected by default
     await expect(page.locator('[data-testid="store-info-tab"]')).toBeVisible();
 
     // AND: Store configuration is displayed
-    await expect(page.locator('[data-testid="store-name"]')).toBeVisible();
+    await expect(page.locator('[data-testid="store-name"]')).toBeVisible({
+      timeout: 5000,
+    });
     await expect(page.locator('[data-testid="timezone-select"]')).toBeVisible();
     await expect(
       page.locator('[data-testid="contact-email-input"]'),
     ).toBeVisible();
-
-    // NOTE: Implementation needed - test will fail until components exist
-    // expect(true).toBe(false); // RED phase - Commented out for enhancement
   });
 
   test("6.14-E2E-002: Client Owner can change employee email end-to-end", async ({
@@ -188,29 +275,69 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
       waitUntil: "domcontentloaded",
     });
 
+    // Wait for settings page to load
+    await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+
     // WHEN: User selects Employees tab
     await page.click('[data-testid="employees-tab"]');
 
-    // AND: User clicks "Change Email" for an employee
+    // Wait for employee table to load
+    await expect(page.locator('[data-testid="employee-table"]')).toBeVisible({
+      timeout: 5000,
+    });
+
+    // Verify at least one employee exists
+    const changeEmailButtons = page.locator(
+      '[data-testid^="change-email-button-"]',
+    );
+    await expect(changeEmailButtons.first()).toBeVisible({ timeout: 5000 });
+
+    // AND: User clicks "Change Email" for the first employee
     await page.click('[data-testid="change-email-button-0"]');
 
+    // Wait for modal to open
+    await expect(page.locator('[data-testid="email-input"]')).toBeVisible({
+      timeout: 3000,
+    });
+
     // AND: User enters new email and saves
-    await page.fill(
-      '[data-testid="email-input"]',
-      "newemail@test.nuvana.local",
+    const newEmail = `newemail-${Date.now()}@test.nuvana.local`;
+    await page.fill('[data-testid="email-input"]', newEmail);
+
+    // Set up network interception to wait for API call
+    const updateEmailResponsePromise = page.waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/client/employees/") &&
+        resp.url().includes("/email") &&
+        resp.request().method() === "PUT" &&
+        resp.status() === 200,
+      { timeout: 10000 },
     );
+
+    // Click save button
     await page.click('[data-testid="save-button"]');
 
+    // Wait for API response
+    await updateEmailResponsePromise;
+
+    // Wait for modal to close
+    await expect(page.locator('[data-testid="email-input"]')).not.toBeVisible({
+      timeout: 3000,
+    });
+
     // THEN: Success notification is displayed
-    await expect(page.locator('[data-testid="success-toast"]')).toBeVisible();
+    // Toasts don't have test IDs, check by text content instead
+    await expect(
+      page.locator("text=/Email updated|successfully/i"),
+    ).toBeVisible({ timeout: 5000 });
 
     // AND: Employee email is updated in the table
+    // Wait for table to refresh after update
+    await page.waitForTimeout(1000);
     await expect(page.locator('[data-testid="employee-email-0"]')).toHaveText(
-      "newemail@test.nuvana.local",
+      newEmail,
+      { timeout: 5000 },
     );
-
-    // NOTE: Implementation needed - test will fail until components exist
-    // expect(true).toBe(false); // RED phase - Commented out for enhancement
   });
 
   // ============================================================================
@@ -248,9 +375,12 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
         waitUntil: "domcontentloaded",
       });
 
+      // Wait for settings page to load
+      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+
       // THEN: Store name field is visible and read-only
       const storeNameField = page.locator('[data-testid="store-name"]');
-      await expect(storeNameField).toBeVisible();
+      await expect(storeNameField).toBeVisible({ timeout: 5000 });
       // Verify it's read-only (disabled or readonly attribute)
       const isDisabled = await storeNameField.isDisabled();
       const isReadOnly = await storeNameField.getAttribute("readonly");
@@ -268,13 +398,16 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
         waitUntil: "domcontentloaded",
       });
 
+      // Wait for settings page to load
+      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+
       // WHEN: User selects Employees tab
       await page.click('[data-testid="employees-tab"]');
 
       // THEN: Employee table is displayed with correct columns
-      await expect(
-        page.locator('[data-testid="employee-table"]'),
-      ).toBeVisible();
+      await expect(page.locator('[data-testid="employee-table"]')).toBeVisible({
+        timeout: 5000,
+      });
       await expect(page.locator("text=Name")).toBeVisible();
       await expect(page.locator("text=Email")).toBeVisible();
       await expect(page.locator("text=Role")).toBeVisible();
@@ -289,10 +422,14 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
       await page.goto("/client-dashboard/settings", {
         waitUntil: "domcontentloaded",
       });
+
+      // Wait for settings page to load
+      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+
       await page.click('[data-testid="employees-tab"]');
-      await expect(
-        page.locator('[data-testid="employee-table"]'),
-      ).toBeVisible();
+      await expect(page.locator('[data-testid="employee-table"]')).toBeVisible({
+        timeout: 5000,
+      });
 
       // WHEN: Employee data loads
       // THEN: Each row has "Change Email" and "Reset Password" action buttons
@@ -303,15 +440,16 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
         'button:has-text("Reset Password")',
       );
 
+      // Wait for buttons to appear
+      await expect(changeEmailButtons.first()).toBeVisible({ timeout: 5000 });
+
       const changeEmailCount = await changeEmailButtons.count();
       const resetPasswordCount = await resetPasswordButtons.count();
 
       // Verify buttons exist (at least one if employees exist)
-      if (changeEmailCount > 0) {
-        expect(changeEmailCount).toBeGreaterThan(0);
-        expect(resetPasswordCount).toBeGreaterThan(0);
-        expect(changeEmailCount).toBe(resetPasswordCount); // Same count as employees
-      }
+      expect(changeEmailCount).toBeGreaterThan(0);
+      expect(resetPasswordCount).toBeGreaterThan(0);
+      expect(changeEmailCount).toBe(resetPasswordCount); // Same count as employees
     });
   });
 
@@ -325,11 +463,16 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
         waitUntil: "domcontentloaded",
       });
 
+      // Wait for settings page to load
+      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+
       // WHEN: User selects Cashiers tab
       await page.click('[data-testid="cashiers-tab"]');
 
       // THEN: Cashier table is displayed with correct columns
-      await expect(page.locator('[data-testid="cashier-table"]')).toBeVisible();
+      await expect(page.locator('[data-testid="cashier-table"]')).toBeVisible({
+        timeout: 5000,
+      });
       await expect(page.locator("text=Employee ID")).toBeVisible();
       await expect(page.locator("text=Name")).toBeVisible();
       await expect(page.locator("text=Hired On")).toBeVisible();
@@ -344,18 +487,26 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
       await page.goto("/client-dashboard/settings", {
         waitUntil: "domcontentloaded",
       });
+
+      // Wait for settings page to load
+      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+
       await page.click('[data-testid="cashiers-tab"]');
-      await expect(page.locator('[data-testid="cashier-table"]')).toBeVisible();
+      await expect(page.locator('[data-testid="cashier-table"]')).toBeVisible({
+        timeout: 5000,
+      });
 
       // WHEN: Cashier data loads
       // THEN: Each row has a "Reset PIN" action button
       const resetPINButtons = page.locator('button:has-text("Reset PIN")');
+
+      // Wait for at least one button to appear
+      await expect(resetPINButtons.first()).toBeVisible({ timeout: 5000 });
+
       const resetPINCount = await resetPINButtons.count();
 
       // Verify buttons exist (at least one if cashiers exist)
-      if (resetPINCount > 0) {
-        expect(resetPINCount).toBeGreaterThan(0);
-      }
+      expect(resetPINCount).toBeGreaterThan(0);
     });
   });
 });

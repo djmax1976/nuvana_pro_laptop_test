@@ -375,14 +375,12 @@ test.describe("6.11-API: Lottery Query API Endpoints", () => {
       `/api/lottery/packs?store_id=${otherStore.store_id}`,
     );
 
-    // THEN: I receive 403 Forbidden (RLS violation via permission middleware)
+    // THEN: I receive 403 Forbidden (RLS violation)
     expect(response.status(), "Expected 403 Forbidden").toBe(403);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    // Permission middleware returns PERMISSION_DENIED when scope check fails
-    expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
-      "PERMISSION_DENIED",
-    );
+    // Route handler returns FORBIDDEN when store access check fails
+    expect(body.error.code, "Error code should be FORBIDDEN").toBe("FORBIDDEN");
 
     // Cleanup
     await withBypassClient(async (bypass) => {
@@ -480,6 +478,23 @@ test.describe("6.11-API: Lottery Query API Endpoints", () => {
       body.data.shift_closings.length,
       "Should have closing",
     ).toBeGreaterThan(0);
+    const foundClosing = body.data.shift_closings.find(
+      (c: any) => c.closing_id === closing.closing_id,
+    );
+    expect(foundClosing, "Should include the closing").toBeDefined();
+    // Verify closing structure includes variance information
+    expect(
+      foundClosing.expected_count,
+      "Closing should include expected_count",
+    ).toBeDefined();
+    expect(
+      foundClosing.actual_count,
+      "Closing should include actual_count",
+    ).toBeDefined();
+    expect(
+      foundClosing.has_variance,
+      "Closing should include has_variance",
+    ).toBeDefined();
 
     // AND: tickets_remaining is calculated and included
     expect(
@@ -926,14 +941,12 @@ test.describe("6.11-API: Lottery Query API Endpoints", () => {
       `/api/lottery/variances?store_id=${otherStore.store_id}`,
     );
 
-    // THEN: I receive 403 Forbidden (RLS violation via permission middleware)
+    // THEN: I receive 403 Forbidden (RLS violation)
     expect(response.status(), "Expected 403 Forbidden").toBe(403);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    // Permission middleware returns PERMISSION_DENIED when scope check fails
-    expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
-      "PERMISSION_DENIED",
-    );
+    // Route handler returns FORBIDDEN when store access check fails
+    expect(body.error.code, "Error code should be FORBIDDEN").toBe("FORBIDDEN");
 
     // Cleanup
     await withBypassClient(async (bypass) => {
@@ -1038,14 +1051,12 @@ test.describe("6.11-API: Lottery Query API Endpoints", () => {
       `/api/lottery/bins?store_id=${otherStore.store_id}`,
     );
 
-    // THEN: I receive 403 Forbidden (RLS violation via permission middleware)
+    // THEN: I receive 403 Forbidden (RLS violation)
     expect(response.status(), "Expected 403 Forbidden").toBe(403);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    // Permission middleware returns PERMISSION_DENIED when scope check fails
-    expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
-      "PERMISSION_DENIED",
-    );
+    // Route handler returns FORBIDDEN when store access check fails
+    expect(body.error.code, "Error code should be FORBIDDEN").toBe("FORBIDDEN");
 
     // Cleanup
     await withBypassClient(async (bypass) => {
@@ -1119,6 +1130,9 @@ test.describe("6.11-API: Lottery Query API Endpoints", () => {
     );
     await storeManagerApiRequest.get(`/api/lottery/packs/${pack.pack_id}`);
     await storeManagerApiRequest.get(
+      `/api/lottery/variances?store_id=${storeManagerUser.store_id}`,
+    );
+    await storeManagerApiRequest.get(
       `/api/lottery/bins?store_id=${storeManagerUser.store_id}`,
     );
 
@@ -1131,6 +1145,7 @@ test.describe("6.11-API: Lottery Query API Endpoints", () => {
             "LOTTERY_GAMES_QUERIED",
             "LOTTERY_PACKS_QUERIED",
             "LOTTERY_PACK_DETAILS_QUERIED", // Note: plural "DETAILS" matches implementation
+            "LOTTERY_VARIANCES_QUERIED",
             "LOTTERY_BINS_QUERIED",
           ],
         },
@@ -1151,6 +1166,9 @@ test.describe("6.11-API: Lottery Query API Endpoints", () => {
     );
     expect(actions, "Should include pack details query").toContain(
       "LOTTERY_PACK_DETAILS_QUERIED", // Note: plural "DETAILS" matches implementation
+    );
+    expect(actions, "Should include variances query").toContain(
+      "LOTTERY_VARIANCES_QUERIED",
     );
     expect(actions, "Should include bins query").toContain(
       "LOTTERY_BINS_QUERIED",

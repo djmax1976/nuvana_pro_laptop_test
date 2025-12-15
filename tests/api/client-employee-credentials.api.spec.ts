@@ -249,10 +249,161 @@ test.describe("Employee Email Update API", () => {
       { email: employee1Data.email },
     );
 
-    // THEN: Returns conflict error (409) or validation error (400)
-    expect([409, 400]).toContain(response.status());
+    // THEN: Returns validation error (400) - implementation returns 400 for duplicate emails
+    expect(response.status()).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
+    // Verify error message indicates email is already in use
+    const errorMessage =
+      typeof body.error === "object"
+        ? body.error.message || body.error.code
+        : body.error || "";
+    expect(errorMessage.toLowerCase()).toMatch(/already|duplicate|in use/i);
+  });
+
+  test("[P0-AC-5] PUT /api/client/employees/:userId/email validates UUID format", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: Invalid UUID format
+    const invalidUuids = [
+      "not-a-uuid",
+      "123",
+      "123e4567-e89b-12d3-a456", // Incomplete UUID
+      "'; DROP TABLE users; --", // SQL injection attempt
+    ];
+
+    // WHEN: Attempting to update email with invalid UUID
+    for (const invalidUuid of invalidUuids) {
+      const response = await clientUserApiRequest.put(
+        `/api/client/employees/${invalidUuid}/email`,
+        { email: "test@test.nuvana.local" },
+      );
+
+      // THEN: Returns 400 Bad Request for invalid UUID format
+      expect(response.status()).toBe(400);
+      const body = await response.json();
+      expect(body.success).toBe(false);
+      const errorMessage =
+        typeof body.error === "object"
+          ? body.error.message || body.error.code
+          : body.error || "";
+      expect(errorMessage.toLowerCase()).toMatch(/uuid|valid|format/i);
+    }
+  });
+
+  test("[P0-AC-5] PUT /api/client/employees/:userId/email rejects empty email", async ({
+    clientUserApiRequest,
+    clientUser,
+    prismaClient,
+  }) => {
+    // GIVEN: A client owner with an employee
+    const storeRole = await prismaClient.role.findFirst({
+      where: { scope: "STORE" },
+    });
+    if (!storeRole) {
+      throw new Error("No STORE scope role found in database");
+    }
+
+    const createResponse = await clientUserApiRequest.post(
+      "/api/client/employees",
+      {
+        email: `employee-${Date.now()}@test.nuvana.local`,
+        name: "Test Employee",
+        store_id: clientUser.store_id,
+        role_id: storeRole.role_id,
+        password: "TestPassword123!",
+      },
+    );
+
+    if (createResponse.status() !== 201) {
+      const errorBody = await createResponse.json();
+      throw new Error(`Employee creation failed: ${JSON.stringify(errorBody)}`);
+    }
+
+    const createBody = await createResponse.json();
+    const employeeId = createBody.data.user_id;
+
+    // WHEN: Updating with empty email
+    const response = await clientUserApiRequest.put(
+      `/api/client/employees/${employeeId}/email`,
+      { email: "" },
+    );
+
+    // THEN: Returns validation error (400)
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+  });
+
+  test("[P0-AC-5] PUT /api/client/employees/:userId/email rejects duplicate email (case-insensitive)", async ({
+    clientUserApiRequest,
+    clientUser,
+    prismaClient,
+  }) => {
+    // GIVEN: An employee with email
+    const storeRole = await prismaClient.role.findFirst({
+      where: { scope: "STORE" },
+    });
+    if (!storeRole) {
+      throw new Error("No STORE scope role found in database");
+    }
+
+    const employee1Email = `employee1-${Date.now()}@test.nuvana.local`;
+    const create1Response = await clientUserApiRequest.post(
+      "/api/client/employees",
+      {
+        email: employee1Email,
+        name: "Employee 1",
+        store_id: clientUser.store_id,
+        role_id: storeRole.role_id,
+      },
+    );
+    if (create1Response.status() !== 201) {
+      const errorBody = await create1Response.json();
+      throw new Error(
+        `Employee 1 creation failed: ${JSON.stringify(errorBody)}`,
+      );
+    }
+    const create1Body = await create1Response.json();
+    const employee1Id = create1Body.data.user_id;
+
+    const employee2Data = createEmployeeRequest({
+      store_id: clientUser.store_id,
+      role_id: storeRole.role_id,
+    });
+    const create2Response = await clientUserApiRequest.post(
+      "/api/client/employees",
+      {
+        email: employee2Data.email,
+        name: employee2Data.name,
+        store_id: employee2Data.store_id,
+        role_id: employee2Data.role_id,
+      },
+    );
+    if (create2Response.status() !== 201) {
+      const errorBody = await create2Response.json();
+      throw new Error(
+        `Employee 2 creation failed: ${JSON.stringify(errorBody)}`,
+      );
+    }
+    const create2Body = await create2Response.json();
+    const employee2Id = create2Body.data.user_id;
+
+    // WHEN: Trying to update employee2's email to employee1's email with different case
+    const response = await clientUserApiRequest.put(
+      `/api/client/employees/${employee2Id}/email`,
+      { email: employee1Email.toUpperCase() },
+    );
+
+    // THEN: Returns validation error (400) - case-insensitive duplicate check
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    const errorMessage =
+      typeof body.error === "object"
+        ? body.error.message || body.error.code
+        : body.error || "";
+    expect(errorMessage.toLowerCase()).toMatch(/already|duplicate|in use/i);
   });
 
   test("[P0-AC-5] PUT /api/client/employees/:userId/email enforces RLS - owner can only update own employees", async ({
@@ -365,6 +516,8 @@ test.describe("Employee Password Reset API", () => {
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
+    // Implementation returns message field
+    expect(body.message).toBe("Password reset successfully");
 
     // Verify password was updated in database (check that hash changed)
     const updatedUser = await prismaClient.user.findUnique({
@@ -423,6 +576,80 @@ test.describe("Employee Password Reset API", () => {
         ? body.error.message || body.error.code
         : body.error;
     expect(errorMessage).toBeTruthy();
+  });
+
+  test("[P0-AC-6] PUT /api/client/employees/:userId/password validates UUID format", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: Invalid UUID format
+    const invalidUuids = [
+      "not-a-uuid",
+      "123",
+      "123e4567-e89b-12d3-a456", // Incomplete UUID
+      "'; DROP TABLE users; --", // SQL injection attempt
+    ];
+
+    // WHEN: Attempting to reset password with invalid UUID
+    for (const invalidUuid of invalidUuids) {
+      const response = await clientUserApiRequest.put(
+        `/api/client/employees/${invalidUuid}/password`,
+        { password: "ValidPass123!" },
+      );
+
+      // THEN: Returns 400 Bad Request for invalid UUID format
+      expect(response.status()).toBe(400);
+      const body = await response.json();
+      expect(body.success).toBe(false);
+      const errorMessage =
+        typeof body.error === "object"
+          ? body.error.message || body.error.code
+          : body.error || "";
+      expect(errorMessage.toLowerCase()).toMatch(/uuid|valid|format/i);
+    }
+  });
+
+  test("[P0-AC-6] PUT /api/client/employees/:userId/password rejects empty password", async ({
+    clientUserApiRequest,
+    clientUser,
+    prismaClient,
+  }) => {
+    // GIVEN: A client owner with an employee
+    const storeRole = await prismaClient.role.findFirst({
+      where: { scope: "STORE" },
+    });
+    if (!storeRole) {
+      throw new Error("No STORE scope role found in database");
+    }
+
+    const createResponse = await clientUserApiRequest.post(
+      "/api/client/employees",
+      {
+        email: `employee-${Date.now()}@test.nuvana.local`,
+        name: "Test Employee",
+        store_id: clientUser.store_id,
+        role_id: storeRole.role_id,
+        password: "TestPassword123!",
+      },
+    );
+
+    if (createResponse.status() !== 201) {
+      const errorBody = await createResponse.json();
+      throw new Error(`Employee creation failed: ${JSON.stringify(errorBody)}`);
+    }
+
+    const createBody = await createResponse.json();
+    const employeeId = createBody.data.user_id;
+
+    // WHEN: Resetting with empty password
+    const response = await clientUserApiRequest.put(
+      `/api/client/employees/${employeeId}/password`,
+      { password: "" },
+    );
+
+    // THEN: Returns validation error (400)
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
   });
 
   test("[P0-AC-6] PUT /api/client/employees/:userId/password enforces RLS - owner can only reset own employees", async ({
@@ -637,6 +864,8 @@ test.describe("Employee Password Reset API", () => {
       expect(body).not.toHaveProperty("password");
       expect(body).toHaveProperty("success");
       expect(body.success).toBe(true);
+      // Implementation returns message field
+      expect(body.message).toBe("Password reset successfully");
 
       // Cleanup
       await prismaClient.userRole.deleteMany({

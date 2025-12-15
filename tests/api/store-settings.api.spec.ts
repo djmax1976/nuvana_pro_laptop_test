@@ -335,23 +335,27 @@ test.describe("Store Settings API", () => {
 
   test.describe("Security: Input Validation", () => {
     test("6.14-API-012: should reject invalid request body types", async ({
-      clientUserApiRequest,
+      request,
       clientUser,
+      backendUrl,
     }) => {
-      // GIVEN: Invalid request body (not an object)
-      // WHEN: Sending invalid body type
-      const response = await clientUserApiRequest.put(
-        `/api/client/stores/${clientUser.store_id}/settings`,
+      // GIVEN: Invalid request body (not an object - sending array instead)
+      // WHEN: Sending invalid body type (array instead of object)
+      const response = await request.put(
+        `${backendUrl}/api/client/stores/${clientUser.store_id}/settings`,
         {
-          data: "not an object",
+          data: JSON.stringify(["not", "an", "object"]),
           headers: {
             "Content-Type": "application/json",
+            Cookie: `access_token=${clientUser.token}`,
           },
         },
       );
 
-      // THEN: Returns 400 Bad Request
+      // THEN: Returns 400 Bad Request (Zod validation fails - expects object)
       expect(response.status()).toBe(400);
+      const body = await response.json();
+      expect(body.success).toBe(false);
     });
 
     test("6.14-API-013: should reject missing required fields gracefully", async ({
@@ -422,14 +426,19 @@ test.describe("Store Settings API", () => {
       clientUserApiRequest,
       clientUser,
     }) => {
-      // GIVEN: Empty timezone
+      // GIVEN: Empty timezone string
       // WHEN: Updating with empty timezone
       const response = await clientUserApiRequest.put(
         `/api/client/stores/${clientUser.store_id}/settings`,
         { timezone: "" },
       );
 
-      // THEN: Returns validation error or accepts (if optional)
+      // THEN: Returns validation error (empty string fails IANA timezone validation)
+      // Note: Empty string is falsy, so service layer skips validation, but Zod schema
+      // may reject it. However, since timezone is optional, empty string might pass.
+      // The service validates only if timezone is truthy, so empty string is effectively ignored.
+      // This test verifies the behavior - empty string should either be rejected or ignored.
+      expect([200, 400]).toContain(response.status());
       if (response.status() === 400) {
         const body = await response.json();
         expect(body.success).toBe(false);
@@ -440,14 +449,14 @@ test.describe("Store Settings API", () => {
       clientUserApiRequest,
       clientUser,
     }) => {
-      // GIVEN: Invalid timezone formats
+      // GIVEN: Invalid timezone formats (not valid IANA timezones)
       const invalidTimezones = [
-        "EST",
-        "UTC+5",
-        "GMT-8",
-        "invalid-timezone",
-        "America",
-        "New_York",
+        "EST", // Abbreviation, not IANA
+        "UTC+5", // Offset format, not IANA
+        "GMT-8", // Offset format, not IANA
+        "invalid-timezone", // Not a valid IANA timezone
+        "America", // Missing city/region
+        "New_York", // Missing continent
       ];
 
       // WHEN: Updating with invalid timezone
@@ -457,10 +466,15 @@ test.describe("Store Settings API", () => {
           { timezone: tz },
         );
 
-        // THEN: Returns validation error
+        // THEN: Returns validation error (service layer validates using Intl.DateTimeFormat)
         expect(response.status()).toBe(400);
         const body = await response.json();
         expect(body.success).toBe(false);
+        const errorMessage =
+          typeof body.error === "object"
+            ? body.error.message || body.error.code
+            : body.error || "";
+        expect(errorMessage.toLowerCase()).toMatch(/timezone|invalid|format/i);
       }
     });
 
@@ -573,16 +587,28 @@ test.describe("Store Settings API", () => {
     test("6.14-API-022: should accept empty address", async ({
       clientUserApiRequest,
       clientUser,
+      prismaClient,
     }) => {
-      // GIVEN: Empty address
+      // GIVEN: Empty address (address is optional and can be empty string)
       // WHEN: Updating with empty address
       const response = await clientUserApiRequest.put(
         `/api/client/stores/${clientUser.store_id}/settings`,
         { address: "" },
       );
 
-      // THEN: Returns success (empty is allowed)
-      expect([200, 400]).toContain(response.status());
+      // THEN: Returns success (empty string is allowed for optional address field)
+      expect(response.status()).toBe(200);
+      const body = await response.json();
+      expect(body.success).toBe(true);
+
+      // Verify empty address was stored in configuration.address
+      const updatedStore = await prismaClient.store.findUnique({
+        where: { store_id: clientUser.store_id },
+        select: { configuration: true },
+      });
+      const config = updatedStore?.configuration as any;
+      // Address is stored directly in configuration.address when updated via settings endpoint
+      expect(config?.address).toBe("");
     });
   });
 
@@ -595,9 +621,11 @@ test.describe("Store Settings API", () => {
       const invalidTimes = [
         "25:00", // Hour > 23
         "12:99", // Minute > 59
-        "9:00", // Missing leading zero
+        "9:00", // Missing leading zero (must be HH:mm, not H:mm)
         "24:00", // Hour = 24 (should be 00:00 next day)
         "abc:def", // Non-numeric
+        "1:30", // Missing leading zero
+        "12:60", // Minute = 60 (should be 00:00 next hour)
       ];
 
       // WHEN: Updating with invalid time format
@@ -611,10 +639,17 @@ test.describe("Store Settings API", () => {
           },
         );
 
-        // THEN: Returns validation error
+        // THEN: Returns validation error (Zod schema validates HH:mm format)
         expect(response.status()).toBe(400);
         const body = await response.json();
         expect(body.success).toBe(false);
+        const errorMessage =
+          typeof body.error === "object"
+            ? body.error.message || body.error.code
+            : body.error || "";
+        expect(errorMessage.toLowerCase()).toMatch(
+          /time|format|hh:mm|invalid/i,
+        );
       }
     });
 
@@ -622,7 +657,7 @@ test.describe("Store Settings API", () => {
       clientUserApiRequest,
       clientUser,
     }) => {
-      // GIVEN: Close time before open time
+      // GIVEN: Close time before open time (invalid time order)
       // WHEN: Updating with invalid time order
       const response = await clientUserApiRequest.put(
         `/api/client/stores/${clientUser.store_id}/settings`,
@@ -633,7 +668,7 @@ test.describe("Store Settings API", () => {
         },
       );
 
-      // THEN: Returns validation error
+      // THEN: Returns validation error (service layer validates close > open)
       expect(response.status()).toBe(400);
       const body = await response.json();
       expect(body.success).toBe(false);
@@ -641,7 +676,33 @@ test.describe("Store Settings API", () => {
         typeof body.error === "object"
           ? body.error.message || body.error.code
           : body.error || "";
-      expect(errorMessage.toLowerCase()).toMatch(/close|after|before/i);
+      expect(errorMessage.toLowerCase()).toMatch(/close|after|before|monday/i);
+    });
+
+    test("6.14-API-028: should reject close time equal to open time", async ({
+      clientUserApiRequest,
+      clientUser,
+    }) => {
+      // GIVEN: Close time equal to open time (invalid - must be after)
+      // WHEN: Updating with equal times
+      const response = await clientUserApiRequest.put(
+        `/api/client/stores/${clientUser.store_id}/settings`,
+        {
+          operating_hours: {
+            monday: { open: "09:00", close: "09:00" },
+          },
+        },
+      );
+
+      // THEN: Returns validation error (close must be after open)
+      expect(response.status()).toBe(400);
+      const body = await response.json();
+      expect(body.success).toBe(false);
+      const errorMessage =
+        typeof body.error === "object"
+          ? body.error.message || body.error.code
+          : body.error || "";
+      expect(errorMessage.toLowerCase()).toMatch(/close|after|before|monday/i);
     });
 
     test("6.14-API-025: should accept all days closed", async ({
@@ -715,6 +776,7 @@ test.describe("Store Settings API", () => {
     test("6.14-API-027: PUT should return updated store data in response", async ({
       clientUserApiRequest,
       clientUser,
+      prismaClient,
     }) => {
       // GIVEN: Updated configuration
       const updatedConfig = {
@@ -728,12 +790,114 @@ test.describe("Store Settings API", () => {
         updatedConfig,
       );
 
-      // THEN: Response contains updated data
+      // THEN: Response contains updated store data with configuration
       expect(response.status()).toBe(200);
       const body = await response.json();
       expect(body.success).toBe(true);
       expect(body.data).toBeDefined();
+      // PUT endpoint returns full store object
+      expect(body.data).toHaveProperty("store_id");
+      expect(body.data).toHaveProperty("name");
       expect(body.data).toHaveProperty("configuration");
+      expect(typeof body.data.configuration).toBe("object");
+
+      // Verify configuration was updated
+      const config = body.data.configuration as any;
+      expect(config?.contact_email).toBe("updated@test.nuvana.local");
+      expect(config?.timezone).toBe("America/Chicago");
+    });
+  });
+
+  // ============================================================================
+  // 🔍 ADDITIONAL EDGE CASES
+  // ============================================================================
+
+  test.describe("Edge Cases: Additional Validations", () => {
+    test("6.14-API-030: should handle partial operating hours update", async ({
+      clientUserApiRequest,
+      clientUser,
+      prismaClient,
+    }) => {
+      // GIVEN: Store with existing operating hours
+      await prismaClient.store.update({
+        where: { store_id: clientUser.store_id },
+        data: {
+          configuration: {
+            operating_hours: {
+              monday: { open: "09:00", close: "17:00" },
+              tuesday: { open: "09:00", close: "17:00" },
+            },
+          },
+        },
+      });
+
+      // WHEN: Updating only one day
+      const response = await clientUserApiRequest.put(
+        `/api/client/stores/${clientUser.store_id}/settings`,
+        {
+          operating_hours: {
+            monday: { open: "10:00", close: "18:00" },
+          },
+        },
+      );
+
+      // THEN: Returns success and only monday is updated (deep merge preserves other days)
+      expect(response.status()).toBe(200);
+      const body = await response.json();
+      expect(body.success).toBe(true);
+
+      // Verify deep merge - tuesday should still exist
+      const updatedStore = await prismaClient.store.findUnique({
+        where: { store_id: clientUser.store_id },
+        select: { configuration: true },
+      });
+      const config = updatedStore?.configuration as any;
+      expect(config?.operating_hours?.monday?.open).toBe("10:00");
+      expect(config?.operating_hours?.monday?.close).toBe("18:00");
+      expect(config?.operating_hours?.tuesday?.open).toBe("09:00"); // Preserved
+      expect(config?.operating_hours?.tuesday?.close).toBe("17:00"); // Preserved
+    });
+
+    test("6.14-API-031: should handle multiple fields update simultaneously", async ({
+      clientUserApiRequest,
+      clientUser,
+      prismaClient,
+    }) => {
+      // GIVEN: Multiple fields to update
+      const updatedConfig = {
+        address: "123 Test Street, Test City, TS 12345",
+        timezone: "America/Denver",
+        contact_email: "multifield@test.nuvana.local",
+        operating_hours: {
+          monday: { open: "08:00", close: "20:00" },
+          friday: { open: "08:00", close: "20:00" },
+        },
+      };
+
+      // WHEN: Updating all fields at once
+      const response = await clientUserApiRequest.put(
+        `/api/client/stores/${clientUser.store_id}/settings`,
+        updatedConfig,
+      );
+
+      // THEN: Returns success and all fields are updated
+      expect(response.status()).toBe(200);
+      const body = await response.json();
+      expect(body.success).toBe(true);
+
+      // Verify all fields in database
+      const updatedStore = await prismaClient.store.findUnique({
+        where: { store_id: clientUser.store_id },
+        select: { configuration: true },
+      });
+      const config = updatedStore?.configuration as any;
+      expect(config?.address).toBe("123 Test Street, Test City, TS 12345");
+      expect(config?.timezone).toBe("America/Denver");
+      expect(config?.contact_email).toBe("multifield@test.nuvana.local");
+      expect(config?.operating_hours?.monday?.open).toBe("08:00");
+      expect(config?.operating_hours?.monday?.close).toBe("20:00");
+      expect(config?.operating_hours?.friday?.open).toBe("08:00");
+      expect(config?.operating_hours?.friday?.close).toBe("20:00");
     });
   });
 

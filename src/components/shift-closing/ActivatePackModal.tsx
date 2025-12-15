@@ -59,11 +59,13 @@ import { BinWithPack } from "@/lib/api/shift-closing";
 
 /**
  * Active shift cashier information
+ * Matches API response format from /api/stores/:storeId/active-shift-cashiers
  */
 interface ActiveShiftCashier {
-  cashier_id: string;
+  id: string; // API returns 'id', not 'cashier_id'
   name: string;
-  employee_id?: string;
+  shiftId: string;
+  employee_id?: string; // Optional, may not be in API response
 }
 
 /**
@@ -670,9 +672,9 @@ export function ActivatePackModal({
                       <SelectContent>
                         {activeCashiers.map((cashier) => (
                           <SelectItem
-                            key={cashier.cashier_id}
-                            value={cashier.cashier_id}
-                            data-testid={`cashier-option-${cashier.cashier_id}`}
+                            key={cashier.id}
+                            value={cashier.id}
+                            data-testid={`cashier-option-${cashier.id}`}
                           >
                             {cashier.name}
                             {cashier.employee_id && ` (${cashier.employee_id})`}
