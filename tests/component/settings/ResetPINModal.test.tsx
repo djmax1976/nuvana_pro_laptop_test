@@ -90,12 +90,12 @@ describe("ResetPINModal Component", () => {
 
       // WHEN: Component renders
       // THEN: PIN input field is present
-      expect(screen.getByLabelText(/pin/i)).toBeInTheDocument();
+      expect(screen.getByTestId("pin-input")).toBeInTheDocument();
     });
   });
 
   describe("PIN Validation", () => {
-    it("should show validation error for PIN shorter than 4 digits", async () => {
+    it("should show validation error for PIN shorter than 4 digits on form submit", async () => {
       // GIVEN: ResetPINModal is rendered
       const user = userEvent.setup();
       renderWithProviders(
@@ -107,20 +107,21 @@ describe("ResetPINModal Component", () => {
         />,
       );
 
-      // WHEN: User enters PIN < 4 digits
-      const pinInput = screen.getByLabelText(/pin/i);
+      // WHEN: User enters PIN < 4 digits and submits the form
+      const pinInput = screen.getByTestId("pin-input");
       await user.type(pinInput, "123");
-      await user.tab();
+      const saveButton = screen.getByRole("button", { name: /save/i });
+      await user.click(saveButton);
 
-      // THEN: Validation error is displayed
+      // THEN: Validation error is displayed (zod validation on submit)
       await waitFor(() => {
         expect(
-          screen.getByText(/exactly 4 numeric digits/i),
+          screen.getByText(/PIN must be exactly 4 numeric digits/i),
         ).toBeInTheDocument();
       });
     });
 
-    it("should show validation error for PIN longer than 4 digits", async () => {
+    it("should prevent entering more than 4 digits via maxLength", async () => {
       // GIVEN: ResetPINModal is rendered
       const user = userEvent.setup();
       renderWithProviders(
@@ -132,20 +133,19 @@ describe("ResetPINModal Component", () => {
         />,
       );
 
-      // WHEN: User enters PIN > 4 digits
-      const pinInput = screen.getByLabelText(/pin/i);
+      // WHEN: User attempts to enter PIN > 4 digits
+      const pinInput = screen.getByTestId("pin-input");
       await user.type(pinInput, "12345");
-      await user.tab();
 
-      // THEN: Validation error is displayed
-      await waitFor(() => {
-        expect(
-          screen.getByText(/exactly 4 numeric digits/i),
-        ).toBeInTheDocument();
-      });
+      // THEN: Input is limited to 4 digits by maxLength attribute
+      expect(pinInput).toHaveValue("1234");
+      // No validation error because the input is valid (4 digits)
+      expect(
+        screen.queryByText(/exactly 4 numeric digits/i),
+      ).not.toBeInTheDocument();
     });
 
-    it("should show validation error for non-numeric PIN", async () => {
+    it("should strip non-numeric characters from PIN input", async () => {
       // GIVEN: ResetPINModal is rendered
       const user = userEvent.setup();
       renderWithProviders(
@@ -158,16 +158,12 @@ describe("ResetPINModal Component", () => {
       );
 
       // WHEN: User enters non-numeric characters
-      const pinInput = screen.getByLabelText(/pin/i);
+      const pinInput = screen.getByTestId("pin-input");
       await user.type(pinInput, "abcd");
-      await user.tab();
 
-      // THEN: Validation error is displayed
-      await waitFor(() => {
-        expect(
-          screen.getByText(/exactly 4 numeric digits/i),
-        ).toBeInTheDocument();
-      });
+      // THEN: Non-numeric characters are stripped (component sanitizes input)
+      // Input value is empty because all characters were non-numeric
+      expect(pinInput).toHaveValue("");
     });
 
     it("should accept valid 4-digit PIN", async () => {
@@ -183,7 +179,7 @@ describe("ResetPINModal Component", () => {
       );
 
       // WHEN: User enters valid 4-digit PIN
-      const pinInput = screen.getByLabelText(/pin/i);
+      const pinInput = screen.getByTestId("pin-input");
       await user.type(pinInput, "1234");
       await user.tab();
 
@@ -216,7 +212,7 @@ describe("ResetPINModal Component", () => {
       );
 
       // WHEN: User clicks save button
-      const pinInput = screen.getByLabelText(/pin/i);
+      const pinInput = screen.getByTestId("pin-input");
       await user.type(pinInput, "1234");
 
       const saveButton = screen.getByRole("button", { name: /save/i });
@@ -246,7 +242,7 @@ describe("ResetPINModal Component", () => {
       );
 
       // WHEN: Save mutation succeeds
-      const pinInput = screen.getByLabelText(/pin/i);
+      const pinInput = screen.getByTestId("pin-input");
       await user.type(pinInput, "1234");
 
       const saveButton = screen.getByRole("button", { name: /save/i });

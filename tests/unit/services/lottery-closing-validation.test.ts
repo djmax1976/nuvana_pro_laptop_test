@@ -18,10 +18,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  validateEndingSerial,
-  ValidationResult,
-} from "@/lib/services/lottery-closing-validation";
+import { validateEndingSerial } from "@/lib/services/lottery-closing-validation";
 import { parseSerializedNumber } from "@/lib/utils/lottery-serial-parser";
 
 // Mock the parser to isolate validation logic
@@ -104,8 +101,10 @@ describe("10-3-UNIT: validateEndingSerial", () => {
         binDataWithValidRange,
       );
 
-      // THEN: Level 1 passes (no pack mismatch error)
-      expect(result.error).not.toContain("Wrong pack");
+      // THEN: Level 1 passes - validation succeeds (no pack mismatch error)
+      // When validation passes, result.valid is true and result.error is undefined
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
     });
   });
 
@@ -151,8 +150,10 @@ describe("10-3-UNIT: validateEndingSerial", () => {
         binDataWithValidMax,
       );
 
-      // THEN: Level 2 passes (no minimum check error)
-      expect(result.error).not.toContain("cannot be less than starting");
+      // THEN: Level 2 passes - validation succeeds
+      // When validation passes, result.valid is true and result.error is undefined
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
     });
 
     it("should pass Level 2 when ending equals starting", async () => {
@@ -176,7 +177,9 @@ describe("10-3-UNIT: validateEndingSerial", () => {
       );
 
       // THEN: Level 2 passes (boundary case: ending == starting is valid)
-      expect(result.error).not.toContain("cannot be less than starting");
+      // When validation passes, result.valid is true and result.error is undefined
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
     });
   });
 
@@ -222,8 +225,10 @@ describe("10-3-UNIT: validateEndingSerial", () => {
         binDataWithValidRange,
       );
 
-      // THEN: Level 3 passes (no maximum check error)
-      expect(result.error).not.toContain("exceeds pack maximum");
+      // THEN: Level 3 passes - validation succeeds
+      // When validation passes, result.valid is true and result.error is undefined
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
     });
 
     it("should pass Level 3 when ending equals serial_end", async () => {
@@ -248,7 +253,9 @@ describe("10-3-UNIT: validateEndingSerial", () => {
       );
 
       // THEN: Level 3 passes (boundary case: ending == serial_end is valid)
-      expect(result.error).not.toContain("exceeds pack maximum");
+      // When validation passes, result.valid is true and result.error is undefined
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
     });
   });
 

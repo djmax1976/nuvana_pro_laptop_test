@@ -89,9 +89,17 @@ export const EndingNumberInput = forwardRef<
   const [isValid, setIsValid] = useState<boolean>(false);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const validationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Track if validation just completed to prevent useEffect from clearing error
+  const validationJustCompletedRef = useRef<boolean>(false);
 
   // Clear validation state when value changes manually (not from scan)
   useEffect(() => {
+    // If validation just completed (success or failure), don't clear state
+    // This prevents the error from being cleared when value is set to "" after validation failure
+    if (validationJustCompletedRef.current) {
+      validationJustCompletedRef.current = false;
+      return;
+    }
     // If value is not 24 digits, clear validation state (manual entry)
     if (value.length !== 24) {
       setError(undefined);
@@ -193,6 +201,8 @@ export const EndingNumberInput = forwardRef<
           // Validation passed - auto-fill ending number
           setIsValid(true);
           setError(undefined);
+          // Mark that validation just completed to prevent useEffect from clearing state
+          validationJustCompletedRef.current = true;
           onChange(result.endingNumber);
 
           // Trigger onComplete callback for auto-advance
@@ -206,6 +216,8 @@ export const EndingNumberInput = forwardRef<
           // Validation failed - show error
           setIsValid(false);
           setError(result.error || "Validation failed");
+          // Mark that validation just completed to prevent useEffect from clearing error
+          validationJustCompletedRef.current = true;
           // Clear input for re-scan
           onChange("");
         }
@@ -213,6 +225,8 @@ export const EndingNumberInput = forwardRef<
         // ERROR_HANDLING: Generic error message, don't leak implementation details
         setIsValid(false);
         setError("Validation error occurred");
+        // Mark that validation just completed to prevent useEffect from clearing error
+        validationJustCompletedRef.current = true;
         onChange("");
       } finally {
         setIsScanning(false);
@@ -306,16 +320,35 @@ export const EndingNumberInput = forwardRef<
   /**
    * Handle paste events to sanitize pasted content
    * SEC-014: INPUT_VALIDATION - Sanitize pasted content
+   * AC #1: Also detect 24-digit barcode scans via paste
    */
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
     const pastedText = e.clipboardData.getData("text");
 
     // SEC-014: Sanitize pasted content - extract only numeric characters
-    const sanitized = pastedText.replace(/\D/g, "").slice(0, 3);
+    const sanitized = pastedText.replace(/\D/g, "");
 
-    if (sanitized !== value) {
+    // AC #1: Detect 24-digit barcode scan via paste
+    if (sanitized.length === 24) {
+      // Set value immediately to show scanning activity
       onChange(sanitized);
+
+      // AC #8: Handle barcode scan with small delay
+      if (validationTimeoutRef.current) {
+        clearTimeout(validationTimeoutRef.current);
+      }
+      validationTimeoutRef.current = setTimeout(() => {
+        handleBarcodeScan(sanitized);
+      }, 50);
+      return;
+    }
+
+    // For manual entry, limit to 3 digits
+    const limited = sanitized.slice(0, 3);
+
+    if (limited !== value) {
+      onChange(limited);
     }
   };
 
