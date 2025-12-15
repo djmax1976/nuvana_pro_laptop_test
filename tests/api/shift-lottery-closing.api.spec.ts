@@ -837,12 +837,12 @@ test.describe("6.7-API: Shift Lottery Closing - Pack Closing and Reconciliation"
     );
   });
 
-  test("6.7-API-009a: [P2] SECURITY - should accept ACTIVE status shifts (AC #4)", async ({
+  test("6.7-API-009a: [P2] SECURITY - should reject OPEN status shifts (only CLOSING or ACTIVE accepted) (AC #4)", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
   }) => {
-    // GIVEN: I am authenticated with an ACTIVE shift (implementation accepts both CLOSING and ACTIVE)
+    // GIVEN: I am authenticated with an OPEN shift (implementation only accepts CLOSING or ACTIVE, not OPEN)
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
       price: 2.0,
@@ -868,7 +868,7 @@ test.describe("6.7-API: Shift Lottery Closing - Pack Closing and Reconciliation"
       "0050",
     );
 
-    // WHEN: Closing shift with ACTIVE status
+    // WHEN: Attempting to close shift with OPEN status (not CLOSING or ACTIVE)
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/lottery/closing`,
       {
@@ -876,10 +876,13 @@ test.describe("6.7-API: Shift Lottery Closing - Pack Closing and Reconciliation"
       },
     );
 
-    // THEN: Request succeeds (ACTIVE status is accepted)
-    expect(response.status(), "Should return 201 for ACTIVE shift").toBe(201);
+    // THEN: Request is rejected because OPEN status is not accepted (only CLOSING or ACTIVE)
+    expect(response.status(), "Should return 400 for OPEN shift").toBe(400);
     const body = await response.json();
-    expect(body.success, "Response should indicate success").toBe(true);
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error?.code, "Error code should be INVALID_SHIFT_STATUS").toBe(
+      "INVALID_SHIFT_STATUS",
+    );
   });
 
   test("6.7-API-010: [P2] POST /api/shifts/:shiftId/lottery/closing - should prevent duplicate pack closings (AC #1)", async ({
@@ -1145,10 +1148,11 @@ test.describe("6.7-API: Shift Lottery Closing - Pack Closing and Reconciliation"
 
   test("6.7-API-010d: [P2] POST /api/shifts/:shiftId/lottery/closing - should return 404 for non-existent shift", async ({
     storeManagerApiRequest,
-    prismaClient,
   }) => {
     // GIVEN: I am authenticated with a non-existent shift ID
-    const nonExistentShiftId = "00000000-0000-0000-0000-000000000000";
+    // Using UUID v4 format that passes Zod validation but doesn't exist in database
+    // Note: Do not use nil UUID (00000000-...) as it may be handled specially
+    const nonExistentShiftId = "123e4567-e89b-12d3-a456-426614174000";
 
     // WHEN: Attempting to close non-existent shift
     const response = await storeManagerApiRequest.post(
@@ -1156,7 +1160,7 @@ test.describe("6.7-API: Shift Lottery Closing - Pack Closing and Reconciliation"
       {
         packClosings: [
           {
-            packId: "00000000-0000-0000-0000-000000000001",
+            packId: "123e4567-e89b-12d3-a456-426614174001",
             closingSerial: "0050",
           },
         ],
@@ -1180,8 +1184,6 @@ test.describe("6.7-API: Shift Lottery Closing - Pack Closing and Reconciliation"
 
   test("6.7-API-011: [P2] SECURITY - should prevent SQL injection in shiftId parameter", async ({
     storeManagerApiRequest,
-    storeManagerUser,
-    prismaClient,
   }) => {
     // GIVEN: I am authenticated with malicious SQL injection attempt in shiftId
     const maliciousShiftId = "'; DROP TABLE shifts; --";
@@ -1213,10 +1215,6 @@ test.describe("6.7-API: Shift Lottery Closing - Pack Closing and Reconciliation"
     prismaClient,
   }) => {
     // GIVEN: I am authenticated with a CLOSING shift
-    const game = await createLotteryGame(prismaClient, {
-      name: "Test Game",
-      price: 2.0,
-    });
     const shift = await createClosingShift(
       prismaClient,
       storeManagerUser.store_id,
@@ -1727,17 +1725,10 @@ test.describe("6.7-API: Shift Lottery Closing - Pack Closing and Reconciliation"
 
   test("6.7-API-023: [P2] SECURITY - should not expose internal error details in 500 responses", async ({
     storeManagerApiRequest,
-    storeManagerUser,
-    prismaClient,
   }) => {
-    // GIVEN: I am authenticated with a CLOSING shift
+    // GIVEN: I am authenticated
     // Note: This test verifies that even if an internal error occurs,
     // sensitive details are not exposed to the client
-    const shift = await createClosingShift(
-      prismaClient,
-      storeManagerUser.store_id,
-      storeManagerUser.user_id,
-    );
 
     // WHEN: Making a request that might cause internal error
     // (Using invalid shiftId format that might bypass initial validation)

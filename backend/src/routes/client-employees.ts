@@ -476,10 +476,13 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
           auditContext,
         );
 
+        // Sanitize response - never expose password_hash
+        const { password_hash, ...safeUserData } = updatedUser;
+
         reply.code(200);
         return {
           success: true,
-          data: updatedUser,
+          data: safeUserData,
         };
       } catch (error: unknown) {
         const message =

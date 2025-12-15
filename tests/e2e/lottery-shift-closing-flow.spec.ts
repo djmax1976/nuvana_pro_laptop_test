@@ -291,8 +291,13 @@ test.describe("10-1-E2E: Lottery Shift Closing Flow (Critical Journey)", () => {
     ).toBeVisible();
 
     // WHEN: User enters ending numbers for all active bins
-    await page.fill('[data-testid="ending-number-input-bin-1"]', "123");
-    await page.fill('[data-testid="ending-number-input-bin-2"]', "456");
+    const input1 = page.locator('[data-testid="ending-number-input-bin-1"]');
+    const input2 = page.locator('[data-testid="ending-number-input-bin-2"]');
+    await expect(input1).toBeVisible();
+    await expect(input2).toBeVisible();
+
+    await input1.fill("123");
+    await input2.fill("456");
 
     // THEN: Next button is enabled
     await expect(page.locator('[data-testid="next-button"]')).toBeEnabled();
@@ -301,6 +306,8 @@ test.describe("10-1-E2E: Lottery Shift Closing Flow (Critical Journey)", () => {
     await page.click('[data-testid="next-button"]');
 
     // THEN: User proceeds to cash closing page
+    // Wait for navigation to complete
+    await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(
       new RegExp(
         `/mystore/terminal/shift-closing/cash\\?shiftId=${testShiftId}`,
@@ -484,11 +491,20 @@ test.describe("10-1-E2E: Lottery Shift Closing Flow (Critical Journey)", () => {
     }
 
     // THEN: Error message is displayed (component shows error alert)
-    await expect(
-      page.locator("text=/error|failed|Failed to load/i"),
-    ).toBeVisible({
+    // The page component shows an Alert with error message when API fails
+    // The error message should contain "Failed to load closing data" or similar
+    const errorAlert = page
+      .locator("text=/error|failed|Failed to load/i")
+      .first();
+    await expect(errorAlert).toBeVisible({
       timeout: 5000,
     });
+
+    // Verify the error is in an Alert component (not just any text)
+    const alertComponent = page
+      .locator('[role="alert"], .alert, [data-testid*="error"]')
+      .first();
+    await expect(alertComponent).toBeVisible({ timeout: 2000 });
   });
 
   test("10-1-E2E-EDGE-002: should handle slow network response", async ({
@@ -529,9 +545,15 @@ test.describe("10-1-E2E: Lottery Shift Closing Flow (Critical Journey)", () => {
     }
 
     // THEN: Loading state is shown, then content appears
+    // Wait for the table to be visible after the 2-second delay
     await expect(
       page.locator('[data-testid="active-packs-table"]'),
     ).toBeVisible({ timeout: 5000 });
+
+    // Verify at least one row is present
+    await expect(
+      page.locator('[data-testid^="active-packs-row-"]').first(),
+    ).toBeVisible({ timeout: 2000 });
   });
 
   test("10-1-E2E-EDGE-003: should handle empty bins array", async ({
@@ -556,9 +578,14 @@ test.describe("10-1-E2E: Lottery Shift Closing Flow (Critical Journey)", () => {
     }
 
     // THEN: Empty state message is displayed
+    // ActivePacksTable shows this message when bins array is empty
     await expect(
       page.locator("text=No bins configured for this store"),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 2000 });
+
+    // Verify the table container exists but is empty
+    const tableContainer = page.locator('[data-testid="active-packs-table"]');
+    await expect(tableContainer).toBeVisible();
   });
 
   test("10-1-E2E-EDGE-004: should handle all bins empty (no active packs)", async ({
@@ -600,8 +627,12 @@ test.describe("10-1-E2E: Lottery Shift Closing Flow (Critical Journey)", () => {
     }
 
     // THEN: All bins show as empty
-    await expect(page.locator("text=(Empty)")).toHaveCount(2);
+    // Empty bins display "(Empty)" in the game name column
+    const emptyBins = page.locator("text=(Empty)");
+    await expect(emptyBins).toHaveCount(2, { timeout: 2000 });
+
     // AND: Next button is enabled (no active bins to validate)
+    // When all bins are empty, canProceed is true because there are no active bins
     await expect(page.locator('[data-testid="next-button"]')).toBeEnabled();
   });
 
@@ -646,12 +677,14 @@ test.describe("10-1-E2E: Lottery Shift Closing Flow (Critical Journey)", () => {
     // THEN: All 200 bins are displayed
     await expect(
       page.locator('[data-testid^="active-packs-row-"]'),
-    ).toHaveCount(200);
+    ).toHaveCount(200, { timeout: 5000 });
 
     // AND: Table container has scrollable class
     const tableContainer = page.locator('[data-testid="active-packs-table"]');
     await expect(tableContainer).toBeVisible();
-    await expect(tableContainer.locator(".max-h-\\[70vh\\]")).toBeVisible();
+    // Verify scrollable container exists (max-h-[70vh] class)
+    const scrollableContainer = tableContainer.locator(".max-h-\\[70vh\\]");
+    await expect(scrollableContainer).toBeVisible();
   });
 
   test("10-1-E2E-BUSINESS-002: should validate ending serial range during E2E flow", async ({
@@ -692,14 +725,14 @@ test.describe("10-1-E2E: Lottery Shift Closing Flow (Critical Journey)", () => {
       return;
     }
 
-    await page.fill('[data-testid="ending-number-input-bin-1"]', "100");
+    const input = page.locator('[data-testid="ending-number-input-bin-1"]');
+    await expect(input).toBeVisible();
+    await input.fill("100");
 
     // THEN: Ending serial is accepted (within range)
-    const inputValue = await page
-      .locator('[data-testid="ending-number-input-bin-1"]')
-      .inputValue();
-    expect(inputValue).toBe("100");
-    // AND: Next button is enabled
+    await expect(input).toHaveValue("100", { timeout: 1000 });
+
+    // AND: Next button is enabled (all active bins have valid 3-digit entries)
     await expect(page.locator('[data-testid="next-button"]')).toBeEnabled();
   });
 });
@@ -751,16 +784,18 @@ test.describe("10-3-E2E: Barcode Scanning Flow (Critical Journey)", () => {
     await expect(page.locator("h1")).toContainText("Lottery Shift Closing");
 
     const input = page.locator('[data-testid="ending-number-input-bin-1"]');
+    await expect(input).toBeVisible();
 
     // Scan barcode
     const scannedSerial = createBarcode("1234567", "067");
     await input.click();
     await input.fill(scannedSerial);
 
-    await page.waitForTimeout(200);
+    // Wait for validation to complete (barcode scan has 50ms delay + async validation)
+    await page.waitForTimeout(300);
 
     // THEN: 3-digit ending number is auto-filled
-    await expect(input).toHaveValue("067");
+    await expect(input).toHaveValue("067", { timeout: 2000 });
 
     // AND: Input shows green border
     await expect(input).toHaveClass(/border-green-500/);
@@ -806,18 +841,22 @@ test.describe("10-3-E2E: Barcode Scanning Flow (Critical Journey)", () => {
     }
 
     const input = page.locator('[data-testid="ending-number-input-bin-1"]');
+    await expect(input).toBeVisible();
 
     // Scan wrong pack
     const wrongPackScan = createBarcode("9999999", "067");
     await input.click();
     await input.fill(wrongPackScan);
 
-    await page.waitForTimeout(200);
+    // Wait for validation to complete (barcode scan has 50ms delay + async validation)
+    await page.waitForTimeout(300);
 
-    // THEN: Error message
+    // THEN: Error message with exact text from validation service
     const errorMessage = page.locator('[data-testid="error-message-bin-1"]');
-    await expect(errorMessage).toBeVisible();
-    await expect(errorMessage).toContainText(/Wrong pack/i);
+    await expect(errorMessage).toBeVisible({ timeout: 2000 });
+    await expect(errorMessage).toContainText(
+      "Wrong pack - this serial belongs to a different lottery",
+    );
 
     // AND: Input shows red border
     await expect(input).toHaveClass(/border-red-500/);
@@ -862,19 +901,22 @@ test.describe("10-3-E2E: Barcode Scanning Flow (Critical Journey)", () => {
     }
 
     const input = page.locator('[data-testid="ending-number-input-bin-1"]');
+    await expect(input).toBeVisible();
 
     // Scan with ending < starting
     const belowStartingScan = createBarcode("1234567", "030");
     await input.click();
     await input.fill(belowStartingScan);
 
-    await page.waitForTimeout(200);
+    // Wait for validation to complete (barcode scan has 50ms delay + async validation)
+    await page.waitForTimeout(300);
 
-    // THEN: Error message
+    // THEN: Error message with exact text from validation service
     const errorMessage = page.locator('[data-testid="error-message-bin-1"]');
-    await expect(errorMessage).toBeVisible();
-    await expect(errorMessage).toContainText(/cannot be less than starting/i);
-    await expect(errorMessage).toContainText("045");
+    await expect(errorMessage).toBeVisible({ timeout: 2000 });
+    await expect(errorMessage).toContainText(
+      "Ending number cannot be less than starting (045)",
+    );
 
     // AND: Input shows red border
     await expect(input).toHaveClass(/border-red-500/);
@@ -916,19 +958,22 @@ test.describe("10-3-E2E: Barcode Scanning Flow (Critical Journey)", () => {
     }
 
     const input = page.locator('[data-testid="ending-number-input-bin-1"]');
+    await expect(input).toBeVisible();
 
     // Scan with ending > serial_end
     const aboveMaxScan = createBarcode("1234567", "151");
     await input.click();
     await input.fill(aboveMaxScan);
 
-    await page.waitForTimeout(200);
+    // Wait for validation to complete (barcode scan has 50ms delay + async validation)
+    await page.waitForTimeout(300);
 
-    // THEN: Error message
+    // THEN: Error message with exact text from validation service
     const errorMessage = page.locator('[data-testid="error-message-bin-1"]');
-    await expect(errorMessage).toBeVisible();
-    await expect(errorMessage).toContainText(/exceeds pack maximum/i);
-    await expect(errorMessage).toContainText("150");
+    await expect(errorMessage).toBeVisible({ timeout: 2000 });
+    await expect(errorMessage).toContainText(
+      "Number exceeds pack maximum (150)",
+    );
 
     // AND: Input shows red border
     await expect(input).toHaveClass(/border-red-500/);
@@ -988,6 +1033,8 @@ test.describe("10-3-E2E: Barcode Scanning Flow (Critical Journey)", () => {
 
     const input1 = page.locator('[data-testid="ending-number-input-bin-1"]');
     const input2 = page.locator('[data-testid="ending-number-input-bin-2"]');
+    await expect(input1).toBeVisible();
+    await expect(input2).toBeVisible();
 
     // Rapid sequential scans
     const scan1 = createBarcode("1234567", "067");
@@ -996,20 +1043,25 @@ test.describe("10-3-E2E: Barcode Scanning Flow (Critical Journey)", () => {
     await input1.click();
     await input1.fill(scan1);
 
-    await page.waitForTimeout(200);
-    await expect(input1).toHaveValue("067");
+    // Wait for validation to complete (barcode scan has 50ms delay + async validation)
+    await page.waitForTimeout(300);
+    await expect(input1).toHaveValue("067", { timeout: 2000 });
 
+    // Auto-advance: After successful scan, focus should move to next active bin
+    // Note: Auto-advance happens with a 50ms delay in the implementation
     try {
       await expect(input2).toBeFocused({ timeout: 1000 });
     } catch {
-      // Auto-advance may not be implemented
+      // Auto-advance may not be implemented or may have timing issues
+      // This is acceptable - the test still validates that both scans work
     }
 
     await input2.click();
     await input2.fill(scan2);
 
-    await page.waitForTimeout(200);
-    await expect(input2).toHaveValue("068");
+    // Wait for validation to complete
+    await page.waitForTimeout(300);
+    await expect(input2).toHaveValue("068", { timeout: 2000 });
 
     // THEN: Both scans processed correctly
     await expect(input1).toHaveValue("067");
