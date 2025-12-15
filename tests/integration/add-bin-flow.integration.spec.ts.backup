@@ -1,0 +1,335 @@
+/**
+ * Add Bin Flow Integration Tests
+ *
+ * Tests for complete add bin flow:
+ * - Full flow from pack scan to bin creation
+ * - Transaction integrity (all records created atomically)
+ * - New bin appears in closing page after creation
+ *
+ * @test-level Integration
+ * @justification Tests full workflow across multiple systems (API + Database)
+ * @story 10-5 - Add Bin Functionality
+ * @priority P0 (Critical - Full flow validation)
+ *
+ * RED PHASE: These tests will fail until full implementation is complete.
+ */
+
+import { test, expect } from "../support/fixtures/rbac.fixture";
+import {
+  createLotteryGame,
+  createLotteryPack,
+  createLotteryBin,
+} from "../support/factories/lottery.factory";
+import { withBypassClient } from "../support/prisma-bypass";
+
+test.describe("10-5-INTEGRATION: Add Bin Flow", () => {
+  test("10-5-INTEGRATION-001: [P0] Full add bin flow creates all records in transaction", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager
+    // AND: A pack exists with RECEIVED status
+    // AND: A shift exists
+    const game = await createLotteryGame(prismaClient, {
+      name: "$5 Powerball",
+      price: 5.0,
+      game_code: "0001",
+    });
+    const pack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: "1234567",
+      serial_start: "000112345670123456789012",
+      serial_end: "000112345670123456789680",
+      status: "RECEIVED",
+    });
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: storeManagerUser.store_id,
+        user_id: storeManagerUser.user_id,
+        status: "OPEN",
+        started_at: new Date(),
+      },
+    });
+
+    // Count records before
+    const binCountBefore = await prismaClient.lotteryBin.count({
+      where: { store_id: storeManagerUser.store_id },
+    });
+    const shiftOpeningCountBefore = await prismaClient.lotteryShiftOpening.count({
+      where: { shift_id: shift.shift_id },
+    });
+    const historyCountBefore = await prismaClient.lotteryPackBinHistory.count({
+      where: { pack_id: pack.pack_id },
+    });
+    const auditLogCountBefore = await prismaClient.auditLog.count({
+      where: {
+        entity_type: "LOTTERY_BIN",
+        action: "CREATE",
+      },
+    });
+
+    // WHEN: Creating bin with pack activation
+    const response = await storeManagerApiRequest.post(
+      `/api/stores/${storeManagerUser.store_id}/lottery/bins/create-with-pack`,
+      {
+        bin_name: "Bin 1",
+        location: "Front Counter",
+        pack_number: pack.pack_number,
+        serial_start: "001",
+        activated_by: storeManagerUser.user_id,
+        activated_shift_id: shift.shift_id,
+      },
+    );
+
+    // THEN: Request succeeds
+    expect(response.status(), "Expected 201 Created status").toBe(201);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    const createdBin = body.data.bin;
+
+    // AND: Bin is created
+    const binCountAfter = await prismaClient.lotteryBin.count({
+      where: { store_id: storeManagerUser.store_id },
+    });
+    expect(binCountAfter, "Bin count should increase by 1").toBe(binCountBefore + 1);
+
+    const bin = await prismaClient.lotteryBin.findUnique({
+      where: { bin_id: createdBin.bin_id },
+    });
+    expect(bin, "Bin should exist").toBeDefined();
+    expect(bin?.name, "Bin name should match").toBe("Bin 1");
+    expect(bin?.location, "Bin location should match").toBe("Front Counter");
+
+    // AND: Pack is activated
+    const updatedPack = await prismaClient.lotteryPack.findUnique({
+      where: { pack_id: pack.pack_id },
+    });
+    expect(updatedPack?.status, "Pack status should be ACTIVE").toBe("ACTIVE");
+    expect(updatedPack?.current_bin_id, "Pack current_bin_id should be set").toBe(
+      createdBin.bin_id,
+    );
+    expect(updatedPack?.activated_by, "Pack activated_by should be set").toBe(
+      storeManagerUser.user_id,
+    );
+    expect(updatedPack?.activated_shift_id, "Pack activated_shift_id should be set").toBe(
+      shift.shift_id,
+    );
+
+    // AND: LotteryShiftOpening is created
+    const shiftOpeningCountAfter = await prismaClient.lotteryShiftOpening.count({
+      where: { shift_id: shift.shift_id },
+    });
+    expect(shiftOpeningCountAfter, "Shift opening count should increase by 1").toBe(
+      shiftOpeningCountBefore + 1,
+    );
+
+    const shiftOpening = await prismaClient.lotteryShiftOpening.findFirst({
+      where: {
+        shift_id: shift.shift_id,
+        pack_id: pack.pack_id,
+        bin_id: createdBin.bin_id,
+      },
+    });
+    expect(shiftOpening, "LotteryShiftOpening should exist").toBeDefined();
+    expect(shiftOpening?.opening_serial, "Opening serial should match").toBe("001");
+
+    // AND: LotteryPackBinHistory is created
+    const historyCountAfter = await prismaClient.lotteryPackBinHistory.count({
+      where: { pack_id: pack.pack_id },
+    });
+    expect(historyCountAfter, "History count should increase by 1").toBe(
+      historyCountBefore + 1,
+    );
+
+    const history = await prismaClient.lotteryPackBinHistory.findFirst({
+      where: {
+        pack_id: pack.pack_id,
+        bin_id: createdBin.bin_id,
+      },
+    });
+    expect(history, "LotteryPackBinHistory should exist").toBeDefined();
+
+    // AND: AuditLog is created
+    const auditLogCountAfter = await prismaClient.auditLog.count({
+      where: {
+        entity_type: "LOTTERY_BIN",
+        action: "CREATE",
+      },
+    });
+    expect(auditLogCountAfter, "Audit log count should increase by 1").toBe(
+      auditLogCountBefore + 1,
+    );
+
+    const auditLog = await prismaClient.auditLog.findFirst({
+      where: {
+        entity_type: "LOTTERY_BIN",
+        entity_id: createdBin.bin_id,
+        action: "CREATE",
+      },
+    });
+    expect(auditLog, "AuditLog should exist").toBeDefined();
+    expect(auditLog?.user_id, "AuditLog user_id should match").toBe(storeManagerUser.user_id);
+  });
+
+  test("10-5-INTEGRATION-002: [P0] New bin appears in closing page after creation", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager
+    // AND: A pack exists with RECEIVED status
+    // AND: A shift exists
+    // AND: Existing bins exist
+    const game = await createLotteryGame(prismaClient, {
+      name: "$5 Powerball",
+      price: 5.0,
+      game_code: "0001",
+    });
+    const pack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: "1234567",
+      serial_start: "000112345670123456789012",
+      serial_end: "000112345670123456789680",
+      status: "RECEIVED",
+    });
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: storeManagerUser.store_id,
+        user_id: storeManagerUser.user_id,
+        status: "OPEN",
+        started_at: new Date(),
+      },
+    });
+
+    // Create existing bins
+    await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      name: "Bin 1",
+      display_order: 0,
+    });
+    await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      name: "Bin 2",
+      display_order: 1,
+    });
+
+    // Get bins before creation
+    const binsBeforeResponse = await storeManagerApiRequest.get(
+      `/api/lottery/bins/${storeManagerUser.store_id}`,
+    );
+    const binsBefore = await binsBeforeResponse.json();
+    const binCountBefore = binsBefore.data.length;
+
+    // WHEN: Creating new bin with pack activation
+    const createResponse = await storeManagerApiRequest.post(
+      `/api/stores/${storeManagerUser.store_id}/lottery/bins/create-with-pack`,
+      {
+        bin_name: "Bin 3",
+        pack_number: pack.pack_number,
+        serial_start: "001",
+        activated_by: storeManagerUser.user_id,
+        activated_shift_id: shift.shift_id,
+      },
+    );
+
+    expect(createResponse.status(), "Bin creation should succeed").toBe(201);
+    const createBody = await createResponse.json();
+    const newBinId = createBody.data.bin.bin_id;
+
+    // THEN: New bin appears in bins list
+    const binsAfterResponse = await storeManagerApiRequest.get(
+      `/api/lottery/bins/${storeManagerUser.store_id}`,
+    );
+    expect(binsAfterResponse.status(), "Bins list request should succeed").toBe(200);
+    const binsAfter = await binsAfterResponse.json();
+    const binCountAfter = binsAfter.data.length;
+
+    expect(binCountAfter, "Bin count should increase by 1").toBe(binCountBefore + 1);
+
+    // AND: New bin is in the list with correct data
+    const newBin = binsAfter.data.find((bin: any) => bin.bin_id === newBinId);
+    expect(newBin, "New bin should be in list").toBeDefined();
+    expect(newBin.name, "Bin name should match").toBe("Bin 3");
+    expect(newBin.display_order, "Display order should be 2").toBe(2);
+    expect(newBin.is_active, "Bin should be active").toBe(true);
+  });
+
+  test("10-5-INTEGRATION-003: [P0] Transaction rollback prevents partial data on error", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager
+    // AND: A pack exists with invalid status (ACTIVE, not RECEIVED)
+    const game = await createLotteryGame(prismaClient, {
+      name: "$5 Powerball",
+      price: 5.0,
+      game_code: "0001",
+    });
+    const pack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: "1234567",
+      serial_start: "000112345670123456789012",
+      serial_end: "000112345670123456789680",
+      status: "ACTIVE", // Invalid - should cause rollback
+    });
+
+    const shift = await prismaClient.shift.create({
+      data: {
+        store_id: storeManagerUser.store_id,
+        user_id: storeManagerUser.user_id,
+        status: "OPEN",
+        started_at: new Date(),
+      },
+    });
+
+    // Count records before
+    const binCountBefore = await prismaClient.lotteryBin.count({
+      where: { store_id: storeManagerUser.store_id },
+    });
+    const shiftOpeningCountBefore = await prismaClient.lotteryShiftOpening.count({
+      where: { shift_id: shift.shift_id },
+    });
+
+    // WHEN: Attempting to create bin with invalid pack status
+    const response = await storeManagerApiRequest.post(
+      `/api/stores/${storeManagerUser.store_id}/lottery/bins/create-with-pack`,
+      {
+        bin_name: "Bin 1",
+        pack_number: pack.pack_number,
+        serial_start: "001",
+        activated_by: storeManagerUser.user_id,
+        activated_shift_id: shift.shift_id,
+      },
+    );
+
+    // THEN: Request fails
+    expect(response.status(), "Expected error status").toBeGreaterThanOrEqual(400);
+
+    // AND: No records are created (transaction rolled back)
+    const binCountAfter = await prismaClient.lotteryBin.count({
+      where: { store_id: storeManagerUser.store_id },
+    });
+    expect(binCountAfter, "Bin count should not change").toBe(binCountBefore);
+
+    const shiftOpeningCountAfter = await prismaClient.lotteryShiftOpening.count({
+      where: { shift_id: shift.shift_id },
+    });
+    expect(shiftOpeningCountAfter, "Shift opening count should not change").toBe(
+      shiftOpeningCountBefore,
+    );
+
+    // AND: Pack status is unchanged
+    const unchangedPack = await prismaClient.lotteryPack.findUnique({
+      where: { pack_id: pack.pack_id },
+    });
+    expect(unchangedPack?.status, "Pack status should remain ACTIVE").toBe("ACTIVE");
+    expect(unchangedPack?.current_bin_id, "Pack current_bin_id should be null").toBeNull();
+  });
+});

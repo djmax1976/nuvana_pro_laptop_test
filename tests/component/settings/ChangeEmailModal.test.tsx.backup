@@ -1,0 +1,109 @@
+// tests/component/settings/ChangeEmailModal.test.tsx
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderWithProviders, screen } from "../../support/test-utils";
+import userEvent from "@testing-library/user-event";
+// Note: Component will be created at src/components/settings/ChangeEmailModal.tsx
+// import { ChangeEmailModal } from "@/components/settings/ChangeEmailModal";
+import * as clientEmployeesApi from "@/lib/api/client-employees";
+
+/**
+ * ChangeEmailModal Component Tests
+ * 
+ * Tests the modal component for changing employee email addresses.
+ * 
+ * Component tests are SECOND in pyramid order (20-30% of tests)
+ */
+
+vi.mock("@/lib/api/client-employees", () => ({
+  useUpdateEmployeeEmail: vi.fn(),
+}));
+
+const mockToast = vi.fn();
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({
+    toast: mockToast,
+  }),
+}));
+
+describe("ChangeEmailModal Component", () => {
+  const employee = {
+    userId: "123e4567-e89b-12d3-a456-426614174000",
+    currentEmail: "employee@example.com",
+  };
+
+  const mockUpdateMutation = {
+    mutateAsync: vi.fn().mockResolvedValue({}),
+    isPending: false,
+    isError: false,
+    error: null,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(clientEmployeesApi.useUpdateEmployeeEmail).mockReturnValue(
+      mockUpdateMutation as any,
+    );
+  });
+
+  describe("Modal Display", () => {
+    it("should render modal when open", () => {
+      // GIVEN: ChangeEmailModal is rendered with open=true
+      // WHEN: Component renders
+      // THEN: Modal is visible
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should display current email address", () => {
+      // GIVEN: ChangeEmailModal is rendered with employee data
+      // WHEN: Component renders
+      // THEN: Current email is displayed
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should have email input field", () => {
+      // GIVEN: ChangeEmailModal is rendered
+      // WHEN: Component renders
+      // THEN: Email input field is present
+      expect(true).toBe(false); // RED phase
+    });
+  });
+
+  describe("Email Validation", () => {
+    it("should show validation error for invalid email format", async () => {
+      // GIVEN: ChangeEmailModal is rendered
+      // WHEN: User enters invalid email and blurs
+      // THEN: Validation error is displayed
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should show validation error if email is unchanged", async () => {
+      // GIVEN: ChangeEmailModal is rendered
+      // WHEN: User enters same email as current
+      // THEN: Validation error is displayed
+      expect(true).toBe(false); // RED phase
+    });
+  });
+
+  describe("Save Functionality", () => {
+    it("should call updateEmployeeEmail when save is clicked", async () => {
+      // GIVEN: ChangeEmailModal is rendered with valid new email
+      // WHEN: User clicks save button
+      // THEN: updateEmployeeEmail mutation is called
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should close modal on successful save", async () => {
+      // GIVEN: ChangeEmailModal is rendered
+      // WHEN: Save mutation succeeds
+      // THEN: Modal closes
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should show success notification on successful save", async () => {
+      // GIVEN: ChangeEmailModal is rendered
+      // WHEN: Save mutation succeeds
+      // THEN: Success toast is displayed
+      expect(true).toBe(false); // RED phase
+    });
+  });
+});

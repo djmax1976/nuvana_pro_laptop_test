@@ -369,6 +369,215 @@ export class StoreService {
   }
 
   /**
+   * Get store settings for client users
+   * Returns store name and configuration (address, timezone, contact_email, operating_hours)
+   * @param storeId - Store UUID
+   * @param clientUserId - Client user UUID (owner of the company that owns the store)
+   * @returns Store settings data
+   * @throws Error if store not found or user doesn't own the store
+   */
+  async getStoreSettings(storeId: string, clientUserId: string) {
+    try {
+      // Verify store belongs to client user's companies
+      const store = await prisma.store.findFirst({
+        where: {
+          store_id: storeId,
+          company: {
+            owner_user_id: clientUserId,
+          },
+        },
+        select: {
+          store_id: true,
+          name: true,
+          configuration: true,
+          location_json: true,
+          timezone: true,
+        },
+      });
+
+      if (!store) {
+        throw new Error(
+          "Forbidden: You can only access settings for stores you own",
+        );
+      }
+
+      // Extract configuration data
+      const config = (store.configuration as any) || {};
+      const location = config.location || {};
+      const locationJson = (store.location_json as Record<string, any>) || {};
+      const address = location.address || locationJson.address || null;
+
+      // Build response with store name and configuration
+      return {
+        name: store.name,
+        address: address,
+        timezone: config.timezone || store.timezone || "America/New_York",
+        contact_email: config.contact_email || null,
+        operating_hours: config.operating_hours || null,
+      };
+    } catch (error: any) {
+      if (error.message.includes("Forbidden")) {
+        throw error;
+      }
+      console.error("Error retrieving store settings:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update store settings for client users
+   * Updates store configuration (address, timezone, contact_email, operating_hours)
+   * @param storeId - Store UUID
+   * @param clientUserId - Client user UUID (owner of the company that owns the store)
+   * @param config - Store configuration data
+   * @returns Updated store record
+   * @throws Error if store not found, validation fails, or user doesn't own the store
+   */
+  async updateStoreSettings(
+    storeId: string,
+    clientUserId: string,
+    config: {
+      address?: string;
+      timezone?: string;
+      contact_email?: string;
+      operating_hours?: OperatingHours;
+    },
+  ) {
+    // Validate timezone format if provided
+    if (config.timezone && !isValidIANATimezone(config.timezone)) {
+      throw new Error(
+        `Invalid timezone format. Must be IANA timezone format (e.g., America/New_York, Europe/London)`,
+      );
+    }
+
+    // Validate email format if provided
+    if (config.contact_email !== undefined) {
+      if (config.contact_email && typeof config.contact_email !== "string") {
+        throw new Error("contact_email must be a string");
+      }
+      if (config.contact_email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(config.contact_email)) {
+          throw new Error("Invalid email format");
+        }
+      }
+    }
+
+    // Validate address if provided
+    if (config.address !== undefined) {
+      if (config.address && typeof config.address !== "string") {
+        throw new Error("address must be a string");
+      }
+      // XSS protection: Reject addresses containing script tags or other dangerous HTML
+      if (config.address) {
+        const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+        if (xssPattern.test(config.address)) {
+          throw new Error(
+            "Invalid address: HTML tags and scripts are not allowed",
+          );
+        }
+      }
+    }
+
+    // Validate operating hours format if provided
+    if (config.operating_hours) {
+      const days = [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+      ];
+      for (const day of days) {
+        const dayHours = config.operating_hours?.[day as keyof OperatingHours];
+        if (dayHours) {
+          // If closed is true, skip other validations
+          if (dayHours.closed === true) {
+            continue;
+          }
+          // Validate time format (HH:mm)
+          const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9]$/;
+          if (!dayHours.open || !timeRegex.test(dayHours.open)) {
+            throw new Error(
+              `${day} open time must be in HH:mm format (e.g., 09:00)`,
+            );
+          }
+          if (!dayHours.close || !timeRegex.test(dayHours.close)) {
+            throw new Error(
+              `${day} close time must be in HH:mm format (e.g., 17:00)`,
+            );
+          }
+          // Validate that close time is after open time
+          const [openHour, openMin] = dayHours.open.split(":").map(Number);
+          const [closeHour, closeMin] = dayHours.close.split(":").map(Number);
+          const openMinutes = openHour * 60 + openMin;
+          const closeMinutes = closeHour * 60 + closeMin;
+          if (closeMinutes <= openMinutes) {
+            throw new Error(`${day} close time must be after open time`);
+          }
+        }
+      }
+    }
+
+    try {
+      // Verify store belongs to client user's companies
+      const existingStore = await prisma.store.findFirst({
+        where: {
+          store_id: storeId,
+          company: {
+            owner_user_id: clientUserId,
+          },
+        },
+      });
+
+      if (!existingStore) {
+        throw new Error(
+          "Forbidden: You can only update settings for stores you own",
+        );
+      }
+
+      // Merge new configuration with existing configuration (deep merge)
+      const existingConfig = (existingStore.configuration as any) || {};
+      const mergedConfig = {
+        ...existingConfig,
+        ...(config.timezone !== undefined && { timezone: config.timezone }),
+        ...(config.contact_email !== undefined && {
+          contact_email: config.contact_email,
+        }),
+        ...(config.address !== undefined && {
+          address: config.address,
+        }),
+        ...(config.operating_hours !== undefined && {
+          operating_hours: {
+            ...(existingConfig.operating_hours || {}),
+            ...config.operating_hours,
+          },
+        }),
+      };
+
+      // Update store configuration
+      const store = await prisma.store.update({
+        where: {
+          store_id: storeId,
+        },
+        data: {
+          configuration: mergedConfig as any,
+        },
+      });
+
+      return store;
+    } catch (error: any) {
+      if (error.message.includes("Forbidden")) {
+        throw error;
+      }
+      console.error("Error updating store settings:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Update store configuration with company isolation check
    * @param storeId - Store UUID
    * @param userCompanyId - User's assigned company ID (for isolation check)

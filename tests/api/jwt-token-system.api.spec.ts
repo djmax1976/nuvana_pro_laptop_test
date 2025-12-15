@@ -64,7 +64,7 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     // GIVEN: User exists in database with role
     // Note: Email is lowercased to match backend normalization
     const userEmail =
-      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@test.nuvana.local`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -172,7 +172,7 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
   }) => {
     // GIVEN: User exists in database with role
     const userEmail =
-      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@test.nuvana.local`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -275,7 +275,7 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
   }) => {
     // GIVEN: User exists in database with role
     const userEmail =
-      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@test.nuvana.local`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -316,7 +316,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
   }) => {
     // GIVEN: User exists in database with role
     const userEmail =
-      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@test.nuvana.local`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -446,7 +446,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
   }) => {
     // GIVEN: User exists in database with role
     const userEmail =
-      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@test.nuvana.local`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -547,7 +547,7 @@ test.describe("1.6-API-003: Refresh Token Endpoint", () => {
   }) => {
     // GIVEN: User exists in database with role
     const userEmail =
-      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@test.nuvana.local`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -593,7 +593,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
   }) => {
     // GIVEN: User exists in database with valid refresh token
     const userEmail =
-      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@test.nuvana.local`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -757,7 +757,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
   }) => {
     // GIVEN: User exists with valid refresh token
     const userEmail =
-      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@test.nuvana.local`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -866,7 +866,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
   }) => {
     // GIVEN: User exists in database with role
     const userEmail =
-      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@test.nuvana.local`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),
@@ -909,7 +909,7 @@ test.describe("1.6-API-004: Automatic Token Refresh on 401 (Frontend Auto-Retry)
   }) => {
     // GIVEN: User exists with valid refresh token
     const userEmail =
-      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@example.com`.toLowerCase();
+      `${TEST_EMAIL_PREFIX}${Date.now()}-${faker.string.alphanumeric(6)}@test.nuvana.local`.toLowerCase();
     const { user: createdUser } = await createUserWithRole(prismaClient, {
       email: userEmail,
       name: faker.person.fullName(),

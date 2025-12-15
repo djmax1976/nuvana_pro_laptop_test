@@ -362,7 +362,7 @@ export const createLotteryShiftOpening = async (
  * Create a single LotteryShiftClosing with required shift_id, pack_id, and closing_serial
  *
  * @param prisma - PrismaClient instance to use for database operations
- * @param overrides - Required shift_id, pack_id, and closing_serial
+ * @param overrides - Required shift_id, pack_id, and closing_serial, plus optional entry_method tracking
  * @returns LotteryShiftClosing object for test use
  */
 export const createLotteryShiftClosing = async (
@@ -371,6 +371,9 @@ export const createLotteryShiftClosing = async (
     shift_id: string;
     pack_id: string;
     closing_serial: string;
+    entry_method?: "SCAN" | "MANUAL";
+    manual_entry_authorized_by?: string;
+    manual_entry_authorized_at?: Date;
   },
 ) => {
   return await prisma.lotteryShiftClosing.create({
@@ -378,6 +381,9 @@ export const createLotteryShiftClosing = async (
       shift_id: overrides.shift_id,
       pack_id: overrides.pack_id,
       closing_serial: overrides.closing_serial,
+      entry_method: overrides.entry_method || null,
+      manual_entry_authorized_by: overrides.manual_entry_authorized_by || null,
+      manual_entry_authorized_at: overrides.manual_entry_authorized_at || null,
     },
   });
 };

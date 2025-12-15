@@ -1247,6 +1247,24 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         // Store initial pack status to distinguish between bad request and concurrent modification
         const initialPackStatus = pack.status;
 
+        // Try to find active shift for this store (Story 10.2: Pack activation tracking)
+        // Active shifts are those with status: OPEN, ACTIVE, CLOSING, RECONCILING and closed_at IS NULL
+        const activeShift = await prisma.shift.findFirst({
+          where: {
+            store_id: pack.store_id,
+            status: {
+              in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"],
+            },
+            closed_at: null,
+          },
+          orderBy: {
+            opened_at: "desc",
+          },
+          select: {
+            shift_id: true,
+          },
+        });
+
         // Atomically update pack status to ACTIVE only if status is RECEIVED
         // This prevents TOCTOU race conditions by combining verification and update
         const updatedPack = await prisma.$transaction(async (tx) => {
@@ -1259,6 +1277,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             data: {
               status: "ACTIVE",
               activated_at: new Date(),
+              activated_by: user.id, // Story 10.2: Track who activated the pack
+              activated_shift_id: activeShift?.shift_id || null, // Story 10.2: Track which shift the pack was activated in
             },
           });
 
@@ -1359,6 +1379,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   status: activatedPack.status,
                   previous_status: "RECEIVED",
                   activated_at: activatedPack.activated_at?.toISOString(),
+                  activated_by: activatedPack.activated_by, // Story 10.2: Track who activated
+                  activated_shift_id: activatedPack.activated_shift_id, // Story 10.2: Track which shift
+                  current_bin_id: activatedPack.current_bin_id, // Story 10.2: Track which bin
                 } as Record<string, any>,
                 ip_address: ipAddress,
                 user_agent: userAgent,
@@ -5279,6 +5302,215 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to query bin display data",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/lottery/packs/validate-for-activation/:storeId/:packNumber
+   * Validate pack for activation (check exists, status is RECEIVED, return game info)
+   * Protected route - requires LOTTERY_PACK_READ permission
+   * Story 10.5: Add Bin Functionality (AC #3, #4)
+   *
+   * MCP Guidance Applied:
+   * - SQL_INJECTION: Use Prisma ORM parameterized queries (no string concatenation)
+   * - VALIDATION: Validate route parameters with schema validation
+   * - AUTHENTICATION: Require authentication and permission checks
+   * - ERROR_HANDLING: Return generic error responses, never leak stack traces
+   */
+  fastify.get(
+    "/api/lottery/packs/validate-for-activation/:storeId/:packNumber",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_READ),
+      ],
+      schema: {
+        description: "Validate pack for activation",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["storeId", "packNumber"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+            packNumber: {
+              type: "string",
+              description: "Pack number to validate",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  valid: { type: "boolean" },
+                  error: {
+                    type: "string",
+                    nullable: true,
+                  },
+                  game: {
+                    type: "object",
+                    nullable: true,
+                    properties: {
+                      name: { type: "string" },
+                      price: { type: "number" },
+                    },
+                  },
+                  pack: {
+                    type: "object",
+                    nullable: true,
+                    properties: {
+                      pack_id: { type: "string", format: "uuid" },
+                      serial_start: { type: "string" },
+                      serial_end: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as {
+        storeId: string;
+        packNumber: string;
+      };
+
+      try {
+        // Get user roles to validate store access
+        const userRoles = await rbacService.getUserRoles(user.id);
+
+        // Validate store exists and get its company_id
+        const store = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+          select: { store_id: true, company_id: true },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: { code: "NOT_FOUND", message: "Store not found" },
+          };
+        }
+
+        // Validate store access
+        if (
+          !validateUserStoreAccess(userRoles, params.storeId, store.company_id)
+        ) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message: "Access denied to this store",
+            },
+          };
+        }
+
+        // Find pack by pack_number and store_id (using Prisma ORM - prevents SQL injection)
+        const pack = await prisma.lotteryPack.findUnique({
+          where: {
+            store_id_pack_number: {
+              store_id: params.storeId,
+              pack_number: params.packNumber,
+            },
+          },
+          select: {
+            pack_id: true,
+            status: true,
+            serial_start: true,
+            serial_end: true,
+            game: {
+              select: {
+                game_id: true,
+                name: true,
+                price: true,
+                game_code: true,
+              },
+            },
+          },
+        });
+
+        // Pack not found
+        if (!pack) {
+          return {
+            success: true,
+            data: {
+              valid: false,
+              error: "Pack not found in inventory. Receive it first.",
+            },
+          };
+        }
+
+        // Check pack status - must be RECEIVED
+        if (pack.status !== "RECEIVED") {
+          let errorMessage = "Pack not available";
+          if (pack.status === "ACTIVE") {
+            errorMessage = "Pack already active in another bin";
+          } else if (pack.status === "DEPLETED") {
+            errorMessage = "Pack not available (depleted)";
+          } else if (pack.status === "RETURNED") {
+            errorMessage = "Pack not available (returned)";
+          }
+
+          return {
+            success: true,
+            data: {
+              valid: false,
+              error: errorMessage,
+            },
+          };
+        }
+
+        // Validate game exists (should always exist if pack exists, but check anyway)
+        if (!pack.game) {
+          return {
+            success: true,
+            data: {
+              valid: false,
+              error: "Unknown game code. Please add game first.",
+            },
+          };
+        }
+
+        // Pack is valid - return success with game and pack info
+        return {
+          success: true,
+          data: {
+            valid: true,
+            game: {
+              name: pack.game.name,
+              price: pack.game.price,
+            },
+            pack: {
+              pack_id: pack.pack_id,
+              serial_start: pack.serial_start,
+              serial_end: pack.serial_end,
+            },
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error validating pack for activation");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to validate pack",
           },
         };
       }

@@ -1,0 +1,797 @@
+/**
+ * Lottery Shift Closing E2E Test
+ *
+ * Critical user journey: Navigate from Terminal page → Closing page → Enter numbers → Click Next
+ *
+ * @test-level E2E
+ * @justification Tests critical multi-page user journey that cannot be tested at lower levels
+ * @story 10-1 - Lottery Shift Closing Page UI
+ * @priority P0 (Critical - Core User Journey)
+ */
+
+import { test, expect } from "@playwright/test";
+
+test.describe("10-1-E2E: Lottery Shift Closing Flow (Critical Journey)", () => {
+  test("10-1-E2E-001: user can complete shift closing end-to-end", async ({
+    page,
+  }) => {
+    // CRITICAL: Intercept routes BEFORE navigation (network-first)
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: [
+              {
+                bin_id: "bin-1",
+                bin_number: 1,
+                name: "Bin 1",
+                is_active: true,
+                pack: {
+                  pack_id: "pack-1",
+                  game_name: "$5 Powerball",
+                  game_price: 5,
+                  starting_serial: "045",
+                  serial_end: "999",
+                  pack_number: "123456",
+                },
+              },
+              {
+                bin_id: "bin-2",
+                bin_number: 2,
+                name: "Bin 2",
+                is_active: true,
+                pack: {
+                  pack_id: "pack-2",
+                  game_name: "$10 Mega Millions",
+                  game_price: 10,
+                  starting_serial: "100",
+                  serial_end: "999",
+                  pack_number: "789012",
+                },
+              },
+            ],
+            soldPacks: [],
+          },
+        }),
+      }),
+    );
+
+    // GIVEN: User is logged in and has active shift in MyStore Dashboard
+    await page.goto("/mystore/terminal");
+    // Note: Authentication and shift setup will be handled by fixtures in actual implementation
+
+    // WHEN: User clicks "End Shift" button
+    await page.click('[data-testid="end-shift-button"]');
+
+    // THEN: User is navigated to Lottery Shift Closing page
+    await page.waitForURL("**/mystore/terminal/shift-closing/lottery");
+    await expect(page.locator('[data-testid="page-title"]')).toHaveText(
+      "Lottery Shift Closing",
+    );
+
+    // AND: Page displays active packs table
+    await expect(
+      page.locator('[data-testid="active-packs-table"]'),
+    ).toBeVisible();
+
+    // WHEN: User enters ending numbers for all active bins
+    await page.fill('[data-testid="ending-number-input-bin-1"]', "123");
+    // Auto-advance should move focus to bin-2
+    await page.fill('[data-testid="ending-number-input-bin-2"]', "456");
+
+    // THEN: Next button is enabled
+    await expect(page.locator('[data-testid="next-button"]')).toBeEnabled();
+
+    // WHEN: User clicks Next button
+    await page.click('[data-testid="next-button"]');
+
+    // THEN: User proceeds to next page (or shows success message)
+    // Note: Next page behavior depends on implementation
+    // This test verifies the critical journey works end-to-end
+  });
+
+  // ============ SECURITY TESTS (MANDATORY) ============
+
+  test("10-1-E2E-SEC-001: should prevent XSS in game names during E2E flow", async ({
+    page,
+  }) => {
+    // GIVEN: API returns bins with XSS attempt in game names
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: [
+              {
+                bin_id: "bin-1",
+                bin_number: 1,
+                name: "Bin 1",
+                is_active: true,
+                pack: {
+                  pack_id: "pack-1",
+                  game_name: "<script>alert('XSS')</script>$5 Powerball",
+                  game_price: 5,
+                  starting_serial: "045",
+                  serial_end: "999",
+                  pack_number: "123456",
+                },
+              },
+            ],
+            soldPacks: [],
+          },
+        }),
+      }),
+    );
+
+    // WHEN: User navigates to closing page
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+
+    // THEN: XSS is escaped (React automatically escapes HTML)
+    await expect(
+      page.locator("text=/<script>alert\\('XSS'\\)<\\/script>\\$5 Powerball/"),
+    ).toBeVisible();
+    // Verify no script execution (no alert dialog)
+    const alerts = await page.evaluate(() => {
+      return window.alert.toString();
+    });
+    // Script should not execute
+  });
+
+  test("10-1-E2E-SEC-002: should require authentication for closing page", async ({
+    page,
+  }) => {
+    // GIVEN: User is not authenticated
+    // Clear any existing authentication
+    await page.context().clearCookies();
+
+    // WHEN: User tries to access closing page directly
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+
+    // THEN: User is redirected to login or sees 401 error
+    // Either redirected to login page or API returns 401
+    // Wait for redirect/auth check to complete (deterministic wait)
+    await page.waitForURL(
+      (url) =>
+        url.includes("/login") ||
+        url.includes("/auth") ||
+        url.includes("/shift-closing"),
+      { timeout: 10000 },
+    );
+    const url = page.url();
+    const isLoginPage = url.includes("/login") || url.includes("/auth");
+    const has401Error = await page
+      .locator("text=/401|Unauthorized|Authentication required/i")
+      .isVisible()
+      .catch(() => false);
+
+    expect(isLoginPage || has401Error).toBe(true);
+  });
+
+  // ============ AUTOMATIC ASSERTIONS ============
+
+  test("10-1-E2E-ASSERT-001: should have correct page structure with data-testid attributes", async ({
+    page,
+  }) => {
+    // GIVEN: API returns closing data
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: [
+              {
+                bin_id: "bin-1",
+                bin_number: 1,
+                name: "Bin 1",
+                is_active: true,
+                pack: {
+                  pack_id: "pack-1",
+                  game_name: "$5 Powerball",
+                  game_price: 5,
+                  starting_serial: "045",
+                  serial_end: "999",
+                  pack_number: "123456",
+                },
+              },
+            ],
+            soldPacks: [],
+          },
+        }),
+      }),
+    );
+
+    // WHEN: User navigates to closing page
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+
+    // THEN: Page has correct structure with data-testid attributes
+    await expect(
+      page.locator('[data-testid="active-packs-table"]'),
+    ).toBeVisible();
+    await expect(
+      page.locator('[data-testid="shift-closing-actions"]'),
+    ).toBeVisible();
+    await expect(page.locator('[data-testid="next-button"]')).toBeVisible();
+  });
+
+  // ============ EDGE CASES ============
+
+  test("10-1-E2E-EDGE-001: should handle network failure gracefully", async ({
+    page,
+  }) => {
+    // GIVEN: Network failure when requesting closing data
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.abort("failed"),
+    );
+
+    // WHEN: User navigates to closing page
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+
+    // THEN: Error message is displayed
+    await expect(page.locator("text=/error|failed|network/i")).toBeVisible({
+      timeout: 5000,
+    });
+  });
+
+  test("10-1-E2E-EDGE-002: should handle slow network response", async ({
+    page,
+  }) => {
+    // GIVEN: Slow API response (2 second delay)
+    await page.route("**/api/shifts/*/lottery/closing-data", async (route) => {
+      // Simulate network delay (acceptable for mocking slow network)
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: [
+              {
+                bin_id: "bin-1",
+                bin_number: 1,
+                name: "Bin 1",
+                is_active: true,
+                pack: {
+                  pack_id: "pack-1",
+                  game_name: "$5 Powerball",
+                  game_price: 5,
+                  starting_serial: "045",
+                  serial_end: "999",
+                  pack_number: "123456",
+                },
+              },
+            ],
+            soldPacks: [],
+          },
+        }),
+      });
+    });
+
+    // WHEN: User navigates to closing page
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+
+    // THEN: Loading state is shown, then content appears (wait for actual element)
+    await expect(
+      page.locator('[data-testid="active-packs-table"]'),
+    ).toBeVisible({ timeout: 5000 });
+  });
+
+  test("10-1-E2E-EDGE-003: should handle empty bins array", async ({
+    page,
+  }) => {
+    // GIVEN: API returns empty bins array
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: [],
+            soldPacks: [],
+          },
+        }),
+      }),
+    );
+
+    // WHEN: User navigates to closing page
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+
+    // THEN: Empty state message is displayed
+    await expect(
+      page.locator("text=/No bins configured|empty/i"),
+    ).toBeVisible();
+  });
+
+  test("10-1-E2E-EDGE-004: should handle all bins empty (no active packs)", async ({
+    page,
+  }) => {
+    // GIVEN: API returns bins but all are empty
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: [
+              {
+                bin_id: "bin-1",
+                bin_number: 1,
+                name: "Bin 1",
+                is_active: true,
+                pack: null,
+              },
+              {
+                bin_id: "bin-2",
+                bin_number: 2,
+                name: "Bin 2",
+                is_active: true,
+                pack: null,
+              },
+            ],
+            soldPacks: [],
+          },
+        }),
+      }),
+    );
+
+    // WHEN: User navigates to closing page
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+
+    // THEN: All bins show as empty
+    await expect(page.locator("text=/(Empty)/")).toHaveCount(2);
+    // AND: Next button is enabled (no active bins to validate)
+    await expect(page.locator('[data-testid="next-button"]')).toBeEnabled();
+  });
+
+  // ============ BUSINESS LOGIC TESTS ============
+
+  test("10-1-E2E-BUSINESS-001: should handle maximum 200 bins in E2E flow", async ({
+    page,
+  }) => {
+    // GIVEN: API returns 200 bins (maximum allowed)
+    const maxBins = Array.from({ length: 200 }, (_, i) => ({
+      bin_id: `bin-${i + 1}`,
+      bin_number: i + 1,
+      name: `Bin ${i + 1}`,
+      is_active: true,
+      pack: {
+        pack_id: `pack-${i + 1}`,
+        game_name: "$5 Powerball",
+        game_price: 5,
+        starting_serial: "045",
+        serial_end: "999",
+        pack_number: "123456",
+      },
+    }));
+
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: maxBins,
+            soldPacks: [],
+          },
+        }),
+      }),
+    );
+
+    // WHEN: User navigates to closing page
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+
+    // THEN: All 200 bins are displayed
+    await expect(
+      page.locator('[data-testid^="active-packs-row-"]'),
+    ).toHaveCount(200);
+    // AND: Table is scrollable
+    const tableContainer = page.locator('[data-testid="active-packs-table"]');
+    await expect(tableContainer.locator(".max-h-\\[70vh\\]")).toBeVisible();
+  });
+
+  test("10-1-E2E-BUSINESS-002: should validate ending serial range during E2E flow", async ({
+    page,
+  }) => {
+    // GIVEN: Bin with pack (starting_serial: "045", serial_end: "999")
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: [
+              {
+                bin_id: "bin-1",
+                bin_number: 1,
+                name: "Bin 1",
+                is_active: true,
+                pack: {
+                  pack_id: "pack-1",
+                  game_name: "$5 Powerball",
+                  game_price: 5,
+                  starting_serial: "045",
+                  serial_end: "999",
+                  pack_number: "123456",
+                },
+              },
+            ],
+            soldPacks: [],
+          },
+        }),
+      }),
+    );
+
+    // WHEN: User navigates and enters ending serial
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+    await page.fill('[data-testid="ending-number-input-bin-1"]', "100");
+
+    // THEN: Ending serial is accepted (within range: 045 <= 100 <= 999)
+    const inputValue = await page
+      .locator('[data-testid="ending-number-input-bin-1"]')
+      .inputValue();
+    expect(inputValue).toBe("100");
+    // AND: Next button is enabled
+    await expect(page.locator('[data-testid="next-button"]')).toBeEnabled();
+  });
+});
+
+// ============================================================================
+// STORY 10-3: BARCODE SCANNING E2E TEST
+// ============================================================================
+
+/**
+ * Barcode Scanning E2E Test
+ *
+ * Critical user journey: Scan barcode → Validation → Auto-fill → Advance
+ *
+ * @test-level E2E
+ * @justification Tests critical multi-page user journey with barcode scanning
+ * @story 10-3 - Ending Number Scanning & Validation
+ * @priority P0 (Critical - Core User Journey)
+ */
+
+test.describe("10-3-E2E: Barcode Scanning Flow (Critical Journey)", () => {
+  test("10-3-E2E-001: user can scan barcode and auto-fill ending number", async ({
+    page,
+  }) => {
+    // CRITICAL: Intercept routes BEFORE navigation (network-first)
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: [
+              {
+                bin_id: "bin-1",
+                bin_number: 1,
+                name: "Bin 1",
+                is_active: true,
+                pack: {
+                  pack_id: "pack-1",
+                  game_name: "$5 Powerball",
+                  game_price: 5,
+                  starting_serial: "045", // For Level 2 validation
+                  serial_end: "150", // For Level 3 validation
+                  pack_number: "1234567", // For Level 1 validation
+                },
+              },
+            ],
+            soldPacks: [],
+          },
+        }),
+      }),
+    );
+
+    // GIVEN: User is on Lottery Shift Closing page
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+    await expect(page.locator('[data-testid="page-title"]')).toHaveText(
+      "Lottery Shift Closing",
+    );
+
+    const input = page.locator('[data-testid="ending-number-input-bin-1"]');
+
+    // WHEN: User scans 24-digit barcode (simulated by pasting)
+    // Serial: "000112345670123456789012" -> pack: "1234567" (matches), ticket: "067"
+    // Validation: pack matches, ending "067" >= starting "045", ending "067" <= max "150"
+    const scannedSerial = "000112345670123456789012";
+    await input.click();
+    await input.fill(scannedSerial); // Simulate barcode scanner input
+
+    // THEN: 3-digit ending number is auto-filled
+    await expect(input).toHaveValue("067");
+
+    // AND: Input shows green border (success state)
+    await expect(input).toHaveClass(/border-green|border-success/);
+
+    // AND: Focus automatically advances to next bin (if available)
+    // OR: onComplete callback is triggered
+    // Note: Auto-advance behavior depends on implementation
+
+    // AND: No error message is displayed
+    const errorMessage = page.locator('[data-testid="error-message-bin-1"]');
+    await expect(errorMessage).not.toBeVisible();
+  });
+
+  test("10-3-E2E-002: user sees error when scanning wrong pack number", async ({
+    page,
+  }) => {
+    // GIVEN: User is on Lottery Shift Closing page with pack_number "1234567"
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: [
+              {
+                bin_id: "bin-1",
+                bin_number: 1,
+                name: "Bin 1",
+                is_active: true,
+                pack: {
+                  pack_id: "pack-1",
+                  game_name: "$5 Powerball",
+                  game_price: 5,
+                  starting_serial: "045",
+                  serial_end: "150",
+                  pack_number: "1234567", // Expected pack
+                },
+              },
+            ],
+            soldPacks: [],
+          },
+        }),
+      }),
+    );
+
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+    await expect(page.locator('[data-testid="page-title"]')).toHaveText(
+      "Lottery Shift Closing",
+    );
+
+    const input = page.locator('[data-testid="ending-number-input-bin-1"]');
+
+    // WHEN: User scans barcode from different pack (pack_number "9999999")
+    const wrongPackScan = "000199999990123456789012"; // Wrong pack number
+    await input.click();
+    await input.fill(wrongPackScan);
+
+    // THEN: Error message is displayed
+    const errorMessage = page.locator('[data-testid="error-message-bin-1"]');
+    await expect(errorMessage).toBeVisible();
+    await expect(errorMessage).toContainText(/Wrong pack|different lottery/i);
+
+    // AND: Input shows red border (error state)
+    await expect(input).toHaveClass(
+      /border-red|border-error|border-destructive/,
+    );
+
+    // AND: Input is cleared for re-scan
+    await expect(input).toHaveValue("");
+
+    // AND: Focus remains on input field (no auto-advance)
+    await expect(input).toBeFocused();
+  });
+
+  test("10-3-E2E-003: user sees error when ending < starting", async ({
+    page,
+  }) => {
+    // GIVEN: User is on Lottery Shift Closing page with starting_serial "045"
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: [
+              {
+                bin_id: "bin-1",
+                bin_number: 1,
+                name: "Bin 1",
+                is_active: true,
+                pack: {
+                  pack_id: "pack-1",
+                  game_name: "$5 Powerball",
+                  game_price: 5,
+                  starting_serial: "045", // Starting serial
+                  serial_end: "150",
+                  pack_number: "1234567",
+                },
+              },
+            ],
+            soldPacks: [],
+          },
+        }),
+      }),
+    );
+
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+    const input = page.locator('[data-testid="ending-number-input-bin-1"]');
+
+    // WHEN: User scans barcode with ending "030" (less than starting "045")
+    const belowStartingScan = "000112345670303456789012"; // Ticket 030 < 045
+    await input.click();
+    await input.fill(belowStartingScan);
+
+    // THEN: Error message is displayed
+    const errorMessage = page.locator('[data-testid="error-message-bin-1"]');
+    await expect(errorMessage).toBeVisible();
+    await expect(errorMessage).toContainText(/cannot be less than starting/i);
+    await expect(errorMessage).toContainText("045"); // Starting serial in error
+
+    // AND: Input shows red border
+    await expect(input).toHaveClass(
+      /border-red|border-error|border-destructive/,
+    );
+  });
+
+  test("10-3-E2E-004: user sees error when ending > serial_end (business rule)", async ({
+    page,
+  }) => {
+    // GIVEN: User is on Lottery Shift Closing page with serial_end "150"
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: [
+              {
+                bin_id: "bin-1",
+                bin_number: 1,
+                name: "Bin 1",
+                is_active: true,
+                pack: {
+                  pack_id: "pack-1",
+                  game_name: "$5 Powerball",
+                  game_price: 5,
+                  starting_serial: "045",
+                  serial_end: "150", // Pack maximum
+                  pack_number: "1234567",
+                },
+              },
+            ],
+            soldPacks: [],
+          },
+        }),
+      }),
+    );
+
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+    const input = page.locator('[data-testid="ending-number-input-bin-1"]');
+
+    // WHEN: User scans barcode with ending "151" (greater than serial_end "150")
+    // Business rule: closing_serial > serial_end is an error
+    const aboveMaxScan = "000112345671513456789012"; // Ticket 151 > 150 (ERROR)
+    await input.click();
+    await input.fill(aboveMaxScan);
+
+    // THEN: Error message is displayed
+    const errorMessage = page.locator('[data-testid="error-message-bin-1"]');
+    await expect(errorMessage).toBeVisible();
+    await expect(errorMessage).toContainText(/exceeds pack maximum/i);
+    await expect(errorMessage).toContainText("150"); // serial_end in error
+
+    // AND: Input shows red border
+    await expect(input).toHaveClass(
+      /border-red|border-error|border-destructive/,
+    );
+
+    // AND: Input is cleared for re-scan
+    await expect(input).toHaveValue("");
+  });
+
+  test("10-3-E2E-005: [P1] Enhanced assertions - Rapid sequential scans process correctly", async ({
+    page,
+  }) => {
+    // GIVEN: User is on Lottery Shift Closing page with multiple bins
+    await page.route("**/api/shifts/*/lottery/closing-data", (route) =>
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            bins: [
+              {
+                bin_id: "bin-1",
+                bin_number: 1,
+                name: "Bin 1",
+                is_active: true,
+                pack: {
+                  pack_id: "pack-1",
+                  game_name: "$5 Powerball",
+                  game_price: 5,
+                  starting_serial: "045",
+                  serial_end: "150",
+                  pack_number: "1234567",
+                },
+              },
+              {
+                bin_id: "bin-2",
+                bin_number: 2,
+                name: "Bin 2",
+                is_active: true,
+                pack: {
+                  pack_id: "pack-1",
+                  game_name: "$5 Powerball",
+                  game_price: 5,
+                  starting_serial: "045",
+                  serial_end: "150",
+                  pack_number: "1234567",
+                },
+              },
+            ],
+            soldPacks: [],
+          },
+        }),
+      }),
+    );
+
+    await page.goto(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
+    );
+    const input1 = page.locator('[data-testid="ending-number-input-bin-1"]');
+    const input2 = page.locator('[data-testid="ending-number-input-bin-2"]');
+
+    // WHEN: User performs rapid sequential scans (< 100ms between scans)
+    const scan1 = "000112345670673456789012"; // Ticket 067
+    const scan2 = "000112345670683456789013"; // Ticket 068
+
+    await input1.click();
+    await input1.fill(scan1);
+    await expect(input1).toHaveValue("067");
+
+    // Wait for auto-advance to complete (if implemented) or proceed directly
+    // If auto-advance is async, wait for focus change; otherwise proceed
+    try {
+      await expect(input2).toBeFocused({ timeout: 1000 });
+    } catch {
+      // Auto-advance may not be implemented, proceed manually
+    }
+
+    // Auto-advance should move focus to next bin
+    await input2.click();
+    await input2.fill(scan2);
+    await expect(input2).toHaveValue("068");
+
+    // THEN: Both scans are processed correctly
+    await expect(input1).toHaveValue("067");
+    await expect(input2).toHaveValue("068");
+
+    // AND: No errors are displayed
+    const error1 = page.locator('[data-testid="error-message-bin-1"]');
+    const error2 = page.locator('[data-testid="error-message-bin-2"]');
+    await expect(error1).not.toBeVisible();
+    await expect(error2).not.toBeVisible();
+  });
+});

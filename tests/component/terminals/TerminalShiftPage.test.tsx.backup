@@ -1,220 +1,135 @@
 /**
+ * Terminal Shift Page Component Tests
+ *
+ * Tests for TerminalShiftPage navigation:
+ * - End Shift button navigation to closing page
+ * - Shift ID passed as query parameter
+ *
  * @test-level Component
- * @justification Component tests for TerminalShiftPage - validates rendering and user interactions
- * @story 4-92-terminal-shift-page
+ * @justification Tests navigation behavior for shift closing flow
+ * @story 10-1 - Lottery Shift Closing Page UI
+ * @priority P1 (High - Navigation)
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
-import { TerminalShiftPageContent } from "@/components/terminals/TerminalShiftPage";
+import { renderWithProviders, screen } from "../../support/test-utils";
 import userEvent from "@testing-library/user-event";
-import * as shiftsApi from "@/lib/api/shifts";
+import { TerminalShiftPageContent } from "@/components/terminals/TerminalShiftPage";
 
-// Mock the shifts API hooks
-vi.mock("@/lib/api/shifts", () => ({
-  useActiveShift: vi.fn(),
-  useUpdateStartingCash: vi.fn(),
+// Mock Next.js navigation
+const mockPush = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: mockPush,
+    replace: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    refresh: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  usePathname: () => "/mystore/terminal",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
-describe("4.92-COMPONENT: TerminalShiftPage Component", () => {
+// Mock useUpdateStartingCash
+vi.mock("@/lib/api/shifts", () => ({
+  useUpdateStartingCash: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+  }),
+}));
+
+// Mock CashierSessionContext
+const mockSession = {
+  sessionToken: "test-token",
+  cashierId: "cashier-1",
+  storeId: "store-1",
+  terminalId: "terminal-1",
+};
+
+vi.mock("@/contexts/CashierSessionContext", () => ({
+  useCashierSession: () => ({
+    session: mockSession,
+  }),
+}));
+
+describe("10-1-COMPONENT: TerminalShiftPage Navigation", () => {
   const mockShift = {
-    shift_id: "shift-1",
+    shift_id: "shift-123",
     cashier_id: "cashier-1",
-    opened_at: "2025-12-05T10:00:00Z",
+    opened_at: "2025-01-28T10:00:00Z",
     shift_number: 1,
-    opening_cash: 0,
+    opening_cash: 100.0,
   };
-  const mockCashierName = "John Doe";
-  const mockTerminalId = "terminal-1";
 
   beforeEach(() => {
     vi.clearAllMocks();
-
-    // Default mock implementation for useUpdateStartingCash
-    vi.mocked(shiftsApi.useUpdateStartingCash).mockReturnValue({
-      mutateAsync: vi.fn().mockResolvedValue({ success: true }),
-      isPending: false,
-      isError: false,
-      isSuccess: false,
-      error: null,
-      reset: vi.fn(),
-    } as any);
   });
 
-  it("4.92-COMPONENT-001: should display cashier name", () => {
-    // GIVEN: Component is rendered with shift data
-    renderWithProviders(
-      <TerminalShiftPageContent
-        shift={mockShift}
-        cashierName={mockCashierName}
-        terminalId={mockTerminalId}
-      />,
-    );
-
-    // THEN: Cashier name should be displayed
-    expect(screen.getByText("Cashier")).toBeInTheDocument();
-    expect(screen.getByText(mockCashierName)).toBeInTheDocument();
-  });
-
-  it("4.92-COMPONENT-002: should display shift start time", () => {
-    // GIVEN: Component is rendered with shift data
-    renderWithProviders(
-      <TerminalShiftPageContent
-        shift={mockShift}
-        cashierName={mockCashierName}
-        terminalId={mockTerminalId}
-      />,
-    );
-
-    // THEN: Shift start time should be displayed
-    expect(screen.getByText("Started at")).toBeInTheDocument();
-    // The time format will be "5:00 AM" or similar (depends on timezone)
-    expect(screen.getByText(/^\d{1,2}:\d{2}\s(AM|PM)$/i)).toBeInTheDocument();
-  });
-
-  it("4.92-COMPONENT-003: should display shift number", () => {
-    // GIVEN: Component is rendered with shift data
-    renderWithProviders(
-      <TerminalShiftPageContent
-        shift={mockShift}
-        cashierName={mockCashierName}
-        terminalId={mockTerminalId}
-      />,
-    );
-
-    // THEN: Shift number should be displayed
-    expect(screen.getByText("Shift Number")).toBeInTheDocument();
-    expect(screen.getByText(/Shift \d+/)).toBeInTheDocument();
-  });
-
-  it("4.92-COMPONENT-004: should display placeholder metrics", () => {
-    // GIVEN: Component is rendered with shift data
-    renderWithProviders(
-      <TerminalShiftPageContent
-        shift={mockShift}
-        cashierName={mockCashierName}
-        terminalId={mockTerminalId}
-      />,
-    );
-
-    // THEN: Placeholder metrics should be displayed
-    expect(screen.getByText("Total Sales")).toBeInTheDocument();
-    expect(screen.getByText("Total Tax Collected")).toBeInTheDocument();
-    expect(screen.getByText("Total Voids")).toBeInTheDocument();
-    // All should show $0.00
-    const zeroAmounts = screen.getAllByText("$0.00");
-    expect(zeroAmounts.length).toBeGreaterThanOrEqual(3);
-  });
-
-  it("4.92-COMPONENT-005: should validate starting cash input accepts positive number or zero", async () => {
+  it("10-1-NAV-001: should navigate to closing page when End Shift button is clicked", async () => {
+    // GIVEN: TerminalShiftPageContent with active shift
+    // WHEN: User clicks End Shift button
     const user = userEvent.setup();
-    
-    // GIVEN: Component is rendered
     renderWithProviders(
       <TerminalShiftPageContent
         shift={mockShift}
-        cashierName={mockCashierName}
-        terminalId={mockTerminalId}
+        cashierName="Test Cashier"
+        terminalId="terminal-1"
       />,
     );
 
-    // WHEN: Entering a valid positive number
-    const input = screen.getByLabelText(/starting cash/i);
-    await user.clear(input);
-    await user.type(input, "100.50");
+    const endShiftButton = screen.getByTestId("end-shift-button");
+    await user.click(endShiftButton);
 
-    // THEN: Input should accept the value
-    expect(input).toHaveValue(100.5);
-  });
-
-  it("4.92-COMPONENT-006: should show End Shift button disabled with Coming Soon message", () => {
-    // GIVEN: Component is rendered
-    renderWithProviders(
-      <TerminalShiftPageContent
-        shift={mockShift}
-        cashierName={mockCashierName}
-        terminalId={mockTerminalId}
-      />,
+    // THEN: Router navigates to closing page with shiftId query parameter
+    expect(mockPush).toHaveBeenCalledWith(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-123",
     );
-
-    // THEN: End Shift button should be visible and disabled
-    const endShiftButton = screen.getByText("End Shift");
-    expect(endShiftButton).toBeInTheDocument();
-    expect(endShiftButton).toBeDisabled();
-    
-    // AND: Should show message about coming soon functionality
-    expect(
-      screen.getByText(/end shift functionality will be available/i),
-    ).toBeInTheDocument();
   });
 
-  it("4.92-COMPONENT-007: should update starting cash on form submission", async () => {
+  it("10-1-NAV-002: should pass correct shiftId in navigation URL", async () => {
+    // GIVEN: TerminalShiftPageContent with different shift ID
+    // WHEN: User clicks End Shift button
+    const differentShift = {
+      ...mockShift,
+      shift_id: "shift-456",
+    };
     const user = userEvent.setup();
-    const mockMutateAsync = vi.fn().mockResolvedValue({
-      success: true,
-      data: { ...mockShift, opening_cash: 150.50 },
-    });
-
-    vi.mocked(shiftsApi.useUpdateStartingCash).mockReturnValue({
-      mutateAsync: mockMutateAsync,
-      isPending: false,
-      isError: false,
-      isSuccess: false,
-      error: null,
-      reset: vi.fn(),
-    } as any);
-
-    // GIVEN: Component is rendered
     renderWithProviders(
       <TerminalShiftPageContent
-        shift={mockShift}
-        cashierName={mockCashierName}
-        terminalId={mockTerminalId}
+        shift={differentShift}
+        cashierName="Test Cashier"
+        terminalId="terminal-1"
       />,
     );
 
-    // WHEN: Entering starting cash and submitting
-    const input = screen.getByLabelText(/starting cash/i);
-    await user.clear(input);
-    await user.type(input, "150.50");
-    
-    const submitButton = screen.getByText("Update Starting Cash");
-    await user.click(submitButton);
+    const endShiftButton = screen.getByTestId("end-shift-button");
+    await user.click(endShiftButton);
 
-    // THEN: Should call updateStartingCash mutation
-    await waitFor(() => {
-      expect(mockMutateAsync).toHaveBeenCalledWith({
-        shiftId: mockShift.shift_id,
-        cashierId: mockShift.cashier_id,
-        startingCash: 150.5,
-      });
-    });
+    // THEN: Router navigates with correct shiftId
+    expect(mockPush).toHaveBeenCalledWith(
+      "/mystore/terminal/shift-closing/lottery?shiftId=shift-456",
+    );
   });
 
-  it("4.92-COMPONENT-008: should show error message when starting cash update fails", async () => {
-    const mockError = new Error("Update failed");
-    vi.mocked(shiftsApi.useUpdateStartingCash).mockReturnValue({
-      mutateAsync: vi.fn().mockRejectedValue(mockError),
-      isPending: false,
-      isError: true,
-      isSuccess: false,
-      error: mockError,
-      reset: vi.fn(),
-    } as any);
-
-    // GIVEN: Component is rendered with error state
+  it("10-1-NAV-003: should have End Shift button enabled (not disabled)", () => {
+    // GIVEN: TerminalShiftPageContent component
+    // WHEN: Component is rendered
     renderWithProviders(
       <TerminalShiftPageContent
         shift={mockShift}
-        cashierName={mockCashierName}
-        terminalId={mockTerminalId}
+        cashierName="Test Cashier"
+        terminalId="terminal-1"
       />,
     );
 
-    // THEN: Error message should be displayed
-    expect(
-      screen.getByText(/failed to update starting cash/i),
-    ).toBeInTheDocument();
+    const endShiftButton = screen.getByTestId("end-shift-button");
+
+    // THEN: End Shift button is enabled (not disabled)
+    expect(endShiftButton).not.toBeDisabled();
+    expect(endShiftButton).toBeEnabled();
   });
 });
-

@@ -5,6 +5,32 @@ import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { z } from "zod";
 import { prisma, withRLSTransaction } from "../utils/db";
+import { RBACService } from "../services/rbac.service";
+import { PERMISSIONS } from "../constants/permissions";
+import type { AuditContext } from "../services/cashier.service";
+
+/**
+ * Helper to extract audit context from request
+ */
+function getAuditContext(
+  request: FastifyRequest,
+  user: UserIdentity | null,
+): AuditContext {
+  const ipAddress =
+    (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+    request.ip ||
+    request.socket.remoteAddress ||
+    null;
+  const userAgent = request.headers["user-agent"] || null;
+
+  return {
+    userId: user?.id || "system",
+    userEmail: user?.email || "system",
+    userRoles: user?.roles || [],
+    ipAddress,
+    userAgent,
+  };
+}
 
 // NOTE: OAuth has been removed from this application
 // Using local email/password authentication with bcrypt
@@ -703,6 +729,226 @@ export async function authRoutes(fastify: FastifyInstance) {
         },
         message: "User session validated",
       };
+    },
+  );
+
+  /**
+   * Verify cashier PIN and check permission
+   * POST /api/auth/verify-cashier-permission
+   * Verifies cashier PIN and checks if the cashier's associated user has the required permission
+   * Used for manual entry authorization in lottery shift closing
+   */
+  const verifyCashierPermissionSchema = z.object({
+    cashierId: z.string().uuid("cashierId must be a valid UUID"),
+    pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits"),
+    permission: z.literal("LOTTERY_MANUAL_ENTRY"),
+    storeId: z.string().uuid("storeId must be a valid UUID"),
+  });
+
+  fastify.post(
+    "/api/auth/verify-cashier-permission",
+    {
+      schema: {
+        description: "Verify cashier PIN and check permission",
+        tags: ["auth"],
+        body: {
+          type: "object",
+          properties: {
+            cashierId: {
+              type: "string",
+              format: "uuid",
+              description: "Cashier UUID",
+            },
+            pin: {
+              type: "string",
+              pattern: "^\\d{4}$",
+              description: "4-digit PIN",
+            },
+            permission: {
+              type: "string",
+              enum: ["LOTTERY_MANUAL_ENTRY"],
+              description: "Permission to check",
+            },
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+          required: ["cashierId", "pin", "permission", "storeId"],
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              valid: { type: "boolean" },
+              userId: { type: "string", format: "uuid" },
+              name: { type: "string" },
+              hasPermission: { type: "boolean" },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              valid: { type: "boolean" },
+              error: { type: "string" },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              valid: { type: "boolean" },
+              error: { type: "string" },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              valid: { type: "boolean" },
+              error: { type: "string" },
+            },
+          },
+        },
+      },
+      preHandler: [authMiddleware], // Requires authenticated user to make the request
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // API-001: VALIDATION - Validate request body with Zod schema
+        const parseResult = verifyCashierPermissionSchema.safeParse(
+          request.body,
+        );
+        if (!parseResult.success) {
+          reply.code(400);
+          return {
+            valid: false,
+            error: parseResult.error.issues[0]?.message || "Invalid request",
+          };
+        }
+
+        const { cashierId, pin, permission, storeId } = parseResult.data;
+        const user = (request as unknown as { user: UserIdentity }).user;
+        const auditContext = getAuditContext(request, user);
+
+        // Step 1: Verify cashier PIN using existing cashier authentication logic
+        // Find cashier by ID
+        const cashier = await prisma.cashier.findUnique({
+          where: {
+            cashier_id: cashierId,
+            store_id: storeId, // Ensure cashier belongs to the store
+            disabled_at: null, // Only active cashiers
+          },
+        });
+
+        if (!cashier) {
+          reply.code(401);
+          return {
+            valid: false,
+            error: "Invalid credentials",
+          };
+        }
+
+        // Verify PIN using bcrypt
+        // API-004: AUTHENTICATION - Use secure password verification
+        const pinValid = await bcrypt.compare(pin, cashier.pin_hash);
+        if (!pinValid) {
+          // Log failed authentication attempt
+          await prisma.auditLog.create({
+            data: {
+              user_id: user.id,
+              action: "AUTH_FAILURE",
+              table_name: "cashiers",
+              record_id: cashierId,
+              new_values: {
+                reason: "Invalid PIN",
+                store_id: storeId,
+                permission: permission,
+              },
+              ip_address: auditContext.ipAddress,
+              user_agent: auditContext.userAgent,
+            },
+          });
+
+          reply.code(401);
+          return {
+            valid: false,
+            error: "Invalid PIN",
+          };
+        }
+
+        // Step 2: Find user account associated with cashier
+        // Match cashier name to user name (case-insensitive)
+        // SEC-006: SQL_INJECTION - Use parameterized query via Prisma ORM
+        const userAccount = await prisma.user.findFirst({
+          where: {
+            name: {
+              equals: cashier.name,
+              mode: "insensitive", // Case-insensitive match
+            },
+            status: "ACTIVE", // Only active users
+          },
+        });
+
+        if (!userAccount) {
+          // Cashier authenticated but no user account found
+          // This means the cashier doesn't have a user account to check permissions
+          reply.code(401);
+          return {
+            valid: true, // PIN was valid
+            hasPermission: false,
+            error: "Cashier does not have a user account",
+          };
+        }
+
+        // Step 3: Check permission using RBAC service
+        const rbacService = new RBACService();
+        const hasPermission = await rbacService.checkPermission(
+          userAccount.user_id,
+          PERMISSIONS.LOTTERY_MANUAL_ENTRY,
+          {
+            storeId: storeId,
+          },
+        );
+
+        // Log successful authentication and permission check
+        await prisma.auditLog.create({
+          data: {
+            user_id: user.id,
+            action: "AUTH_SUCCESS",
+            table_name: "cashiers",
+            record_id: cashierId,
+            new_values: {
+              reason: "Cashier PIN verified",
+              store_id: storeId,
+              permission: permission,
+              has_permission: hasPermission,
+              user_id: userAccount.user_id,
+            },
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+          },
+        });
+
+        // Return result
+        reply.code(200);
+        return {
+          valid: true,
+          userId: userAccount.user_id,
+          name: userAccount.name,
+          hasPermission: hasPermission,
+        };
+      } catch (error: unknown) {
+        // API-003: ERROR_HANDLING - Generic error message, don't leak implementation details
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        fastify.log.error({ error }, "Error verifying cashier permission");
+
+        reply.code(500);
+        return {
+          valid: false,
+          error: "Failed to verify cashier permission",
+        };
+      }
     },
   );
 }

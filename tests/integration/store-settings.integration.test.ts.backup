@@ -1,0 +1,216 @@
+/**
+ * Integration Tests: Store Settings RLS Enforcement
+ *
+ * Tests Row-Level Security (RLS) enforcement at the service layer:
+ * - Users can only access settings for stores they own
+ * - Users cannot access settings for stores owned by other users
+ * - RLS is enforced at the database query level, not just in middleware
+ *
+ * @test-level INTEGRATION
+ * @justification Tests database-level RLS enforcement that requires database connection
+ * @story 6-14-store-settings-page
+ * @priority P1 (High - Security)
+ *
+ * These tests validate that RLS policies are enforced even when service methods
+ * are called directly (bypassing API middleware).
+ */
+
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { PrismaClient } from "@prisma/client";
+import { StoreService } from "../../backend/src/services/store.service";
+
+const prisma = new PrismaClient();
+const storeService = new StoreService();
+
+// Test data - isolated per test suite
+let owner1: any;
+let owner2: any;
+let company1: any;
+let company2: any;
+let store1: any;
+let store2: any;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEST SETUP & TEARDOWN
+// ═══════════════════════════════════════════════════════════════════════════
+
+beforeAll(async () => {
+  // GIVEN: Two different client owners with their own companies and stores
+  owner1 = await prisma.user.create({
+    data: {
+      email: `owner1-${Date.now()}@test.com`,
+      name: "Owner 1",
+      public_id: `USR${Date.now()}`,
+    },
+  });
+
+  owner2 = await prisma.user.create({
+    data: {
+      email: `owner2-${Date.now()}@test.com`,
+      name: "Owner 2",
+      public_id: `USR${Date.now() + 1}`,
+    },
+  });
+
+  company1 = await prisma.company.create({
+    data: {
+      name: "Company 1",
+      owner_user_id: owner1.user_id,
+      public_id: `COM${Date.now()}`,
+    },
+  });
+
+  company2 = await prisma.company.create({
+    data: {
+      name: "Company 2",
+      owner_user_id: owner2.user_id,
+      public_id: `COM${Date.now() + 1}`,
+    },
+  });
+
+  store1 = await prisma.store.create({
+    data: {
+      company_id: company1.company_id,
+      name: "Store 1",
+      public_id: `STR${Date.now()}`,
+      configuration: {
+        contact_email: "store1@example.com",
+        timezone: "America/New_York",
+      },
+    },
+  });
+
+  store2 = await prisma.store.create({
+    data: {
+      company_id: company2.company_id,
+      name: "Store 2",
+      public_id: `STR${Date.now() + 1}`,
+      configuration: {
+        contact_email: "store2@example.com",
+        timezone: "America/Los_Angeles",
+      },
+    },
+  });
+});
+
+afterAll(async () => {
+  // Cleanup all test data
+  if (store1)
+    await prisma.store.delete({ where: { store_id: store1.store_id } });
+  if (store2)
+    await prisma.store.delete({ where: { store_id: store2.store_id } });
+  if (company1)
+    await prisma.company.delete({
+      where: { company_id: company1.company_id },
+    });
+  if (company2)
+    await prisma.company.delete({
+      where: { company_id: company2.company_id },
+    });
+  if (owner1)
+    await prisma.user.delete({ where: { user_id: owner1.user_id } });
+  if (owner2)
+    await prisma.user.delete({ where: { user_id: owner2.user_id } });
+  await prisma.$disconnect();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RLS ENFORCEMENT TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("Store Settings RLS Enforcement", () => {
+  describe("getStoreSettings - RLS Enforcement", () => {
+    it("should allow owner to access their own store settings", async () => {
+      // WHEN: Owner1 tries to get settings for their own store
+      const settings = await storeService.getStoreSettings(
+        store1.store_id,
+        owner1.user_id,
+      );
+
+      // THEN: Returns store settings
+      expect(settings).toBeDefined();
+      expect(settings.name).toBe("Store 1");
+      expect(settings.contact_email).toBe("store1@example.com");
+      expect(settings.timezone).toBe("America/New_York");
+    });
+
+    it("should prevent owner from accessing other owner's store settings", async () => {
+      // WHEN: Owner1 tries to get settings for Owner2's store
+      // THEN: Throws Forbidden error
+      await expect(
+        storeService.getStoreSettings(store2.store_id, owner1.user_id),
+      ).rejects.toThrow("Forbidden: You can only access settings for stores you own");
+    });
+
+    it("should prevent owner2 from accessing owner1's store settings", async () => {
+      // WHEN: Owner2 tries to get settings for Owner1's store
+      // THEN: Throws Forbidden error
+      await expect(
+        storeService.getStoreSettings(store1.store_id, owner2.user_id),
+      ).rejects.toThrow("Forbidden: You can only access settings for stores you own");
+    });
+  });
+
+  describe("updateStoreSettings - RLS Enforcement", () => {
+    it("should allow owner to update their own store settings", async () => {
+      // WHEN: Owner1 updates their own store settings
+      const updatedStore = await storeService.updateStoreSettings(
+        store1.store_id,
+        owner1.user_id,
+        {
+          contact_email: "updated@example.com",
+          timezone: "America/Chicago",
+        },
+      );
+
+      // THEN: Store is updated successfully
+      expect(updatedStore).toBeDefined();
+      const config = updatedStore.configuration as any;
+      expect(config.contact_email).toBe("updated@example.com");
+      expect(config.timezone).toBe("America/Chicago");
+
+      // Restore original settings for other tests
+      await storeService.updateStoreSettings(store1.store_id, owner1.user_id, {
+        contact_email: "store1@example.com",
+        timezone: "America/New_York",
+      });
+    });
+
+    it("should prevent owner from updating other owner's store settings", async () => {
+      // WHEN: Owner1 tries to update Owner2's store settings
+      // THEN: Throws Forbidden error
+      await expect(
+        storeService.updateStoreSettings(store2.store_id, owner1.user_id, {
+          contact_email: "hacked@example.com",
+        }),
+      ).rejects.toThrow(
+        "Forbidden: You can only update settings for stores you own",
+      );
+    });
+
+    it("should prevent owner2 from updating owner1's store settings", async () => {
+      // WHEN: Owner2 tries to update Owner1's store settings
+      // THEN: Throws Forbidden error
+      await expect(
+        storeService.updateStoreSettings(store1.store_id, owner2.user_id, {
+          contact_email: "hacked@example.com",
+        }),
+      ).rejects.toThrow(
+        "Forbidden: You can only update settings for stores you own",
+      );
+    });
+
+    it("should verify store2 settings were not modified by unauthorized access attempt", async () => {
+      // GIVEN: Owner1 attempted to update store2 (which should have failed)
+      // WHEN: Owner2 retrieves their store settings
+      const settings = await storeService.getStoreSettings(
+        store2.store_id,
+        owner2.user_id,
+      );
+
+      // THEN: Store2 settings remain unchanged
+      expect(settings.contact_email).toBe("store2@example.com");
+      expect(settings.timezone).toBe("America/Los_Angeles");
+    });
+  });
+});

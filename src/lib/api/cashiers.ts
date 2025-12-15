@@ -4,7 +4,12 @@
  * All functions require CASHIER_* permissions (except authenticate)
  */
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  useQueries,
+} from "@tanstack/react-query";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
@@ -380,6 +385,81 @@ export function useCashiers(
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
+}
+
+/**
+ * Cashier with store information for multi-store views
+ */
+export interface CashierWithStore extends Cashier {
+  store_name: string;
+}
+
+/**
+ * Hook to fetch cashiers from multiple stores and aggregate results
+ * Used when user selects "All Stores" in the cashier list
+ *
+ * @param storeIds - Array of store UUIDs to fetch cashiers from
+ * @param storeNameMap - Map of store_id to store name for display
+ * @param filters - Filter options (is_active)
+ * @param options - Query options (enabled, etc.)
+ * @returns Combined result with aggregated cashiers from all stores
+ */
+export function useCashiersMultiStore(
+  storeIds: string[],
+  storeNameMap: Map<string, string>,
+  filters?: { is_active?: boolean },
+  options?: { enabled?: boolean },
+) {
+  const queries = useQueries({
+    queries: storeIds.map((storeId) => ({
+      queryKey: cashierKeys.list(storeId, filters),
+      queryFn: () => getCashiers(storeId, filters),
+      enabled: options?.enabled !== false && storeIds.length > 0,
+      refetchOnMount: "always" as const,
+      refetchOnWindowFocus: true,
+    })),
+  });
+
+  // Aggregate results from all queries
+  const isLoading = queries.some((q) => q.isLoading);
+  const isError = queries.some((q) => q.isError);
+  const error = queries.find((q) => q.error)?.error;
+
+  // Combine all cashiers with store name
+  // We use zip-like iteration since queries and storeIds have the same length/order
+  const data: CashierWithStore[] = [];
+  for (let i = 0; i < queries.length; i++) {
+    const query = queries[i];
+    const storeId = storeIds[i];
+    if (!query?.data || !storeId) continue;
+    const storeName = storeNameMap.get(storeId) || "Unknown Store";
+    for (const cashier of query.data) {
+      data.push({
+        ...cashier,
+        store_name: storeName,
+      });
+    }
+  }
+
+  // Sort by store name, then by name
+  data.sort((a, b) => {
+    const storeCompare = a.store_name.localeCompare(b.store_name);
+    if (storeCompare !== 0) return storeCompare;
+    return a.name.localeCompare(b.name);
+  });
+
+  // Create refetch function that refetches all queries
+  const refetch = () => {
+    queries.forEach((q) => q.refetch());
+  };
+
+  return {
+    data: data.length > 0 ? data : undefined,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  };
 }
 
 /**

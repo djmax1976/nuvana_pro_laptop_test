@@ -333,14 +333,47 @@ export function safeValidateShiftLotteryOpeningInput(data: unknown) {
  * Pack Closing Schema
  * Validates a single pack closing entry
  * Story 6.7: Shift Lottery Closing and Reconciliation
+ * Story 10.4: Manual Entry Override - Added entry_method tracking
  */
-export const PackClosingSchema = z.object({
-  packId: z.string().uuid("packId must be a valid UUID"),
-  closingSerial: z
-    .string()
-    .min(1, "closingSerial is required")
-    .max(100, "closingSerial must be at most 100 characters"),
-});
+export const PackClosingSchema = z
+  .object({
+    packId: z.string().uuid("packId must be a valid UUID"),
+    closingSerial: z
+      .string()
+      .min(1, "closingSerial is required")
+      .max(100, "closingSerial must be at most 100 characters"),
+    entry_method: z
+      .enum(["SCAN", "MANUAL"], {
+        errorMap: () => ({
+          message: "entry_method must be 'SCAN' or 'MANUAL'",
+        }),
+      })
+      .optional(),
+    manual_entry_authorized_by: z
+      .string()
+      .uuid("manual_entry_authorized_by must be a valid UUID")
+      .optional(),
+    manual_entry_authorized_at: z
+      .string()
+      .datetime("manual_entry_authorized_at must be a valid ISO 8601 datetime")
+      .optional(),
+  })
+  .refine(
+    (data) => {
+      // If entry_method is 'MANUAL', then authorization fields are required
+      if (data.entry_method === "MANUAL") {
+        return (
+          data.manual_entry_authorized_by !== undefined &&
+          data.manual_entry_authorized_at !== undefined
+        );
+      }
+      return true;
+    },
+    {
+      message:
+        "manual_entry_authorized_by and manual_entry_authorized_at are required when entry_method is 'MANUAL'",
+    },
+  );
 
 /**
  * Shift Lottery Closing Request Schema

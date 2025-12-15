@@ -1,0 +1,109 @@
+// tests/component/settings/ResetPINModal.test.tsx
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderWithProviders, screen } from "../../support/test-utils";
+import userEvent from "@testing-library/user-event";
+// Note: Component will be created at src/components/settings/ResetPINModal.tsx
+// import { ResetPINModal } from "@/components/settings/ResetPINModal";
+import * as cashiersApi from "@/lib/api/cashiers";
+
+/**
+ * ResetPINModal Component Tests
+ * 
+ * Tests the modal component for resetting cashier PINs.
+ * 
+ * Component tests are SECOND in pyramid order (20-30% of tests)
+ */
+
+vi.mock("@/lib/api/cashiers", () => ({
+  useUpdateCashier: vi.fn(),
+}));
+
+const mockToast = vi.fn();
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({
+    toast: mockToast,
+  }),
+}));
+
+describe("ResetPINModal Component", () => {
+  const cashier = {
+    cashierId: "123e4567-e89b-12d3-a456-426614174000",
+    storeId: "223e4567-e89b-12d3-a456-426614174001",
+  };
+
+  const mockUpdateMutation = {
+    mutateAsync: vi.fn().mockResolvedValue({}),
+    isPending: false,
+    isError: false,
+    error: null,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(cashiersApi.useUpdateCashier).mockReturnValue(
+      mockUpdateMutation as any,
+    );
+  });
+
+  describe("Modal Display", () => {
+    it("should render modal when open", () => {
+      // GIVEN: ResetPINModal is rendered with open=true
+      // WHEN: Component renders
+      // THEN: Modal is visible
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should have PIN input field", () => {
+      // GIVEN: ResetPINModal is rendered
+      // WHEN: Component renders
+      // THEN: PIN input field is present
+      expect(true).toBe(false); // RED phase
+    });
+  });
+
+  describe("PIN Validation", () => {
+    it("should show validation error for PIN shorter than 4 digits", async () => {
+      // GIVEN: ResetPINModal is rendered
+      // WHEN: User enters PIN < 4 digits
+      // THEN: Validation error is displayed
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should show validation error for PIN longer than 4 digits", async () => {
+      // GIVEN: ResetPINModal is rendered
+      // WHEN: User enters PIN > 4 digits
+      // THEN: Validation error is displayed
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should show validation error for non-numeric PIN", async () => {
+      // GIVEN: ResetPINModal is rendered
+      // WHEN: User enters non-numeric characters
+      // THEN: Validation error is displayed
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should accept valid 4-digit PIN", async () => {
+      // GIVEN: ResetPINModal is rendered
+      // WHEN: User enters valid 4-digit PIN
+      // THEN: No validation error
+      expect(true).toBe(false); // RED phase
+    });
+  });
+
+  describe("Save Functionality", () => {
+    it("should call updateCashier with PIN when save is clicked", async () => {
+      // GIVEN: ResetPINModal is rendered with valid PIN
+      // WHEN: User clicks save button
+      // THEN: updateCashier mutation is called with PIN
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should close modal on successful save", async () => {
+      // GIVEN: ResetPINModal is rendered
+      // WHEN: Save mutation succeeds
+      // THEN: Modal closes
+      expect(true).toBe(false); // RED phase
+    });
+  });
+});

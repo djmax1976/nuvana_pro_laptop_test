@@ -1,0 +1,139 @@
+/**
+ * E2E Tests: Store Settings Flow
+ * 
+ * Tests critical end-to-end user journey:
+ * - Client Owner navigates to settings → views store info → manages employee credentials
+ * 
+ * @test-level E2E
+ * @justification Tests critical multi-page user journey requiring full system integration
+ * @story 6-14 - Store Settings Page with Employee/Cashier Management
+ * @priority P0 (Critical - Core User Journey)
+ * 
+ * E2E tests are LAST in pyramid order (5-10% MAX - sparingly!)
+ */
+
+import { test, expect, Page } from "@playwright/test";
+import bcrypt from "bcrypt";
+import { PrismaClient } from "@prisma/client";
+
+/**
+ * Helper function to perform login and wait for redirect.
+ * Uses network-first pattern for reliability.
+ */
+async function loginAsClientOwner(
+  page: Page,
+  email: string,
+  password: string,
+): Promise<void> {
+  // Network-first pattern: Intercept API calls BEFORE navigation
+  const loginResponsePromise = page.waitForResponse(
+    (resp) =>
+      (resp.url().includes("/api/auth/login") ||
+        resp.url().includes("/api/client/auth/login")) &&
+      resp.status() === 200,
+    { timeout: 30000 },
+  );
+
+  // Navigate to login page
+  await page.goto("/login", { waitUntil: "domcontentloaded" });
+
+  // Wait for login form
+  await page.waitForSelector('input[type="email"]', {
+    state: "visible",
+    timeout: 15000,
+  });
+
+  // Fill credentials
+  await page.fill('input[type="email"]', email);
+  await page.fill('input[type="password"]', password);
+
+  // Set up navigation promise BEFORE clicking submit
+  const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {
+    timeout: 30000,
+    waitUntil: "domcontentloaded",
+  });
+
+  // Click submit
+  await page.click('button[type="submit"]');
+
+  // Wait for login response
+  await loginResponsePromise;
+
+  // Wait for navigation
+  await navigationPromise;
+}
+
+test.describe("Store Settings Flow (Critical Journey)", () => {
+  let prisma: PrismaClient;
+  let clientOwnerEmail: string;
+  let clientOwnerPassword: string;
+  let storeId: string;
+
+  test.beforeAll(async () => {
+    prisma = new PrismaClient();
+    // Setup test data
+    // NOTE: Implementation needed - test will fail until setup is complete
+  });
+
+  test.afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  test("[P0-AC-1,AC-2,AC-3] Client Owner can navigate to settings and view store info", async ({
+    page,
+  }) => {
+    // GIVEN: Client Owner is logged in
+    await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
+
+    // WHEN: User clicks "Settings" in sidebar navigation
+    await page.click('[data-testid="settings-nav-link"]');
+
+    // THEN: User is navigated to /client-dashboard/settings
+    await expect(page).toHaveURL(/.*\/client-dashboard\/settings.*/);
+
+    // AND: Settings page displays with store tabs
+    await expect(page.locator('[data-testid="store-tabs"]')).toBeVisible();
+
+    // AND: Store Info tab is selected by default
+    await expect(page.locator('[data-testid="store-info-tab"]')).toBeVisible();
+
+    // AND: Store configuration is displayed
+    await expect(page.locator('[data-testid="store-name"]')).toBeVisible();
+    await expect(page.locator('[data-testid="timezone-select"]')).toBeVisible();
+    await expect(page.locator('[data-testid="contact-email-input"]')).toBeVisible();
+
+    // NOTE: Implementation needed - test will fail until components exist
+    expect(true).toBe(false); // RED phase
+  });
+
+  test("[P0-AC-5] Client Owner can change employee email end-to-end", async ({
+    page,
+  }) => {
+    // GIVEN: Client Owner is logged in and on settings page
+    await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
+    await page.goto("/client-dashboard/settings", {
+      waitUntil: "domcontentloaded",
+    });
+
+    // WHEN: User selects Employees tab
+    await page.click('[data-testid="employees-tab"]');
+
+    // AND: User clicks "Change Email" for an employee
+    await page.click('[data-testid="change-email-button-0"]');
+
+    // AND: User enters new email and saves
+    await page.fill('[data-testid="email-input"]', "newemail@example.com");
+    await page.click('[data-testid="save-button"]');
+
+    // THEN: Success notification is displayed
+    await expect(page.locator('[data-testid="success-toast"]')).toBeVisible();
+
+    // AND: Employee email is updated in the table
+    await expect(
+      page.locator('[data-testid="employee-email-0"]'),
+    ).toHaveText("newemail@example.com");
+
+    // NOTE: Implementation needed - test will fail until components exist
+    expect(true).toBe(false); // RED phase
+  });
+});

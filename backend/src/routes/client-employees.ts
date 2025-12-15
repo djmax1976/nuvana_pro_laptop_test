@@ -36,6 +36,13 @@ const createEmployeeSchema = z.object({
     .string()
     .min(8, "Password must be at least 8 characters")
     .max(255, "Password cannot exceed 255 characters")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+    .regex(/[0-9]/, "Password must contain at least one number")
+    .regex(
+      /[!@#$%^&*(),.?":{}|<>]/,
+      "Password must contain at least one special character",
+    )
     .optional(),
 });
 
@@ -399,6 +406,283 @@ export async function clientEmployeeRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to fetch roles",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /api/client/employees/:userId/email
+   * Update employee email address
+   *
+   * @security Requires CLIENT_EMPLOYEE_MANAGE permission
+   * @param userId - Employee user UUID
+   * @body { email: string }
+   * @returns Updated user data
+   */
+  fastify.put(
+    "/api/client/employees/:userId/email",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.CLIENT_EMPLOYEE_MANAGE),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as unknown as { user: UserIdentity }).user;
+        const { userId } = request.params as { userId: string };
+
+        // Validate userId format
+        if (!isValidUUID(userId)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          };
+        }
+
+        // Validate request body
+        const bodySchema = z.object({
+          email: z
+            .string()
+            .email("Invalid email format")
+            .max(255, "Email cannot exceed 255 characters"),
+        });
+
+        const parseResult = bodySchema.safeParse(request.body);
+        if (!parseResult.success) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
+          };
+        }
+
+        const { email } = parseResult.data;
+        const auditContext = getAuditContext(request, user);
+
+        const updatedUser = await clientEmployeeService.updateEmployeeEmail(
+          userId,
+          email,
+          user.id,
+          auditContext,
+        );
+
+        reply.code(200);
+        return {
+          success: true,
+          data: updatedUser,
+        };
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        fastify.log.error({ error }, "Error updating employee email");
+
+        // Handle validation errors
+        if (
+          message.includes("Invalid email") ||
+          message.includes("already exists") ||
+          message.includes("required")
+        ) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
+          };
+        }
+
+        // Handle authorization errors
+        if (
+          message.includes("does not belong") ||
+          message.includes("Forbidden") ||
+          message.includes("not a store employee")
+        ) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message: "You can only update email for employees in your stores",
+            },
+          };
+        }
+
+        // Handle not found errors
+        if (message.includes("not found")) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Employee not found",
+            },
+          };
+        }
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update employee email",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /api/client/employees/:userId/password
+   * Reset employee password
+   *
+   * @security Requires CLIENT_EMPLOYEE_MANAGE permission
+   * @param userId - Employee user UUID
+   * @body { password: string }
+   * @returns Success message
+   */
+  fastify.put(
+    "/api/client/employees/:userId/password",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.CLIENT_EMPLOYEE_CREATE),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as unknown as { user: UserIdentity }).user;
+        const { userId } = request.params as { userId: string };
+
+        // Validate userId format
+        if (!isValidUUID(userId)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          };
+        }
+
+        // Validate request body
+        const bodySchema = z.object({
+          password: z
+            .string()
+            .min(8, "Password must be at least 8 characters")
+            .max(255, "Password cannot exceed 255 characters")
+            .refine(
+              (val) => {
+                // Password strength validation: min 8 chars, uppercase, lowercase, number, special char
+                const hasUpperCase = /[A-Z]/.test(val);
+                const hasLowerCase = /[a-z]/.test(val);
+                const hasNumber = /[0-9]/.test(val);
+                const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(val);
+                return (
+                  hasUpperCase && hasLowerCase && hasNumber && hasSpecialChar
+                );
+              },
+              {
+                message:
+                  "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
+              },
+            ),
+        });
+
+        const parseResult = bodySchema.safeParse(request.body);
+        if (!parseResult.success) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
+          };
+        }
+
+        const { password } = parseResult.data;
+        const auditContext = getAuditContext(request, user);
+
+        await clientEmployeeService.resetEmployeePassword(
+          userId,
+          password,
+          user.id,
+          auditContext,
+        );
+
+        reply.code(200);
+        return {
+          success: true,
+          message: "Password reset successfully",
+        };
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        fastify.log.error({ error }, "Error resetting employee password");
+
+        // Handle validation errors
+        if (
+          message.includes("Password must") ||
+          message.includes("required") ||
+          message.includes("must contain")
+        ) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
+          };
+        }
+
+        // Handle authorization errors
+        if (
+          message.includes("does not belong") ||
+          message.includes("Forbidden") ||
+          message.includes("not a store employee")
+        ) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "PERMISSION_DENIED",
+              message:
+                "You can only reset passwords for employees in your stores",
+            },
+          };
+        }
+
+        // Handle not found errors
+        if (message.includes("not found")) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Employee not found",
+            },
+          };
+        }
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to reset employee password",
           },
         };
       }

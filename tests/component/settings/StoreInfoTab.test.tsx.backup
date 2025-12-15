@@ -1,0 +1,181 @@
+// tests/component/settings/StoreInfoTab.test.tsx
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
+import userEvent from "@testing-library/user-event";
+// Note: Component will be created at src/components/settings/StoreInfoTab.tsx
+// import { StoreInfoTab } from "@/components/settings/StoreInfoTab";
+import * as storeSettingsApi from "@/lib/api/store-settings";
+
+/**
+ * StoreInfoTab Component Tests
+ * 
+ * Tests the Store Info tab component that displays and allows editing
+ * of store configuration (name, address, timezone, contact email, operating hours).
+ * 
+ * Component tests are SECOND in pyramid order (20-30% of tests)
+ */
+
+// Mock the API hooks
+vi.mock("@/lib/api/store-settings", () => ({
+  useStoreSettings: vi.fn(),
+  useUpdateStoreSettings: vi.fn(),
+}));
+
+// Mock toast hook
+const mockToast = vi.fn();
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({
+    toast: mockToast,
+  }),
+}));
+
+describe("StoreInfoTab Component", () => {
+  const storeId = "123e4567-e89b-12d3-a456-426614174000";
+
+  const mockStoreSettings = {
+    name: "Test Store",
+    address: {
+      street: "123 Main St",
+      city: "New York",
+      state: "NY",
+      zip: "10001",
+    },
+    timezone: "America/New_York",
+    contact_email: "store@example.com",
+    operating_hours: {
+      monday: { open: "09:00", close: "17:00" },
+      tuesday: { open: "09:00", close: "17:00" },
+    },
+  };
+
+  const mockUseStoreSettings = {
+    data: mockStoreSettings,
+    isLoading: false,
+    isError: false,
+    error: null,
+  };
+
+  const mockUpdateMutation = {
+    mutateAsync: vi.fn().mockResolvedValue(mockStoreSettings),
+    isPending: false,
+    isError: false,
+    error: null,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(storeSettingsApi.useStoreSettings).mockReturnValue(
+      mockUseStoreSettings as any,
+    );
+    vi.mocked(storeSettingsApi.useUpdateStoreSettings).mockReturnValue(
+      mockUpdateMutation as any,
+    );
+  });
+
+  describe("Display Store Information", () => {
+    it("should display store name as read-only field", async () => {
+      // GIVEN: StoreInfoTab is rendered with store data
+      // WHEN: Component renders
+      // THEN: Store name is displayed and is read-only
+      // NOTE: Component implementation needed - test will fail until component exists
+      expect(true).toBe(false); // RED phase - component doesn't exist yet
+    });
+
+    it("should display address fields", async () => {
+      // GIVEN: StoreInfoTab is rendered
+      // WHEN: Component renders
+      // THEN: Address fields are displayed with current values
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should display timezone selector with current timezone", async () => {
+      // GIVEN: StoreInfoTab is rendered
+      // WHEN: Component renders
+      // THEN: Timezone selector shows current timezone value
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should display contact email field", async () => {
+      // GIVEN: StoreInfoTab is rendered
+      // WHEN: Component renders
+      // THEN: Contact email field is displayed with current value
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should display operating hours for each day", async () => {
+      // GIVEN: StoreInfoTab is rendered
+      // WHEN: Component renders
+      // THEN: Operating hours inputs are displayed for each day
+      expect(true).toBe(false); // RED phase
+    });
+  });
+
+  describe("Form Validation", () => {
+    it("should show validation error for invalid email format", async () => {
+      // GIVEN: StoreInfoTab is rendered
+      // WHEN: User enters invalid email and blurs field
+      // THEN: Validation error message is displayed
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should show validation error for invalid timezone", async () => {
+      // GIVEN: StoreInfoTab is rendered
+      // WHEN: User selects invalid timezone
+      // THEN: Validation error message is displayed
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should show validation error for invalid time format", async () => {
+      // GIVEN: StoreInfoTab is rendered
+      // WHEN: User enters invalid time format (e.g., "25:00")
+      // THEN: Validation error message is displayed
+      expect(true).toBe(false); // RED phase
+    });
+  });
+
+  describe("Save Functionality", () => {
+    it("should call updateStoreSettings when save button is clicked", async () => {
+      // GIVEN: StoreInfoTab is rendered with valid form data
+      // WHEN: User clicks save button
+      // THEN: updateStoreSettings mutation is called with updated data
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should show loading state while saving", async () => {
+      // GIVEN: StoreInfoTab is rendered
+      // WHEN: User clicks save and mutation is pending
+      // THEN: Save button shows loading state
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should show success notification on successful save", async () => {
+      // GIVEN: StoreInfoTab is rendered
+      // WHEN: Save mutation succeeds
+      // THEN: Success toast notification is displayed
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should show error notification on save failure", async () => {
+      // GIVEN: StoreInfoTab is rendered
+      // WHEN: Save mutation fails
+      // THEN: Error toast notification is displayed
+      expect(true).toBe(false); // RED phase
+    });
+  });
+
+  describe("Loading and Error States", () => {
+    it("should show loading state while fetching store settings", async () => {
+      // GIVEN: StoreInfoTab is rendered
+      // WHEN: useStoreSettings is loading
+      // THEN: Loading spinner is displayed
+      expect(true).toBe(false); // RED phase
+    });
+
+    it("should show error message when fetch fails", async () => {
+      // GIVEN: StoreInfoTab is rendered
+      // WHEN: useStoreSettings returns error
+      // THEN: Error message is displayed
+      expect(true).toBe(false); // RED phase
+    });
+  });
+});

@@ -1,0 +1,242 @@
+/**
+ * Manual Entry Authorization API Tests
+ *
+ * Tests for manual entry authorization endpoints:
+ * - GET /api/stores/:storeId/active-shift-cashiers
+ * - POST /api/auth/verify-cashier-permission
+ * - Permission checking for LOTTERY_MANUAL_ENTRY
+ * - PIN verification
+ *
+ * @test-level API
+ * @justification Tests API contracts, authentication, and authorization
+ * @story 10-4 - Manual Entry Override
+ * @priority P0 (Critical - Security & Authorization)
+ */
+
+import { test, expect } from "../support/fixtures/rbac.fixture";
+import { createShift, createCashier } from "../support/helpers";
+import { ShiftStatus } from "@prisma/client";
+
+test.describe("10-4-API: Manual Entry Authorization", () => {
+  test("10-4-API-001: should return active cashiers for store", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Store with active shift and cashiers
+    const shift = await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: storeManagerUser.user_id,
+        status: ShiftStatus.ACTIVE,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const cashier1 = await createCashier(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      name: "Cashier 1",
+      employee_id: "EMP001",
+    });
+
+    const cashier2 = await createCashier(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      name: "Cashier 2",
+      employee_id: "EMP002",
+    });
+
+    // Create active shifts for cashiers
+    await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: cashier1.user_id,
+        status: ShiftStatus.ACTIVE,
+        opening_cash: 50.0,
+      },
+      prismaClient,
+    );
+
+    await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: cashier2.user_id,
+        status: ShiftStatus.ACTIVE,
+        opening_cash: 75.0,
+      },
+      prismaClient,
+    );
+
+    // WHEN: Requesting active shift cashiers
+    const response = await storeManagerApiRequest.get(
+      `/api/stores/${storeManagerUser.store_id}/active-shift-cashiers`,
+    );
+
+    // THEN: Returns list of cashiers with active shifts
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      success: true,
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          id: expect.any(String),
+          name: expect.any(String),
+          shiftId: expect.any(String),
+        }),
+      ]),
+    });
+
+    // AND: Only cashiers with active shifts are included
+    const cashierNames = body.data.map((c: { name: string }) => c.name);
+    expect(cashierNames).toContain("Cashier 1");
+    expect(cashierNames).toContain("Cashier 2");
+  });
+
+  test("10-4-API-002: should verify PIN correctly", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Cashier with known PIN
+    const cashier = await createCashier(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      name: "Test Cashier",
+      employee_id: "EMP001",
+      pin: "1234", // Known PIN
+    });
+
+    // WHEN: Verifying PIN
+    const response = await storeManagerApiRequest.post(
+      "/api/auth/verify-cashier-permission",
+      {
+        data: {
+          cashierId: cashier.user_id,
+          pin: "1234",
+          permission: "LOTTERY_MANUAL_ENTRY",
+          storeId: storeManagerUser.store_id,
+        },
+      },
+    );
+
+    // THEN: PIN verification succeeds
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      valid: true,
+      userId: cashier.user_id,
+      name: "Test Cashier",
+    });
+  });
+
+  test("10-4-API-003: should check LOTTERY_MANUAL_ENTRY permission", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Shift Manager with LOTTERY_MANUAL_ENTRY permission
+    const shiftManager = await createCashier(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      name: "Shift Manager",
+      employee_id: "SM001",
+      pin: "5678",
+    });
+
+    // Assign LOTTERY_MANUAL_ENTRY permission (default for SHIFT_MANAGER role)
+    // (Permission assignment would be done via role assignment)
+
+    // WHEN: Verifying permission
+    const response = await storeManagerApiRequest.post(
+      "/api/auth/verify-cashier-permission",
+      {
+        data: {
+          cashierId: shiftManager.user_id,
+          pin: "5678",
+          permission: "LOTTERY_MANUAL_ENTRY",
+          storeId: storeManagerUser.store_id,
+        },
+      },
+    );
+
+    // THEN: Permission check succeeds
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      valid: true,
+      hasPermission: true,
+      userId: shiftManager.user_id,
+    });
+  });
+
+  test("10-4-API-004: should reject if permission not granted", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Cashier without LOTTERY_MANUAL_ENTRY permission
+    const cashier = await createCashier(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      name: "Regular Cashier",
+      employee_id: "CASH001",
+      pin: "9999",
+    });
+
+    // Cashier does NOT have LOTTERY_MANUAL_ENTRY permission
+
+    // WHEN: Verifying permission
+    const response = await storeManagerApiRequest.post(
+      "/api/auth/verify-cashier-permission",
+      {
+        data: {
+          cashierId: cashier.user_id,
+          pin: "9999",
+          permission: "LOTTERY_MANUAL_ENTRY",
+          storeId: storeManagerUser.store_id,
+        },
+      },
+    );
+
+    // THEN: Permission check fails
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      valid: true, // PIN is valid
+      hasPermission: false, // But permission not granted
+      userId: cashier.user_id,
+    });
+  });
+
+  test("10-4-API-005: should reject invalid PIN", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Cashier with known PIN
+    const cashier = await createCashier(prismaClient, {
+      store_id: storeManagerUser.store_id,
+      name: "Test Cashier",
+      employee_id: "EMP001",
+      pin: "1234",
+    });
+
+    // WHEN: Verifying with wrong PIN
+    const response = await storeManagerApiRequest.post(
+      "/api/auth/verify-cashier-permission",
+      {
+        data: {
+          cashierId: cashier.user_id,
+          pin: "9999", // Wrong PIN
+          permission: "LOTTERY_MANUAL_ENTRY",
+          storeId: storeManagerUser.store_id,
+        },
+      },
+    );
+
+    // THEN: PIN verification fails
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      valid: false,
+      error: expect.stringContaining("PIN"),
+    });
+  });
+});

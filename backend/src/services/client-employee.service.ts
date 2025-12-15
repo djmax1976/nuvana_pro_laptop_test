@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, User } from "@prisma/client";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
@@ -238,6 +238,33 @@ export class ClientEmployeeService {
     try {
       // Hash password if provided, otherwise generate a random one
       const password = data.password || this.generateRandomPassword();
+
+      // Defense-in-depth: Validate password strength even if route validation passed
+      // This protects against API bypass attempts or future code paths that might skip route validation
+      if (data.password) {
+        if (data.password.length < 8) {
+          throw new Error("Password must be at least 8 characters");
+        }
+        if (!/[A-Z]/.test(data.password)) {
+          throw new Error(
+            "Password must contain at least one uppercase letter",
+          );
+        }
+        if (!/[a-z]/.test(data.password)) {
+          throw new Error(
+            "Password must contain at least one lowercase letter",
+          );
+        }
+        if (!/[0-9]/.test(data.password)) {
+          throw new Error("Password must contain at least one number");
+        }
+        if (!/[!@#$%^&*(),.?":{}|<>]/.test(data.password)) {
+          throw new Error(
+            "Password must contain at least one special character",
+          );
+        }
+      }
+
       const passwordHash = await bcrypt.hash(password, 10);
 
       // Use transaction to create user and role assignment atomically
@@ -611,6 +638,205 @@ export class ClientEmployeeService {
     } catch (error) {
       console.error("Error fetching store roles:", error);
       throw error;
+    }
+  }
+
+  /**
+   * Update employee email address
+   * Validates employee belongs to client's stores and email uniqueness
+   * @param employeeId - Employee user UUID
+   * @param newEmail - New email address
+   * @param clientUserId - Client user UUID
+   * @param auditContext - Audit context for logging
+   * @returns Updated user record
+   * @throws Error if employee doesn't belong to client's stores, email is invalid, or email already exists
+   */
+  async updateEmployeeEmail(
+    employeeId: string,
+    newEmail: string,
+    clientUserId: string,
+    auditContext: AuditContext,
+  ): Promise<User> {
+    try {
+      // Verify employee belongs to client's stores
+      const employee = await prisma.user.findFirst({
+        where: {
+          user_id: employeeId,
+          user_roles: {
+            some: {
+              role: {
+                scope: "STORE",
+              },
+              store: {
+                company: {
+                  owner_user_id: clientUserId,
+                },
+              },
+            },
+          },
+        },
+        include: {
+          user_roles: {
+            include: {
+              store: {
+                include: {
+                  company: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!employee) {
+        throw new Error("Employee not found or does not belong to your stores");
+      }
+
+      // Validate email uniqueness (case-insensitive)
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          email: {
+            equals: newEmail,
+            mode: "insensitive",
+          },
+          user_id: { not: employeeId },
+        },
+      });
+
+      if (existingUser) {
+        throw new Error("Email address is already in use");
+      }
+
+      // Update email atomically
+      const updatedUser = await prisma.user.update({
+        where: { user_id: employeeId },
+        data: { email: newEmail },
+      });
+
+      // Create audit log entry (non-blocking)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "EMPLOYEE_EMAIL_UPDATED",
+            table_name: "users",
+            record_id: employeeId,
+            old_values: { email: employee.email } as Record<string, any>,
+            new_values: { email: newEmail } as Record<string, any>,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Employee email updated by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        console.error(
+          "Failed to create audit log for email update:",
+          auditError,
+        );
+      }
+
+      return updatedUser;
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      console.error("Error updating employee email:", error);
+      throw new Error("Failed to update employee email");
+    }
+  }
+
+  /**
+   * Reset employee password
+   * Validates employee belongs to client's stores and password strength
+   * @param employeeId - Employee user UUID
+   * @param newPassword - New password (plaintext, will be hashed)
+   * @param clientUserId - Client user UUID
+   * @param auditContext - Audit context for logging
+   * @throws Error if employee doesn't belong to client's stores or password doesn't meet strength requirements
+   */
+  async resetEmployeePassword(
+    employeeId: string,
+    newPassword: string,
+    clientUserId: string,
+    auditContext: AuditContext,
+  ): Promise<void> {
+    try {
+      // Verify employee belongs to client's stores
+      const employee = await prisma.user.findFirst({
+        where: {
+          user_id: employeeId,
+          user_roles: {
+            some: {
+              role: {
+                scope: "STORE",
+              },
+              store: {
+                company: {
+                  owner_user_id: clientUserId,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!employee) {
+        throw new Error("Employee not found or does not belong to your stores");
+      }
+
+      // Validate password strength (min 8 chars, uppercase, lowercase, number, special char)
+      if (newPassword.length < 8) {
+        throw new Error("Password must be at least 8 characters");
+      }
+
+      const hasUpperCase = /[A-Z]/.test(newPassword);
+      const hasLowerCase = /[a-z]/.test(newPassword);
+      const hasNumber = /[0-9]/.test(newPassword);
+      const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
+
+      if (!hasUpperCase || !hasLowerCase || !hasNumber || !hasSpecialChar) {
+        throw new Error(
+          "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
+        );
+      }
+
+      // Hash password using bcrypt
+      const saltRounds = 12; // Strong cost factor (250ms+ on production hardware)
+      const passwordHash = await bcrypt.hash(newPassword, saltRounds);
+
+      // Update password hash atomically
+      await prisma.user.update({
+        where: { user_id: employeeId },
+        data: { password_hash: passwordHash },
+      });
+
+      // Create audit log entry (non-blocking)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "EMPLOYEE_PASSWORD_RESET",
+            table_name: "users",
+            record_id: employeeId,
+            old_values: { password_hash: "[REDACTED]" } as Record<string, any>,
+            new_values: { password_hash: "[REDACTED]" } as Record<string, any>,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Employee password reset by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        console.error(
+          "Failed to create audit log for password reset:",
+          auditError,
+        );
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      console.error("Error resetting employee password:", error);
+      throw new Error("Failed to reset employee password");
     }
   }
 

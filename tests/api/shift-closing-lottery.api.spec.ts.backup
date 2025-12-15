@@ -1,0 +1,393 @@
+/**
+ * Shift Closing Lottery API Tests
+ *
+ * Tests for the lottery closing submission API endpoint:
+ * - POST /api/shifts/:shiftId/lottery/close
+ * - Request validation
+ * - Response structure
+ * - Error handling
+ * - Entry method tracking
+ *
+ * @test-level API
+ * @justification Tests API contracts, request/response validation, error handling
+ * @story 10-7 - Shift Closing Submission & Pack Status Updates
+ * @priority P0 (Critical - API Contracts)
+ */
+
+import { test, expect } from "../support/fixtures/rbac.fixture";
+import {
+  createLotteryGame,
+  createLotteryPack,
+  createLotteryBin,
+  createLotteryShiftOpening,
+} from "../support/factories/lottery.factory";
+import { createShift } from "../support/helpers";
+import { ShiftStatus, LotteryPackStatus } from "@prisma/client";
+
+test.describe("10-7-API: Shift Closing Submission Endpoint", () => {
+  test("TEST-10.7-A1: Should accept valid closing data and return summary", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Shift with active pack
+    const shift = await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: storeManagerUser.user_id,
+        status: ShiftStatus.CLOSING,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const game = await createLotteryGame(prismaClient);
+    const bin = await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+    });
+
+    const pack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      status: LotteryPackStatus.ACTIVE,
+      current_bin_id: bin.bin_id,
+      serial_start: "000001",
+      serial_end: "000100",
+    });
+
+    await createLotteryShiftOpening(prismaClient, {
+      shift_id: shift.shift_id,
+      pack_id: pack.pack_id,
+      opening_serial: "000001",
+    });
+
+    const closingData = {
+      closings: [
+        {
+          bin_id: bin.bin_id,
+          pack_id: pack.pack_id,
+          ending_serial: "000050",
+          entry_method: "SCAN",
+        },
+      ],
+      closed_by: storeManagerUser.user_id,
+    };
+
+    // WHEN: Submitting closing data
+    const response = await storeManagerApiRequest.post(
+      `/api/shifts/${shift.shift_id}/lottery/close`,
+      {
+        data: closingData,
+      },
+    );
+
+    // THEN: Returns success response with summary
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      success: true,
+      summary: {
+        packs_closed: expect.any(Number),
+        packs_depleted: expect.any(Number),
+        total_tickets_sold: expect.any(Number),
+        variances: expect.any(Array),
+      },
+    });
+  });
+
+  test("TEST-10.7-A2: Should return summary with packs_closed, packs_depleted, total_tickets_sold counts", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Shift with multiple packs
+    const shift = await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: storeManagerUser.user_id,
+        status: ShiftStatus.CLOSING,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const game = await createLotteryGame(prismaClient);
+    const bin = await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+    });
+
+    // Pack 1: Will be depleted (ending = serial_end)
+    const pack1 = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      status: LotteryPackStatus.ACTIVE,
+      current_bin_id: bin.bin_id,
+      serial_start: "000001",
+      serial_end: "000100",
+    });
+
+    // Pack 2: Will remain active (ending < serial_end)
+    const pack2 = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      status: LotteryPackStatus.ACTIVE,
+      current_bin_id: bin.bin_id,
+      serial_start: "000101",
+      serial_end: "000200",
+    });
+
+    await createLotteryShiftOpening(prismaClient, {
+      shift_id: shift.shift_id,
+      pack_id: pack1.pack_id,
+      opening_serial: "000001",
+    });
+
+    await createLotteryShiftOpening(prismaClient, {
+      shift_id: shift.shift_id,
+      pack_id: pack2.pack_id,
+      opening_serial: "000101",
+    });
+
+    const closingData = {
+      closings: [
+        {
+          bin_id: bin.bin_id,
+          pack_id: pack1.pack_id,
+          ending_serial: "000100", // Depleted
+          entry_method: "SCAN",
+        },
+        {
+          bin_id: bin.bin_id,
+          pack_id: pack2.pack_id,
+          ending_serial: "000150", // Active
+          entry_method: "SCAN",
+        },
+      ],
+      closed_by: storeManagerUser.user_id,
+    };
+
+    // WHEN: Submitting closing data
+    const response = await storeManagerApiRequest.post(
+      `/api/shifts/${shift.shift_id}/lottery/close`,
+      {
+        data: closingData,
+      },
+    );
+
+    // THEN: Summary contains correct counts
+    const body = await response.json();
+    expect(body.summary.packs_closed).toBe(2);
+    expect(body.summary.packs_depleted).toBe(1);
+    expect(body.summary.total_tickets_sold).toBeGreaterThan(0);
+  });
+
+  test("TEST-10.7-A3: Should return variances array when variances detected", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Shift with pack that will have variance
+    const shift = await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: storeManagerUser.user_id,
+        status: ShiftStatus.CLOSING,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const game = await createLotteryGame(prismaClient);
+    const bin = await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+    });
+
+    const pack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      status: LotteryPackStatus.ACTIVE,
+      current_bin_id: bin.bin_id,
+      serial_start: "000001",
+      serial_end: "000100",
+    });
+
+    await createLotteryShiftOpening(prismaClient, {
+      shift_id: shift.shift_id,
+      pack_id: pack.pack_id,
+      opening_serial: "000010",
+    });
+
+    const closingData = {
+      closings: [
+        {
+          bin_id: bin.bin_id,
+          pack_id: pack.pack_id,
+          ending_serial: "000050",
+          entry_method: "SCAN",
+        },
+      ],
+      closed_by: storeManagerUser.user_id,
+    };
+
+    // WHEN: Submitting closing data
+    const response = await storeManagerApiRequest.post(
+      `/api/shifts/${shift.shift_id}/lottery/close`,
+      {
+        data: closingData,
+      },
+    );
+
+    // THEN: Variances array is returned (may be empty if no variance)
+    const body = await response.json();
+    expect(body.summary.variances).toBeDefined();
+    expect(Array.isArray(body.summary.variances)).toBe(true);
+  });
+
+  test("TEST-10.7-A4: Should reject if pack not found and return error", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Shift with non-existent pack
+    const shift = await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: storeManagerUser.user_id,
+        status: ShiftStatus.CLOSING,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const bin = await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+    });
+
+    const closingData = {
+      closings: [
+        {
+          bin_id: bin.bin_id,
+          pack_id: "non-existent-pack-id",
+          ending_serial: "000050",
+          entry_method: "SCAN",
+        },
+      ],
+      closed_by: storeManagerUser.user_id,
+    };
+
+    // WHEN: Submitting closing data with invalid pack
+    const response = await storeManagerApiRequest.post(
+      `/api/shifts/${shift.shift_id}/lottery/close`,
+      {
+        data: closingData,
+      },
+    );
+
+    // THEN: Returns error response
+    expect(response.status()).toBeGreaterThanOrEqual(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+  });
+
+  test("TEST-10.7-A5: Should handle mixed scan/manual entries correctly", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: Shift with multiple packs (scan and manual entries)
+    const shift = await createShift(
+      {
+        store_id: storeManagerUser.store_id,
+        opened_by: storeManagerUser.user_id,
+        status: ShiftStatus.CLOSING,
+        opening_cash: 100.0,
+      },
+      prismaClient,
+    );
+
+    const game = await createLotteryGame(prismaClient);
+    const bin = await createLotteryBin(prismaClient, {
+      store_id: storeManagerUser.store_id,
+    });
+
+    const pack1 = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      status: LotteryPackStatus.ACTIVE,
+      current_bin_id: bin.bin_id,
+      serial_start: "000001",
+      serial_end: "000100",
+    });
+
+    const pack2 = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      status: LotteryPackStatus.ACTIVE,
+      current_bin_id: bin.bin_id,
+      serial_start: "000101",
+      serial_end: "000200",
+    });
+
+    await createLotteryShiftOpening(prismaClient, {
+      shift_id: shift.shift_id,
+      pack_id: pack1.pack_id,
+      opening_serial: "000001",
+    });
+
+    await createLotteryShiftOpening(prismaClient, {
+      shift_id: shift.shift_id,
+      pack_id: pack2.pack_id,
+      opening_serial: "000101",
+    });
+
+    const closingData = {
+      closings: [
+        {
+          bin_id: bin.bin_id,
+          pack_id: pack1.pack_id,
+          ending_serial: "000050",
+          entry_method: "SCAN",
+        },
+        {
+          bin_id: bin.bin_id,
+          pack_id: pack2.pack_id,
+          ending_serial: "000150",
+          entry_method: "MANUAL",
+          manual_entry_authorized_by: storeManagerUser.user_id,
+          manual_entry_authorized_at: new Date().toISOString(),
+        },
+      ],
+      closed_by: storeManagerUser.user_id,
+    };
+
+    // WHEN: Submitting closing data with mixed entry methods
+    const response = await storeManagerApiRequest.post(
+      `/api/shifts/${shift.shift_id}/lottery/close`,
+      {
+        data: closingData,
+      },
+    );
+
+    // THEN: Both entries are processed correctly
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.summary.packs_closed).toBe(2);
+
+    // Verify entry methods are tracked in database
+    const closingRecords = await prismaClient.lotteryShiftClosing.findMany({
+      where: {
+        shift_id: shift.shift_id,
+      },
+    });
+
+    expect(closingRecords.length).toBe(2);
+    const scanRecord = closingRecords.find((r) => r.entry_method === "SCAN");
+    const manualRecord = closingRecords.find((r) => r.entry_method === "MANUAL");
+
+    expect(scanRecord).toBeTruthy();
+    expect(manualRecord).toBeTruthy();
+    expect(manualRecord?.manual_entry_authorized_by).toBe(storeManagerUser.user_id);
+  });
+});

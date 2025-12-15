@@ -244,6 +244,55 @@ export async function getStoreRoles(): Promise<RolesResponse> {
   });
 }
 
+/**
+ * Update employee email address
+ * @param userId - Employee user ID
+ * @param email - New email address
+ * @returns Updated user data
+ */
+export async function updateEmployeeEmail(
+  userId: string,
+  email: string,
+): Promise<EmployeeResponse> {
+  if (!userId) {
+    throw new Error("User ID is required");
+  }
+  if (!email?.trim()) {
+    throw new Error("Email is required");
+  }
+
+  return apiRequest<EmployeeResponse>(`/api/client/employees/${userId}/email`, {
+    method: "PUT",
+    body: JSON.stringify({ email }),
+  });
+}
+
+/**
+ * Reset employee password
+ * @param userId - Employee user ID
+ * @param password - New password (plaintext, will be hashed server-side)
+ * @returns Success response
+ */
+export async function resetEmployeePassword(
+  userId: string,
+  password: string,
+): Promise<{ success: boolean }> {
+  if (!userId) {
+    throw new Error("User ID is required");
+  }
+  if (!password) {
+    throw new Error("Password is required");
+  }
+
+  return apiRequest<{ success: boolean }>(
+    `/api/client/employees/${userId}/password`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ password }),
+    },
+  );
+}
+
 // ============ TanStack Query Keys ============
 
 /**
@@ -332,6 +381,50 @@ export function useDeleteEmployee() {
       // Invalidate dashboard to update employee count
       queryClient.invalidateQueries({
         queryKey: clientDashboardKeys.dashboard(),
+      });
+    },
+  });
+}
+
+/**
+ * Hook to update employee email
+ * Invalidates employee list and detail queries on success
+ * @returns TanStack Mutation for updating employee email
+ */
+export function useUpdateEmployeeEmail() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ userId, email }: { userId: string; email: string }) =>
+      updateEmployeeEmail(userId, email),
+    onSuccess: (_, variables) => {
+      // Invalidate employee list
+      queryClient.invalidateQueries({ queryKey: clientEmployeeKeys.lists() });
+      // Invalidate specific employee detail
+      queryClient.invalidateQueries({
+        queryKey: clientEmployeeKeys.detail(variables.userId),
+      });
+    },
+  });
+}
+
+/**
+ * Hook to reset employee password
+ * Invalidates employee list and detail queries on success
+ * @returns TanStack Mutation for resetting employee password
+ */
+export function useResetEmployeePassword() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ userId, password }: { userId: string; password: string }) =>
+      resetEmployeePassword(userId, password),
+    onSuccess: (_, variables) => {
+      // Invalidate employee list
+      queryClient.invalidateQueries({ queryKey: clientEmployeeKeys.lists() });
+      // Invalidate specific employee detail
+      queryClient.invalidateQueries({
+        queryKey: clientEmployeeKeys.detail(variables.userId),
       });
     },
   });

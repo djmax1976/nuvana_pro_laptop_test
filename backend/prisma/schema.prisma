@@ -45,6 +45,9 @@ model User {
   store_logins            Store[]                @relation("StoreLogin") // Stores where this user is the store login credential
   ticket_serials          LotteryTicketSerial[]  @relation("TicketCashier")
   pack_bin_history        LotteryPackBinHistory[] @relation("PackMover")
+  packs_activated         LotteryPack[]           @relation("PackActivatedBy")
+  packs_depleted          LotteryPack[]           @relation("PackDepletedBy")
+  manual_entry_authorizations LotteryShiftClosing[] @relation("ManualEntryAuthorizer")
 
   @@index([email])
   @@index([status])
@@ -373,6 +376,8 @@ model Shift {
   lottery_closings LotteryShiftClosing[]
   lottery_variances LotteryVariance[]
   ticket_serials   LotteryTicketSerial[]
+  packs_activated  LotteryPack[]        @relation("PackActivatedInShift")
+  packs_depleted   LotteryPack[]        @relation("PackDepletedInShift")
 
   @@index([store_id])
   @@index([opened_by])
@@ -578,6 +583,14 @@ model LotteryPack {
   created_at         DateTime           @default(now()) @db.Timestamptz(6)
   updated_at         DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
 
+  // Pack activation context (Story 10.2)
+  activated_by       String?            @db.Uuid
+  activated_shift_id String?            @db.Uuid
+
+  // Pack depletion context (Story 10.2)
+  depleted_by        String?            @db.Uuid
+  depleted_shift_id  String?            @db.Uuid
+
   game               LotteryGame        @relation(fields: [game_id], references: [game_id], onDelete: Cascade)
   store              Store              @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
   bin                LotteryBin?        @relation(fields: [current_bin_id], references: [bin_id], onDelete: SetNull)
@@ -586,6 +599,10 @@ model LotteryPack {
   variances          LotteryVariance[]
   ticket_serials     LotteryTicketSerial[]
   bin_history        LotteryPackBinHistory[]
+  activatedByUser    User?              @relation("PackActivatedBy", fields: [activated_by], references: [user_id])
+  activatedShift     Shift?             @relation("PackActivatedInShift", fields: [activated_shift_id], references: [shift_id])
+  depletedByUser     User?              @relation("PackDepletedBy", fields: [depleted_by], references: [user_id])
+  depletedShift      Shift?             @relation("PackDepletedInShift", fields: [depleted_shift_id], references: [shift_id])
 
   @@index([game_id])
   @@index([store_id])
@@ -593,6 +610,10 @@ model LotteryPack {
   @@index([pack_number])
   @@index([serial_start, serial_end])
   @@index([current_bin_id, status])
+  @@index([activated_by])
+  @@index([activated_shift_id])
+  @@index([depleted_by])
+  @@index([depleted_shift_id])
   @@unique([store_id, pack_number])
   @@map("lottery_packs")
 }
@@ -641,18 +662,23 @@ model LotteryShiftOpening {
 }
 
 model LotteryShiftClosing {
-  closing_id     String   @id @default(uuid()) @db.Uuid
-  shift_id       String   @db.Uuid
-  pack_id        String   @db.Uuid
-  closing_serial String   @db.VarChar(100)
-  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  closing_id                 String    @id @default(uuid()) @db.Uuid
+  shift_id                   String    @db.Uuid
+  pack_id                    String    @db.Uuid
+  closing_serial             String    @db.VarChar(100)
+  entry_method               String?   @db.VarChar(10) // 'SCAN' or 'MANUAL'
+  manual_entry_authorized_by String?   @db.Uuid
+  manual_entry_authorized_at DateTime? @db.Timestamptz(6)
+  created_at                 DateTime  @default(now()) @db.Timestamptz(6)
   
-  shift          Shift    @relation(fields: [shift_id], references: [shift_id], onDelete: Cascade)
-  pack           LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  shift                      Shift     @relation(fields: [shift_id], references: [shift_id], onDelete: Cascade)
+  pack                       LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  manualEntryAuthorizer      User?     @relation("ManualEntryAuthorizer", fields: [manual_entry_authorized_by], references: [user_id], onDelete: SetNull)
   
   @@unique([shift_id, pack_id])
   @@index([shift_id])
   @@index([pack_id])
+  @@index([manual_entry_authorized_by])
   @@map("lottery_shift_closings")
 }
 

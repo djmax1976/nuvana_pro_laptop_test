@@ -1,0 +1,299 @@
+/**
+ * Unit Tests: Pack Activation Tracking Migration Rollback
+ *
+ * Tests migration rollback for pack activation tracking fields:
+ * - Rollback removes activated_by, activated_shift_id, depleted_by, depleted_shift_id columns
+ * - Rollback removes indexes for new columns
+ * - Rollback removes foreign key constraints
+ *
+ * @test-level UNIT
+ * @justification Tests migration rollback safety without affecting production
+ * @story 10.2 - Database Schema & Pack Activation Tracking
+ * @priority P1 (High - Migration Safety)
+ */
+
+import { describe, it, expect } from "vitest";
+import { PrismaClient } from "@prisma/client";
+import * as fs from "fs";
+import * as path from "path";
+
+const prisma = new PrismaClient();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MIGRATION ROLLBACK TESTS (Task 2)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("10.2-UNIT: Pack Activation Tracking - Migration Rollback", () => {
+  it("TEST-10.2-M1: [P1] Rollback SQL file exists and is valid", () => {
+    // GIVEN: Migration directory exists
+    // WHEN: Checking for rollback SQL file
+    const migrationDir = path.join(
+      process.cwd(),
+      "backend",
+      "prisma",
+      "migrations",
+      "20250128080000_add_pack_activation_tracking",
+    );
+    const rollbackFile = path.join(migrationDir, "ROLLBACK.sql");
+
+    // THEN: Rollback file exists
+    expect(fs.existsSync(rollbackFile), "ROLLBACK.sql file should exist").toBe(
+      true,
+    );
+
+    // AND: Rollback file contains expected SQL statements
+    const rollbackSQL = fs.readFileSync(rollbackFile, "utf-8");
+    expect(rollbackSQL, "Should drop foreign key constraints").toContain(
+      "DROP CONSTRAINT",
+    );
+    expect(rollbackSQL, "Should drop indexes").toContain("DROP INDEX");
+    expect(rollbackSQL, "Should drop columns").toContain("DROP COLUMN");
+    expect(rollbackSQL, "Should reference activated_by").toContain(
+      "activated_by",
+    );
+    expect(rollbackSQL, "Should reference activated_shift_id").toContain(
+      "activated_shift_id",
+    );
+    expect(rollbackSQL, "Should reference depleted_by").toContain(
+      "depleted_by",
+    );
+    expect(rollbackSQL, "Should reference depleted_shift_id").toContain(
+      "depleted_shift_id",
+    );
+  });
+
+  it("TEST-10.2-M2: [P1] Migration SQL adds columns with correct types and constraints", () => {
+    // GIVEN: Migration file exists
+    // WHEN: Reading migration SQL
+    const migrationDir = path.join(
+      process.cwd(),
+      "backend",
+      "prisma",
+      "migrations",
+      "20250128080000_add_pack_activation_tracking",
+    );
+    const migrationFile = path.join(migrationDir, "migration.sql");
+
+    // THEN: Migration file exists and contains correct SQL
+    expect(
+      fs.existsSync(migrationFile),
+      "migration.sql file should exist",
+    ).toBe(true);
+
+    const migrationSQL = fs.readFileSync(migrationFile, "utf-8");
+
+    // Verify column additions
+    expect(migrationSQL, "Should add activated_by column").toContain(
+      'ADD COLUMN "activated_by" UUID',
+    );
+    expect(migrationSQL, "Should add activated_shift_id column").toContain(
+      'ADD COLUMN "activated_shift_id" UUID',
+    );
+    expect(migrationSQL, "Should add depleted_by column").toContain(
+      'ADD COLUMN "depleted_by" UUID',
+    );
+    expect(migrationSQL, "Should add depleted_shift_id column").toContain(
+      'ADD COLUMN "depleted_shift_id" UUID',
+    );
+
+    // Verify foreign key constraints
+    expect(migrationSQL, "Should add foreign key for activated_by").toContain(
+      "lottery_packs_activated_by_fkey",
+    );
+    expect(migrationSQL, "Should reference users table").toContain(
+      'REFERENCES "users"("user_id")',
+    );
+    expect(migrationSQL, "Should reference shifts table").toContain(
+      'REFERENCES "shifts"("shift_id")',
+    );
+  });
+
+  it("TEST-10.2-M3: [P1] Migration SQL creates indexes for new columns", () => {
+    // GIVEN: Migration file exists
+    // WHEN: Reading migration SQL
+    const migrationDir = path.join(
+      process.cwd(),
+      "backend",
+      "prisma",
+      "migrations",
+      "20250128080000_add_pack_activation_tracking",
+    );
+    const migrationFile = path.join(migrationDir, "migration.sql");
+
+    const migrationSQL = fs.readFileSync(migrationFile, "utf-8");
+
+    // THEN: Indexes are created for all new columns
+    expect(migrationSQL, "Should create index on activated_by").toContain(
+      'CREATE INDEX "lottery_packs_activated_by_idx"',
+    );
+    expect(migrationSQL, "Should create index on activated_shift_id").toContain(
+      'CREATE INDEX "lottery_packs_activated_shift_id_idx"',
+    );
+    expect(migrationSQL, "Should create index on depleted_by").toContain(
+      'CREATE INDEX "lottery_packs_depleted_by_idx"',
+    );
+    expect(migrationSQL, "Should create index on depleted_shift_id").toContain(
+      'CREATE INDEX "lottery_packs_depleted_shift_id_idx"',
+    );
+  });
+
+  it("TEST-10.2-M4: [P1] Migration SQL adds foreign key constraints", () => {
+    // GIVEN: Migration file exists
+    // WHEN: Reading migration SQL
+    const migrationDir = path.join(
+      process.cwd(),
+      "backend",
+      "prisma",
+      "migrations",
+      "20250128080000_add_pack_activation_tracking",
+    );
+    const migrationFile = path.join(migrationDir, "migration.sql");
+
+    const migrationSQL = fs.readFileSync(migrationFile, "utf-8");
+
+    // THEN: Foreign key constraints are added
+    expect(migrationSQL, "Should add foreign key for activated_by").toContain(
+      "lottery_packs_activated_by_fkey",
+    );
+    expect(
+      migrationSQL,
+      "Should add foreign key for activated_shift_id",
+    ).toContain("lottery_packs_activated_shift_id_fkey");
+    expect(migrationSQL, "Should add foreign key for depleted_by").toContain(
+      "lottery_packs_depleted_by_fkey",
+    );
+    expect(
+      migrationSQL,
+      "Should add foreign key for depleted_shift_id",
+    ).toContain("lottery_packs_depleted_shift_id_fkey");
+
+    // Verify ON DELETE SET NULL (nullable columns)
+    expect(
+      migrationSQL,
+      "Should use ON DELETE SET NULL for nullable FKs",
+    ).toContain("ON DELETE SET NULL");
+  });
+
+  it("TEST-10.2-M5: [P1] Enhanced assertions - Rollback SQL removes all foreign key constraints", () => {
+    // GIVEN: Rollback file exists
+    // WHEN: Reading rollback SQL
+    const migrationDir = path.join(
+      process.cwd(),
+      "backend",
+      "prisma",
+      "migrations",
+      "20250128080000_add_pack_activation_tracking",
+    );
+    const rollbackFile = path.join(migrationDir, "ROLLBACK.sql");
+
+    expect(fs.existsSync(rollbackFile), "ROLLBACK.sql file should exist").toBe(
+      true,
+    );
+    const rollbackSQL = fs.readFileSync(rollbackFile, "utf-8");
+
+    // THEN: All foreign key constraints are dropped
+    expect(rollbackSQL, "Should drop activated_by foreign key").toMatch(
+      /DROP CONSTRAINT.*activated_by.*fkey/i,
+    );
+    expect(rollbackSQL, "Should drop activated_shift_id foreign key").toMatch(
+      /DROP CONSTRAINT.*activated_shift_id.*fkey/i,
+    );
+    expect(rollbackSQL, "Should drop depleted_by foreign key").toMatch(
+      /DROP CONSTRAINT.*depleted_by.*fkey/i,
+    );
+    expect(rollbackSQL, "Should drop depleted_shift_id foreign key").toMatch(
+      /DROP CONSTRAINT.*depleted_shift_id.*fkey/i,
+    );
+  });
+
+  it("TEST-10.2-M6: [P1] Enhanced assertions - Rollback SQL removes all indexes", () => {
+    // GIVEN: Rollback file exists
+    // WHEN: Reading rollback SQL
+    const migrationDir = path.join(
+      process.cwd(),
+      "backend",
+      "prisma",
+      "migrations",
+      "20250128080000_add_pack_activation_tracking",
+    );
+    const rollbackFile = path.join(migrationDir, "ROLLBACK.sql");
+
+    expect(fs.existsSync(rollbackFile), "ROLLBACK.sql file should exist").toBe(
+      true,
+    );
+    const rollbackSQL = fs.readFileSync(rollbackFile, "utf-8");
+
+    // THEN: All indexes are dropped
+    expect(rollbackSQL, "Should drop activated_by index").toMatch(
+      /DROP INDEX.*activated_by.*idx/i,
+    );
+    expect(rollbackSQL, "Should drop activated_shift_id index").toMatch(
+      /DROP INDEX.*activated_shift_id.*idx/i,
+    );
+    expect(rollbackSQL, "Should drop depleted_by index").toMatch(
+      /DROP INDEX.*depleted_by.*idx/i,
+    );
+    expect(rollbackSQL, "Should drop depleted_shift_id index").toMatch(
+      /DROP INDEX.*depleted_shift_id.*idx/i,
+    );
+  });
+
+  it("TEST-10.2-M7: [P1] Enhanced assertions - Rollback SQL removes all columns in correct order", () => {
+    // GIVEN: Rollback file exists
+    // WHEN: Reading rollback SQL
+    const migrationDir = path.join(
+      process.cwd(),
+      "backend",
+      "prisma",
+      "migrations",
+      "20250128080000_add_pack_activation_tracking",
+    );
+    const rollbackFile = path.join(migrationDir, "ROLLBACK.sql");
+
+    expect(fs.existsSync(rollbackFile), "ROLLBACK.sql file should exist").toBe(
+      true,
+    );
+    const rollbackSQL = fs.readFileSync(rollbackFile, "utf-8");
+
+    // THEN: All columns are dropped (order: foreign keys first, then columns)
+    expect(rollbackSQL, "Should drop activated_by column").toMatch(
+      /DROP COLUMN.*activated_by/i,
+    );
+    expect(rollbackSQL, "Should drop activated_shift_id column").toMatch(
+      /DROP COLUMN.*activated_shift_id/i,
+    );
+    expect(rollbackSQL, "Should drop depleted_by column").toMatch(
+      /DROP COLUMN.*depleted_by/i,
+    );
+    expect(rollbackSQL, "Should drop depleted_shift_id column").toMatch(
+      /DROP COLUMN.*depleted_shift_id/i,
+    );
+  });
+
+  it("TEST-10.2-M8: [P1] Enhanced assertions - Migration SQL uses correct table name", () => {
+    // GIVEN: Migration file exists
+    // WHEN: Reading migration SQL
+    const migrationDir = path.join(
+      process.cwd(),
+      "backend",
+      "prisma",
+      "migrations",
+      "20250128080000_add_pack_activation_tracking",
+    );
+    const migrationFile = path.join(migrationDir, "migration.sql");
+
+    expect(
+      fs.existsSync(migrationFile),
+      "migration.sql file should exist",
+    ).toBe(true);
+    const migrationSQL = fs.readFileSync(migrationFile, "utf-8");
+
+    // THEN: All operations target lottery_packs table
+    expect(migrationSQL, "Should reference lottery_packs table").toContain(
+      '"lottery_packs"',
+    );
+    expect(migrationSQL, "Should not reference wrong table").not.toContain(
+      '"lottery_pack"',
+    ); // Singular (wrong)
+  });
+});

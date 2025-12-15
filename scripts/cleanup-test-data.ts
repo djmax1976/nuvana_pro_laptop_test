@@ -21,7 +21,7 @@ const prisma = new PrismaClient();
 
 // Test email patterns - ONLY users matching these will be deleted
 const TEST_EMAIL_PATTERNS = {
-  domains: ["@test.nuvana.local", "@test.com"],
+  domains: ["@test.nuvana.local", "@test.com", "@example.com"],
   prefixes: ["test_", "e2e-", "e2e_"],
 };
 
