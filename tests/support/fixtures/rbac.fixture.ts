@@ -938,6 +938,7 @@ export const test = base.extend<RBACFixture>({
     }
 
     // Store manager permissions list (used in multiple places)
+    // Must match the seeded STORE_MANAGER role permissions from rbac.seed.ts
     const storeManagerPermissions = [
       "STORE_READ",
       "SHIFT_OPEN",
@@ -955,6 +956,19 @@ export const test = base.extend<RBACFixture>({
       "LOTTERY_BIN_MANAGE",
       "LOTTERY_BIN_CONFIG_READ",
       "LOTTERY_BIN_CONFIG_WRITE",
+      "LOTTERY_SHIFT_OPEN",
+      "LOTTERY_SHIFT_CLOSE",
+      "LOTTERY_SHIFT_RECONCILE",
+      "LOTTERY_REPORT",
+      "LOTTERY_MANUAL_ENTRY",
+      "REPORT_SHIFT",
+      "REPORT_DAILY",
+      "REPORT_ANALYTICS",
+      "REPORT_EXPORT",
+      "CASHIER_CREATE",
+      "CASHIER_READ",
+      "CASHIER_UPDATE",
+      "CASHIER_DELETE",
     ];
 
     // Assign STORE_MANAGER role to user with store_id (STORE scope)
