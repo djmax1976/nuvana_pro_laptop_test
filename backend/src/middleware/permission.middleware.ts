@@ -159,7 +159,7 @@ export function permissionMiddleware(requiredPermission: PermissionCode) {
       );
 
       if (!hasPermission) {
-        // Log permission denial
+        // Log permission denial with technical details for debugging
         await logPermissionDenial(
           userId,
           requiredPermission,
@@ -167,12 +167,14 @@ export function permissionMiddleware(requiredPermission: PermissionCode) {
           request,
         );
 
-        // Return 403 Forbidden with standard API response format
+        // Return 403 Forbidden with user-friendly message
+        // Technical details (permission code) are logged but not exposed to user
         return reply.code(403).send({
           success: false,
           error: {
             code: "PERMISSION_DENIED",
-            message: `Permission denied: ${requiredPermission} is required`,
+            message:
+              "You do not have permission to access this feature. Please contact your manager.",
           },
         });
       }
@@ -234,7 +236,8 @@ export function requireAllPermissions(requiredPermissions: PermissionCode[]) {
             success: false,
             error: {
               code: "PERMISSION_DENIED",
-              message: `Permission denied: ${permission} is required`,
+              message:
+                "You do not have permission to access this feature. Please contact your manager.",
             },
           });
         }
@@ -315,7 +318,8 @@ export function requireAnyPermission(requiredPermissions: PermissionCode[]) {
           success: false,
           error: {
             code: "PERMISSION_DENIED",
-            message: `Permission denied: One of [${requiredPermissions.join(", ")}] is required`,
+            message:
+              "You do not have permission to access this feature. Please contact your manager.",
           },
         });
       }

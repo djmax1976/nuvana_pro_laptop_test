@@ -761,6 +761,39 @@ export class ShiftService {
         },
       });
 
+      // Auto-create LotteryBusinessDay if this is the first shift of the day
+      // Day boundaries are based on calendar date in store's timezone
+      try {
+        const today = startOfDay(new Date());
+        const existingDay = await tx.lotteryBusinessDay.findUnique({
+          where: {
+            store_id_business_date: {
+              store_id: data.store_id,
+              business_date: today,
+            },
+          },
+        });
+
+        if (!existingDay) {
+          // Create new LotteryBusinessDay for today
+          await tx.lotteryBusinessDay.create({
+            data: {
+              store_id: data.store_id,
+              business_date: today,
+              status: "OPEN",
+              opened_by: auditContext.userId,
+              opened_at: new Date(),
+            },
+          });
+        }
+      } catch (lotteryDayError) {
+        // Log but don't fail shift creation - lottery day creation is non-critical
+        console.error(
+          "Failed to create/check LotteryBusinessDay:",
+          lotteryDayError,
+        );
+      }
+
       // Create audit log entry (non-blocking - don't fail if audit fails)
       try {
         await tx.auditLog.create({

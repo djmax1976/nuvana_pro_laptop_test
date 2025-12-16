@@ -137,6 +137,7 @@ describe("6.13-INTEGRATION: Lottery Game Code Uniqueness and Constraints", () =>
             game_code: null as any,
             name: "Test Game",
             price: 5.0,
+            pack_value: 150,
             // game_code is null - should fail
           },
         }),
@@ -153,6 +154,7 @@ describe("6.13-INTEGRATION: Lottery Game Code Uniqueness and Constraints", () =>
             name: "Test Game",
             game_code: "9999",
             price: null as any,
+            pack_value: 150,
             // price is null - should fail
           },
         }),

@@ -1,5 +1,19 @@
 import { config } from "dotenv";
 import { test as base, APIRequestContext } from "@playwright/test";
+
+// =============================================================================
+// DATABASE PROTECTION - Block dev/prod databases in test code
+// =============================================================================
+const dbUrl = process.env.DATABASE_URL || "";
+if (
+  /nuvana_dev|nuvana_prod|_prod$|_dev$/i.test(dbUrl) &&
+  !/test/i.test(dbUrl)
+) {
+  throw new Error(
+    `🚨 BLOCKED: Cannot use rbac.fixture with protected database: ${dbUrl}`,
+  );
+}
+
 import {
   createUser,
   createCompany,

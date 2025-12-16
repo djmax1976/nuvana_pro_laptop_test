@@ -50,6 +50,8 @@ interface PackItem {
   game_name?: string;
   game_id?: string;
   game_price?: number;
+  game_pack_value?: number;
+  game_total_tickets?: number;
   error?: string;
   isValidating?: boolean;
 }
@@ -181,6 +183,8 @@ export function PackReceptionForm({
         game_name: game.name,
         game_id: game.game_id,
         game_price: game.price ?? undefined,
+        game_pack_value: game.pack_value ?? undefined,
+        game_total_tickets: game.total_tickets ?? undefined,
       };
 
       setPackList((prev) => [...prev, newPack]);
@@ -390,7 +394,15 @@ export function PackReceptionForm({
   const handleGamesCreated = useCallback(
     (
       createdGameCodes: string[],
-      createdGames: Map<string, { name: string; price: number }>,
+      createdGames: Map<
+        string,
+        {
+          name: string;
+          price: number;
+          pack_value: number;
+          total_tickets: number;
+        }
+      >,
     ) => {
       if (!pendingGameToCreate) return;
 
@@ -404,6 +416,8 @@ export function PackReceptionForm({
           name: gameData.name,
           description: null,
           price: gameData.price,
+          pack_value: gameData.pack_value,
+          total_tickets: gameData.total_tickets,
           status: "ACTIVE",
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -504,9 +518,16 @@ export function PackReceptionForm({
                   >
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">
-                        {pack.game_name || "Unknown Game"} ({pack.game_code}) |
+                        {pack.game_name || "Unknown Game"} ({pack.game_code})
+                      </div>
+                      <div className="text-sm text-muted-foreground">
                         Pack: {pack.pack_number} | $
-                        {pack.game_price?.toFixed(2) ?? "0.00"}
+                        {pack.game_price?.toFixed(2) ?? "0.00"}/ticket
+                        {pack.game_total_tickets && (
+                          <span className="ml-2">
+                            ({pack.game_total_tickets} tickets)
+                          </span>
+                        )}
                       </div>
                     </div>
                     <Button

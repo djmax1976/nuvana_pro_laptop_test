@@ -32,6 +32,7 @@ beforeAll(async () => {
       name: "Test Game for Lookup",
       game_code: "0001",
       price: 2.0,
+      pack_value: 60,
     },
   });
 });
@@ -93,6 +94,7 @@ describe("6.12-INTEGRATION: lookupGameByCode", () => {
           name: "Duplicate Game Code Test",
           game_code: "0001", // Same as testGame
           price: 2.0,
+          pack_value: 60,
         },
       }),
     ).rejects.toThrow(); // Should throw unique constraint violation

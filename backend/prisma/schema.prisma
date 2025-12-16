@@ -16,38 +16,41 @@ datasource db {
 }
 
 model User {
-  user_id                 String                 @id @default(uuid()) @db.Uuid
-  email                   String                 @unique @db.VarChar(255)
-  name                    String                 @db.VarChar(255)
-  auth_provider_id        String?                @unique @db.VarChar(255)
-  status                  String                 @default("ACTIVE") @db.VarChar(50)
-  created_at              DateTime               @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime               @default(now()) @updatedAt @db.Timestamptz(6)
-  password_hash           String?                @db.VarChar(255)
-  public_id               String                 @unique @db.VarChar(30)
-  is_client_user          Boolean                @default(false)
-  audit_logs              AuditLog[]
-  owned_companies         Company[]              @relation("CompanyOwner")
-  shifts_opened           Shift[]                @relation("ShiftOpener")
-  shifts_approved         Shift[]                @relation("ShiftApprover")
-  transactions            Transaction[]          @relation("TransactionCashier")
-  assigned_roles          UserRole[]             @relation("UserRoleAssigner")
-  user_roles              UserRole[]
-  client_role_permissions ClientRolePermission[] @relation("ClientRolePermissionOwner")
-  roles_created           Role[]                 @relation("RoleCreator")
-  roles_deleted           Role[]                 @relation("RoleDeleter")
-  company_roles_assigned  CompanyAllowedRole[]   @relation("CompanyAllowedRoleAssigner")
-  bulk_import_jobs        BulkImportJob[]        @relation("BulkImportJobUser")
-  variance_approvals      LotteryVariance[]      @relation("VarianceApprover")
-  cashiers_created        Cashier[]              @relation("CashierCreatedBy")
-  cashiers_updated        Cashier[]              @relation("CashierUpdatedBy")
-  cashier_sessions_auth   CashierSession[]       @relation("CashierSessionAuthenticator")
-  store_logins            Store[]                @relation("StoreLogin") // Stores where this user is the store login credential
-  ticket_serials          LotteryTicketSerial[]  @relation("TicketCashier")
-  pack_bin_history        LotteryPackBinHistory[] @relation("PackMover")
-  packs_activated         LotteryPack[]           @relation("PackActivatedBy")
-  packs_depleted          LotteryPack[]           @relation("PackDepletedBy")
-  manual_entry_authorizations LotteryShiftClosing[] @relation("ManualEntryAuthorizer")
+  user_id                     String                  @id @default(uuid()) @db.Uuid
+  email                       String                  @unique @db.VarChar(255)
+  name                        String                  @db.VarChar(255)
+  auth_provider_id            String?                 @unique @db.VarChar(255)
+  status                      String                  @default("ACTIVE") @db.VarChar(50)
+  created_at                  DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                @default(now()) @updatedAt @db.Timestamptz(6)
+  password_hash               String?                 @db.VarChar(255)
+  public_id                   String                  @unique @db.VarChar(30)
+  is_client_user              Boolean                 @default(false)
+  audit_logs                  AuditLog[]
+  owned_companies             Company[]               @relation("CompanyOwner")
+  shifts_opened               Shift[]                 @relation("ShiftOpener")
+  shifts_approved             Shift[]                 @relation("ShiftApprover")
+  transactions                Transaction[]           @relation("TransactionCashier")
+  assigned_roles              UserRole[]              @relation("UserRoleAssigner")
+  user_roles                  UserRole[]
+  client_role_permissions     ClientRolePermission[]  @relation("ClientRolePermissionOwner")
+  roles_created               Role[]                  @relation("RoleCreator")
+  roles_deleted               Role[]                  @relation("RoleDeleter")
+  company_roles_assigned      CompanyAllowedRole[]    @relation("CompanyAllowedRoleAssigner")
+  bulk_import_jobs            BulkImportJob[]         @relation("BulkImportJobUser")
+  variance_approvals          LotteryVariance[]       @relation("VarianceApprover")
+  cashiers_created            Cashier[]               @relation("CashierCreatedBy")
+  cashiers_updated            Cashier[]               @relation("CashierUpdatedBy")
+  cashier_sessions_auth       CashierSession[]        @relation("CashierSessionAuthenticator")
+  store_logins                Store[]                 @relation("StoreLogin") // Stores where this user is the store login credential
+  ticket_serials              LotteryTicketSerial[]   @relation("TicketCashier")
+  pack_bin_history            LotteryPackBinHistory[] @relation("PackMover")
+  packs_activated             LotteryPack[]           @relation("PackActivatedBy")
+  packs_depleted              LotteryPack[]           @relation("PackDepletedBy")
+  manual_entry_authorizations LotteryShiftClosing[]   @relation("ManualEntryAuthorizer")
+  lottery_days_opened         LotteryBusinessDay[]    @relation("LotteryDayOpenedBy")
+  lottery_days_closed         LotteryBusinessDay[]    @relation("LotteryDayClosedBy")
+  lottery_games_created       LotteryGame[]           @relation("LotteryGameCreator")
 
   @@index([email])
   @@index([status])
@@ -77,28 +80,30 @@ model Company {
 }
 
 model Store {
-  store_id             String        @id @default(uuid()) @db.Uuid
-  company_id           String        @db.Uuid
-  name                 String        @db.VarChar(255)
-  location_json        Json?
-  timezone             String        @default("America/New_York") @db.VarChar(50)
-  status               String        @default("ACTIVE") @db.VarChar(50)
-  created_at           DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
-  configuration        Json?
-  public_id            String        @unique @db.VarChar(30)
-  store_login_user_id String?      @db.Uuid // Optional FK to User - the CLIENT_USER login credential for this store's dashboard
-  pos_terminals    POSTerminal[]
-  shifts           Shift[]
-  cashiers         Cashier[]
-  company          Company          @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
-  store_login      User?            @relation("StoreLogin", fields: [store_login_user_id], references: [user_id], onDelete: SetNull)
-  transactions     Transaction[]
-  user_roles       UserRole[]
-  cashier_sessions CashierSession[]
-  lottery_packs    LotteryPack[]
-  lottery_bins     LotteryBin[]
-  bin_configuration LotteryBinConfiguration?
+  store_id              String                   @id @default(uuid()) @db.Uuid
+  company_id            String                   @db.Uuid
+  name                  String                   @db.VarChar(255)
+  location_json         Json?
+  timezone              String                   @default("America/New_York") @db.VarChar(50)
+  status                String                   @default("ACTIVE") @db.VarChar(50)
+  created_at            DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                 @default(now()) @updatedAt @db.Timestamptz(6)
+  configuration         Json?
+  public_id             String                   @unique @db.VarChar(30)
+  store_login_user_id   String?                  @db.Uuid // Optional FK to User - the CLIENT_USER login credential for this store's dashboard
+  pos_terminals         POSTerminal[]
+  shifts                Shift[]
+  cashiers              Cashier[]
+  company               Company                  @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  store_login           User?                    @relation("StoreLogin", fields: [store_login_user_id], references: [user_id], onDelete: SetNull)
+  transactions          Transaction[]
+  user_roles            UserRole[]
+  cashier_sessions      CashierSession[]
+  lottery_packs         LotteryPack[]
+  lottery_bins          LotteryBin[]
+  bin_configuration     LotteryBinConfiguration?
+  lottery_business_days LotteryBusinessDay[]
+  lottery_games         LotteryGame[]            @relation("LotteryGameStore")
 
   @@index([company_id])
   @@index([status])
@@ -120,24 +125,24 @@ model Store {
 /// - All queries MUST filter by disabled_at IS NULL (not is_active) to ensure consistency
 /// - is_active should be kept in sync with disabled_at for backward compatibility
 model Cashier {
-  cashier_id              String    @id @default(uuid()) @db.Uuid
-  store_id                String    @db.Uuid
-  employee_id             String    @db.VarChar(4) // 4-digit zero-padded, unique per store
-  name                    String    @db.VarChar(255)
-  pin_hash                String    @db.VarChar(255) // bcrypt hashed
-  sha256_pin_fingerprint  String?   @db.VarChar(64) // SHA-256 hex digest for fast uniqueness checks
-  is_active               Boolean   @default(true) // Denormalized: true when disabled_at IS NULL, false when disabled_at IS NOT NULL
-  hired_on                DateTime  @db.Date
-  termination_date        DateTime? @db.Date
-  created_at              DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
-  disabled_at             DateTime? @db.Timestamptz(6) // Authoritative: NULL = active, NOT NULL = soft-deleted
-  created_by              String    @db.Uuid
-  updated_by              String?   @db.Uuid
+  cashier_id             String    @id @default(uuid()) @db.Uuid
+  store_id               String    @db.Uuid
+  employee_id            String    @db.VarChar(4) // 4-digit zero-padded, unique per store
+  name                   String    @db.VarChar(255)
+  pin_hash               String    @db.VarChar(255) // bcrypt hashed
+  sha256_pin_fingerprint String?   @db.VarChar(64) // SHA-256 hex digest for fast uniqueness checks
+  is_active              Boolean   @default(true) // Denormalized: true when disabled_at IS NULL, false when disabled_at IS NOT NULL
+  hired_on               DateTime  @db.Date
+  termination_date       DateTime? @db.Date
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  disabled_at            DateTime? @db.Timestamptz(6) // Authoritative: NULL = active, NOT NULL = soft-deleted
+  created_by             String    @db.Uuid
+  updated_by             String?   @db.Uuid
 
-  store    Store    @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  creator  User     @relation("CashierCreatedBy", fields: [created_by], references: [user_id])
-  updater  User?    @relation("CashierUpdatedBy", fields: [updated_by], references: [user_id])
+  store    Store            @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  creator  User             @relation("CashierCreatedBy", fields: [created_by], references: [user_id])
+  updater  User?            @relation("CashierUpdatedBy", fields: [updated_by], references: [user_id])
   shifts   Shift[]
   sessions CashierSession[]
 
@@ -268,8 +273,10 @@ model CompanyAllowedRole {
   @@map("company_allowed_roles")
 }
 
+/// AuditLog - Partitioned by month on timestamp for efficient querying and retention
+/// Primary key is composite (log_id, timestamp) for partitioning support
 model AuditLog {
-  log_id     String   @id @default(uuid()) @db.Uuid
+  log_id     String   @default(uuid()) @db.Uuid
   user_id    String?  @db.Uuid
   action     String   @db.VarChar(50)
   table_name String   @db.VarChar(100)
@@ -282,9 +289,13 @@ model AuditLog {
   timestamp  DateTime @default(now()) @db.Timestamptz(6)
   user       User?    @relation(fields: [user_id], references: [user_id])
 
+  @@id([log_id, timestamp])
   @@index([user_id])
   @@index([table_name])
   @@index([timestamp])
+  @@index([record_id])
+  @@index([table_name, timestamp])
+  @@index([user_id, timestamp])
   @@map("audit_logs")
 }
 
@@ -342,42 +353,47 @@ enum LotteryPackStatus {
   RETURNED
 }
 
+enum LotteryConfigType {
+  PACK_VALUE
+  TICKET_PRICE
+}
+
 model Shift {
-  shift_id        String        @id @default(uuid()) @db.Uuid
-  store_id        String        @db.Uuid
-  opened_by       String        @db.Uuid
-  cashier_id      String        @db.Uuid
-  pos_terminal_id String?       @db.Uuid
-  opened_at       DateTime      @default(now()) @db.Timestamptz(6)
-  closed_at       DateTime?     @db.Timestamptz(6)
-  opening_cash    Decimal       @default(0) @db.Decimal(10, 2)
-  expected_cash   Decimal?      @db.Decimal(10, 2)
-  closing_cash    Decimal?      @db.Decimal(10, 2)
-  variance        Decimal?      @db.Decimal(10, 2)
-  variance_reason String?       @db.VarChar(500)
-  status          ShiftStatus   @default(NOT_STARTED)
-  shift_number    Int?
-  approved_by     String?       @db.Uuid
-  approved_at     DateTime?     @db.Timestamptz(6)
-  created_at      DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
-  public_id       String?       @unique @db.VarChar(30)
-  external_shift_id String?     @db.VarChar(255)
+  shift_id          String                @id @default(uuid()) @db.Uuid
+  store_id          String                @db.Uuid
+  opened_by         String                @db.Uuid
+  cashier_id        String                @db.Uuid
+  pos_terminal_id   String?               @db.Uuid
+  opened_at         DateTime              @default(now()) @db.Timestamptz(6)
+  closed_at         DateTime?             @db.Timestamptz(6)
+  opening_cash      Decimal               @default(0) @db.Decimal(10, 2)
+  expected_cash     Decimal?              @db.Decimal(10, 2)
+  closing_cash      Decimal?              @db.Decimal(10, 2)
+  variance          Decimal?              @db.Decimal(10, 2)
+  variance_reason   String?               @db.VarChar(500)
+  status            ShiftStatus           @default(NOT_STARTED)
+  shift_number      Int?
+  approved_by       String?               @db.Uuid
+  approved_at       DateTime?             @db.Timestamptz(6)
+  created_at        DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime              @default(now()) @updatedAt @db.Timestamptz(6)
+  public_id         String?               @unique @db.VarChar(30)
+  external_shift_id String?               @db.VarChar(255)
   external_data     Json?
-  synced_at         DateTime?   @db.Timestamptz(6)
-  opener           User             @relation("ShiftOpener", fields: [opened_by], references: [user_id])
-  cashier          Cashier          @relation(fields: [cashier_id], references: [cashier_id])
-  approver         User?            @relation("ShiftApprover", fields: [approved_by], references: [user_id])
-  pos_terminal     POSTerminal?     @relation(fields: [pos_terminal_id], references: [pos_terminal_id])
-  store            Store            @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  transactions     Transaction[]
-  cashier_sessions CashierSession[]
-  lottery_openings LotteryShiftOpening[]
-  lottery_closings LotteryShiftClosing[]
+  synced_at         DateTime?             @db.Timestamptz(6)
+  opener            User                  @relation("ShiftOpener", fields: [opened_by], references: [user_id])
+  cashier           Cashier               @relation(fields: [cashier_id], references: [cashier_id])
+  approver          User?                 @relation("ShiftApprover", fields: [approved_by], references: [user_id])
+  pos_terminal      POSTerminal?          @relation(fields: [pos_terminal_id], references: [pos_terminal_id])
+  store             Store                 @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  transactions      Transaction[]
+  cashier_sessions  CashierSession[]
+  lottery_openings  LotteryShiftOpening[]
+  lottery_closings  LotteryShiftClosing[]
   lottery_variances LotteryVariance[]
-  ticket_serials   LotteryTicketSerial[]
-  packs_activated  LotteryPack[]        @relation("PackActivatedInShift")
-  packs_depleted   LotteryPack[]        @relation("PackDepletedInShift")
+  ticket_serials    LotteryTicketSerial[]
+  packs_activated   LotteryPack[]         @relation("PackActivatedInShift")
+  packs_depleted    LotteryPack[]         @relation("PackDepletedInShift")
 
   @@index([store_id])
   @@index([opened_by])
@@ -392,23 +408,23 @@ model Shift {
 }
 
 model POSTerminal {
-  pos_terminal_id String            @id @default(uuid()) @db.Uuid
-  store_id        String            @db.Uuid
-  name            String            @db.VarChar(100)
-  device_id       String?           @db.VarChar(255)
-  connection_type POSConnectionType @default(MANUAL)
+  pos_terminal_id   String            @id @default(uuid()) @db.Uuid
+  store_id          String            @db.Uuid
+  name              String            @db.VarChar(100)
+  device_id         String?           @db.VarChar(255)
+  connection_type   POSConnectionType @default(MANUAL)
   connection_config Json?
-  vendor_type     POSVendorType     @default(GENERIC)
-  terminal_status POSTerminalStatus @default(ACTIVE)
-  last_sync_at    DateTime?         @db.Timestamptz(6)
-  sync_status     SyncStatus        @default(NEVER)
-  deleted_at      DateTime?         @db.Timestamptz(6) // Soft delete timestamp (NULL = active)
-  created_at      DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime          @default(now()) @updatedAt @db.Timestamptz(6)
-  store            Store             @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  shifts           Shift[]
-  transactions     Transaction[]
-  cashier_sessions CashierSession[]
+  vendor_type       POSVendorType     @default(GENERIC)
+  terminal_status   POSTerminalStatus @default(ACTIVE)
+  last_sync_at      DateTime?         @db.Timestamptz(6)
+  sync_status       SyncStatus        @default(NEVER)
+  deleted_at        DateTime?         @db.Timestamptz(6) // Soft delete timestamp (NULL = active)
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime          @default(now()) @updatedAt @db.Timestamptz(6)
+  store             Store             @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  shifts            Shift[]
+  transactions      Transaction[]
+  cashier_sessions  CashierSession[]
 
   @@unique([device_id]) // Global uniqueness (device_id can be null, but if set, must be unique across all stores)
   @@index([store_id])
@@ -416,8 +432,11 @@ model POSTerminal {
   @@map("pos_terminals")
 }
 
+/// Transaction - Partitioned by month on timestamp for efficient querying
+/// Primary key is composite (transaction_id, timestamp) for partitioning support
+/// Note: transaction_id is marked @unique for Prisma relations (UUID guarantees uniqueness)
 model Transaction {
-  transaction_id  String                @id @default(uuid()) @db.Uuid
+  transaction_id  String                @unique @default(uuid()) @db.Uuid
   store_id        String                @db.Uuid
   shift_id        String                @db.Uuid
   cashier_id      String                @db.Uuid
@@ -428,7 +447,7 @@ model Transaction {
   discount        Decimal               @default(0) @db.Decimal(10, 2)
   total           Decimal               @db.Decimal(10, 2)
   created_at      DateTime              @default(now()) @db.Timestamptz(6)
-  public_id       String                @unique @db.VarChar(30)
+  public_id       String                @db.VarChar(30)
   line_items      TransactionLineItem[]
   payments        TransactionPayment[]
   cashier         User                  @relation("TransactionCashier", fields: [cashier_id], references: [user_id])
@@ -436,12 +455,15 @@ model Transaction {
   shift           Shift                 @relation(fields: [shift_id], references: [shift_id])
   store           Store                 @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
 
+  @@id([transaction_id, timestamp])
+  @@unique([public_id, timestamp])
   @@index([store_id])
   @@index([shift_id])
   @@index([cashier_id])
   @@index([pos_terminal_id])
   @@index([timestamp])
   @@index([public_id])
+  @@index([store_id, timestamp])
   @@map("transactions")
 }
 
@@ -514,17 +536,17 @@ model BulkImportJob {
 ///
 /// Story: Terminal Shift Operations
 model CashierSession {
-  session_id         String       @id @default(uuid()) @db.Uuid
-  cashier_id         String       @db.Uuid
-  terminal_id        String       @db.Uuid
-  store_id           String       @db.Uuid
-  session_token_hash String       @unique @db.VarChar(64) // SHA-256 hash of token
-  authenticated_by   String       @db.Uuid // CLIENT_USER who was logged in when cashier authenticated
-  shift_id           String?      @db.Uuid // Linked once shift starts (nullable until then)
-  created_at         DateTime     @default(now()) @db.Timestamptz(6)
-  expires_at         DateTime     @db.Timestamptz(6) // Session timeout (configurable, default 12 hours)
-  ended_at           DateTime?    @db.Timestamptz(6) // When session was explicitly ended
-  is_active          Boolean      @default(true)
+  session_id         String    @id @default(uuid()) @db.Uuid
+  cashier_id         String    @db.Uuid
+  terminal_id        String    @db.Uuid
+  store_id           String    @db.Uuid
+  session_token_hash String    @unique @db.VarChar(64) // SHA-256 hash of token
+  authenticated_by   String    @db.Uuid // CLIENT_USER who was logged in when cashier authenticated
+  shift_id           String?   @db.Uuid // Linked once shift starts (nullable until then)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at         DateTime  @db.Timestamptz(6) // Session timeout (configurable, default 12 hours)
+  ended_at           DateTime? @db.Timestamptz(6) // When session was explicitly ended
+  is_active          Boolean   @default(true)
 
   // Relations
   cashier       Cashier     @relation(fields: [cashier_id], references: [cashier_id], onDelete: Cascade)
@@ -543,67 +565,102 @@ model CashierSession {
 
 /// Lottery Game - Represents a lottery scratch-off game
 /// Story 6.1: Lottery Game and Pack Data Models
+/// Lottery Game - Master list of lottery games
+/// Scoping rules:
+/// - store_id IS NULL = Global game (created by Super Admin, visible to all stores)
+/// - store_id IS NOT NULL = Store-scoped game (created at a specific store, visible only to that store)
+/// This allows the same game_code to exist multiple times: once as global, once per store
 model LotteryGame {
-  game_id     String             @id @default(uuid()) @db.Uuid
-  game_code   String             @unique @db.VarChar(4)
-  name        String             @db.VarChar(255)
-  description String?            @db.VarChar(500)
-  price       Decimal            @db.Decimal(10, 2)
-  status      LotteryGameStatus  @default(ACTIVE)
-  created_at  DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
-  
-  packs       LotteryPack[]
-  
+  game_id            String            @id @default(uuid()) @db.Uuid
+  game_code          String            @db.VarChar(4)
+  name               String            @db.VarChar(255)
+  description        String?           @db.VarChar(500)
+  price              Decimal           @db.Decimal(10, 2)
+  tickets_per_pack   Int?              @db.Integer // Computed: pack_value / price (nullable for backward compat)
+  pack_value         Decimal           @default(300) @db.Decimal(10, 2) // Total dollar value of pack
+  status             LotteryGameStatus @default(ACTIVE)
+  created_at         DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime          @default(now()) @updatedAt @db.Timestamptz(6)
+  created_by_user_id String?           @db.Uuid // User who created this game (NULL for legacy/seeded games)
+  store_id           String?           @db.Uuid // NULL = global game, UUID = store-scoped game
+
+  packs      LotteryPack[]
+  created_by User?  @relation("LotteryGameCreator", fields: [created_by_user_id], references: [user_id], onDelete: SetNull)
+  store      Store? @relation("LotteryGameStore", fields: [store_id], references: [store_id], onDelete: Cascade)
+
+  @@unique([game_code, store_id], name: "lottery_games_game_code_store_unique")
   @@index([name])
   @@index([game_code])
   @@index([status])
   @@index([price])
+  @@index([pack_value])
+  @@index([store_id])
+  @@index([created_by_user_id])
   @@map("lottery_games")
+}
+
+/// Lottery Config Value - Stores configurable lottery values (pack values, ticket prices)
+/// Used for dropdown selections when creating/editing games
+model LotteryConfigValue {
+  config_value_id String            @id @default(uuid()) @db.Uuid
+  config_type     LotteryConfigType
+  amount          Decimal           @db.Decimal(10, 2)
+  display_order   Int               @default(0)
+  is_active       Boolean           @default(true)
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([config_type, amount])
+  @@index([config_type])
+  @@index([is_active])
+  @@index([config_type, is_active, display_order])
+  @@map("lottery_config_values")
 }
 
 /// Lottery Pack - Represents a physical pack of lottery tickets
 /// Story 6.1: Lottery Game and Pack Data Models
 /// Tenant isolation enforced via store_id foreign key (RLS policies will be implemented in future stories)
 model LotteryPack {
-  pack_id            String             @id @default(uuid()) @db.Uuid
-  game_id            String             @db.Uuid
-  store_id           String             @db.Uuid
-  pack_number        String             @db.VarChar(50)
-  serial_start       String             @db.VarChar(100)
-  serial_end         String             @db.VarChar(100)
-  status             LotteryPackStatus  @default(RECEIVED)
-  current_bin_id     String?            @db.Uuid
-  tickets_sold_count Int                @default(0)
-  last_sold_at       DateTime?          @db.Timestamptz(6)
-  received_at        DateTime?          @db.Timestamptz(6)
-  activated_at       DateTime?          @db.Timestamptz(6)
-  depleted_at        DateTime?          @db.Timestamptz(6)
-  returned_at        DateTime?          @db.Timestamptz(6)
-  created_at         DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
+  pack_id            String            @id @default(uuid()) @db.Uuid
+  game_id            String            @db.Uuid
+  store_id           String            @db.Uuid
+  pack_number        String            @db.VarChar(50)
+  serial_start       String            @db.VarChar(100)
+  serial_end         String            @db.VarChar(100)
+  status             LotteryPackStatus @default(RECEIVED)
+  current_bin_id     String?           @db.Uuid
+  tickets_sold_count Int               @default(0)
+  last_sold_at       DateTime?         @db.Timestamptz(6)
+  received_at        DateTime?         @db.Timestamptz(6)
+  activated_at       DateTime?         @db.Timestamptz(6)
+  depleted_at        DateTime?         @db.Timestamptz(6)
+  returned_at        DateTime?         @db.Timestamptz(6)
+  created_at         DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime          @default(now()) @updatedAt @db.Timestamptz(6)
 
   // Pack activation context (Story 10.2)
-  activated_by       String?            @db.Uuid
-  activated_shift_id String?            @db.Uuid
+  activated_by       String? @db.Uuid
+  activated_shift_id String? @db.Uuid
 
   // Pack depletion context (Story 10.2)
-  depleted_by        String?            @db.Uuid
-  depleted_shift_id  String?            @db.Uuid
+  depleted_by       String? @db.Uuid
+  depleted_shift_id String? @db.Uuid
 
-  game               LotteryGame        @relation(fields: [game_id], references: [game_id], onDelete: Cascade)
-  store              Store              @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  bin                LotteryBin?        @relation(fields: [current_bin_id], references: [bin_id], onDelete: SetNull)
-  shift_openings     LotteryShiftOpening[]
-  shift_closings     LotteryShiftClosing[]
-  variances          LotteryVariance[]
-  ticket_serials     LotteryTicketSerial[]
-  bin_history        LotteryPackBinHistory[]
-  activatedByUser    User?              @relation("PackActivatedBy", fields: [activated_by], references: [user_id])
-  activatedShift     Shift?             @relation("PackActivatedInShift", fields: [activated_shift_id], references: [shift_id])
-  depletedByUser     User?              @relation("PackDepletedBy", fields: [depleted_by], references: [user_id])
-  depletedShift      Shift?             @relation("PackDepletedInShift", fields: [depleted_shift_id], references: [shift_id])
+  game            LotteryGame             @relation(fields: [game_id], references: [game_id], onDelete: Cascade)
+  store           Store                   @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  bin             LotteryBin?             @relation(fields: [current_bin_id], references: [bin_id], onDelete: SetNull)
+  shift_openings  LotteryShiftOpening[]
+  shift_closings  LotteryShiftClosing[]
+  variances       LotteryVariance[]
+  ticket_serials  LotteryTicketSerial[]
+  bin_history     LotteryPackBinHistory[]
+  day_packs       LotteryDayPack[]
+  activatedByUser User?                   @relation("PackActivatedBy", fields: [activated_by], references: [user_id])
+  activatedShift  Shift?                  @relation("PackActivatedInShift", fields: [activated_shift_id], references: [shift_id])
+  depletedByUser  User?                   @relation("PackDepletedBy", fields: [depleted_by], references: [user_id])
+  depletedShift   Shift?                  @relation("PackDepletedInShift", fields: [depleted_shift_id], references: [shift_id])
 
+  @@unique([store_id, pack_number])
   @@index([game_id])
   @@index([store_id])
   @@index([status])
@@ -614,7 +671,6 @@ model LotteryPack {
   @@index([activated_shift_id])
   @@index([depleted_by])
   @@index([depleted_shift_id])
-  @@unique([store_id, pack_number])
   @@map("lottery_packs")
 }
 
@@ -622,18 +678,19 @@ model LotteryPack {
 /// Story 6.1: Lottery Game and Pack Data Models
 /// Tenant isolation enforced via store_id foreign key (RLS policies will be implemented in future stories)
 model LotteryBin {
-  bin_id        String        @id @default(uuid()) @db.Uuid
-  store_id      String        @db.Uuid
-  name          String        @db.VarChar(255)
-  location      String?       @db.VarChar(255)
-  display_order Int           @default(0)
-  is_active     Boolean       @default(true)
-  created_at    DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
+  bin_id        String   @id @default(uuid()) @db.Uuid
+  store_id      String   @db.Uuid
+  name          String   @db.VarChar(255)
+  location      String?  @db.VarChar(255)
+  display_order Int      @default(0)
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  store         Store         @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  packs         LotteryPack[]
-  pack_history  LotteryPackBinHistory[]
+  store        Store                   @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  packs        LotteryPack[]
+  pack_history LotteryPackBinHistory[]
+  day_packs    LotteryDayPack[]
 
   @@index([store_id])
   @@index([store_id, is_active])
@@ -646,15 +703,15 @@ model LotteryBin {
 /// Story 6.6: Shift Lottery Opening
 /// Tenant isolation enforced via store_id through Shift and LotteryPack relationships
 model LotteryShiftOpening {
-  opening_id    String   @id @default(uuid()) @db.Uuid
-  shift_id      String   @db.Uuid
-  pack_id       String   @db.Uuid
-  opening_serial String  @db.VarChar(100)
-  created_at    DateTime @default(now()) @db.Timestamptz(6)
-  
-  shift         Shift    @relation(fields: [shift_id], references: [shift_id], onDelete: Cascade)
-  pack          LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
-  
+  opening_id     String   @id @default(uuid()) @db.Uuid
+  shift_id       String   @db.Uuid
+  pack_id        String   @db.Uuid
+  opening_serial String   @db.VarChar(100)
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+
+  shift Shift       @relation(fields: [shift_id], references: [shift_id], onDelete: Cascade)
+  pack  LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+
   @@unique([shift_id, pack_id])
   @@index([shift_id])
   @@index([pack_id])
@@ -670,11 +727,11 @@ model LotteryShiftClosing {
   manual_entry_authorized_by String?   @db.Uuid
   manual_entry_authorized_at DateTime? @db.Timestamptz(6)
   created_at                 DateTime  @default(now()) @db.Timestamptz(6)
-  
-  shift                      Shift     @relation(fields: [shift_id], references: [shift_id], onDelete: Cascade)
-  pack                       LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
-  manualEntryAuthorizer      User?     @relation("ManualEntryAuthorizer", fields: [manual_entry_authorized_by], references: [user_id], onDelete: SetNull)
-  
+
+  shift                 Shift       @relation(fields: [shift_id], references: [shift_id], onDelete: Cascade)
+  pack                  LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  manualEntryAuthorizer User?       @relation("ManualEntryAuthorizer", fields: [manual_entry_authorized_by], references: [user_id], onDelete: SetNull)
+
   @@unique([shift_id, pack_id])
   @@index([shift_id])
   @@index([pack_id])
@@ -683,21 +740,21 @@ model LotteryShiftClosing {
 }
 
 model LotteryVariance {
-  variance_id  String    @id @default(uuid()) @db.Uuid
-  shift_id     String    @db.Uuid
-  pack_id      String    @db.Uuid
-  expected     Int
-  actual       Int
-  difference   Int
-  reason       String?   @db.Text
-  approved_by  String?   @db.Uuid
-  approved_at  DateTime? @db.Timestamptz(6)
-  created_at   DateTime  @default(now()) @db.Timestamptz(6)
-  
-  shift        Shift     @relation(fields: [shift_id], references: [shift_id], onDelete: Cascade)
-  pack         LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
-  approver     User?     @relation("VarianceApprover", fields: [approved_by], references: [user_id], onDelete: SetNull)
-  
+  variance_id String    @id @default(uuid()) @db.Uuid
+  shift_id    String    @db.Uuid
+  pack_id     String    @db.Uuid
+  expected    Int
+  actual      Int
+  difference  Int
+  reason      String?   @db.Text
+  approved_by String?   @db.Uuid
+  approved_at DateTime? @db.Timestamptz(6)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+
+  shift    Shift       @relation(fields: [shift_id], references: [shift_id], onDelete: Cascade)
+  pack     LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  approver User?       @relation("VarianceApprover", fields: [approved_by], references: [user_id], onDelete: SetNull)
+
   @@index([shift_id])
   @@index([pack_id])
   @@map("lottery_variances")
@@ -707,19 +764,19 @@ model LotteryVariance {
 /// Story 6.13: Lottery Database Enhancements & Bin Management
 /// Tenant isolation enforced via store_id through LotteryPack relationship
 model LotteryTicketSerial {
-  serial_id     String    @id @default(uuid()) @db.Uuid
-  pack_id       String    @db.Uuid
-  serial_number String    @unique @db.VarChar(100)
-  sold_at       DateTime? @db.Timestamptz(6)
-  shift_id      String?   @db.Uuid
-  cashier_id    String?   @db.Uuid
-  transaction_id String?  @db.Uuid
-  created_at    DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  serial_id      String    @id @default(uuid()) @db.Uuid
+  pack_id        String    @db.Uuid
+  serial_number  String    @unique @db.VarChar(100)
+  sold_at        DateTime? @db.Timestamptz(6)
+  shift_id       String?   @db.Uuid
+  cashier_id     String?   @db.Uuid
+  transaction_id String?   @db.Uuid
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
 
-  pack          LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
-  shift         Shift?       @relation(fields: [shift_id], references: [shift_id], onDelete: SetNull)
-  cashier       User?        @relation("TicketCashier", fields: [cashier_id], references: [user_id], onDelete: SetNull)
+  pack    LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  shift   Shift?      @relation(fields: [shift_id], references: [shift_id], onDelete: SetNull)
+  cashier User?       @relation("TicketCashier", fields: [cashier_id], references: [user_id], onDelete: SetNull)
 
   @@index([pack_id])
   @@index([pack_id, sold_at])
@@ -733,18 +790,18 @@ model LotteryTicketSerial {
 /// Story 6.13: Lottery Database Enhancements & Bin Management
 /// Tenant isolation enforced via store_id through LotteryPack relationship
 model LotteryPackBinHistory {
-  history_id String    @id @default(uuid()) @db.Uuid
-  pack_id     String    @db.Uuid
-  bin_id      String    @db.Uuid
-  moved_at    DateTime  @default(now()) @db.Timestamptz(6)
-  moved_by    String    @db.Uuid
-  reason      String?   @db.VarChar(500)
-  created_at  DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  history_id String   @id @default(uuid()) @db.Uuid
+  pack_id    String   @db.Uuid
+  bin_id     String   @db.Uuid
+  moved_at   DateTime @default(now()) @db.Timestamptz(6)
+  moved_by   String   @db.Uuid
+  reason     String?  @db.VarChar(500)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  pack        LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
-  bin         LotteryBin  @relation(fields: [bin_id], references: [bin_id], onDelete: Cascade)
-  mover       User        @relation("PackMover", fields: [moved_by], references: [user_id], onDelete: Cascade)
+  pack  LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  bin   LotteryBin  @relation(fields: [bin_id], references: [bin_id], onDelete: Cascade)
+  mover User        @relation("PackMover", fields: [moved_by], references: [user_id], onDelete: Cascade)
 
   @@index([pack_id])
   @@index([bin_id])
@@ -757,13 +814,72 @@ model LotteryPackBinHistory {
 /// Story 6.13: Lottery Database Enhancements & Bin Management
 /// Tenant isolation enforced via store_id foreign key
 model LotteryBinConfiguration {
-  config_id   String   @id @default(uuid()) @db.Uuid
-  store_id    String   @unique @db.Uuid
-  bin_template Json    @db.JsonB
-  created_at  DateTime @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  config_id    String   @id @default(uuid()) @db.Uuid
+  store_id     String   @unique @db.Uuid
+  bin_template Json     @db.JsonB
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  store       Store    @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  store Store @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
 
   @@map("lottery_bin_configurations")
+}
+
+/// Lottery Business Day - Tracks lottery operations for a calendar day per store
+/// Independent of shifts - day boundaries defined by first/last shift of the day
+/// Story: MyStore Lottery Day-Based Tracking
+/// Tenant isolation enforced via store_id foreign key
+model LotteryBusinessDay {
+  day_id        String    @id @default(uuid()) @db.Uuid
+  store_id      String    @db.Uuid
+  business_date DateTime  @db.Date
+  status        String    @default("OPEN") @db.VarChar(20) // OPEN, CLOSED
+  opened_at     DateTime  @default(now()) @db.Timestamptz(6)
+  opened_by     String?   @db.Uuid
+  closed_at     DateTime? @db.Timestamptz(6)
+  closed_by     String?   @db.Uuid
+  notes         String?   @db.Text
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  store        Store            @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  openedByUser User?            @relation("LotteryDayOpenedBy", fields: [opened_by], references: [user_id], onDelete: SetNull)
+  closedByUser User?            @relation("LotteryDayClosedBy", fields: [closed_by], references: [user_id], onDelete: SetNull)
+  day_packs    LotteryDayPack[]
+
+  @@unique([store_id, business_date])
+  @@index([store_id])
+  @@index([store_id, status])
+  @@index([business_date])
+  @@index([opened_by])
+  @@index([closed_by])
+  @@map("lottery_business_days")
+}
+
+/// Lottery Day Pack - Tracks each pack's activity for a specific business day
+/// Records starting and ending serials for day-based reconciliation
+/// Story: MyStore Lottery Day-Based Tracking
+/// Tenant isolation enforced via store_id through LotteryBusinessDay relationship
+model LotteryDayPack {
+  day_pack_id     String   @id @default(uuid()) @db.Uuid
+  day_id          String   @db.Uuid
+  pack_id         String   @db.Uuid
+  bin_id          String?  @db.Uuid
+  starting_serial String   @db.VarChar(100) // From previous day close OR "000" if newly activated
+  ending_serial   String?  @db.VarChar(100) // Entered at day close
+  tickets_sold    Int? // Calculated: ending - starting
+  sales_amount    Decimal? @db.Decimal(10, 2) // tickets_sold × ticket_price
+  entry_method    String?  @db.VarChar(10) // 'SCAN' or 'MANUAL'
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  day  LotteryBusinessDay @relation(fields: [day_id], references: [day_id], onDelete: Cascade)
+  pack LotteryPack        @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  bin  LotteryBin?        @relation(fields: [bin_id], references: [bin_id], onDelete: SetNull)
+
+  @@unique([day_id, pack_id])
+  @@index([day_id])
+  @@index([pack_id])
+  @@index([bin_id])
+  @@map("lottery_day_packs")
 }

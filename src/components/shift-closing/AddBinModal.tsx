@@ -323,7 +323,7 @@ export function AddBinModal({
       const newBin = await createBinMutation.mutateAsync({
         bin_name: binName,
         location: values.location || undefined,
-        display_order: nextBinNumber,
+        display_order: nextBinNumber - 1, // display_order is 0-indexed (Bin 1 = 0, Bin 2 = 1, etc.)
         pack_number: parsed.pack_number,
         serial_start: parsed.serial_start,
         activated_by: currentUserId,

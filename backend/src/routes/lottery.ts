@@ -102,6 +102,177 @@ async function getDefaultStoreIdFromRoles(
  */
 export async function lotteryRoutes(fastify: FastifyInstance) {
   /**
+   * GET /api/lottery/config-values
+   * Get predefined configuration values for lottery dropdowns (ticket prices and pack values)
+   * Protected route - requires LOTTERY_GAME_READ permission
+   * Story 6.x: Lottery Configuration Values Enhancement
+   */
+  fastify.get(
+    "/api/lottery/config-values",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_GAME_READ),
+      ],
+      schema: {
+        description:
+          "Get predefined configuration values for lottery dropdowns",
+        tags: ["lottery"],
+        querystring: {
+          type: "object",
+          properties: {
+            type: {
+              type: "string",
+              enum: ["PACK_VALUE", "TICKET_PRICE"],
+              description:
+                "Filter by config type. If not provided, returns all types.",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  ticket_prices: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        config_value_id: { type: "string", format: "uuid" },
+                        amount: { type: "number" },
+                        display_order: { type: "integer" },
+                      },
+                    },
+                  },
+                  pack_values: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        config_value_id: { type: "string", format: "uuid" },
+                        amount: { type: "number" },
+                        display_order: { type: "integer" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const query = request.query as { type?: string };
+        const { type } = query;
+
+        // Build where clause for optional type filtering
+        const whereClause: {
+          config_type?: "PACK_VALUE" | "TICKET_PRICE";
+          is_active: boolean;
+        } = {
+          is_active: true,
+        };
+
+        if (type === "PACK_VALUE" || type === "TICKET_PRICE") {
+          whereClause.config_type = type;
+        }
+
+        // Fetch all active config values, ordered by display_order
+        const configValues = await prisma.lotteryConfigValue.findMany({
+          where: whereClause,
+          orderBy: [{ config_type: "asc" }, { display_order: "asc" }],
+          select: {
+            config_value_id: true,
+            config_type: true,
+            amount: true,
+            display_order: true,
+          },
+        });
+
+        // Group by type for easier frontend consumption
+        const ticketPrices = configValues
+          .filter((v) => v.config_type === "TICKET_PRICE")
+          .map((v) => ({
+            config_value_id: v.config_value_id,
+            amount: Number(v.amount),
+            display_order: v.display_order,
+          }));
+
+        const packValues = configValues
+          .filter((v) => v.config_type === "PACK_VALUE")
+          .map((v) => ({
+            config_value_id: v.config_value_id,
+            amount: Number(v.amount),
+            display_order: v.display_order,
+          }));
+
+        return {
+          success: true,
+          data: {
+            ticket_prices: ticketPrices,
+            pack_values: packValues,
+          },
+        };
+      } catch (error) {
+        fastify.log.error({ error }, "Failed to fetch lottery config values");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch configuration values",
+          },
+        };
+      }
+    },
+  );
+
+  /**
    * POST /api/lottery/packs/receive
    * Receive a lottery pack and record it in the system
    * Protected route - requires LOTTERY_PACK_RECEIVE permission
@@ -118,7 +289,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         tags: ["lottery"],
         body: {
           type: "object",
-          required: ["game_id", "pack_number", "serial_start", "serial_end"],
+          required: ["game_id", "pack_number", "serial_end"],
           properties: {
             game_id: {
               type: "string",
@@ -135,7 +306,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               type: "string",
               minLength: 1,
               maxLength: 100,
-              description: "Starting serial number in the pack",
+              description:
+                "Starting serial number (optional, always forced to 000)",
             },
             serial_end: {
               type: "string",
@@ -288,7 +460,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       const body = request.body as {
         game_id: string;
         pack_number: string;
-        serial_start: string;
+        serial_start?: string; // Optional - always forced to "000" regardless of value
         serial_end: string;
         store_id?: string;
         bin_id?: string;
@@ -297,8 +469,15 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       // Normalize string fields by trimming whitespace
       // This ensures consistent behavior across duplicate checks, validations, and database writes
       const normalizedPackNumber = body.pack_number.trim();
-      const normalizedSerialStart = body.serial_start.trim();
       const normalizedSerialEnd = body.serial_end.trim();
+
+      // IMPORTANT: Always force serial_start to "000" regardless of what was scanned
+      // Pack serial tracking starts from zero, and any scanned serial in barcode is ignored
+      // Pad with leading zeros to match serial_end length for consistent storage
+      const normalizedSerialStart = "0".padStart(
+        normalizedSerialEnd.length,
+        "0",
+      );
 
       try {
         // Extract IP address and user agent for audit logging
@@ -358,23 +537,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             error: {
               code: "FORBIDDEN",
               message:
-                "You do not have access to this store. Ensure you have SYSTEM, COMPANY, or STORE scope access.",
+                "You do not have access to this store. Please contact your manager.",
             },
           };
         }
 
-        // Validate serial numbers are numeric-only (lottery serial barcodes are numeric)
+        // Validate serial_end is numeric-only (lottery serial barcodes are numeric)
+        // Note: serial_start is auto-generated as "000...0" so no validation needed
         const numericOnlyRegex = /^\d+$/;
-        if (!numericOnlyRegex.test(normalizedSerialStart)) {
-          reply.code(400);
-          return {
-            success: false,
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "serial_start must contain only numeric characters",
-            },
-          };
-        }
         if (!numericOnlyRegex.test(normalizedSerialEnd)) {
           reply.code(400);
           return {
@@ -386,20 +556,15 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Validate serial range using BigInt comparison
-        // Serial numbers can be very long (24+ digits), exceeding JavaScript's Number.MAX_SAFE_INTEGER
-        const serialStartBigInt = BigInt(normalizedSerialStart);
+        // Validate serial_end is greater than zero (since serial_start is always 0)
         const serialEndBigInt = BigInt(normalizedSerialEnd);
-
-        // serial_start must be strictly less than serial_end (they cannot be equal)
-        if (serialStartBigInt >= serialEndBigInt) {
+        if (serialEndBigInt <= 0n) {
           reply.code(400);
           return {
             success: false,
             error: {
               code: "VALIDATION_ERROR",
-              message:
-                "Invalid serial range: serial_start must be less than serial_end",
+              message: "serial_end must be greater than zero",
             },
           };
         }
@@ -819,7 +984,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             error: {
               code: "FORBIDDEN",
               message:
-                "You do not have access to this store. Ensure you have SYSTEM, COMPANY, or STORE scope access.",
+                "You do not have access to this store. Please contact your manager.",
             },
           };
         }
@@ -866,10 +1031,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 }
                 seenPackNumbers.add(packKey);
 
-                // Lookup game by game code
+                // Lookup game by game code with company scoping
+                // First looks for store-scoped game, falls back to global game
                 let game;
                 try {
-                  game = await lookupGameByCode(parsed.game_code);
+                  game = await lookupGameByCode(
+                    parsed.game_code,
+                    store.store_id,
+                  );
                 } catch (lookupError: any) {
                   // Track games not found separately for frontend to handle
                   gamesNotFound.push({
@@ -896,13 +1065,15 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   continue;
                 }
 
-                // Calculate serial_end from serial_start (assuming 150 tickets per pack)
-                // Note: This is a simplified calculation - adjust based on actual pack size
-                const serialStartNum = BigInt(parsed.serial_start);
-                const serialEndNum = serialStartNum + BigInt(149); // 150 tickets (0-149)
+                // IMPORTANT: Always force serial_start to "000...0" regardless of scanned barcode
+                // Calculate serial_end based on game's tickets_per_pack or default to 150
+                const ticketsPerPack = game.tickets_per_pack || 150;
+                const serialEndNum = BigInt(ticketsPerPack - 1); // e.g., 149 for 150 tickets (0-149)
+                const serialStartLength = parsed.serial_start?.length || 3;
+                const serialStart = "0".padStart(serialStartLength, "0");
                 const serialEnd = serialEndNum
                   .toString()
-                  .padStart(parsed.serial_start.length, "0");
+                  .padStart(serialStartLength, "0");
 
                 // Create pack
                 const newPack = await tx.lotteryPack.create({
@@ -910,7 +1081,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                     game_id: game.game_id,
                     store_id: storeId,
                     pack_number: parsed.pack_number,
-                    serial_start: parsed.serial_start,
+                    serial_start: serialStart,
                     serial_end: serialEnd,
                     status: "RECEIVED",
                     received_at: new Date(),
@@ -1614,6 +1785,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                     name: { type: "string" },
                     description: { type: "string", nullable: true },
                     price: { type: "number", nullable: true },
+                    pack_value: { type: "number", nullable: true },
+                    total_tickets: { type: "integer", nullable: true },
                     status: { type: "string" },
                     created_at: { type: "string", format: "date-time" },
                     updated_at: { type: "string", format: "date-time" },
@@ -1676,20 +1849,59 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           null;
         const userAgent = request.headers["user-agent"] || null;
 
+        // Build where clause based on user role
+        // - SUPERADMIN sees ALL games (global + all store-scoped)
+        // - Other users see global games + games from stores they have access to
+        const isSuperAdmin = user.roles.includes("SUPERADMIN");
+        const userRoles = await rbacService.getUserRoles(user.id);
+
+        let whereClause: any = { status: "ACTIVE" };
+        if (!isSuperAdmin) {
+          // Get store IDs the user has access to
+          const accessibleStoreIds: string[] = [];
+
+          // Check for COMPANY scope - gives access to all stores in that company
+          const companyRoles = userRoles.filter(
+            (role) => role.scope === "COMPANY" && role.company_id,
+          );
+          if (companyRoles.length > 0) {
+            const companyIds = companyRoles.map((r) => r.company_id!);
+            const companyStores = await prisma.store.findMany({
+              where: { company_id: { in: companyIds } },
+              select: { store_id: true },
+            });
+            accessibleStoreIds.push(...companyStores.map((s) => s.store_id));
+          }
+
+          // Check for STORE scope - gives access to specific stores
+          const storeRoles = userRoles.filter(
+            (role) => role.scope === "STORE" && role.store_id,
+          );
+          accessibleStoreIds.push(...storeRoles.map((r) => r.store_id!));
+
+          // Non-super admins see:
+          // 1. Global games (store_id IS NULL)
+          // 2. Games from stores they have access to
+          whereClause = {
+            status: "ACTIVE",
+            OR: [{ store_id: null }, { store_id: { in: accessibleStoreIds } }],
+          };
+        }
+
         // Query active lottery games using Prisma ORM (prevents SQL injection)
         const games = await prisma.lotteryGame.findMany({
-          where: {
-            status: "ACTIVE",
-          },
+          where: whereClause,
           select: {
             game_id: true,
             game_code: true,
             name: true,
             description: true,
             price: true,
+            pack_value: true,
             status: true,
             created_at: true,
             updated_at: true,
+            store_id: true,
           },
           orderBy: {
             name: "asc",
@@ -1722,16 +1934,25 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
 
         return {
           success: true,
-          data: games.map((game) => ({
-            game_id: game.game_id,
-            game_code: game.game_code,
-            name: game.name,
-            description: game.description,
-            price: game.price ? Number(game.price) : null,
-            status: game.status,
-            created_at: game.created_at.toISOString(),
-            updated_at: game.updated_at.toISOString(),
-          })),
+          data: games.map((game) => {
+            const price = game.price ? Number(game.price) : null;
+            const packValue = game.pack_value ? Number(game.pack_value) : null;
+            const totalTickets =
+              price && packValue ? Math.floor(packValue / price) : null;
+            return {
+              game_id: game.game_id,
+              game_code: game.game_code,
+              name: game.name,
+              description: game.description,
+              price,
+              pack_value: packValue,
+              total_tickets: totalTickets,
+              status: game.status,
+              created_at: game.created_at.toISOString(),
+              updated_at: game.updated_at.toISOString(),
+              is_global: game.store_id === null,
+            };
+          }),
         };
       } catch (error: any) {
         fastify.log.error({ error }, "Error querying lottery games");
@@ -1753,6 +1974,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
    * Create a new lottery game
    * Protected route - requires LOTTERY_PACK_RECEIVE permission (game creation is part of pack reception workflow)
    * Used when receiving packs with unknown game codes
+   * Enhanced: Now requires pack_value for serial number calculation (Story 6.x)
    */
   fastify.post(
     "/api/lottery/games",
@@ -1766,7 +1988,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         tags: ["lottery"],
         body: {
           type: "object",
-          required: ["game_code", "name"],
+          required: ["game_code", "name", "price", "pack_value"],
           properties: {
             game_code: {
               type: "string",
@@ -1781,13 +2003,25 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             },
             price: {
               type: "number",
-              minimum: 0,
-              description: "Ticket price (defaults to 0 if not provided)",
+              minimum: 0.01,
+              description: "Ticket price (required, must be > 0)",
+            },
+            pack_value: {
+              type: "number",
+              minimum: 1,
+              description:
+                "Total pack value in dollars (required for calculating ticket count)",
             },
             description: {
               type: "string",
               maxLength: 500,
               description: "Optional game description",
+            },
+            store_id: {
+              type: "string",
+              format: "uuid",
+              description:
+                "Store ID for store-scoped games (required for non-SuperAdmin users, ignored for SuperAdmin)",
             },
           },
         },
@@ -1803,6 +2037,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   game_code: { type: "string" },
                   name: { type: "string" },
                   price: { type: "number" },
+                  pack_value: { type: "number" },
+                  total_tickets: { type: "integer" },
                   status: { type: "string" },
                 },
               },
@@ -1842,8 +2078,10 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       const body = request.body as {
         game_code: string;
         name: string;
-        price?: number;
+        price: number;
+        pack_value: number;
         description?: string;
+        store_id?: string;
       };
 
       try {
@@ -1873,9 +2111,105 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Check if game_code already exists
-        const existingGame = await prisma.lotteryGame.findUnique({
-          where: { game_code: body.game_code },
+        // Validate price is positive
+        if (!body.price || body.price <= 0) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Ticket price is required and must be greater than 0",
+            },
+          };
+        }
+
+        // Validate pack_value is positive
+        if (!body.pack_value || body.pack_value <= 0) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Pack value is required and must be greater than 0",
+            },
+          };
+        }
+
+        // Validate pack_value is divisible by price (whole number of tickets)
+        const totalTickets = body.pack_value / body.price;
+        if (!Number.isInteger(totalTickets)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: `Pack value ($${body.pack_value}) must be evenly divisible by ticket price ($${body.price}) to yield a whole number of tickets`,
+            },
+          };
+        }
+
+        // Determine game scope based on user role
+        // - SUPERADMIN creates global games (store_id = null)
+        // - Other users create store-scoped games (store_id required in body)
+        const isSuperAdmin = user.roles.includes("SUPERADMIN");
+        let storeId: string | null = null;
+
+        if (!isSuperAdmin) {
+          // Non-SuperAdmin users MUST provide store_id
+          if (!body.store_id) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "store_id is required for creating store-scoped games",
+              },
+            };
+          }
+
+          // Validate store exists and user has access to it
+          const store = await prisma.store.findUnique({
+            where: { store_id: body.store_id },
+            select: { store_id: true, company_id: true, name: true },
+          });
+
+          if (!store) {
+            reply.code(404);
+            return {
+              success: false,
+              error: {
+                code: "NOT_FOUND",
+                message: "Store not found",
+              },
+            };
+          }
+
+          // Validate user has access to this store
+          const userRoles = await rbacService.getUserRoles(user.id);
+          if (
+            !validateUserStoreAccess(userRoles, body.store_id, store.company_id)
+          ) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "FORBIDDEN",
+                message: "You do not have access to this store",
+              },
+            };
+          }
+
+          storeId = body.store_id;
+        }
+
+        // Check if game_code already exists for this scope
+        // For global games: check if a global game with this code exists
+        // For store games: check if a store game with this code exists for this store
+        const existingGame = await prisma.lotteryGame.findFirst({
+          where: {
+            game_code: body.game_code,
+            store_id: storeId,
+          },
         });
 
         if (existingGame) {
@@ -1884,19 +2218,24 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             success: false,
             error: {
               code: "DUPLICATE_GAME_CODE",
-              message: `Game with code ${body.game_code} already exists`,
+              message: isSuperAdmin
+                ? `Global game with code ${body.game_code} already exists`
+                : `Game with code ${body.game_code} already exists for this store`,
             },
           };
         }
 
-        // Create the game
+        // Create the game with pack_value and scoping
         const newGame = await prisma.lotteryGame.create({
           data: {
             game_code: body.game_code,
             name: normalizedName,
-            price: body.price ?? 0,
+            price: body.price,
+            pack_value: body.pack_value,
             description: body.description?.trim() || null,
             status: "ACTIVE",
+            created_by_user_id: user.id,
+            store_id: storeId,
           },
         });
 
@@ -1909,6 +2248,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         const userAgent = request.headers["user-agent"] || null;
 
         try {
+          const scopeDescription = isSuperAdmin
+            ? "global"
+            : `store-scoped (${storeId})`;
           await prisma.auditLog.create({
             data: {
               user_id: user.id,
@@ -1920,10 +2262,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 game_code: newGame.game_code,
                 name: newGame.name,
                 price: Number(newGame.price),
+                pack_value: Number(newGame.pack_value),
+                total_tickets: totalTickets,
+                store_id: storeId,
+                is_global: isSuperAdmin,
               } as Record<string, any>,
               ip_address: ipAddress,
               user_agent: userAgent,
-              reason: `Lottery game created by ${user.email} - ${newGame.name} (${newGame.game_code})`,
+              reason: `Lottery game created by ${user.email} - ${newGame.name} (${newGame.game_code}) - $${body.price} ticket, $${body.pack_value} pack (${totalTickets} tickets) - ${scopeDescription}`,
             },
           });
         } catch (auditError) {
@@ -1941,7 +2287,10 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             game_code: newGame.game_code,
             name: newGame.name,
             price: Number(newGame.price),
+            pack_value: Number(newGame.pack_value),
+            total_tickets: totalTickets,
             status: newGame.status,
+            is_global: isSuperAdmin,
           },
         };
       } catch (error: any) {
@@ -2190,7 +2539,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               error: {
                 code: "FORBIDDEN",
                 message:
-                  "You do not have access to this store. Access is limited to your assigned stores or company.",
+                  "You do not have access to this store. Please contact your manager.",
               },
             };
           }
@@ -3546,7 +3895,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               error: {
                 code: "FORBIDDEN",
                 message:
-                  "You do not have access to this store. Access is limited to your assigned stores or company.",
+                  "You do not have access to this store. Please contact your manager.",
               },
             };
           }
@@ -3804,7 +4153,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               error: {
                 code: "FORBIDDEN",
                 message:
-                  "You do not have access to this store. Access is limited to your assigned stores or company.",
+                  "You do not have access to this store. Please contact your manager.",
               },
             };
           }
@@ -4094,7 +4443,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               error: {
                 code: "FORBIDDEN",
                 message:
-                  "You do not have access to this store. Access is limited to your assigned stores or company.",
+                  "You do not have access to this store. Please contact your manager.",
               },
             };
           }
@@ -4210,7 +4559,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
 
   /**
    * GET /api/lottery/bins/:storeId
-   * Get all active bins for a store with display order
+   * Get all active bins for a store with display order and current pack information
    * Protected route - requires LOTTERY_BIN_READ permission
    * Story 6.13: Lottery Database Enhancements & Bin Management (AC #1)
    */
@@ -4222,7 +4571,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         permissionMiddleware(PERMISSIONS.LOTTERY_BIN_READ),
       ],
       schema: {
-        description: "Get all active bins for a store",
+        description:
+          "Get all active bins for a store with current pack information",
         tags: ["lottery"],
         params: {
           type: "object",
@@ -4251,6 +4601,28 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                     location: { type: "string", nullable: true },
                     display_order: { type: "integer" },
                     is_active: { type: "boolean" },
+                    current_pack: {
+                      type: "object",
+                      nullable: true,
+                      properties: {
+                        pack_id: { type: "string", format: "uuid" },
+                        pack_number: { type: "string" },
+                        status: { type: "string" },
+                        activated_at: {
+                          type: "string",
+                          format: "date-time",
+                          nullable: true,
+                        },
+                        game: {
+                          type: "object",
+                          properties: {
+                            name: { type: "string" },
+                            game_code: { type: "string" },
+                            price: { type: "number" },
+                          },
+                        },
+                      },
+                    },
                   },
                 },
               },
@@ -4326,13 +4698,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               error: {
                 code: "FORBIDDEN",
                 message:
-                  "You do not have access to this store. Access is limited to your assigned stores or company.",
+                  "You do not have access to this store. Please contact your manager.",
               },
             };
           }
         }
 
         // Query active bins using Prisma ORM (prevents SQL injection, enforces RLS)
+        // Include current pack information if a pack is assigned to the bin
         const bins = await prisma.lotteryBin.findMany({
           where: {
             store_id: params.storeId,
@@ -4348,6 +4721,27 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             location: true,
             display_order: true,
             is_active: true,
+            packs: {
+              where: {
+                current_bin_id: {
+                  not: null,
+                },
+              },
+              select: {
+                pack_id: true,
+                pack_number: true,
+                status: true,
+                activated_at: true,
+                game: {
+                  select: {
+                    name: true,
+                    game_code: true,
+                    price: true,
+                  },
+                },
+              },
+              take: 1,
+            },
           },
         });
 
@@ -4384,6 +4778,16 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             location: bin.location,
             display_order: bin.display_order,
             is_active: bin.is_active,
+            current_pack:
+              bin.packs.length > 0
+                ? {
+                    pack_id: bin.packs[0].pack_id,
+                    pack_number: bin.packs[0].pack_number,
+                    status: bin.packs[0].status,
+                    activated_at: bin.packs[0].activated_at,
+                    game: bin.packs[0].game,
+                  }
+                : null,
           })),
         };
       } catch (error: any) {
@@ -4543,7 +4947,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               error: {
                 code: "FORBIDDEN",
                 message:
-                  "You do not have access to this store. Access is limited to your assigned stores or company.",
+                  "You do not have access to this store. Please contact your manager.",
               },
             };
           }
@@ -4790,7 +5194,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               error: {
                 code: "FORBIDDEN",
                 message:
-                  "You do not have access to this store. Access is limited to your assigned stores or company.",
+                  "You do not have access to this store. Please contact your manager.",
               },
             };
           }
@@ -5014,7 +5418,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               error: {
                 code: "FORBIDDEN",
                 message:
-                  "You do not have access to this store. Access is limited to your assigned stores or company.",
+                  "You do not have access to this store. Please contact your manager.",
               },
             };
           }
@@ -5211,7 +5615,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               error: {
                 code: "FORBIDDEN",
                 message:
-                  "You do not have access to this store. Access is limited to your assigned stores or company.",
+                  "You do not have access to this store. Please contact your manager.",
               },
             };
           }
@@ -5371,6 +5775,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                     nullable: true,
                     properties: {
                       pack_id: { type: "string", format: "uuid" },
+                      pack_number: { type: "string" },
                       serial_start: { type: "string" },
                       serial_end: { type: "string" },
                     },
@@ -5431,6 +5836,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           },
           select: {
             pack_id: true,
+            pack_number: true,
             status: true,
             serial_start: true,
             serial_end: true,
@@ -5498,6 +5904,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             },
             pack: {
               pack_id: pack.pack_id,
+              pack_number: pack.pack_number,
               serial_start: pack.serial_start,
               serial_end: pack.serial_end,
             },
@@ -5516,4 +5923,1294 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       }
     },
   );
+
+  /**
+   * GET /api/lottery/bins/day/:storeId
+   * Get lottery bins with day-based tracking for the MyStore lottery page
+   * Returns bins with active packs, starting/ending serials for the business day,
+   * and depleted packs for the day.
+   *
+   * Protected route - requires LOTTERY_PACK_READ permission
+   * Story: MyStore Lottery Page Redesign
+   *
+   * Business Day Definition:
+   * - Start: opened_at of the first shift that started on that calendar day (in store timezone)
+   * - End: closed_at of the last shift that started on that same calendar day
+   *
+   * Starting Serial Logic:
+   * 1. If shift opened today -> use today's opening_serial from lottery_shift_openings
+   * 2. If no shift today but pack has history -> use most recent closing_serial
+   * 3. If pack just activated (no history) -> use pack's serial_start
+   *
+   * Ending Serial Logic:
+   * - Shows the closing_serial from the most recent completed shift closing for that pack today
+   * - If no closing exists yet today, returns null
+   */
+  fastify.get(
+    "/api/lottery/bins/day/:storeId",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_READ),
+      ],
+      schema: {
+        description:
+          "Get lottery bins with day-based tracking for MyStore lottery page",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        querystring: {
+          type: "object",
+          properties: {
+            date: {
+              type: "string",
+              format: "date",
+              description:
+                "ISO date string (YYYY-MM-DD). Defaults to today in store timezone.",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  bins: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        bin_id: { type: "string", format: "uuid" },
+                        bin_number: { type: "integer" },
+                        name: { type: "string" },
+                        is_active: { type: "boolean" },
+                        pack: {
+                          type: "object",
+                          nullable: true,
+                          properties: {
+                            pack_id: { type: "string", format: "uuid" },
+                            pack_number: { type: "string" },
+                            game_name: { type: "string" },
+                            game_price: { type: "number" },
+                            starting_serial: { type: "string" },
+                            ending_serial: { type: "string", nullable: true },
+                            serial_end: { type: "string" },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  business_day: {
+                    type: "object",
+                    properties: {
+                      date: { type: "string", format: "date" },
+                      day_id: {
+                        type: "string",
+                        format: "uuid",
+                        nullable: true,
+                      },
+                      status: { type: "string", nullable: true },
+                      first_shift_opened_at: {
+                        type: "string",
+                        format: "date-time",
+                        nullable: true,
+                      },
+                      last_shift_closed_at: {
+                        type: "string",
+                        format: "date-time",
+                        nullable: true,
+                      },
+                      shifts_count: { type: "integer" },
+                    },
+                  },
+                  depleted_packs: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        pack_id: { type: "string", format: "uuid" },
+                        pack_number: { type: "string" },
+                        game_name: { type: "string" },
+                        game_price: { type: "number" },
+                        bin_number: { type: "integer" },
+                        depleted_at: { type: "string", format: "date-time" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { storeId: string };
+      const query = request.query as { date?: string };
+
+      try {
+        // Get user roles to determine store access (RLS enforcement)
+        const userRoles = await rbacService.getUserRoles(user.id);
+
+        // Validate store exists and get store details including timezone
+        const store = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+          select: {
+            store_id: true,
+            company_id: true,
+            name: true,
+            timezone: true,
+          },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
+          };
+        }
+
+        // Validate store access based on user's role scope (RLS enforcement)
+        const hasAccess = validateUserStoreAccess(
+          userRoles,
+          params.storeId,
+          store.company_id,
+        );
+        if (!hasAccess) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message:
+                "You do not have access to this store. Please contact your manager.",
+            },
+          };
+        }
+
+        // Determine the target date in store timezone
+        // If date param provided, parse it; otherwise use current date in store timezone
+        const storeTimezone = store.timezone || "America/New_York";
+        let targetDate: Date;
+        let targetDateStr: string;
+
+        if (query.date) {
+          // Validate date format (YYYY-MM-DD)
+          const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+          if (!dateRegex.test(query.date)) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Invalid date format. Use YYYY-MM-DD.",
+              },
+            };
+          }
+          targetDateStr = query.date;
+          // Parse the date string as the start of day in store timezone
+          targetDate = new Date(query.date + "T00:00:00");
+        } else {
+          // Get current date in store timezone
+          const now = new Date();
+          const formatter = new Intl.DateTimeFormat("en-CA", {
+            timeZone: storeTimezone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          });
+          targetDateStr = formatter.format(now); // Returns YYYY-MM-DD
+          targetDate = new Date(targetDateStr + "T00:00:00");
+        }
+
+        // Calculate day boundaries in UTC for database queries
+        // We need to find shifts where opened_at falls on the target date in store timezone
+        const dayStartLocal = new Date(targetDateStr + "T00:00:00");
+        const dayEndLocal = new Date(targetDateStr + "T23:59:59.999");
+
+        // Convert to UTC bounds by getting the offset
+        // Note: This is an approximation - for precise timezone handling,
+        // we would need a library like luxon or date-fns-tz
+        const utcOffset = getTimezoneOffset(storeTimezone, targetDate);
+        const dayStartUtc = new Date(dayStartLocal.getTime() - utcOffset);
+        const dayEndUtc = new Date(dayEndLocal.getTime() - utcOffset);
+
+        // Check for LotteryBusinessDay record for this date
+        const lotteryBusinessDay = await prisma.lotteryBusinessDay.findUnique({
+          where: {
+            store_id_business_date: {
+              store_id: params.storeId,
+              business_date: targetDate,
+            },
+          },
+          include: {
+            day_packs: {
+              include: {
+                pack: {
+                  include: {
+                    game: {
+                      select: {
+                        name: true,
+                        price: true,
+                      },
+                    },
+                  },
+                },
+                bin: {
+                  select: {
+                    bin_id: true,
+                    display_order: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        // Find all shifts for the business day (shifts that OPENED on target date)
+        // Still needed for backward compatibility and business_day metadata
+        const dayShifts = await prisma.shift.findMany({
+          where: {
+            store_id: params.storeId,
+            opened_at: {
+              gte: dayStartUtc,
+              lte: dayEndUtc,
+            },
+          },
+          orderBy: { opened_at: "asc" },
+          select: {
+            shift_id: true,
+            opened_at: true,
+            closed_at: true,
+            status: true,
+          },
+        });
+
+        const shiftIds = dayShifts.map((s) => s.shift_id);
+        const firstShift = dayShifts[0] || null;
+        const lastShift = dayShifts[dayShifts.length - 1] || null;
+
+        // Get all bins for the store with active packs
+        const bins = await prisma.lotteryBin.findMany({
+          where: {
+            store_id: params.storeId,
+            is_active: true,
+          },
+          orderBy: { display_order: "asc" },
+          include: {
+            packs: {
+              where: { status: "ACTIVE" },
+              take: 1,
+              include: {
+                game: {
+                  select: {
+                    name: true,
+                    price: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        // Get pack IDs for active packs in bins
+        const activePackIds = bins
+          .filter((bin) => bin.packs.length > 0)
+          .map((bin) => bin.packs[0].pack_id);
+
+        // Get starting serials for today (first opening of the day for each pack)
+        // Query lottery_shift_openings for shifts that opened today
+        const todayOpenings =
+          shiftIds.length > 0
+            ? await prisma.lotteryShiftOpening.findMany({
+                where: {
+                  shift_id: { in: shiftIds },
+                  pack_id: { in: activePackIds },
+                },
+                include: {
+                  shift: {
+                    select: { opened_at: true },
+                  },
+                },
+                orderBy: {
+                  shift: { opened_at: "asc" },
+                },
+              })
+            : [];
+
+        // Map: pack_id -> first opening serial of the day
+        const firstOpeningByPack = new Map<string, string>();
+        for (const opening of todayOpenings) {
+          if (!firstOpeningByPack.has(opening.pack_id)) {
+            firstOpeningByPack.set(opening.pack_id, opening.opening_serial);
+          }
+        }
+
+        // Get ending serials for today (most recent closing of the day for each pack)
+        const todayClosings =
+          shiftIds.length > 0
+            ? await prisma.lotteryShiftClosing.findMany({
+                where: {
+                  shift_id: { in: shiftIds },
+                  pack_id: { in: activePackIds },
+                },
+                include: {
+                  shift: {
+                    select: { opened_at: true },
+                  },
+                },
+                orderBy: {
+                  shift: { opened_at: "desc" },
+                },
+              })
+            : [];
+
+        // Map: pack_id -> most recent closing serial of the day
+        const lastClosingByPack = new Map<string, string>();
+        for (const closing of todayClosings) {
+          if (!lastClosingByPack.has(closing.pack_id)) {
+            lastClosingByPack.set(closing.pack_id, closing.closing_serial);
+          }
+        }
+
+        // For packs without today's opening, get the most recent closing serial (from any prior day)
+        const packsNeedingHistory = activePackIds.filter(
+          (packId) => !firstOpeningByPack.has(packId),
+        );
+
+        const historicalClosings =
+          packsNeedingHistory.length > 0
+            ? await prisma.lotteryShiftClosing.findMany({
+                where: {
+                  pack_id: { in: packsNeedingHistory },
+                },
+                orderBy: {
+                  created_at: "desc",
+                },
+              })
+            : [];
+
+        // Map: pack_id -> most recent historical closing serial
+        const historicalClosingByPack = new Map<string, string>();
+        for (const closing of historicalClosings) {
+          if (!historicalClosingByPack.has(closing.pack_id)) {
+            historicalClosingByPack.set(
+              closing.pack_id,
+              closing.closing_serial,
+            );
+          }
+        }
+
+        // Build map of LotteryDayPack data by pack_id for quick lookup
+        const dayPackByPackId = new Map<
+          string,
+          { starting_serial: string; ending_serial: string | null }
+        >();
+        if (lotteryBusinessDay?.day_packs) {
+          for (const dayPack of lotteryBusinessDay.day_packs) {
+            dayPackByPackId.set(dayPack.pack_id, {
+              starting_serial: dayPack.starting_serial,
+              ending_serial: dayPack.ending_serial,
+            });
+          }
+        }
+
+        // Build bin response data
+        const binsData = bins.map((bin) => {
+          const pack = bin.packs[0] || null;
+
+          if (!pack) {
+            return {
+              bin_id: bin.bin_id,
+              bin_number: bin.display_order + 1,
+              name: bin.name,
+              is_active: bin.is_active,
+              pack: null,
+            };
+          }
+
+          // Determine starting serial:
+          // Priority 1: Use LotteryDayPack data if available (new day-based tracking)
+          // Priority 2: Use shift-based data (backward compatibility)
+          //   a. If opened today -> use today's opening serial
+          //   b. If no opening today but has history -> use most recent closing serial
+          //   c. If no history -> use pack's serial_start
+          let startingSerial: string;
+          let endingSerial: string | null;
+
+          const dayPackData = dayPackByPackId.get(pack.pack_id);
+          if (dayPackData) {
+            // Use day-based tracking data
+            startingSerial = dayPackData.starting_serial;
+            endingSerial = dayPackData.ending_serial;
+          } else {
+            // Fall back to shift-based data
+            if (firstOpeningByPack.has(pack.pack_id)) {
+              startingSerial = firstOpeningByPack.get(pack.pack_id)!;
+            } else if (historicalClosingByPack.has(pack.pack_id)) {
+              startingSerial = historicalClosingByPack.get(pack.pack_id)!;
+            } else {
+              startingSerial = pack.serial_start;
+            }
+            endingSerial = lastClosingByPack.get(pack.pack_id) || null;
+          }
+
+          return {
+            bin_id: bin.bin_id,
+            bin_number: bin.display_order + 1,
+            name: bin.name,
+            is_active: bin.is_active,
+            pack: {
+              pack_id: pack.pack_id,
+              pack_number: pack.pack_number,
+              game_name: pack.game.name,
+              game_price: Number(pack.game.price),
+              starting_serial: startingSerial,
+              ending_serial: endingSerial,
+              serial_end: pack.serial_end,
+            },
+          };
+        });
+
+        // Get depleted packs for the day (packs that became DEPLETED today)
+        const depletedPacks = await prisma.lotteryPack.findMany({
+          where: {
+            store_id: params.storeId,
+            status: "DEPLETED",
+            depleted_at: {
+              gte: dayStartUtc,
+              lte: dayEndUtc,
+            },
+          },
+          include: {
+            game: {
+              select: {
+                name: true,
+                price: true,
+              },
+            },
+            bin: {
+              select: {
+                display_order: true,
+              },
+            },
+          },
+          orderBy: { depleted_at: "desc" },
+        });
+
+        const depletedPacksData = depletedPacks.map((pack) => ({
+          pack_id: pack.pack_id,
+          pack_number: pack.pack_number,
+          game_name: pack.game.name,
+          game_price: Number(pack.game.price),
+          bin_number: pack.bin ? pack.bin.display_order + 1 : 0,
+          depleted_at: pack.depleted_at?.toISOString() || "",
+        }));
+
+        return {
+          success: true,
+          data: {
+            bins: binsData,
+            business_day: {
+              date: targetDateStr,
+              // Use LotteryBusinessDay data if available, fall back to shift data
+              day_id: lotteryBusinessDay?.day_id || null,
+              status:
+                lotteryBusinessDay?.status ||
+                (dayShifts.length > 0 ? "OPEN" : null),
+              first_shift_opened_at:
+                lotteryBusinessDay?.opened_at?.toISOString() ||
+                firstShift?.opened_at.toISOString() ||
+                null,
+              last_shift_closed_at:
+                lotteryBusinessDay?.closed_at?.toISOString() ||
+                lastShift?.closed_at?.toISOString() ||
+                null,
+              shifts_count: dayShifts.length,
+            },
+            depleted_packs: depletedPacksData,
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error fetching lottery day bins");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to fetch lottery day bins",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * POST /api/lottery/bins/day/:storeId/close
+   * Close the business day by recording ending serial numbers for all active lottery packs
+   *
+   * Protected route - requires LOTTERY_SHIFT_CLOSE permission
+   * Story: MyStore Lottery Day Closing Feature
+   *
+   * This endpoint records the ending serial numbers for all active packs at the end of the business day.
+   * The ending numbers become the next day's starting numbers.
+   *
+   * Business Logic:
+   * 1. Validates all active packs are included in the closings array
+   * 2. Validates closing serials are valid 3-digit numbers
+   * 3. Validates closing serials are within the pack's serial range
+   * 4. Creates LotteryShiftClosing records for the most recent shift of the day
+   */
+  fastify.post(
+    "/api/lottery/bins/day/:storeId/close",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_SHIFT_CLOSE),
+      ],
+      schema: {
+        description:
+          "Close the business day by recording ending serial numbers for all active lottery packs",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          required: ["closings"],
+          properties: {
+            closings: {
+              type: "array",
+              description: "Array of pack closings with ending serial numbers",
+              items: {
+                type: "object",
+                required: ["pack_id", "closing_serial"],
+                properties: {
+                  pack_id: {
+                    type: "string",
+                    format: "uuid",
+                    description: "UUID of the pack",
+                  },
+                  closing_serial: {
+                    type: "string",
+                    pattern: "^[0-9]{3}$",
+                    description: "3-digit ending serial number (e.g., '045')",
+                  },
+                },
+              },
+            },
+            entry_method: {
+              type: "string",
+              enum: ["SCAN", "MANUAL"],
+              default: "SCAN",
+              description: "Method used to enter the serial numbers",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  closings_created: { type: "integer" },
+                  business_day: { type: "string", format: "date" },
+                  day_closed: { type: "boolean" },
+                  bins_closed: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        bin_number: { type: "integer" },
+                        pack_number: { type: "string" },
+                        game_name: { type: "string" },
+                        closing_serial: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                  details: { type: "object" },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { storeId: string };
+      const body = request.body as {
+        closings: Array<{ pack_id: string; closing_serial: string }>;
+        entry_method?: "SCAN" | "MANUAL";
+      };
+
+      try {
+        // Get user roles to determine store access (RLS enforcement)
+        const userRoles = await rbacService.getUserRoles(user.id);
+
+        // Validate store exists and get store details including timezone
+        const store = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+          select: {
+            store_id: true,
+            company_id: true,
+            name: true,
+            timezone: true,
+          },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
+          };
+        }
+
+        // Validate store access based on user's role scope (RLS enforcement)
+        const hasAccess = validateUserStoreAccess(
+          userRoles,
+          params.storeId,
+          store.company_id,
+        );
+        if (!hasAccess) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message:
+                "You do not have access to this store. Please contact your manager.",
+            },
+          };
+        }
+
+        // Get current date in store timezone
+        const storeTimezone = store.timezone || "America/New_York";
+        const now = new Date();
+        const formatter = new Intl.DateTimeFormat("en-CA", {
+          timeZone: storeTimezone,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        });
+        const businessDayStr = formatter.format(now); // Returns YYYY-MM-DD
+        const targetDate = new Date(businessDayStr + "T00:00:00");
+
+        // Calculate day boundaries in UTC for database queries
+        const dayStartLocal = new Date(businessDayStr + "T00:00:00");
+        const dayEndLocal = new Date(businessDayStr + "T23:59:59.999");
+
+        const utcOffset = getTimezoneOffset(storeTimezone, targetDate);
+        const dayStartUtc = new Date(dayStartLocal.getTime() - utcOffset);
+        const dayEndUtc = new Date(dayEndLocal.getTime() - utcOffset);
+
+        // Find the most recent shift for today
+        const todayShifts = await prisma.shift.findMany({
+          where: {
+            store_id: params.storeId,
+            opened_at: {
+              gte: dayStartUtc,
+              lte: dayEndUtc,
+            },
+          },
+          orderBy: { opened_at: "desc" },
+          select: {
+            shift_id: true,
+            opened_at: true,
+            closed_at: true,
+            status: true,
+          },
+        });
+
+        if (todayShifts.length === 0) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "NO_SHIFT_TODAY",
+              message:
+                "No shift has been opened today. Please open at least one shift before closing the day.",
+            },
+          };
+        }
+
+        // Use the most recent shift for today
+        const targetShift = todayShifts[0];
+
+        // Get all active bins with their active packs for the store
+        const activeBins = await prisma.lotteryBin.findMany({
+          where: {
+            store_id: params.storeId,
+            is_active: true,
+          },
+          include: {
+            packs: {
+              where: { status: "ACTIVE" },
+              include: {
+                game: {
+                  select: {
+                    name: true,
+                    price: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { display_order: "asc" },
+        });
+
+        // Get all active packs from the bins
+        const activePacks = activeBins
+          .flatMap((bin) => bin.packs)
+          .filter((pack) => pack !== null);
+
+        // Validate that all active packs are included in the closings array
+        const closingPackIds = new Set(body.closings.map((c) => c.pack_id));
+        const activePackIds = new Set(activePacks.map((p) => p.pack_id));
+
+        const missingPackIds = Array.from(activePackIds).filter(
+          (id) => !closingPackIds.has(id),
+        );
+        if (missingPackIds.length > 0) {
+          const missingPacks = activePacks
+            .filter((p) => missingPackIds.includes(p.pack_id))
+            .map((p) => ({
+              pack_id: p.pack_id,
+              pack_number: p.pack_number,
+              game_name: p.game.name,
+            }));
+
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "MISSING_PACKS",
+              message:
+                "Not all active packs are included in the closings. Please include all active packs.",
+              details: {
+                missing_packs: missingPacks,
+              },
+            },
+          };
+        }
+
+        // Validate that all provided pack_ids exist and are active in this store
+        const invalidPackIds = Array.from(closingPackIds).filter(
+          (id) => !activePackIds.has(id),
+        );
+        if (invalidPackIds.length > 0) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "INVALID_PACKS",
+              message: "Some pack IDs are not active in this store.",
+              details: {
+                invalid_pack_ids: invalidPackIds,
+              },
+            },
+          };
+        }
+
+        // Validate each closing
+        const validationErrors: Array<{ pack_id: string; error: string }> = [];
+        const packMap = new Map(activePacks.map((p) => [p.pack_id, p]));
+
+        for (const closing of body.closings) {
+          const pack = packMap.get(closing.pack_id);
+          if (!pack) continue; // Already validated above
+
+          // Validate closing_serial is a 3-digit number
+          if (!/^[0-9]{3}$/.test(closing.closing_serial)) {
+            validationErrors.push({
+              pack_id: closing.pack_id,
+              error: `Invalid serial format: '${closing.closing_serial}'. Must be a 3-digit number.`,
+            });
+            continue;
+          }
+
+          // Parse serial numbers for comparison
+          let closingSerial: number;
+          let serialStart: number;
+          let serialEnd: number;
+
+          try {
+            closingSerial = parseInt(closing.closing_serial, 10);
+            serialStart = parseInt(pack.serial_start, 10);
+            serialEnd = parseInt(pack.serial_end, 10);
+          } catch (error) {
+            validationErrors.push({
+              pack_id: closing.pack_id,
+              error: `Failed to parse serial numbers for pack ${pack.pack_number}`,
+            });
+            continue;
+          }
+
+          // Get the starting serial for today
+          // Check if there's already an opening for this pack today
+          const todayOpening = await prisma.lotteryShiftOpening.findFirst({
+            where: {
+              shift_id: { in: todayShifts.map((s) => s.shift_id) },
+              pack_id: closing.pack_id,
+            },
+            orderBy: {
+              created_at: "asc",
+            },
+          });
+
+          let effectiveStartingSerial: number;
+          if (todayOpening) {
+            effectiveStartingSerial = parseInt(todayOpening.opening_serial, 10);
+          } else {
+            // Check for historical closing
+            const lastClosing = await prisma.lotteryShiftClosing.findFirst({
+              where: {
+                pack_id: closing.pack_id,
+              },
+              orderBy: {
+                created_at: "desc",
+              },
+            });
+
+            if (lastClosing) {
+              effectiveStartingSerial = parseInt(
+                lastClosing.closing_serial,
+                10,
+              );
+            } else {
+              effectiveStartingSerial = serialStart;
+            }
+          }
+
+          // Validate closing_serial >= starting_serial
+          if (closingSerial < effectiveStartingSerial) {
+            validationErrors.push({
+              pack_id: closing.pack_id,
+              error: `Closing serial ${closing.closing_serial} is less than starting serial ${effectiveStartingSerial.toString().padStart(3, "0")} for pack ${pack.pack_number}`,
+            });
+            continue;
+          }
+
+          // Validate closing_serial <= serial_end
+          if (closingSerial > serialEnd) {
+            validationErrors.push({
+              pack_id: closing.pack_id,
+              error: `Closing serial ${closing.closing_serial} exceeds pack's ending serial ${pack.serial_end} for pack ${pack.pack_number}`,
+            });
+            continue;
+          }
+        }
+
+        // If there are validation errors, return them
+        if (validationErrors.length > 0) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Some closing serials are invalid.",
+              details: {
+                validation_errors: validationErrors,
+              },
+            },
+          };
+        }
+
+        // Check if closings already exist for this shift and these packs
+        const existingClosings = await prisma.lotteryShiftClosing.findMany({
+          where: {
+            shift_id: targetShift.shift_id,
+            pack_id: { in: body.closings.map((c) => c.pack_id) },
+          },
+        });
+
+        if (existingClosings.length > 0) {
+          const existingPackIds = existingClosings.map((c) => c.pack_id);
+          const duplicatePacks = activePacks
+            .filter((p) => existingPackIds.includes(p.pack_id))
+            .map((p) => ({
+              pack_id: p.pack_id,
+              pack_number: p.pack_number,
+              game_name: p.game.name,
+            }));
+
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "CLOSINGS_ALREADY_EXIST",
+              message:
+                "Closings already exist for some packs in today's most recent shift.",
+              details: {
+                duplicate_packs: duplicatePacks,
+              },
+            },
+          };
+        }
+
+        // Create LotteryShiftClosing records and update LotteryDayPack records
+        const entryMethod = body.entry_method || "SCAN";
+        const closingsToCreate = body.closings.map((closing) => ({
+          shift_id: targetShift.shift_id,
+          pack_id: closing.pack_id,
+          closing_serial: closing.closing_serial,
+          entry_method: entryMethod,
+          manual_entry_authorized_by: entryMethod === "MANUAL" ? user.id : null,
+          manual_entry_authorized_at:
+            entryMethod === "MANUAL" ? new Date() : null,
+        }));
+
+        await prisma.lotteryShiftClosing.createMany({
+          data: closingsToCreate,
+        });
+
+        // Update LotteryBusinessDay and LotteryDayPack records
+        // Find or create the LotteryBusinessDay record for today
+        let lotteryBusinessDay = await prisma.lotteryBusinessDay.findUnique({
+          where: {
+            store_id_business_date: {
+              store_id: params.storeId,
+              business_date: targetDate,
+            },
+          },
+        });
+
+        if (!lotteryBusinessDay) {
+          // Create the LotteryBusinessDay record if it doesn't exist
+          lotteryBusinessDay = await prisma.lotteryBusinessDay.create({
+            data: {
+              store_id: params.storeId,
+              business_date: targetDate,
+              status: "OPEN",
+              opened_by: user.id,
+              opened_at: new Date(),
+            },
+          });
+        }
+
+        // For each closing, find the starting serial and create/update LotteryDayPack
+        for (const closing of body.closings) {
+          const pack = packMap.get(closing.pack_id)!;
+          const bin = activeBins.find((b) =>
+            b.packs.some((p) => p.pack_id === closing.pack_id),
+          );
+
+          // Determine the starting serial for this pack today
+          // Check if there's already an opening for this pack today
+          const todayOpening = await prisma.lotteryShiftOpening.findFirst({
+            where: {
+              shift_id: { in: todayShifts.map((s) => s.shift_id) },
+              pack_id: closing.pack_id,
+            },
+            orderBy: {
+              created_at: "asc",
+            },
+          });
+
+          let startingSerial: string;
+          if (todayOpening) {
+            startingSerial = todayOpening.opening_serial;
+          } else {
+            // Check for historical closing
+            const lastClosing = await prisma.lotteryShiftClosing.findFirst({
+              where: {
+                pack_id: closing.pack_id,
+                shift_id: { notIn: [targetShift.shift_id] }, // Exclude closings just created
+              },
+              orderBy: {
+                created_at: "desc",
+              },
+            });
+
+            if (lastClosing) {
+              startingSerial = lastClosing.closing_serial;
+            } else {
+              startingSerial = pack.serial_start;
+            }
+          }
+
+          // Check if LotteryDayPack already exists for this pack and day
+          const existingDayPack = await prisma.lotteryDayPack.findUnique({
+            where: {
+              day_id_pack_id: {
+                day_id: lotteryBusinessDay.day_id,
+                pack_id: closing.pack_id,
+              },
+            },
+          });
+
+          if (existingDayPack) {
+            // Update ending_serial
+            await prisma.lotteryDayPack.update({
+              where: {
+                day_pack_id: existingDayPack.day_pack_id,
+              },
+              data: {
+                ending_serial: closing.closing_serial,
+              },
+            });
+          } else {
+            // Create new LotteryDayPack record
+            await prisma.lotteryDayPack.create({
+              data: {
+                day_id: lotteryBusinessDay.day_id,
+                pack_id: closing.pack_id,
+                bin_id: bin?.bin_id || null,
+                starting_serial: startingSerial,
+                ending_serial: closing.closing_serial,
+              },
+            });
+          }
+        }
+
+        // Mark the LotteryBusinessDay as CLOSED
+        await prisma.lotteryBusinessDay.update({
+          where: {
+            day_id: lotteryBusinessDay.day_id,
+          },
+          data: {
+            status: "CLOSED",
+            closed_by: user.id,
+            closed_at: new Date(),
+          },
+        });
+
+        // Build response with bin information
+        const binsClosed = body.closings.map((closing) => {
+          const pack = packMap.get(closing.pack_id)!;
+          const bin = activeBins.find((b) =>
+            b.packs.some((p) => p.pack_id === closing.pack_id),
+          );
+
+          return {
+            bin_number: bin ? bin.display_order + 1 : 0,
+            pack_number: pack.pack_number,
+            game_name: pack.game.name,
+            closing_serial: closing.closing_serial,
+          };
+        });
+
+        return {
+          success: true,
+          data: {
+            closings_created: body.closings.length,
+            business_day: businessDayStr,
+            day_closed: true,
+            bins_closed: binsClosed,
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error closing lottery day");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to close lottery day",
+          },
+        };
+      }
+    },
+  );
+}
+
+/**
+ * Helper function to get timezone offset in milliseconds
+ * Positive offset means timezone is behind UTC (e.g., America/New_York is UTC-5 = +5 hours offset)
+ * @param timezone - IANA timezone string (e.g., "America/New_York")
+ * @param date - Date to calculate offset for (handles DST)
+ * @returns Offset in milliseconds
+ */
+function getTimezoneOffset(timezone: string, date: Date): number {
+  // Get the date parts in the target timezone
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(date);
+  const getPart = (type: string) =>
+    parts.find((p) => p.type === type)?.value || "0";
+
+  // Construct a date string from the parts
+  const year = parseInt(getPart("year"));
+  const month = parseInt(getPart("month")) - 1;
+  const day = parseInt(getPart("day"));
+  const hour = parseInt(getPart("hour"));
+  const minute = parseInt(getPart("minute"));
+  const second = parseInt(getPart("second"));
+
+  // Create a date in UTC with the same values
+  const utcDate = Date.UTC(year, month, day, hour, minute, second);
+
+  // The difference is the timezone offset
+  return date.getTime() - utcDate;
 }
