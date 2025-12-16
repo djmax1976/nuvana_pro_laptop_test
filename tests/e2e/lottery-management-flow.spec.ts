@@ -22,6 +22,7 @@ import {
 import {
   createLotteryGame,
   createLotteryPack,
+  createLotteryBin,
 } from "../support/factories/lottery.factory";
 
 /**
@@ -197,10 +198,16 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
     ).toBeVisible();
   });
 
-  test("6.10-E2E-003: [P1] user can view pack cards when packs exist (AC #1)", async ({
+  test("6.10-E2E-003: [P1] user can view bins with packs in day bins table (AC #1)", async ({
     page,
   }) => {
-    // GIVEN: A pack exists for the store
+    // GIVEN: A bin exists for the store with an ACTIVE pack assigned
+    const bin = await createLotteryBin(prisma, {
+      store_id: store.store_id,
+      bin_number: 1,
+      name: "Bin 1",
+    });
+
     const pack = await createLotteryPack(prisma, {
       game_id: game.game_id,
       store_id: store.store_id,
@@ -208,6 +215,7 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       serial_start: "0001",
       serial_end: "0100",
       status: LotteryPackStatus.ACTIVE,
+      current_bin_id: bin.bin_id,
     });
 
     try {
@@ -220,21 +228,22 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
         timeout: 10000,
       });
 
-      // THEN: Pack card is displayed
-      await expect(
-        page.locator('[data-testid="pack-card"]').first(),
-      ).toBeVisible({
+      // THEN: Day bins table is displayed (not empty state)
+      await expect(page.locator('[data-testid="day-bins-table"]')).toBeVisible({
         timeout: 10000,
       });
 
-      // AND: Pack number is shown on the card
+      // AND: The bin row shows the pack number
       await expect(
-        page.locator('[data-testid="pack-card"]').first(),
+        page.locator('[data-testid="day-bins-table"]'),
       ).toContainText(pack.pack_number);
     } finally {
-      // Cleanup
+      // Cleanup - delete pack first (references bin), then bin
       await prisma.lotteryPack
         .delete({ where: { pack_id: pack.pack_id } })
+        .catch(() => {});
+      await prisma.lotteryBin
+        .delete({ where: { bin_id: bin.bin_id } })
         .catch(() => {});
     }
   });

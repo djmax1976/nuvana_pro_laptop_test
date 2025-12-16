@@ -1,3 +1,8 @@
+import { config } from "dotenv";
+// Load environment variables from .env.local FIRST before any other processing
+// Use override: true to ensure test config takes precedence over system env vars
+config({ path: ".env.local", override: true });
+
 import { PrismaClient } from "@prisma/client";
 
 // =============================================================================

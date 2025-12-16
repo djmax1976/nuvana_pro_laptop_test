@@ -48,18 +48,10 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
   }) => {
     // GIVEN: I am authenticated as a Client Owner
     // AND: Bins with active packs exist for my store
-    const store = await withBypassClient(async (tx) => {
-      return await tx.store.findFirst({
-        where: { company_id: clientUser.company_id },
-      });
-    });
+    // Use clientUser.store_id directly - it's the store created by the fixture
+    const storeId = clientUser.store_id;
 
-    if (!store) {
-      test.skip();
-      return;
-    }
-
-    // Create test data: game, bins, packs
+    // Create test data: game (store-scoped), bins, packs
     const gameCode = generateUniqueGameCode();
     const game = await withBypassClient(async (tx) => {
       return await tx.lotteryGame.create({
@@ -69,6 +61,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
           price: 5.0,
           pack_value: 150,
           status: "ACTIVE",
+          store_id: storeId, // Store-scoped game
         },
       });
     });
@@ -76,7 +69,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     const bin = await withBypassClient(async (tx) => {
       return await tx.lotteryBin.create({
         data: {
-          store_id: store.store_id,
+          store_id: storeId,
           name: "Day Test Bin 1",
           display_order: 0,
           is_active: true,
@@ -88,7 +81,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
       return await tx.lotteryPack.create({
         data: {
           game_id: game.game_id,
-          store_id: store.store_id,
+          store_id: storeId,
           pack_number: `DAYTEST-${Date.now()}`,
           serial_start: "001",
           serial_end: "050",
@@ -102,7 +95,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
 
     // WHEN: I query day bins for my store
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${store.store_id}`,
+      `/api/lottery/bins/day/${storeId}`,
     );
 
     // THEN: I receive bins with pack data
@@ -151,21 +144,12 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
   }) => {
     // GIVEN: I am authenticated as a Client Owner
     // AND: An empty bin exists (no active pack)
-    const store = await withBypassClient(async (tx) => {
-      return await tx.store.findFirst({
-        where: { company_id: clientUser.company_id },
-      });
-    });
-
-    if (!store) {
-      test.skip();
-      return;
-    }
+    const storeId = clientUser.store_id;
 
     const emptyBin = await withBypassClient(async (tx) => {
       return await tx.lotteryBin.create({
         data: {
-          store_id: store.store_id,
+          store_id: storeId,
           name: "Empty Test Bin",
           display_order: 99,
           is_active: true,
@@ -175,7 +159,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
 
     // WHEN: I query day bins
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${store.store_id}`,
+      `/api/lottery/bins/day/${storeId}`,
     );
 
     // THEN: Empty bin should have pack: null
@@ -202,114 +186,113 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     clientUser,
   }) => {
     // GIVEN: A pack with a shift opening today
-    const store = await withBypassClient(async (tx) => {
-      return await tx.store.findFirst({
-        where: { company_id: clientUser.company_id },
-      });
-    });
-
-    if (!store) {
-      test.skip();
-      return;
-    }
+    const storeId = clientUser.store_id;
 
     // Create test data
     const gameCode = generateUniqueGameCode();
-    const { game, bin, pack, shift, opening } = await withBypassClient(
-      async (tx) => {
-        const game = await tx.lotteryGame.create({
-          data: {
-            name: "Opening Test Game",
-            game_code: gameCode,
-            price: 2.0,
-            pack_value: 60,
-            status: "ACTIVE",
-          },
-        });
+    const testData = await withBypassClient(async (tx) => {
+      const game = await tx.lotteryGame.create({
+        data: {
+          name: "Opening Test Game",
+          game_code: gameCode,
+          price: 2.0,
+          pack_value: 60,
+          status: "ACTIVE",
+          store_id: storeId, // Store-scoped game
+        },
+      });
 
-        const bin = await tx.lotteryBin.create({
-          data: {
-            store_id: store.store_id,
-            name: "Opening Test Bin",
-            display_order: 50,
-            is_active: true,
-          },
-        });
+      const bin = await tx.lotteryBin.create({
+        data: {
+          store_id: storeId,
+          name: "Opening Test Bin",
+          display_order: 50,
+          is_active: true,
+        },
+      });
 
-        const pack = await tx.lotteryPack.create({
-          data: {
-            game_id: game.game_id,
-            store_id: store.store_id,
-            pack_number: `OPEN-${Date.now()}`,
-            serial_start: "001",
-            serial_end: "030",
-            status: "ACTIVE",
-            activated_at: new Date(),
-            current_bin_id: bin.bin_id,
-          },
-        });
+      const pack = await tx.lotteryPack.create({
+        data: {
+          game_id: game.game_id,
+          store_id: storeId,
+          pack_number: `OPEN-${Date.now()}`,
+          serial_start: "001",
+          serial_end: "030",
+          status: "ACTIVE",
+          activated_at: new Date(),
+          current_bin_id: bin.bin_id,
+        },
+      });
 
-        // Create a cashier for the shift
-        const cashier = await tx.cashier.create({
-          data: {
-            store_id: store.store_id,
-            employee_id: `${Math.floor(1000 + Math.random() * 9000)}`,
-            name: "Test Cashier",
-            pin_hash: "$2b$10$abcdefghijklmnopqrstuvwxyz1234567890",
-            hired_on: new Date(),
-            created_by: clientUser.user_id,
-          },
-        });
+      // Create a cashier for the shift
+      const cashier = await tx.cashier.create({
+        data: {
+          store_id: storeId,
+          employee_id: `${Math.floor(1000 + Math.random() * 9000)}`,
+          name: "Test Cashier",
+          pin_hash: "$2b$10$abcdefghijklmnopqrstuvwxyz1234567890",
+          hired_on: new Date(),
+          created_by: clientUser.user_id,
+        },
+      });
 
-        // Create a shift that opened today
-        const shift = await tx.shift.create({
-          data: {
-            store_id: store.store_id,
-            cashier_id: cashier.cashier_id,
-            opened_by: clientUser.user_id,
-            status: "OPEN",
-            opened_at: new Date(),
-            opening_cash: 100.0,
-          },
-        });
+      // Create a shift that opened today
+      const shift = await tx.shift.create({
+        data: {
+          store_id: storeId,
+          cashier_id: cashier.cashier_id,
+          opened_by: clientUser.user_id,
+          status: "OPEN",
+          opened_at: new Date(),
+          opening_cash: 100.0,
+        },
+      });
 
-        // Create a shift opening with starting serial "015"
-        const opening = await tx.lotteryShiftOpening.create({
-          data: {
-            shift_id: shift.shift_id,
-            pack_id: pack.pack_id,
-            opening_serial: "015",
-          },
-        });
+      // Create a shift opening with starting serial "015"
+      const opening = await tx.lotteryShiftOpening.create({
+        data: {
+          shift_id: shift.shift_id,
+          pack_id: pack.pack_id,
+          opening_serial: "015",
+        },
+      });
 
-        return { game, bin, pack, shift, opening, cashier };
-      },
-    );
+      return { game, bin, pack, shift, opening, cashier };
+    });
 
     // WHEN: I query day bins
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${store.store_id}`,
+      `/api/lottery/bins/day/${storeId}`,
     );
 
     // THEN: Starting serial should be today's opening serial
     expect(response.status()).toBe(200);
     const body = await response.json();
-    const testBin = body.data.bins.find((b: any) => b.bin_id === bin.bin_id);
+    const testBin = body.data.bins.find(
+      (b: any) => b.bin_id === testData.bin.bin_id,
+    );
     expect(testBin, "Test bin should be present").toBeDefined();
     expect(
       testBin.pack.starting_serial,
       "Starting serial should be today's opening",
     ).toBe("015");
 
-    // Cleanup
+    // Cleanup in correct order (FK constraints)
     await withBypassClient(async (tx) => {
       await tx.lotteryShiftOpening.delete({
-        where: { opening_id: opening.opening_id },
+        where: { opening_id: testData.opening.opening_id },
       });
-      await tx.shift.delete({ where: { shift_id: shift.shift_id } });
-      await tx.lotteryPack.delete({ where: { pack_id: pack.pack_id } });
-      await tx.lotteryBin.delete({ where: { bin_id: bin.bin_id } });
-      await tx.lotteryGame.delete({ where: { game_id: game.game_id } });
+      await tx.shift.delete({ where: { shift_id: testData.shift.shift_id } });
+      await tx.cashier.delete({
+        where: { cashier_id: testData.cashier.cashier_id },
+      });
+      await tx.lotteryPack.delete({
+        where: { pack_id: testData.pack.pack_id },
+      });
+      await tx.lotteryBin.delete({ where: { bin_id: testData.bin.bin_id } });
+      await tx.lotteryGame.delete({
+        where: { game_id: testData.game.game_id },
+      });
     });
   });
 
@@ -318,19 +301,10 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     clientUser,
   }) => {
     // GIVEN: A newly activated pack with no shift history
-    const store = await withBypassClient(async (tx) => {
-      return await tx.store.findFirst({
-        where: { company_id: clientUser.company_id },
-      });
-    });
-
-    if (!store) {
-      test.skip();
-      return;
-    }
+    const storeId = clientUser.store_id;
 
     const gameCode = generateUniqueGameCode();
-    const { game, bin, pack } = await withBypassClient(async (tx) => {
+    const testData = await withBypassClient(async (tx) => {
       const game = await tx.lotteryGame.create({
         data: {
           name: "New Pack Test Game",
@@ -338,12 +312,13 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
           price: 3.0,
           pack_value: 90,
           status: "ACTIVE",
+          store_id: storeId, // Store-scoped game
         },
       });
 
       const bin = await tx.lotteryBin.create({
         data: {
-          store_id: store.store_id,
+          store_id: storeId,
           name: "New Pack Test Bin",
           display_order: 60,
           is_active: true,
@@ -353,7 +328,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
       const pack = await tx.lotteryPack.create({
         data: {
           game_id: game.game_id,
-          store_id: store.store_id,
+          store_id: storeId,
           pack_number: `NEWPACK-${Date.now()}`,
           serial_start: "001",
           serial_end: "030",
@@ -368,13 +343,15 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
 
     // WHEN: I query day bins
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${store.store_id}`,
+      `/api/lottery/bins/day/${storeId}`,
     );
 
     // THEN: Starting serial should be pack's serial_start
     expect(response.status()).toBe(200);
     const body = await response.json();
-    const testBin = body.data.bins.find((b: any) => b.bin_id === bin.bin_id);
+    const testBin = body.data.bins.find(
+      (b: any) => b.bin_id === testData.bin.bin_id,
+    );
     expect(testBin, "Test bin should be present").toBeDefined();
     expect(
       testBin.pack.starting_serial,
@@ -383,9 +360,13 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
 
     // Cleanup
     await withBypassClient(async (tx) => {
-      await tx.lotteryPack.delete({ where: { pack_id: pack.pack_id } });
-      await tx.lotteryBin.delete({ where: { bin_id: bin.bin_id } });
-      await tx.lotteryGame.delete({ where: { game_id: game.game_id } });
+      await tx.lotteryPack.delete({
+        where: { pack_id: testData.pack.pack_id },
+      });
+      await tx.lotteryBin.delete({ where: { bin_id: testData.bin.bin_id } });
+      await tx.lotteryGame.delete({
+        where: { game_id: testData.game.game_id },
+      });
     });
   });
 
@@ -398,19 +379,10 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     clientUser,
   }) => {
     // GIVEN: A pack with no shift closing today
-    const store = await withBypassClient(async (tx) => {
-      return await tx.store.findFirst({
-        where: { company_id: clientUser.company_id },
-      });
-    });
-
-    if (!store) {
-      test.skip();
-      return;
-    }
+    const storeId = clientUser.store_id;
 
     const gameCode = generateUniqueGameCode();
-    const { game, bin, pack } = await withBypassClient(async (tx) => {
+    const testData = await withBypassClient(async (tx) => {
       const game = await tx.lotteryGame.create({
         data: {
           name: "No Closing Test Game",
@@ -418,12 +390,13 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
           price: 1.0,
           pack_value: 30,
           status: "ACTIVE",
+          store_id: storeId, // Store-scoped game
         },
       });
 
       const bin = await tx.lotteryBin.create({
         data: {
-          store_id: store.store_id,
+          store_id: storeId,
           name: "No Closing Test Bin",
           display_order: 70,
           is_active: true,
@@ -433,7 +406,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
       const pack = await tx.lotteryPack.create({
         data: {
           game_id: game.game_id,
-          store_id: store.store_id,
+          store_id: storeId,
           pack_number: `NOCLS-${Date.now()}`,
           serial_start: "001",
           serial_end: "030",
@@ -448,13 +421,15 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
 
     // WHEN: I query day bins
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${store.store_id}`,
+      `/api/lottery/bins/day/${storeId}`,
     );
 
     // THEN: Ending serial should be null
     expect(response.status()).toBe(200);
     const body = await response.json();
-    const testBin = body.data.bins.find((b: any) => b.bin_id === bin.bin_id);
+    const testBin = body.data.bins.find(
+      (b: any) => b.bin_id === testData.bin.bin_id,
+    );
     expect(testBin, "Test bin should be present").toBeDefined();
     expect(
       testBin.pack.ending_serial,
@@ -463,9 +438,13 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
 
     // Cleanup
     await withBypassClient(async (tx) => {
-      await tx.lotteryPack.delete({ where: { pack_id: pack.pack_id } });
-      await tx.lotteryBin.delete({ where: { bin_id: bin.bin_id } });
-      await tx.lotteryGame.delete({ where: { game_id: game.game_id } });
+      await tx.lotteryPack.delete({
+        where: { pack_id: testData.pack.pack_id },
+      });
+      await tx.lotteryBin.delete({ where: { bin_id: testData.bin.bin_id } });
+      await tx.lotteryGame.delete({
+        where: { game_id: testData.game.game_id },
+      });
     });
   });
 
@@ -474,116 +453,115 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     clientUser,
   }) => {
     // GIVEN: A pack with a shift closing today
-    const store = await withBypassClient(async (tx) => {
-      return await tx.store.findFirst({
-        where: { company_id: clientUser.company_id },
-      });
-    });
-
-    if (!store) {
-      test.skip();
-      return;
-    }
+    const storeId = clientUser.store_id;
 
     const gameCode = generateUniqueGameCode();
-    const { game, bin, pack, shift, closing } = await withBypassClient(
-      async (tx) => {
-        const game = await tx.lotteryGame.create({
-          data: {
-            name: "Closing Test Game",
-            game_code: gameCode,
-            price: 2.0,
-            pack_value: 60,
-            status: "ACTIVE",
-          },
-        });
+    const testData = await withBypassClient(async (tx) => {
+      const game = await tx.lotteryGame.create({
+        data: {
+          name: "Closing Test Game",
+          game_code: gameCode,
+          price: 2.0,
+          pack_value: 60,
+          status: "ACTIVE",
+          store_id: storeId, // Store-scoped game
+        },
+      });
 
-        const bin = await tx.lotteryBin.create({
-          data: {
-            store_id: store.store_id,
-            name: "Closing Test Bin",
-            display_order: 80,
-            is_active: true,
-          },
-        });
+      const bin = await tx.lotteryBin.create({
+        data: {
+          store_id: storeId,
+          name: "Closing Test Bin",
+          display_order: 80,
+          is_active: true,
+        },
+      });
 
-        const pack = await tx.lotteryPack.create({
-          data: {
-            game_id: game.game_id,
-            store_id: store.store_id,
-            pack_number: `CLOSE-${Date.now()}`,
-            serial_start: "001",
-            serial_end: "030",
-            status: "ACTIVE",
-            activated_at: new Date(),
-            current_bin_id: bin.bin_id,
-          },
-        });
+      const pack = await tx.lotteryPack.create({
+        data: {
+          game_id: game.game_id,
+          store_id: storeId,
+          pack_number: `CLOSE-${Date.now()}`,
+          serial_start: "001",
+          serial_end: "030",
+          status: "ACTIVE",
+          activated_at: new Date(),
+          current_bin_id: bin.bin_id,
+        },
+      });
 
-        // Create a cashier for the shift
-        const cashier = await tx.cashier.create({
-          data: {
-            store_id: store.store_id,
-            employee_id: `${Math.floor(1000 + Math.random() * 9000)}`,
-            name: "Test Cashier",
-            pin_hash: "$2b$10$abcdefghijklmnopqrstuvwxyz1234567890",
-            hired_on: new Date(),
-            created_by: clientUser.user_id,
-          },
-        });
+      // Create a cashier for the shift
+      const cashier = await tx.cashier.create({
+        data: {
+          store_id: storeId,
+          employee_id: `${Math.floor(1000 + Math.random() * 9000)}`,
+          name: "Test Cashier",
+          pin_hash: "$2b$10$abcdefghijklmnopqrstuvwxyz1234567890",
+          hired_on: new Date(),
+          created_by: clientUser.user_id,
+        },
+      });
 
-        // Create a shift that opened today
-        const shift = await tx.shift.create({
-          data: {
-            store_id: store.store_id,
-            cashier_id: cashier.cashier_id,
-            opened_by: clientUser.user_id,
-            status: "CLOSED",
-            opened_at: new Date(),
-            closed_at: new Date(),
-            opening_cash: 100.0,
-            closing_cash: 150.0,
-          },
-        });
+      // Create a shift that opened today
+      const shift = await tx.shift.create({
+        data: {
+          store_id: storeId,
+          cashier_id: cashier.cashier_id,
+          opened_by: clientUser.user_id,
+          status: "CLOSED",
+          opened_at: new Date(),
+          closed_at: new Date(),
+          opening_cash: 100.0,
+          closing_cash: 150.0,
+        },
+      });
 
-        // Create a shift closing
-        const closing = await tx.lotteryShiftClosing.create({
-          data: {
-            shift_id: shift.shift_id,
-            pack_id: pack.pack_id,
-            closing_serial: "020",
-            entry_method: "SCAN",
-          },
-        });
+      // Create a shift closing
+      const closing = await tx.lotteryShiftClosing.create({
+        data: {
+          shift_id: shift.shift_id,
+          pack_id: pack.pack_id,
+          closing_serial: "020",
+          entry_method: "SCAN",
+        },
+      });
 
-        return { game, bin, pack, shift, closing, cashier };
-      },
-    );
+      return { game, bin, pack, shift, closing, cashier };
+    });
 
     // WHEN: I query day bins
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${store.store_id}`,
+      `/api/lottery/bins/day/${storeId}`,
     );
 
     // THEN: Ending serial should be the closing serial
     expect(response.status()).toBe(200);
     const body = await response.json();
-    const testBin = body.data.bins.find((b: any) => b.bin_id === bin.bin_id);
+    const testBin = body.data.bins.find(
+      (b: any) => b.bin_id === testData.bin.bin_id,
+    );
     expect(testBin, "Test bin should be present").toBeDefined();
     expect(
       testBin.pack.ending_serial,
       "Ending serial should be today's closing",
     ).toBe("020");
 
-    // Cleanup
+    // Cleanup in correct order (FK constraints)
     await withBypassClient(async (tx) => {
       await tx.lotteryShiftClosing.delete({
-        where: { closing_id: closing.closing_id },
+        where: { closing_id: testData.closing.closing_id },
       });
-      await tx.shift.delete({ where: { shift_id: shift.shift_id } });
-      await tx.lotteryPack.delete({ where: { pack_id: pack.pack_id } });
-      await tx.lotteryBin.delete({ where: { bin_id: bin.bin_id } });
-      await tx.lotteryGame.delete({ where: { game_id: game.game_id } });
+      await tx.shift.delete({ where: { shift_id: testData.shift.shift_id } });
+      await tx.cashier.delete({
+        where: { cashier_id: testData.cashier.cashier_id },
+      });
+      await tx.lotteryPack.delete({
+        where: { pack_id: testData.pack.pack_id },
+      });
+      await tx.lotteryBin.delete({ where: { bin_id: testData.bin.bin_id } });
+      await tx.lotteryGame.delete({
+        where: { game_id: testData.game.game_id },
+      });
     });
   });
 
@@ -595,21 +573,12 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     clientUserApiRequest,
     clientUser,
   }) => {
-    // GIVEN: Shifts exist for today
-    const store = await withBypassClient(async (tx) => {
-      return await tx.store.findFirst({
-        where: { company_id: clientUser.company_id },
-      });
-    });
-
-    if (!store) {
-      test.skip();
-      return;
-    }
+    // GIVEN: I am authenticated as a Client Owner with a store
+    const storeId = clientUser.store_id;
 
     // WHEN: I query day bins
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${store.store_id}`,
+      `/api/lottery/bins/day/${storeId}`,
     );
 
     // THEN: Business day info should be present
@@ -632,19 +601,10 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     clientUser,
   }) => {
     // GIVEN: A depleted pack exists for today
-    const store = await withBypassClient(async (tx) => {
-      return await tx.store.findFirst({
-        where: { company_id: clientUser.company_id },
-      });
-    });
-
-    if (!store) {
-      test.skip();
-      return;
-    }
+    const storeId = clientUser.store_id;
 
     const gameCode = generateUniqueGameCode();
-    const { game, bin, pack } = await withBypassClient(async (tx) => {
+    const testData = await withBypassClient(async (tx) => {
       const game = await tx.lotteryGame.create({
         data: {
           name: "Depleted Test Game",
@@ -652,12 +612,13 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
           price: 5.0,
           pack_value: 150,
           status: "ACTIVE",
+          store_id: storeId, // Store-scoped game
         },
       });
 
       const bin = await tx.lotteryBin.create({
         data: {
-          store_id: store.store_id,
+          store_id: storeId,
           name: "Depleted Test Bin",
           display_order: 90,
           is_active: true,
@@ -667,7 +628,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
       const pack = await tx.lotteryPack.create({
         data: {
           game_id: game.game_id,
-          store_id: store.store_id,
+          store_id: storeId,
           pack_number: `DEPLETED-${Date.now()}`,
           serial_start: "001",
           serial_end: "030",
@@ -683,7 +644,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
 
     // WHEN: I query day bins
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${store.store_id}`,
+      `/api/lottery/bins/day/${storeId}`,
     );
 
     // THEN: Depleted pack should be in depleted_packs array
@@ -695,7 +656,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     ).toBeDefined();
 
     const depletedPack = body.data.depleted_packs.find(
-      (p: any) => p.pack_id === pack.pack_id,
+      (p: any) => p.pack_id === testData.pack.pack_id,
     );
     expect(depletedPack, "Depleted pack should be present").toBeDefined();
     expect(depletedPack.game_name, "Should have game_name").toBe(
@@ -707,9 +668,13 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
 
     // Cleanup
     await withBypassClient(async (tx) => {
-      await tx.lotteryPack.delete({ where: { pack_id: pack.pack_id } });
-      await tx.lotteryBin.delete({ where: { bin_id: bin.bin_id } });
-      await tx.lotteryGame.delete({ where: { game_id: game.game_id } });
+      await tx.lotteryPack.delete({
+        where: { pack_id: testData.pack.pack_id },
+      });
+      await tx.lotteryBin.delete({ where: { bin_id: testData.bin.bin_id } });
+      await tx.lotteryGame.delete({
+        where: { game_id: testData.game.game_id },
+      });
     });
   });
 
@@ -721,22 +686,12 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     clientUserApiRequest,
     clientUser,
   }) => {
-    const store = await withBypassClient(async (tx) => {
-      return await tx.store.findFirst({
-        where: { company_id: clientUser.company_id },
-      });
-    });
-
-    if (!store) {
-      test.skip();
-      return;
-    }
-
+    const storeId = clientUser.store_id;
     const dateParam = getTodayDateString();
 
     // WHEN: I query with a date parameter
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${store.store_id}?date=${dateParam}`,
+      `/api/lottery/bins/day/${storeId}?date=${dateParam}`,
     );
 
     // THEN: Should succeed and return data for that date
@@ -751,20 +706,11 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     clientUserApiRequest,
     clientUser,
   }) => {
-    const store = await withBypassClient(async (tx) => {
-      return await tx.store.findFirst({
-        where: { company_id: clientUser.company_id },
-      });
-    });
-
-    if (!store) {
-      test.skip();
-      return;
-    }
+    const storeId = clientUser.store_id;
 
     // WHEN: I query with invalid date format
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${store.store_id}?date=invalid-date`,
+      `/api/lottery/bins/day/${storeId}?date=invalid-date`,
     );
 
     // THEN: Should return 400 error
@@ -782,44 +728,42 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     clientUserApiRequest,
   }) => {
     // GIVEN: A store that does not belong to the user's company
-    const { otherStore, otherCompany, otherUser } = await withBypassClient(
-      async (tx) => {
-        // Create a user to own the other company
-        const user = await tx.user.create({
-          data: {
-            public_id: `usr_${Date.now()}`,
-            email: `test_other_${Date.now()}@test.nuvana.local`,
-            name: "Test Other Owner",
-            status: "ACTIVE",
-          },
-        });
+    const testData = await withBypassClient(async (tx) => {
+      // Create a user to own the other company
+      const user = await tx.user.create({
+        data: {
+          public_id: `usr_${Date.now()}`,
+          email: `test_other_${Date.now()}@test.nuvana.local`,
+          name: "Test Other Owner",
+          status: "ACTIVE",
+        },
+      });
 
-        const company = await tx.company.create({
-          data: {
-            public_id: `cmp_${Date.now()}`,
-            name: "Test Other Company",
-            status: "ACTIVE",
-            owner_user_id: user.user_id,
-          },
-        });
+      const company = await tx.company.create({
+        data: {
+          public_id: `cmp_${Date.now()}`,
+          name: "Test Other Company",
+          status: "ACTIVE",
+          owner_user_id: user.user_id,
+        },
+      });
 
-        const store = await tx.store.create({
-          data: {
-            public_id: `str_${Date.now()}`,
-            company_id: company.company_id,
-            name: "Test Other Store",
-            status: "ACTIVE",
-            timezone: "America/New_York",
-          },
-        });
+      const store = await tx.store.create({
+        data: {
+          public_id: `str_${Date.now()}`,
+          company_id: company.company_id,
+          name: "Test Other Store",
+          status: "ACTIVE",
+          timezone: "America/New_York",
+        },
+      });
 
-        return { otherStore: store, otherCompany: company, otherUser: user };
-      },
-    );
+      return { otherStore: store, otherCompany: company, otherUser: user };
+    });
 
     // WHEN: I try to query bins for unauthorized store
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${otherStore.store_id}`,
+      `/api/lottery/bins/day/${testData.otherStore.store_id}`,
     );
 
     // THEN: Should return 403 Forbidden
@@ -829,11 +773,13 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
 
     // Cleanup
     await withBypassClient(async (tx) => {
-      await tx.store.delete({ where: { store_id: otherStore.store_id } });
-      await tx.company.delete({
-        where: { company_id: otherCompany.company_id },
+      await tx.store.delete({
+        where: { store_id: testData.otherStore.store_id },
       });
-      await tx.user.delete({ where: { user_id: otherUser.user_id } });
+      await tx.company.delete({
+        where: { company_id: testData.otherCompany.company_id },
+      });
+      await tx.user.delete({ where: { user_id: testData.otherUser.user_id } });
     });
   });
 
@@ -841,8 +787,9 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     request,
   }) => {
     // WHEN: I make an unauthenticated request
+    // Note: Must use valid UUID format to avoid 400 validation error
     const response = await request.get(
-      `http://localhost:3001/api/lottery/bins/day/some-store-id`,
+      `http://localhost:3001/api/lottery/bins/day/00000000-0000-0000-0000-000000000001`,
     );
 
     // THEN: Should return 401 Unauthorized
@@ -851,18 +798,23 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     );
   });
 
-  test("DAY-BINS-013: [P0] Should return 404 for non-existent store", async ({
+  test("DAY-BINS-013: [P0] Should return 403 for non-existent store (security by obscurity)", async ({
     clientUserApiRequest,
   }) => {
     // WHEN: I query a non-existent store
+    // Note: Permission middleware checks store membership BEFORE route handler
+    // For security, non-existent stores return 403 (same as unauthorized) to avoid
+    // leaking information about which store IDs exist
     const fakeStoreId = "00000000-0000-0000-0000-000000000000";
     const response = await clientUserApiRequest.get(
       `/api/lottery/bins/day/${fakeStoreId}`,
     );
 
-    // THEN: Should return 404 Not Found
-    expect(response.status(), "Should return 404 for non-existent store").toBe(
-      404,
-    );
+    // THEN: Should return 403 Forbidden (not 404) for security reasons
+    // This prevents attackers from enumerating valid store IDs
+    expect(
+      response.status(),
+      "Should return 403 for non-existent store (security)",
+    ).toBe(403);
   });
 });

@@ -13,6 +13,11 @@
  * - Stores: name starts with "Test " or "E2E "
  */
 
+import { config } from "dotenv";
+// Load environment variables from .env.local before any other processing
+// Use override: true to ensure test config takes precedence over system env vars
+config({ path: ".env.local", override: true });
+
 // =============================================================================
 // DATABASE PROTECTION - Block dev/prod databases in test code
 // =============================================================================
