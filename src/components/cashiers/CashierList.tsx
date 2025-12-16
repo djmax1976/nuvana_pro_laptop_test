@@ -89,8 +89,11 @@ export function CashierList({
   const { data: dashboardData, isLoading: isLoadingDashboard } =
     useClientDashboard();
 
-  // Get stores list
-  const stores = dashboardData?.stores || [];
+  // Get stores list - memoized to prevent new array reference on every render
+  const stores = useMemo(
+    () => dashboardData?.stores || [],
+    [dashboardData?.stores],
+  );
 
   // Determine if we should use multi-store mode
   // Multi-store mode is when "All Stores" is selected AND there are multiple stores
