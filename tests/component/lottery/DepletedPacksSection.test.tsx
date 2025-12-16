@@ -49,7 +49,7 @@ describe("DepletedPacksSection Component", () => {
       pack_number: "9999999",
       game_name: "Lucky 7's",
       game_price: 2.0,
-      bin_number: null, // Pack may not have been in a bin
+      bin_number: 0, // 0 indicates pack may not have been in a bin
       depleted_at: "2025-12-15T10:00:00Z",
     },
   ];

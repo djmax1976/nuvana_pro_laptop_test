@@ -249,11 +249,24 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
           },
         });
 
+        // Create a cashier for the shift
+        const cashier = await tx.cashier.create({
+          data: {
+            store_id: store.store_id,
+            employee_id: `${Math.floor(1000 + Math.random() * 9000)}`,
+            name: "Test Cashier",
+            pin_hash: "$2b$10$abcdefghijklmnopqrstuvwxyz1234567890",
+            hired_on: new Date(),
+            created_by: clientUser.user_id,
+          },
+        });
+
         // Create a shift that opened today
         const shift = await tx.shift.create({
           data: {
             store_id: store.store_id,
-            cashier_id: clientUser.user_id,
+            cashier_id: cashier.cashier_id,
+            opened_by: clientUser.user_id,
             status: "OPEN",
             opened_at: new Date(),
             opening_cash: 100.0,
@@ -269,7 +282,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
           },
         });
 
-        return { game, bin, pack, shift, opening };
+        return { game, bin, pack, shift, opening, cashier };
       },
     );
 
@@ -507,11 +520,24 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
           },
         });
 
+        // Create a cashier for the shift
+        const cashier = await tx.cashier.create({
+          data: {
+            store_id: store.store_id,
+            employee_id: `${Math.floor(1000 + Math.random() * 9000)}`,
+            name: "Test Cashier",
+            pin_hash: "$2b$10$abcdefghijklmnopqrstuvwxyz1234567890",
+            hired_on: new Date(),
+            created_by: clientUser.user_id,
+          },
+        });
+
         // Create a shift that opened today
         const shift = await tx.shift.create({
           data: {
             store_id: store.store_id,
-            cashier_id: clientUser.user_id,
+            cashier_id: cashier.cashier_id,
+            opened_by: clientUser.user_id,
             status: "CLOSED",
             opened_at: new Date(),
             closed_at: new Date(),
@@ -530,7 +556,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
           },
         });
 
-        return { game, bin, pack, shift, closing };
+        return { game, bin, pack, shift, closing, cashier };
       },
     );
 
@@ -756,22 +782,40 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     clientUserApiRequest,
   }) => {
     // GIVEN: A store that does not belong to the user's company
-    const otherStore = await withBypassClient(async (tx) => {
-      const company = await tx.company.create({
-        data: {
-          name: "Other Company",
-          status: "ACTIVE",
-        },
-      });
-      return await tx.store.create({
-        data: {
-          company_id: company.company_id,
-          name: "Other Store",
-          status: "ACTIVE",
-          timezone: "America/New_York",
-        },
-      });
-    });
+    const { otherStore, otherCompany, otherUser } = await withBypassClient(
+      async (tx) => {
+        // Create a user to own the other company
+        const user = await tx.user.create({
+          data: {
+            public_id: `usr_${Date.now()}`,
+            email: `test_other_${Date.now()}@test.nuvana.local`,
+            name: "Test Other Owner",
+            status: "ACTIVE",
+          },
+        });
+
+        const company = await tx.company.create({
+          data: {
+            public_id: `cmp_${Date.now()}`,
+            name: "Test Other Company",
+            status: "ACTIVE",
+            owner_user_id: user.user_id,
+          },
+        });
+
+        const store = await tx.store.create({
+          data: {
+            public_id: `str_${Date.now()}`,
+            company_id: company.company_id,
+            name: "Test Other Store",
+            status: "ACTIVE",
+            timezone: "America/New_York",
+          },
+        });
+
+        return { otherStore: store, otherCompany: company, otherUser: user };
+      },
+    );
 
     // WHEN: I try to query bins for unauthorized store
     const response = await clientUserApiRequest.get(
@@ -786,7 +830,10 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     // Cleanup
     await withBypassClient(async (tx) => {
       await tx.store.delete({ where: { store_id: otherStore.store_id } });
-      await tx.company.delete({ where: { company_id: otherStore.company_id } });
+      await tx.company.delete({
+        where: { company_id: otherCompany.company_id },
+      });
+      await tx.user.delete({ where: { user_id: otherUser.user_id } });
     });
   });
 

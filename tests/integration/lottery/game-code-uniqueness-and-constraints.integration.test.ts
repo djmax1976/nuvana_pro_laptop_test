@@ -110,12 +110,12 @@ describe("6.13-INTEGRATION: Lottery Game Code Uniqueness and Constraints", () =>
       });
       testGames = [game1, game2];
 
-      // WHEN: Querying games by game_code
-      const foundGame1 = await prisma.lotteryGame.findUnique({
-        where: { game_code: "1234" },
+      // WHEN: Querying games by game_code (using findFirst since game_code is part of composite unique)
+      const foundGame1 = await prisma.lotteryGame.findFirst({
+        where: { game_code: "1234", store_id: null },
       });
-      const foundGame2 = await prisma.lotteryGame.findUnique({
-        where: { game_code: "5678" },
+      const foundGame2 = await prisma.lotteryGame.findFirst({
+        where: { game_code: "5678", store_id: null },
       });
 
       // THEN: Both games are found with correct game codes

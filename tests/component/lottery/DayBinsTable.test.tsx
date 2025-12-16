@@ -31,6 +31,8 @@ describe("DayBinsTable Component", () => {
     {
       bin_id: "bin-001",
       bin_number: 1,
+      name: "Bin 1",
+      is_active: true,
       pack: {
         pack_id: "pack-001",
         pack_number: "1234567",
@@ -38,16 +40,21 @@ describe("DayBinsTable Component", () => {
         game_price: 5.0,
         starting_serial: "001",
         ending_serial: "025",
+        serial_end: "050",
       },
     },
     {
       bin_id: "bin-002",
       bin_number: 2,
+      name: "Bin 2",
+      is_active: true,
       pack: null, // Empty bin
     },
     {
       bin_id: "bin-003",
       bin_number: 3,
+      name: "Bin 3",
+      is_active: true,
       pack: {
         pack_id: "pack-002",
         pack_number: "7654321",
@@ -55,6 +62,7 @@ describe("DayBinsTable Component", () => {
         game_price: 10.0,
         starting_serial: "050",
         ending_serial: null, // No closing yet
+        serial_end: "100",
       },
     },
   ];
@@ -177,6 +185,8 @@ describe("DayBinsTable Component", () => {
       {
         bin_id: "bin-test",
         bin_number: 1,
+        name: "Bin Test",
+        is_active: true,
         pack: {
           pack_id: "pack-test",
           pack_number: "1111111",
@@ -184,6 +194,7 @@ describe("DayBinsTable Component", () => {
           game_price: 2.0,
           starting_serial: "001",
           ending_serial: null,
+          serial_end: "050",
         },
       },
     ];
@@ -290,6 +301,8 @@ describe("DayBinsTable Component", () => {
       {
         bin_id: "bin-a",
         bin_number: 1,
+        name: "Bin A",
+        is_active: true,
         pack: {
           pack_id: "pack-a",
           pack_number: "1111111",
@@ -297,11 +310,14 @@ describe("DayBinsTable Component", () => {
           game_price: 1.0,
           starting_serial: "001",
           ending_serial: null,
+          serial_end: "050",
         },
       },
       {
         bin_id: "bin-b",
         bin_number: 2,
+        name: "Bin B",
+        is_active: true,
         pack: {
           pack_id: "pack-b",
           pack_number: "2222222",
@@ -309,6 +325,7 @@ describe("DayBinsTable Component", () => {
           game_price: 20.0,
           starting_serial: "001",
           ending_serial: null,
+          serial_end: "050",
         },
       },
     ];
@@ -332,6 +349,8 @@ describe("DayBinsTable Component", () => {
       {
         bin_id: "bin-xss",
         bin_number: 1,
+        name: "Bin XSS",
+        is_active: true,
         pack: {
           pack_id: "pack-xss",
           pack_number: "1234567",
@@ -339,6 +358,7 @@ describe("DayBinsTable Component", () => {
           game_price: 5.0,
           starting_serial: "001",
           ending_serial: null,
+          serial_end: "050",
         },
       },
     ];
@@ -359,6 +379,8 @@ describe("DayBinsTable Component", () => {
       {
         bin_id: "bin-xss",
         bin_number: 1,
+        name: "Bin XSS Pack",
+        is_active: true,
         pack: {
           pack_id: "pack-xss",
           pack_number: xssPayload,
@@ -366,6 +388,7 @@ describe("DayBinsTable Component", () => {
           game_price: 5.0,
           starting_serial: "001",
           ending_serial: null,
+          serial_end: "050",
         },
       },
     ];
@@ -385,6 +408,8 @@ describe("DayBinsTable Component", () => {
       {
         bin_id: "bin-xss",
         bin_number: 1,
+        name: "Bin XSS Serial",
+        is_active: true,
         pack: {
           pack_id: "pack-xss",
           pack_number: "1234567",
@@ -392,6 +417,7 @@ describe("DayBinsTable Component", () => {
           game_price: 5.0,
           starting_serial: xssStarting,
           ending_serial: xssEnding,
+          serial_end: "050",
         },
       },
     ];
@@ -414,6 +440,8 @@ describe("DayBinsTable Component", () => {
       {
         bin_id: "bin-special",
         bin_number: 1,
+        name: "Bin Special",
+        is_active: true,
         pack: {
           pack_id: "pack-special",
           pack_number: "1234567",
@@ -421,6 +449,7 @@ describe("DayBinsTable Component", () => {
           game_price: 5.0,
           starting_serial: "001",
           ending_serial: null,
+          serial_end: "050",
         },
       },
     ];
@@ -438,6 +467,8 @@ describe("DayBinsTable Component", () => {
       {
         bin_id: "bin-long",
         bin_number: 1,
+        name: "Bin Long",
+        is_active: true,
         pack: {
           pack_id: "pack-long",
           pack_number: "12345678901234567890",
@@ -445,6 +476,7 @@ describe("DayBinsTable Component", () => {
           game_price: 5.0,
           starting_serial: "001",
           ending_serial: null,
+          serial_end: "050",
         },
       },
     ];
@@ -462,6 +494,8 @@ describe("DayBinsTable Component", () => {
       {
         bin_id: "bin-zero",
         bin_number: 1,
+        name: "Bin Zero",
+        is_active: true,
         pack: {
           pack_id: "pack-zero",
           pack_number: "1234567",
@@ -469,6 +503,7 @@ describe("DayBinsTable Component", () => {
           game_price: 0,
           starting_serial: "001",
           ending_serial: null,
+          serial_end: "050",
         },
       },
     ];
@@ -486,6 +521,8 @@ describe("DayBinsTable Component", () => {
       {
         bin_id: "bin-decimal",
         bin_number: 1,
+        name: "Bin Decimal",
+        is_active: true,
         pack: {
           pack_id: "pack-decimal",
           pack_number: "1234567",
@@ -493,6 +530,7 @@ describe("DayBinsTable Component", () => {
           game_price: 2.5,
           starting_serial: "001",
           ending_serial: null,
+          serial_end: "050",
         },
       },
     ];
@@ -509,6 +547,8 @@ describe("DayBinsTable Component", () => {
     const manyBins: DayBin[] = Array.from({ length: 50 }, (_, i) => ({
       bin_id: `bin-${i}`,
       bin_number: i + 1,
+      name: `Bin ${i}`,
+      is_active: true,
       pack:
         i % 2 === 0
           ? {
@@ -518,6 +558,7 @@ describe("DayBinsTable Component", () => {
               game_price: i + 1,
               starting_serial: `${String(i).padStart(3, "0")}`,
               ending_serial: null,
+              serial_end: "050",
             }
           : null,
     }));

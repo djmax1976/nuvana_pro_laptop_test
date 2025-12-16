@@ -87,7 +87,7 @@ async function createTestBinWithPack(
 async function createTodayShift(
   store: any,
   userId: string,
-  status: string = "OPEN",
+  status: "OPEN" | "CLOSED" | "NOT_STARTED" = "OPEN",
 ) {
   return await withBypassClient(async (tx) => {
     // Create a cashier for the shift
@@ -648,50 +648,77 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     }
 
     // Create another store and pack
-    const { otherStore, otherPack, otherGame, otherBin } =
-      await withBypassClient(async (tx) => {
-        const otherCompany = await tx.company.create({
-          data: { name: "Other Company", status: "ACTIVE" },
-        });
-        const otherStore = await tx.store.create({
-          data: {
-            company_id: otherCompany.company_id,
-            name: "Other Store",
-            status: "ACTIVE",
-            timezone: "America/New_York",
-          },
-        });
-        const otherGame = await tx.lotteryGame.create({
-          data: {
-            name: "Other Game",
-            game_code: generateUniqueGameCode(),
-            price: 5.0,
-            pack_value: 150,
-            status: "ACTIVE",
-          },
-        });
-        const otherBin = await tx.lotteryBin.create({
-          data: {
-            store_id: otherStore.store_id,
-            name: "Other Bin",
-            display_order: 0,
-            is_active: true,
-          },
-        });
-        const otherPack = await tx.lotteryPack.create({
-          data: {
-            game_id: otherGame.game_id,
-            store_id: otherStore.store_id,
-            pack_number: `OTHER-${Date.now()}`,
-            serial_start: "001",
-            serial_end: "050",
-            status: "ACTIVE",
-            activated_at: new Date(),
-            current_bin_id: otherBin.bin_id,
-          },
-        });
-        return { otherStore, otherPack, otherGame, otherBin, otherCompany };
+    const {
+      otherStore,
+      otherPack,
+      otherGame,
+      otherBin,
+      otherCompany,
+      otherUser,
+    } = await withBypassClient(async (tx) => {
+      const otherUser = await tx.user.create({
+        data: {
+          public_id: `usr_other_${Date.now()}`,
+          email: `test_other_close_${Date.now()}@test.nuvana.local`,
+          name: "Test Other Owner",
+          status: "ACTIVE",
+        },
       });
+      const otherCompany = await tx.company.create({
+        data: {
+          public_id: `cmp_other_${Date.now()}`,
+          name: "Test Other Company",
+          status: "ACTIVE",
+          owner_user_id: otherUser.user_id,
+        },
+      });
+      const otherStore = await tx.store.create({
+        data: {
+          public_id: `str_other_${Date.now()}`,
+          company_id: otherCompany.company_id,
+          name: "Test Other Store",
+          status: "ACTIVE",
+          timezone: "America/New_York",
+        },
+      });
+      const otherGame = await tx.lotteryGame.create({
+        data: {
+          name: "Other Game",
+          game_code: generateUniqueGameCode(),
+          price: 5.0,
+          pack_value: 150,
+          status: "ACTIVE",
+        },
+      });
+      const otherBin = await tx.lotteryBin.create({
+        data: {
+          store_id: otherStore.store_id,
+          name: "Other Bin",
+          display_order: 0,
+          is_active: true,
+        },
+      });
+      const otherPack = await tx.lotteryPack.create({
+        data: {
+          game_id: otherGame.game_id,
+          store_id: otherStore.store_id,
+          pack_number: `OTHER-${Date.now()}`,
+          serial_start: "001",
+          serial_end: "050",
+          status: "ACTIVE",
+          activated_at: new Date(),
+          current_bin_id: otherBin.bin_id,
+        },
+      });
+      return {
+        otherStore,
+        otherPack,
+        otherGame,
+        otherBin,
+        otherCompany,
+        otherUser,
+      };
+    });
 
     const { shift, cashier } = await createTodayShift(
       store,
@@ -1006,20 +1033,37 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     clientUserApiRequest,
   }) => {
     // GIVEN: A store from a different company
-    const { otherStore, otherCompany } = await withBypassClient(async (tx) => {
-      const otherCompany = await tx.company.create({
-        data: { name: "Other Company For Auth Test", status: "ACTIVE" },
-      });
-      const otherStore = await tx.store.create({
-        data: {
-          company_id: otherCompany.company_id,
-          name: "Other Store For Auth Test",
-          status: "ACTIVE",
-          timezone: "America/New_York",
-        },
-      });
-      return { otherStore, otherCompany };
-    });
+    const { otherStore, otherCompany, otherOwner } = await withBypassClient(
+      async (tx) => {
+        // Create owner user for the other company
+        const otherOwner = await tx.user.create({
+          data: {
+            public_id: `usr_other_owner_${Date.now()}`,
+            email: `other_owner_${Date.now()}@test.nuvana.local`,
+            name: "Other Owner",
+            status: "ACTIVE",
+          },
+        });
+        const otherCompany = await tx.company.create({
+          data: {
+            public_id: `cmp_other_${Date.now()}`,
+            name: "Other Company For Auth Test",
+            status: "ACTIVE",
+            owner_user_id: otherOwner.user_id,
+          },
+        });
+        const otherStore = await tx.store.create({
+          data: {
+            public_id: `str_other_${Date.now()}`,
+            company_id: otherCompany.company_id,
+            name: "Other Store For Auth Test",
+            status: "ACTIVE",
+            timezone: "America/New_York",
+          },
+        });
+        return { otherStore, otherCompany, otherOwner };
+      },
+    );
 
     // WHEN: I try to close day for unauthorized store
     const response = await clientUserApiRequest.post(
@@ -1042,6 +1086,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       await tx.company.delete({
         where: { company_id: otherCompany.company_id },
       });
+      await tx.user.delete({ where: { user_id: otherOwner.user_id } });
     });
   });
 
@@ -1305,19 +1350,11 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     );
 
     // Create first shift (closed)
-    const shift1 = await withBypassClient(async (tx) => {
-      return await tx.shift.create({
-        data: {
-          store_id: store.store_id,
-          cashier_id: clientUser.user_id,
-          status: "CLOSED",
-          opened_at: new Date(Date.now() - 3600000), // 1 hour ago
-          closed_at: new Date(Date.now() - 1800000), // 30 min ago
-          opening_cash: 100.0,
-          closing_cash: 150.0,
-        },
-      });
-    });
+    const { shift: shift1, cashier: cashier1 } = await createTodayShift(
+      store,
+      clientUser.user_id,
+      "CLOSED",
+    );
 
     // Create second shift (currently open)
     const { shift: shift2, cashier: cashier2 } = await createTodayShift(
@@ -1404,16 +1441,28 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     );
 
     // WHEN: A new shift opens tomorrow (simulated by creating new shift)
-    const nextShift = await withBypassClient(async (tx) => {
-      return await tx.shift.create({
+    const { nextShift, nextCashier } = await withBypassClient(async (tx) => {
+      const nextCashier = await tx.cashier.create({
         data: {
           store_id: store.store_id,
-          cashier_id: clientUser.user_id,
+          employee_id: `${Math.floor(1000 + Math.random() * 9000)}`,
+          name: "Test Cashier Tomorrow",
+          pin_hash: "$2b$10$abcdefghijklmnopqrstuvwxyz1234567890",
+          hired_on: new Date(),
+          created_by: clientUser.user_id,
+        },
+      });
+      const nextShift = await tx.shift.create({
+        data: {
+          store_id: store.store_id,
+          cashier_id: nextCashier.cashier_id,
+          opened_by: clientUser.user_id,
           status: "OPEN",
           opened_at: new Date(Date.now() + 86400000), // Tomorrow
           opening_cash: 100.0,
         },
       });
+      return { nextShift, nextCashier };
     });
 
     // AND: New shift opening is created with next serial (026)

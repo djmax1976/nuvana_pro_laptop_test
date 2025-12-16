@@ -479,9 +479,9 @@ describe("6.12-INTEGRATION: Batch Pack Reception - Partial Failure Handling", ()
     for (const serial of serializedNumbers) {
       const game_code = serial.substring(0, 4);
 
-      // Lookup game
-      const game = await prisma.lotteryGame.findUnique({
-        where: { game_code: game_code },
+      // Lookup game by game_code and store_id (composite unique)
+      const game = await prisma.lotteryGame.findFirst({
+        where: { game_code: game_code, store_id: testStore.store_id },
       });
 
       if (!game) {

@@ -19,7 +19,7 @@ import {
  *
  * @param prisma - PrismaClient instance to use for database operations
  * @param overrides - Optional fields to override default values
- *   Note: store_id is accepted but ignored - LotteryGame is global (not store-scoped)
+ *   Note: store_id is optional - games can be global or store-scoped
  * @returns LotteryGame object for test use
  */
 export const createLotteryGame = async (
@@ -31,7 +31,7 @@ export const createLotteryGame = async (
     price: number;
     pack_value: number;
     status: LotteryGameStatus;
-    store_id: string; // Accepted for backward compatibility but ignored (games are global)
+    store_id: string; // Optional - if provided, game is scoped to store
   }> = {},
 ) => {
   // Generate unique game_code using random 4-digit number to avoid collisions
@@ -64,6 +64,7 @@ export const createLotteryGame = async (
           price,
           pack_value,
           status: overrides.status || LotteryGameStatus.ACTIVE,
+          ...(overrides.store_id && { store_id: overrides.store_id }),
         },
       });
     } catch (error: any) {
