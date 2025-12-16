@@ -219,7 +219,8 @@ export function cashierSessionWithPermission(
         success: false,
         error: {
           code: "PERMISSION_DENIED",
-          message: `Cashier permission denied: ${requiredPermission} is required`,
+          message:
+            "You do not have permission to perform this action. Please contact your manager.",
         },
       });
     }

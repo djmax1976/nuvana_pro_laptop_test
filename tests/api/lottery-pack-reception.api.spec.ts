@@ -5,19 +5,24 @@
  * - POST /api/lottery/packs/receive
  * - Authentication and authorization (STORE_MANAGER or ADMIN role)
  * - RLS enforcement (store isolation)
- * - Input validation (game_id, pack_number, serial_start, serial_end, bin_id)
+ * - Input validation (game_id, pack_number, serial_end, bin_id)
  * - Pack creation with status RECEIVED
  * - Bin assignment (optional)
  * - Audit logging
  * - Error handling (duplicate pack_number, invalid game_id, invalid bin_id)
+ *
+ * IMPORTANT IMPLEMENTATION NOTES:
+ * - serial_start is ALWAYS forced to "000...0" (zeros) padded to match serial_end length
+ * - serial_start provided in request is ignored
+ * - serial_end validation: must be numeric, > 0
+ * - pack_number: 1-50 characters, trimmed
  *
  * @test-level API
  * @justification Tests API endpoint with authentication, authorization, database operations, and business logic
  * @story 6.2 - Lottery Pack Reception
  * @priority P0 (Critical - Security, Data Integrity, Business Logic)
  * @enhanced-by workflow-9 on 2025-01-28
- *
- * RED PHASE: These tests will fail until endpoint is implemented.
+ * @updated 2025-12-16 - Aligned with implementation that forces serial_start to zeros
  */
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
@@ -51,9 +56,11 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-001",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
+
+    // Expected serial_start: implementation forces to zeros padded to match serial_end length
+    const expectedSerialStart = "0".padStart(packData.serial_end.length, "0");
 
     // WHEN: Receiving a lottery pack via API
     const response = await storeManagerApiRequest.post(
@@ -72,9 +79,11 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     expect(body.data.pack_number, "pack_number should match").toBe(
       packData.pack_number,
     );
-    expect(body.data.serial_start, "serial_start should match").toBe(
-      packData.serial_start,
-    );
+    // IMPORTANT: serial_start is always forced to zeros by the implementation
+    expect(
+      body.data.serial_start,
+      "serial_start should be zeros (forced by implementation)",
+    ).toBe(expectedSerialStart);
     expect(body.data.serial_end, "serial_end should match").toBe(
       packData.serial_end,
     );
@@ -128,7 +137,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-002",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
       bin_id: bin.bin_id,
     };
@@ -173,7 +181,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-003",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -209,7 +216,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-004",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -244,7 +250,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-005",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
       store_id: store.store_id, // Admin can specify store_id
     };
@@ -271,7 +276,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-006",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -319,7 +323,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-007",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
       store_id: otherStore.store_id, // Attempting to create pack for other store
     };
@@ -351,7 +354,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     // GIVEN: Pack data without game_id
     const packData = {
       pack_number: "PACK-008",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -379,7 +381,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: "550e8400-e29b-41d4-a716-446655440000", // Non-existent UUID
       pack_number: "PACK-009",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -413,14 +414,13 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
       pack_number: "PACK-010",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      serial_start: "000000",
+      serial_end: "184303",
     });
 
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-010", // Duplicate
-      serial_start: "184303159650093783374700",
       serial_end: "184303159650093783374850",
     };
 
@@ -442,11 +442,13 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     );
   });
 
-  test("6.2-API-011: [P0] should reject invalid serial range (serial_start > serial_end)", async ({
+  test("6.2-API-011: [P0] should reject serial_end of zero (must be > 0)", async ({
     storeManagerApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: Pack data with invalid serial range
+    // GIVEN: Pack data with serial_end of 0
+    // NOTE: serial_start is always forced to zeros by the implementation
+    // so we test that serial_end must be greater than zero
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
     });
@@ -454,26 +456,28 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-011",
-      serial_start: "184303159650093783374680", // Greater than end
-      serial_end: "184303159650093783374530", // Less than start
+      serial_end: "0", // Zero is invalid - must be > 0
     };
 
-    // WHEN: Attempting to receive pack with invalid serial range
+    // WHEN: Attempting to receive pack with serial_end of 0
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive",
       packData,
     );
 
     // THEN: Request is rejected with 400 Bad Request
-    expect(
-      response.status(),
-      "Should return 400 for invalid serial range",
-    ).toBe(400);
+    expect(response.status(), "Should return 400 for serial_end of 0").toBe(
+      400,
+    );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
     expect(body.error.code, "Error code should indicate validation error").toBe(
       "VALIDATION_ERROR",
     );
+    expect(
+      body.error.message,
+      "Error message should mention serial_end must be greater than zero",
+    ).toContain("serial_end must be greater than zero");
   });
 
   test("6.2-API-012: [P0] should reject invalid bin_id (not found)", async ({
@@ -488,7 +492,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-012",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
       bin_id: "550e8400-e29b-41d4-a716-446655440000", // Non-existent UUID
     };
@@ -532,7 +535,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-013",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
       bin_id: otherBin.bin_id, // Bin from different store
     };
@@ -572,7 +574,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-014",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -663,7 +664,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "'; DROP TABLE lottery_packs; --",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -690,11 +690,12 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     }
   });
 
-  test("6.2-API-017: [P0] SECURITY - should prevent SQL injection in serial_start", async ({
+  test("6.2-API-017: [P0] SECURITY - should prevent SQL injection in serial_end", async ({
     storeManagerApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: Malicious SQL injection attempt in serial_start
+    // GIVEN: Malicious SQL injection attempt in serial_end
+    // NOTE: serial_start is ignored (always forced to zeros), so test serial_end
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
     });
@@ -702,17 +703,16 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-017",
-      serial_start: "'; DROP TABLE lottery_packs; --",
-      serial_end: "184303159650093783374680",
+      serial_end: "'; DROP TABLE lottery_packs; --",
     };
 
-    // WHEN: Attempting to receive pack with SQL injection in serial_start
+    // WHEN: Attempting to receive pack with SQL injection in serial_end
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive",
       packData,
     );
 
-    // THEN: Request should be rejected (serial format validation) or safely handled
+    // THEN: Request should be rejected (serial format validation)
     // Serial validation should reject non-numeric values
     expect(response.status(), "Should reject invalid serial format").toBe(400);
     const body = await response.json();
@@ -735,7 +735,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-018",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -810,7 +809,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "A".repeat(51), // 51 characters (exceeds max)
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -845,7 +843,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "A".repeat(50), // Exactly 50 characters
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -866,11 +863,12 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     );
   });
 
-  test("6.2-API-022: [P0] should reject empty serial_start", async ({
+  test("6.2-API-022: [P0] serial_start is ignored - tests serial_end empty rejection", async ({
     storeManagerApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: Pack data with empty serial_start
+    // NOTE: serial_start is always forced to zeros by the implementation
+    // This test validates that empty serial_end is rejected
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
     });
@@ -878,18 +876,17 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-022",
-      serial_start: "", // Empty string
-      serial_end: "184303159650093783374680",
+      serial_end: "", // Empty string - should fail validation
     };
 
-    // WHEN: Attempting to receive pack with empty serial_start
+    // WHEN: Attempting to receive pack with empty serial_end
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive",
       packData,
     );
 
     // THEN: Request is rejected with 400 Bad Request
-    expect(response.status(), "Should return 400 for empty serial_start").toBe(
+    expect(response.status(), "Should return 400 for empty serial_end").toBe(
       400,
     );
     const body = await response.json();
@@ -911,7 +908,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-023",
-      serial_start: "184303159650093783374530",
       serial_end: "", // Empty string
     };
 
@@ -932,34 +928,32 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     );
   });
 
-  test("6.2-API-024: [P0] should reject serial_start equal to serial_end", async ({
+  test("6.2-API-024: [P0] serial_start forced to zeros - validates serial_end must be positive", async ({
     storeManagerApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: Pack data with serial_start equal to serial_end
+    // GIVEN: serial_start is always forced to zeros by the implementation
+    // Test that serial_end being 0 (meaning start == end when start is 0) is rejected
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
     });
 
-    const serial = "184303159650093783374530";
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-024",
-      serial_start: serial,
-      serial_end: serial, // Equal to start
+      serial_end: "0", // Zero - with serial_start forced to "0", this means start == end
     };
 
-    // WHEN: Attempting to receive pack with equal serials
+    // WHEN: Attempting to receive pack with serial_end of 0
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive",
       packData,
     );
 
     // THEN: Request is rejected with 400 Bad Request
-    expect(
-      response.status(),
-      "Should return 400 for serial_start equal to serial_end",
-    ).toBe(400);
+    expect(response.status(), "Should return 400 for serial_end of 0").toBe(
+      400,
+    );
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
     expect(body.error.code, "Error code should indicate validation error").toBe(
@@ -974,7 +968,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: "not-a-valid-uuid", // Invalid UUID format
       pack_number: "PACK-025",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -1007,7 +1000,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-026",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
       bin_id: "not-a-valid-uuid", // Invalid UUID format
     };
@@ -1034,11 +1026,12 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
   // BUSINESS LOGIC TESTS - SERIAL NUMBER FORMAT VALIDATION (P0)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  test("6.2-API-027: [P0] should reject non-numeric serial_start", async ({
+  test("6.2-API-027: [P0] should reject non-numeric serial_end", async ({
     storeManagerApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: Pack data with non-numeric serial_start
+    // GIVEN: Pack data with non-numeric serial_end
+    // NOTE: serial_start is always forced to zeros by implementation
     // Business Rule: Serial numbers must be numeric-only
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
@@ -1047,11 +1040,10 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-027",
-      serial_start: "ABC123DEF456", // Non-numeric
-      serial_end: "184303159650093783374680",
+      serial_end: "ABC123DEF456", // Non-numeric - should fail validation
     };
 
-    // WHEN: Attempting to receive pack with non-numeric serial_start
+    // WHEN: Attempting to receive pack with non-numeric serial_end
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive",
       packData,
@@ -1060,7 +1052,7 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     // THEN: Request is rejected with 400 Bad Request
     expect(
       response.status(),
-      "Should return 400 for non-numeric serial_start",
+      "Should return 400 for non-numeric serial_end",
     ).toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
@@ -1069,11 +1061,11 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     );
   });
 
-  test("6.2-API-028: [P0] should reject non-numeric serial_end", async ({
+  test("6.2-API-028: [P0] should reject serial_end with mixed alphanumeric", async ({
     storeManagerApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: Pack data with non-numeric serial_end
+    // GIVEN: Pack data with mixed alphanumeric serial_end
     // Business Rule: Serial numbers must be numeric-only
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
@@ -1082,7 +1074,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-028",
-      serial_start: "184303159650093783374530",
       serial_end: "XYZ789GHI012", // Non-numeric
     };
 
@@ -1104,47 +1095,40 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     );
   });
 
-  test("6.2-API-029: [P0] should validate serial range using numeric comparison (BigInt)", async ({
+  test("6.2-API-029: [P0] should accept large serial_end values (BigInt support)", async ({
     storeManagerApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: Pack data where string comparison would fail but numeric comparison is correct
-    // Example: "9" > "10" (string) is true, but 9 > 10 (numeric) is false
-    // Using large numbers to test BigInt comparison
+    // GIVEN: Pack data with large serial_end values
+    // NOTE: serial_start is always forced to zeros, so we test that large
+    // serial_end values are properly handled with BigInt comparison
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
     });
 
-    // Test case: serial_start as string "9" vs serial_end as string "10"
-    // String comparison: "9" > "10" = true (incorrect)
-    // Numeric comparison: 9 > 10 = false (correct)
-    // But with 24-digit numbers, we need BigInt
+    // Test case: Large serial_end value that exceeds JavaScript Number.MAX_SAFE_INTEGER
+    // serial_start will be forced to all zeros
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-029",
-      serial_start: "999999999999999999999999", // Large number
-      serial_end: "1000000000000000000000000", // Larger number (one more digit)
+      serial_end: "1000000000000000000000000", // Large number (25 digits)
     };
 
-    // WHEN: Receiving pack with valid numeric range
+    // WHEN: Receiving pack with large serial_end
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive",
       packData,
     );
 
-    // THEN: Pack should be created (numeric comparison should pass)
-    // Note: Current implementation uses string comparison, which may fail for this case
-    // This test documents the expected behavior (numeric comparison using BigInt)
-    if (response.status() === 201) {
-      const body = await response.json();
-      expect(body.success, "Response should indicate success").toBe(true);
-    } else {
-      // If current implementation fails, document that numeric comparison is needed
-      expect(
-        response.status(),
-        "Current implementation may use string comparison - numeric comparison recommended",
-      ).toBe(400);
-    }
+    // THEN: Pack should be created successfully (BigInt comparison handles large numbers)
+    expect(response.status(), "Should accept large serial_end values").toBe(
+      201,
+    );
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(body.data.serial_end, "serial_end should match").toBe(
+      packData.serial_end,
+    );
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1164,7 +1148,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-030",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -1275,7 +1258,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     // GIVEN: Invalid pack data (missing game_id)
     const packData = {
       pack_number: "PACK-031",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -1336,7 +1318,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "  PACK-032  ", // Leading and trailing whitespace
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
     };
 
@@ -1363,12 +1344,13 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     );
   });
 
-  test("6.2-API-033: [P0] should trim whitespace from serial_start and serial_end", async ({
+  test("6.2-API-033: [P0] should trim whitespace from serial_end", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
   }) => {
-    // GIVEN: Pack data with whitespace in serial numbers
+    // GIVEN: Pack data with whitespace in serial_end
+    // NOTE: serial_start is always forced to zeros by implementation, so only test serial_end
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
     });
@@ -1376,23 +1358,26 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-033",
-      serial_start: "  184303159650093783374530  ", // Leading and trailing whitespace
       serial_end: "  184303159650093783374680  ", // Leading and trailing whitespace
     };
 
-    // WHEN: Receiving pack with whitespace in serial numbers
+    // Expected serial_start: zeros padded to match trimmed serial_end length
+    const expectedSerialStart = "0".padStart(24, "0"); // 24 digits to match serial_end
+
+    // WHEN: Receiving pack with whitespace in serial_end
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive",
       packData,
     );
 
-    // THEN: Pack is created with trimmed serial numbers
+    // THEN: Pack is created with trimmed serial_end and zeros serial_start
     expect(response.status(), "Should accept pack with whitespace").toBe(201);
     const body = await response.json();
     expect(body.success, "Response should indicate success").toBe(true);
-    expect(body.data.serial_start, "serial_start should be trimmed").toBe(
-      "184303159650093783374530",
-    );
+    expect(
+      body.data.serial_start,
+      "serial_start should be zeros (forced by implementation)",
+    ).toBe(expectedSerialStart);
     expect(body.data.serial_end, "serial_end should be trimmed").toBe(
       "184303159650093783374680",
     );
@@ -1411,7 +1396,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-034",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
       // store_id is not provided
     };
@@ -1440,11 +1424,12 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     );
   });
 
-  test("6.2-API-035: [P0] should reject serial_start exceeding max length (100 chars)", async ({
+  test("6.2-API-035: [P0] serial_start provided is ignored - always forced to zeros", async ({
     storeManagerApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: Pack data with serial_start exceeding 100 characters
+    // GIVEN: Pack data with explicit serial_start provided
+    // NOTE: serial_start is ALWAYS forced to zeros regardless of what is provided
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
     });
@@ -1452,26 +1437,27 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-035",
-      serial_start: "1".repeat(101), // 101 characters (exceeds max)
+      serial_start: "184303159650093783374530", // This will be ignored
       serial_end: "184303159650093783374680",
     };
 
-    // WHEN: Attempting to receive pack with serial_start exceeding max length
+    // Expected serial_start: zeros padded to match serial_end length
+    const expectedSerialStart = "0".padStart(packData.serial_end.length, "0");
+
+    // WHEN: Receiving pack with explicit serial_start
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive",
       packData,
     );
 
-    // THEN: Request is rejected with 400 Bad Request
-    expect(
-      response.status(),
-      "Should return 400 for serial_start exceeding max length",
-    ).toBe(400);
+    // THEN: Pack is created with serial_start forced to zeros
+    expect(response.status(), "Should create pack successfully").toBe(201);
     const body = await response.json();
-    expect(body.success, "Response should indicate failure").toBe(false);
-    expect(body.error.code, "Error code should indicate validation error").toBe(
-      "VALIDATION_ERROR",
-    );
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(
+      body.data.serial_start,
+      "serial_start should be zeros (provided value ignored)",
+    ).toBe(expectedSerialStart);
   });
 
   test("6.2-API-036: [P0] should reject serial_end exceeding max length (100 chars)", async ({
@@ -1486,7 +1472,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-036",
-      serial_start: "184303159650093783374530",
       serial_end: "1".repeat(101), // 101 characters (exceeds max)
     };
 
@@ -1508,41 +1493,42 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     );
   });
 
-  test("6.2-API-037: [P0] should accept serial numbers at max length (100 chars)", async ({
+  test("6.2-API-037: [P0] should accept serial_end at max length (100 chars)", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
   }) => {
-    // GIVEN: Pack data with serial numbers at exactly 100 characters
+    // GIVEN: Pack data with serial_end at exactly 100 characters
+    // NOTE: serial_start is always forced to zeros
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game",
     });
 
-    const serialStart = "1".repeat(100); // Exactly 100 characters
-    const serialEnd = "2".repeat(100); // Exactly 100 characters (greater than start)
+    // serial_end at exactly 100 characters (all 2s to be > zeros)
+    const serialEnd = "2".repeat(100);
+    // Expected serial_start: zeros padded to 100 characters
+    const expectedSerialStart = "0".repeat(100);
 
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-037",
-      serial_start: serialStart,
       serial_end: serialEnd,
     };
 
-    // WHEN: Receiving pack with serial numbers at max length
+    // WHEN: Receiving pack with serial_end at max length
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive",
       packData,
     );
 
     // THEN: Pack is created successfully
-    expect(
-      response.status(),
-      "Should accept serial numbers at max length",
-    ).toBe(201);
+    expect(response.status(), "Should accept serial_end at max length").toBe(
+      201,
+    );
     const body = await response.json();
     expect(body.success, "Response should indicate success").toBe(true);
-    expect(body.data.serial_start, "serial_start should match").toBe(
-      serialStart,
+    expect(body.data.serial_start, "serial_start should be zeros").toBe(
+      expectedSerialStart,
     );
     expect(body.data.serial_end, "serial_end should match").toBe(serialEnd);
   });
@@ -1578,7 +1564,6 @@ test.describe("6.2-API: Lottery Pack Reception - Pack Creation", () => {
     const packData = {
       game_id: game.game_id,
       pack_number: "PACK-038",
-      serial_start: "184303159650093783374530",
       serial_end: "184303159650093783374680",
       store_id: store2.store_id, // Different store than admin's default
     };

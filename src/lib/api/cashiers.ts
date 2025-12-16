@@ -428,10 +428,9 @@ export function useCashiersMultiStore(
   // Combine all cashiers with store name
   // We use zip-like iteration since queries and storeIds have the same length/order
   const data: CashierWithStore[] = [];
-  for (let i = 0; i < queries.length; i++) {
-    const query = queries[i];
-    const storeId = storeIds[i];
-    if (!query?.data || !storeId) continue;
+  queries.forEach((query, index) => {
+    const storeId = storeIds.at(index);
+    if (!query?.data || !storeId) return;
     const storeName = storeNameMap.get(storeId) || "Unknown Store";
     for (const cashier of query.data) {
       data.push({
@@ -439,7 +438,7 @@ export function useCashiersMultiStore(
         store_name: storeName,
       });
     }
-  }
+  });
 
   // Sort by store name, then by name
   data.sort((a, b) => {

@@ -305,11 +305,11 @@ test.describe("10-5-API: Pack Validation", () => {
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
     expect(body.error, "Error should be present").toBeDefined();
-    // API returns "Permission denied" or "Access denied" message
+    // API returns permission-related message
     expect(
       body.error.message,
       "Error should indicate permission/access denied",
-    ).toMatch(/permission denied|access denied|forbidden/i);
+    ).toMatch(/permission|access denied|forbidden/i);
   });
 
   test("10-5-API-009: [P1] GET /api/lottery/packs/validate-for-activation - should return 403 for non-existent store (security practice)", async ({

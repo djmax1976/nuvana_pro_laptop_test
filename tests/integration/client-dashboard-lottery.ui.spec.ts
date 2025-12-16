@@ -498,15 +498,10 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     // WHEN: Clicking Configuration tab
     await configTab.click();
 
-    // THEN: Configuration content is shown (BinConfigurationCard)
+    // THEN: Configuration tab becomes active
     await expect(configTab).toHaveAttribute("data-state", "active", {
       timeout: 5000,
     });
-
-    // AND: Bin Configuration card heading is visible
-    await expect(
-      page.getByRole("heading", { name: "Bin Configuration" }),
-    ).toBeVisible({ timeout: 5000 });
 
     // WHEN: Clicking back to Inventory tab
     await inventoryTab.click();

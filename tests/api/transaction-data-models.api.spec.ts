@@ -325,11 +325,14 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
     ).rejects.toThrow();
   });
 
-  test("[P0] should cascade delete line items and payments when transaction is deleted", async ({
+  test("[P0] should delete line items and payments before deleting transaction (partitioned table)", async ({
     corporateAdminUser,
     prismaClient,
   }) => {
     // GIVEN: A transaction with line items and payments
+    // NOTE: The transactions table is partitioned by month for scalability.
+    // PostgreSQL does not support foreign key constraints referencing partitioned tables,
+    // so cascade deletes must be handled at the application level.
     const { store, shift, transactionCashierId } =
       await createTestStoreAndShift(
         prismaClient,
@@ -369,26 +372,38 @@ test.describe("Transaction Data Models - CRUD Operations", () => {
       },
     });
 
-    // WHEN: Deleting the transaction
-    await prismaClient.transaction.delete({
+    // WHEN: Deleting the transaction with its related records
+    // Application-level cascade: delete children first, then parent
+    // This is required because partitioned tables don't support FK cascade constraints
+    await prismaClient.transactionLineItem.deleteMany({
       where: { transaction_id: transaction.transaction_id },
     });
+    await prismaClient.transactionPayment.deleteMany({
+      where: { transaction_id: transaction.transaction_id },
+    });
+    await prismaClient.transaction.delete({
+      where: {
+        transaction_id_timestamp: {
+          transaction_id: transaction.transaction_id,
+          timestamp: transaction.timestamp,
+        },
+      },
+    });
 
-    // THEN: Line items and payments should be cascade deleted
+    // THEN: All records should be deleted
     const orphanedLineItems = await prismaClient.transactionLineItem.findMany({
       where: { transaction_id: transaction.transaction_id },
     });
     const orphanedPayments = await prismaClient.transactionPayment.findMany({
       where: { transaction_id: transaction.transaction_id },
     });
+    const deletedTransaction = await prismaClient.transaction.findFirst({
+      where: { transaction_id: transaction.transaction_id },
+    });
 
-    expect(
-      orphanedLineItems,
-      "Line items should be cascade deleted",
-    ).toHaveLength(0);
-    expect(orphanedPayments, "Payments should be cascade deleted").toHaveLength(
-      0,
-    );
+    expect(orphanedLineItems, "Line items should be deleted").toHaveLength(0);
+    expect(orphanedPayments, "Payments should be deleted").toHaveLength(0);
+    expect(deletedTransaction, "Transaction should be deleted").toBeNull();
   });
 });
 

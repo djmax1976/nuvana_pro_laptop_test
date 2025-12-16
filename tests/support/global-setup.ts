@@ -13,7 +13,47 @@
  * - Stores: name starts with "Test " or "E2E "
  */
 
+import { config } from "dotenv";
+// Load environment variables from .env.local before any other processing
+// Use override: true to ensure test config takes precedence over system env vars
+config({ path: ".env.local", override: true });
+
 import { PrismaClient } from "@prisma/client";
+
+// =============================================================================
+// DATABASE PROTECTION - Validate we're connecting to a test database
+// =============================================================================
+const PROTECTED_DATABASE_PATTERNS = [
+  /nuvana_dev/i,
+  /nuvana_prod/i,
+  /nuvana_production/i,
+  /nuvana_staging/i,
+];
+
+const ALLOWED_TEST_DATABASE_PATTERNS = [
+  /nuvana_test/i,
+  /_test$/i,
+  /_test_/i,
+  /test_db/i,
+];
+
+function validateTestDatabase(): void {
+  const dbUrl = process.env.DATABASE_URL || "";
+  const isProtectedDb = PROTECTED_DATABASE_PATTERNS.some((p) => p.test(dbUrl));
+  const isAllowedTestDb = ALLOWED_TEST_DATABASE_PATTERNS.some((p) =>
+    p.test(dbUrl),
+  );
+
+  if (isProtectedDb && !isAllowedTestDb) {
+    throw new Error(
+      `\n🚨 PROTECTED DATABASE DETECTED - TESTS BLOCKED\n` +
+        `DATABASE_URL points to: ${dbUrl}\n` +
+        `Use a test database: postgresql://postgres:postgres@localhost:5432/nuvana_test\n`,
+    );
+  }
+}
+
+validateTestDatabase();
 import { execSync } from "child_process";
 import { join } from "path";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
 import { StoreTabs } from "@/components/lottery/StoreTabs";
@@ -8,10 +8,13 @@ import { LotteryTable } from "@/components/lottery/LotteryTable";
 import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
 import { EditLotteryDialog } from "@/components/lottery/EditLotteryDialog";
 import { DeleteLotteryDialog } from "@/components/lottery/DeleteLotteryDialog";
-import { BinConfigurationCard } from "@/components/lottery/BinConfigurationCard";
-import { Loader2 } from "lucide-react";
+import { AddBinModal } from "@/components/lottery/AddBinModal";
+import { BinListDisplay, BinItem } from "@/components/lottery/BinListDisplay";
+import { Loader2, Plus } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useInvalidateLottery } from "@/hooks/useLottery";
+import { Button } from "@/components/ui/button";
+import { useQueryClient } from "@tanstack/react-query";
 
 /**
  * Client Dashboard Lottery Page
@@ -33,10 +36,22 @@ export default function ClientDashboardLotteryPage() {
     isError: dashboardError,
   } = useClientDashboard();
   const { invalidatePacks } = useInvalidateLottery();
+  const queryClient = useQueryClient();
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isAddBinDialogOpen, setIsAddBinDialogOpen] = useState(false);
   const [editingPackId, setEditingPackId] = useState<string | null>(null);
   const [deletingPackId, setDeletingPackId] = useState<string | null>(null);
+  const [occupiedBinNumbers, setOccupiedBinNumbers] = useState<number[]>([]);
+
+  // Memoized callback to handle bin data loaded - prevents infinite re-render loop
+  const handleBinsDataLoaded = useCallback((bins: BinItem[]) => {
+    // Extract bin numbers that have an active pack assigned
+    const occupied = bins
+      .filter((bin) => bin.current_pack != null)
+      .map((bin) => bin.display_order + 1); // display_order is 0-indexed, bin numbers are 1-indexed
+    setOccupiedBinNumbers(occupied);
+  }, []);
 
   // Set first store as selected when stores are loaded
   const stores = useMemo(
@@ -152,13 +167,33 @@ export default function ClientDashboardLotteryPage() {
           )}
         </TabsContent>
 
-        {/* Configuration Tab */}
+        {/* Configuration Tab - Bin Management */}
         <TabsContent value="configuration" className="space-y-4">
           {selectedStoreId && selectedStore && (
-            <BinConfigurationCard
-              storeId={selectedStoreId}
-              storeName={selectedStore.name}
-            />
+            <>
+              {/* Add Bin Button */}
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-lg font-semibold">Bin Configuration</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Manage lottery bins for {selectedStore.name}
+                  </p>
+                </div>
+                <Button
+                  onClick={() => setIsAddBinDialogOpen(true)}
+                  data-testid="add-bin-button"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Bin
+                </Button>
+              </div>
+
+              {/* Bin List Display */}
+              <BinListDisplay
+                storeId={selectedStoreId}
+                onDataLoaded={handleBinsDataLoaded}
+              />
+            </>
           )}
         </TabsContent>
       </Tabs>
@@ -206,6 +241,25 @@ export default function ClientDashboardLotteryPage() {
           // Table will refresh automatically via query invalidation
         }}
       />
+
+      {/* Add Bin Modal */}
+      {selectedStoreId && (
+        <AddBinModal
+          open={isAddBinDialogOpen}
+          onOpenChange={setIsAddBinDialogOpen}
+          storeId={selectedStoreId}
+          occupiedBinNumbers={occupiedBinNumbers}
+          onBinCreated={() => {
+            setIsAddBinDialogOpen(false);
+            // Invalidate bins query to refresh the list
+            queryClient.invalidateQueries({
+              queryKey: ["lottery-bins", selectedStoreId],
+            });
+            // Also invalidate packs as pack status may have changed
+            invalidatePacks();
+          }}
+        />
+      )}
     </div>
   );
 }

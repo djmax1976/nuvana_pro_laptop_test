@@ -17,11 +17,14 @@ import {
   getPackDetails,
   getVariances,
   approveVariance,
+  getLotteryDayBins,
+  closeLotteryDay,
   type ReceivePackInput,
   type UpdatePackInput,
   type ApproveVarianceInput,
   type LotteryPackQueryFilters,
   type VarianceQueryFilters,
+  type CloseLotteryDayInput,
 } from "../lib/api/lottery";
 
 // ============ TanStack Query Keys ============
@@ -39,6 +42,9 @@ export const lotteryKeys = {
   variances: () => [...lotteryKeys.all, "variances"] as const,
   varianceList: (filters?: VarianceQueryFilters) =>
     [...lotteryKeys.variances(), "list", filters || {}] as const,
+  dayBins: () => [...lotteryKeys.all, "dayBins"] as const,
+  dayBinsList: (storeId: string | undefined, date?: string) =>
+    [...lotteryKeys.dayBins(), storeId, date] as const,
 };
 
 // ============ Query Hooks ============
@@ -244,6 +250,58 @@ export function useVarianceApproval() {
       // Invalidate variance list queries to refresh after approval
       queryClient.invalidateQueries({ queryKey: lotteryKeys.variances() });
       // Also invalidate pack queries as variance approval may affect pack status
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.packs() });
+    },
+  });
+}
+
+/**
+ * Hook to fetch lottery day bins for the MyStore lottery page
+ * Returns bins with active packs, starting/ending serials for the business day,
+ * and depleted packs for the day.
+ * Story: MyStore Lottery Page Redesign
+ * @param storeId - Store UUID (required for RLS enforcement)
+ * @param date - Optional ISO date string (YYYY-MM-DD). Defaults to today in store timezone.
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with day bins data
+ */
+export function useLotteryDayBins(
+  storeId: string | null | undefined,
+  date?: string,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: lotteryKeys.dayBinsList(storeId ?? undefined, date),
+    queryFn: () => getLotteryDayBins(storeId!, date),
+    enabled: options?.enabled !== false && !!storeId,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 30000, // Consider data fresh for 30 seconds
+    select: (response) => response.data,
+  });
+}
+
+/**
+ * Hook to close lottery day
+ * Records ending serials for all active packs
+ * Story: Lottery Day Closing Feature
+ * @returns Mutation hook for day closing
+ */
+export function useLotteryDayClose() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      storeId,
+      data,
+    }: {
+      storeId: string;
+      data: CloseLotteryDayInput;
+    }) => closeLotteryDay(storeId, data),
+    onSuccess: () => {
+      // Invalidate day bins to refresh the ending serials
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.dayBins() });
+      // Also invalidate packs list
       queryClient.invalidateQueries({ queryKey: lotteryKeys.packs() });
     },
   });

@@ -20,12 +20,46 @@ const prisma = new PrismaClient();
 
 // Test data - isolated per test suite
 let testGames: any[] = [];
+let testStore: any = null;
+let testCompany: any = null;
+let testUser: any = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TEST SETUP & TEARDOWN
 // ═══════════════════════════════════════════════════════════════════════════
 
 beforeAll(async () => {
+  // Create test user for company ownership
+  testUser = await prisma.user.create({
+    data: {
+      public_id: `usr_perf_${Date.now()}`,
+      email: `test_perf_${Date.now()}@test.nuvana.local`,
+      name: "Test Perf User",
+      status: "ACTIVE",
+    },
+  });
+
+  // Create test company
+  testCompany = await prisma.company.create({
+    data: {
+      public_id: `cmp_perf_${Date.now()}`,
+      name: "Test Perf Company",
+      status: "ACTIVE",
+      owner_user_id: testUser.user_id,
+    },
+  });
+
+  // Create test store for game scoping
+  testStore = await prisma.store.create({
+    data: {
+      public_id: `str_perf_${Date.now()}`,
+      name: "Test Perf Store",
+      company_id: testCompany.company_id,
+      status: "ACTIVE",
+      timezone: "America/New_York",
+    },
+  });
+
   // Create test games with various game codes for performance testing
   const gamePromises = [];
   for (let i = 0; i < 100; i++) {
@@ -34,6 +68,7 @@ beforeAll(async () => {
       createLotteryGame(prisma, {
         game_code: gameCode,
         price: 5.0 + i,
+        store_id: testStore.store_id,
       }),
     );
   }
@@ -45,6 +80,17 @@ afterAll(async () => {
   await prisma.lotteryGame.deleteMany({
     where: { game_id: { in: testGames.map((g) => g.game_id) } },
   });
+  if (testStore) {
+    await prisma.store.delete({ where: { store_id: testStore.store_id } });
+  }
+  if (testCompany) {
+    await prisma.company.delete({
+      where: { company_id: testCompany.company_id },
+    });
+  }
+  if (testUser) {
+    await prisma.user.delete({ where: { user_id: testUser.user_id } });
+  }
   await prisma.$disconnect();
 });
 
@@ -57,10 +103,10 @@ describe("6.13-PERFORMANCE: Lottery Game Code Lookup Performance", () => {
     // GIVEN: Games with indexed game_code field
     const targetGameCode = "0050";
 
-    // WHEN: Querying game by game_code
+    // WHEN: Querying game by game_code and store_id
     const startTime = performance.now();
-    const game = await prisma.lotteryGame.findUnique({
-      where: { game_code: targetGameCode },
+    const game = await prisma.lotteryGame.findFirst({
+      where: { game_code: targetGameCode, store_id: testStore.store_id },
     });
     const endTime = performance.now();
     const queryTime = endTime - startTime;
@@ -76,12 +122,12 @@ describe("6.13-PERFORMANCE: Lottery Game Code Lookup Performance", () => {
     // GIVEN: Multiple game codes to lookup
     const gameCodes = ["0001", "0025", "0050", "0075", "0099"];
 
-    // WHEN: Querying multiple games by game_code
+    // WHEN: Querying multiple games by game_code and store_id
     const startTime = performance.now();
     const games = await Promise.all(
       gameCodes.map((code) =>
-        prisma.lotteryGame.findUnique({
-          where: { game_code: code },
+        prisma.lotteryGame.findFirst({
+          where: { game_code: code, store_id: testStore.store_id },
         }),
       ),
     );

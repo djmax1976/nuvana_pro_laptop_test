@@ -9,6 +9,19 @@
  * Follows fixture architecture pattern: pure functions wrapped in fixtures with auto-cleanup
  */
 
+// =============================================================================
+// DATABASE PROTECTION - Block dev/prod databases in test code
+// =============================================================================
+const dbUrl = process.env.DATABASE_URL || "";
+if (
+  /nuvana_dev|nuvana_prod|_prod$|_dev$/i.test(dbUrl) &&
+  !/test/i.test(dbUrl)
+) {
+  throw new Error(
+    `🚨 BLOCKED: Cannot use shift-closing.fixture with protected database: ${dbUrl}`,
+  );
+}
+
 import { test as base } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import {

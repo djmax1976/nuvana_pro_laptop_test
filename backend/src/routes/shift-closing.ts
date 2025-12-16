@@ -430,7 +430,6 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
             "pack_number",
             "serial_start",
             "activated_by",
-            "activated_shift_id",
           ],
           properties: {
             bin_name: {
@@ -470,7 +469,8 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
             activated_shift_id: {
               type: "string",
               format: "uuid",
-              description: "Shift UUID where pack is activated",
+              nullable: true,
+              description: "Shift UUID where pack is activated (optional)",
             },
           },
         },
@@ -508,7 +508,7 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
         pack_number: string;
         serial_start: string;
         activated_by: string;
-        activated_shift_id: string;
+        activated_shift_id?: string | null;
       };
 
       try {
@@ -526,44 +526,46 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Validate shift exists and is active
-        const shift = await prisma.shift.findUnique({
-          where: { shift_id: body.activated_shift_id },
-          select: {
-            shift_id: true,
-            store_id: true,
-            status: true,
-          },
-        });
-
-        if (!shift) {
-          reply.code(404);
-          return {
-            success: false,
-            error: { code: "NOT_FOUND", message: "Shift not found" },
-          };
-        }
-
-        if (shift.store_id !== params.storeId) {
-          reply.code(400);
-          return {
-            success: false,
-            error: {
-              code: "BAD_REQUEST",
-              message: "Shift does not belong to this store",
+        // Validate shift exists and is active (only if activated_shift_id is provided)
+        if (body.activated_shift_id) {
+          const shift = await prisma.shift.findUnique({
+            where: { shift_id: body.activated_shift_id },
+            select: {
+              shift_id: true,
+              store_id: true,
+              status: true,
             },
-          };
-        }
+          });
 
-        if (shift.status !== ShiftStatus.ACTIVE) {
-          reply.code(400);
-          return {
-            success: false,
-            error: {
-              code: "BAD_REQUEST",
-              message: "Shift must be active to activate packs",
-            },
-          };
+          if (!shift) {
+            reply.code(404);
+            return {
+              success: false,
+              error: { code: "NOT_FOUND", message: "Shift not found" },
+            };
+          }
+
+          if (shift.store_id !== params.storeId) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "BAD_REQUEST",
+                message: "Shift does not belong to this store",
+              },
+            };
+          }
+
+          if (shift.status !== ShiftStatus.ACTIVE) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "BAD_REQUEST",
+                message: "Shift must be active to activate packs",
+              },
+            };
+          }
         }
 
         // Find pack by pack_number and store_id (using Prisma ORM - prevents SQL injection)
@@ -603,6 +605,38 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
           };
         }
 
+        // Check if bin number is already occupied (has active pack)
+        // This prevents race conditions when multiple users try to create the same bin
+        const existingBinWithPack = await prisma.lotteryBin.findFirst({
+          where: {
+            store_id: params.storeId,
+            display_order: body.display_order,
+            is_active: true,
+            packs: {
+              some: {
+                status: LotteryPackStatus.ACTIVE,
+                current_bin_id: { not: null },
+              },
+            },
+          },
+          select: {
+            bin_id: true,
+            name: true,
+          },
+        });
+
+        if (existingBinWithPack) {
+          const binNumber = body.display_order + 1; // display_order is 0-indexed
+          reply.code(409);
+          return {
+            success: false,
+            error: {
+              code: "CONFLICT",
+              message: `There is already an active pack in Bin ${binNumber}. Please select an empty bin.`,
+            },
+          };
+        }
+
         // Use Prisma transaction to ensure atomicity (all-or-nothing)
         const result = await prisma.$transaction(async (tx) => {
           // 1. Create LotteryBin record
@@ -631,18 +665,20 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               current_bin_id: newBin.bin_id,
               activated_at: new Date(),
               activated_by: body.activated_by,
-              activated_shift_id: body.activated_shift_id,
+              activated_shift_id: body.activated_shift_id || null,
             },
           });
 
-          // 3. Create LotteryShiftOpening record
-          await tx.lotteryShiftOpening.create({
-            data: {
-              shift_id: body.activated_shift_id,
-              pack_id: pack.pack_id,
-              opening_serial: body.serial_start,
-            },
-          });
+          // 3. Create LotteryShiftOpening record (only if activated_shift_id is provided)
+          if (body.activated_shift_id) {
+            await tx.lotteryShiftOpening.create({
+              data: {
+                shift_id: body.activated_shift_id,
+                pack_id: pack.pack_id,
+                opening_serial: body.serial_start,
+              },
+            });
+          }
 
           // 4. Create LotteryPackBinHistory record
           await tx.lotteryPackBinHistory.create({

@@ -532,6 +532,7 @@ describe("6.1-INTEGRATION: Enum Enforcement", () => {
           game_code: "INV1",
           name: "Test",
           price: 1.0,
+          pack_value: 30,
           status: "INVALID_STATUS" as any,
         },
       }),
@@ -609,6 +610,7 @@ describe("6.12-INTEGRATION: Game Code Uniqueness Constraint", () => {
         name: "Test Game with Code",
         game_code: "0001",
         price: 2.0,
+        pack_value: 60,
       },
     });
 
@@ -627,6 +629,7 @@ describe("6.12-INTEGRATION: Game Code Uniqueness Constraint", () => {
         name: "First Game",
         game_code: "0001",
         price: 2.0,
+        pack_value: 60,
       },
     });
 
@@ -638,6 +641,7 @@ describe("6.12-INTEGRATION: Game Code Uniqueness Constraint", () => {
           name: "Second Game",
           game_code: "0001", // Duplicate game_code
           price: 5.0,
+          pack_value: 150,
         },
       }),
       "Should reject duplicate game_code with unique constraint error",
@@ -655,6 +659,7 @@ describe("6.12-INTEGRATION: Game Code Uniqueness Constraint", () => {
         game_code: "GC01",
         name: "Game Without Code 1",
         price: 2.0,
+        pack_value: 60,
       },
     });
 
@@ -663,6 +668,7 @@ describe("6.12-INTEGRATION: Game Code Uniqueness Constraint", () => {
         game_code: "GC02",
         name: "Game Without Code 2",
         price: 5.0,
+        pack_value: 150,
       },
     });
 
@@ -687,6 +693,7 @@ describe("6.12-INTEGRATION: Game Code Uniqueness Constraint", () => {
           name: "Game With Long Code",
           game_code: "00001", // 5 characters - exceeds VARCHAR(4)
           price: 2.0,
+          pack_value: 60,
         },
       }),
       "Should reject game_code exceeding 4 characters with constraint error",
@@ -701,6 +708,7 @@ describe("6.12-INTEGRATION: Game Code Uniqueness Constraint", () => {
         name: "Game 1",
         game_code: "0001",
         price: 2.0,
+        pack_value: 60,
       },
     });
 
@@ -709,6 +717,7 @@ describe("6.12-INTEGRATION: Game Code Uniqueness Constraint", () => {
         name: "Game 2",
         game_code: "0002",
         price: 5.0,
+        pack_value: 150,
       },
     });
 
@@ -846,6 +855,7 @@ describe("6.1-INTEGRATION: Edge Cases - String Fields", () => {
           game_code: "EM01",
           name: "",
           price: 1.0,
+          pack_value: 30,
         },
       }),
       "Should reject empty string in name field",
@@ -864,6 +874,7 @@ describe("6.1-INTEGRATION: Edge Cases - String Fields", () => {
           game_code: "LN01",
           name: veryLongName,
           price: 1.0,
+          pack_value: 30,
         },
       }),
       "Should reject very long string in name field",

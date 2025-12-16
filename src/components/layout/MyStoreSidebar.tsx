@@ -85,7 +85,7 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
       data-testid="mystore-sidebar"
     >
       <div className="flex h-16 items-center border-b px-6">
-        <h2 className="text-heading-3 font-bold text-foreground">My Store</h2>
+        <h2 className="text-heading-3 font-bold text-foreground">Nuvana</h2>
       </div>
       <nav className="flex-1 space-y-1 px-3 py-4">
         {/* Clock In/Out Link */}

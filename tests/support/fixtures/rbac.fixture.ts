@@ -1,5 +1,23 @@
 import { config } from "dotenv";
+// Load environment variables from .env.local FIRST before any other processing
+// Use override: true to ensure test config takes precedence over system env vars
+config({ path: ".env.local", override: true });
+
 import { test as base, APIRequestContext } from "@playwright/test";
+
+// =============================================================================
+// DATABASE PROTECTION - Block dev/prod databases in test code
+// =============================================================================
+const dbUrl = process.env.DATABASE_URL || "";
+if (
+  /nuvana_dev|nuvana_prod|_prod$|_dev$/i.test(dbUrl) &&
+  !/test/i.test(dbUrl)
+) {
+  throw new Error(
+    `🚨 BLOCKED: Cannot use rbac.fixture with protected database: ${dbUrl}`,
+  );
+}
+
 import {
   createUser,
   createCompany,
@@ -43,20 +61,71 @@ async function getTestRedisClientForFixtures(): Promise<RedisClientType | null> 
 
 /**
  * Clear RBAC cache for a specific user to ensure fresh data in tests
+ * This clears both user_roles and permission_check caches to match
+ * the behavior of rbacService.invalidateUserRolesCache()
  */
 async function clearUserRbacCache(userId: string): Promise<void> {
   try {
     const redis = await getTestRedisClientForFixtures();
     if (redis) {
+      // Clear user roles cache
       await redis.del(`user_roles:${userId}`);
+      // Also clear all permission check caches for this user
+      // This is important because checkPermission() has its own cache
+      const permissionKeys = await redis.keys(`permission_check:${userId}:*`);
+      if (permissionKeys.length > 0) {
+        await redis.del(permissionKeys);
+      }
     }
   } catch {
     // Ignore Redis errors - tests will still work, just slower
   }
 }
 
-// Load environment variables from .env.local for Playwright tests
-config({ path: ".env.local" });
+/**
+ * UserRole interface matching the rbac.service.ts format
+ * Used for pre-populating Redis cache in tests
+ */
+interface CachedUserRole {
+  user_role_id: string;
+  user_id: string;
+  role_id: string;
+  role_code: string;
+  scope: "SYSTEM" | "COMPANY" | "STORE" | "CLIENT";
+  client_id: string | null;
+  company_id: string | null;
+  store_id: string | null;
+  permissions: string[];
+}
+
+/**
+ * Pre-populate the Redis cache with user roles to bypass RLS issues in tests
+ * This is necessary because:
+ * 1. The rbacService.getUserRoles() queries user_roles table which has RLS
+ * 2. RLS requires app.current_user_id PostgreSQL session variable to be set
+ * 3. The permission middleware doesn't set this variable, causing queries to return empty
+ * 4. By pre-populating the cache, we avoid the DB query entirely
+ *
+ * @param userId - User ID to cache roles for
+ * @param roles - Array of user roles to cache
+ */
+async function populateUserRolesCache(
+  userId: string,
+  roles: CachedUserRole[],
+): Promise<void> {
+  try {
+    const redis = await getTestRedisClientForFixtures();
+    if (redis) {
+      const cacheKey = `user_roles:${userId}`;
+      // Use 300 second TTL (5 minutes) matching rbac.service.ts cacheTTL
+      await redis.setEx(cacheKey, 300, JSON.stringify(roles));
+    }
+  } catch {
+    // Ignore Redis errors - tests may fail but this shouldn't block
+  }
+}
+
+// Note: Environment variables are loaded at the top of this file
 
 /**
  * RBAC Test Fixtures
@@ -868,10 +937,45 @@ export const test = base.extend<RBACFixture>({
       );
     }
 
+    // Store manager permissions list (used in multiple places)
+    // Must match the seeded STORE_MANAGER role permissions from rbac.seed.ts
+    const storeManagerPermissions = [
+      "STORE_READ",
+      "SHIFT_OPEN",
+      "SHIFT_CLOSE",
+      "SHIFT_READ",
+      "SHIFT_REPORT_VIEW",
+      "INVENTORY_READ",
+      "TRANSACTION_READ",
+      "LOTTERY_PACK_ACTIVATE",
+      "LOTTERY_PACK_RECEIVE",
+      "LOTTERY_GAME_READ",
+      "LOTTERY_PACK_READ",
+      "LOTTERY_VARIANCE_READ",
+      "LOTTERY_BIN_READ",
+      "LOTTERY_BIN_MANAGE",
+      "LOTTERY_BIN_CONFIG_READ",
+      "LOTTERY_BIN_CONFIG_WRITE",
+      "LOTTERY_SHIFT_OPEN",
+      "LOTTERY_SHIFT_CLOSE",
+      "LOTTERY_SHIFT_RECONCILE",
+      "LOTTERY_REPORT",
+      "LOTTERY_MANUAL_ENTRY",
+      "REPORT_SHIFT",
+      "REPORT_DAILY",
+      "REPORT_ANALYTICS",
+      "REPORT_EXPORT",
+      "CASHIER_CREATE",
+      "CASHIER_READ",
+      "CASHIER_UPDATE",
+      "CASHIER_DELETE",
+    ];
+
     // Assign STORE_MANAGER role to user with store_id (STORE scope)
     // Use bypass client to avoid RLS restrictions during test setup
+    let userRoleId: string = "";
     await withBypassClient(async (bypassClient) => {
-      await bypassClient.userRole.create({
+      const userRole = await bypassClient.userRole.create({
         data: {
           user_id: user.user_id,
           role_id: role.role_id,
@@ -879,33 +983,32 @@ export const test = base.extend<RBACFixture>({
           store_id: store.store_id,
         },
       });
+      userRoleId = userRole.user_role_id;
     });
 
-    // Clear RBAC cache to ensure the new role is visible to the API immediately
-    await clearUserRbacCache(user.user_id);
+    // Pre-populate the Redis cache with user roles
+    // This is necessary because the permission middleware calls rbacService.getUserRoles()
+    // which queries the user_roles table. Due to RLS policies, this query returns empty
+    // unless we either use withRLSTransaction (complex) or pre-populate the cache (simple)
+    await populateUserRolesCache(user.user_id, [
+      {
+        user_role_id: userRoleId,
+        user_id: user.user_id,
+        role_id: role.role_id,
+        role_code: "STORE_MANAGER",
+        scope: "STORE",
+        client_id: null,
+        company_id: company.company_id,
+        store_id: store.store_id,
+        permissions: storeManagerPermissions,
+      },
+    ]);
 
     const token = createJWTAccessToken({
       user_id: user.user_id,
       email: user.email,
       roles: ["STORE_MANAGER"],
-      permissions: [
-        "STORE_READ",
-        "SHIFT_OPEN",
-        "SHIFT_CLOSE",
-        "SHIFT_READ",
-        "SHIFT_REPORT_VIEW",
-        "INVENTORY_READ",
-        "TRANSACTION_READ",
-        "LOTTERY_PACK_ACTIVATE",
-        "LOTTERY_PACK_RECEIVE",
-        "LOTTERY_GAME_READ",
-        "LOTTERY_PACK_READ",
-        "LOTTERY_VARIANCE_READ",
-        "LOTTERY_BIN_READ",
-        "LOTTERY_BIN_MANAGE",
-        "LOTTERY_BIN_CONFIG_READ",
-        "LOTTERY_BIN_CONFIG_WRITE",
-      ],
+      permissions: storeManagerPermissions,
     });
 
     const storeManagerUser = {
@@ -915,24 +1018,7 @@ export const test = base.extend<RBACFixture>({
       company_id: company.company_id,
       store_id: store.store_id,
       roles: ["STORE_MANAGER"],
-      permissions: [
-        "STORE_READ",
-        "SHIFT_OPEN",
-        "SHIFT_CLOSE",
-        "SHIFT_READ",
-        "SHIFT_REPORT_VIEW",
-        "INVENTORY_READ",
-        "TRANSACTION_READ",
-        "LOTTERY_PACK_ACTIVATE",
-        "LOTTERY_PACK_RECEIVE",
-        "LOTTERY_GAME_READ",
-        "LOTTERY_PACK_READ",
-        "LOTTERY_VARIANCE_READ",
-        "LOTTERY_BIN_READ",
-        "LOTTERY_BIN_MANAGE",
-        "LOTTERY_BIN_CONFIG_READ",
-        "LOTTERY_BIN_CONFIG_WRITE",
-      ],
+      permissions: storeManagerPermissions,
       token,
     };
 

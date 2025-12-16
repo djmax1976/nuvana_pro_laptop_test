@@ -3,19 +3,20 @@
 import { useState, useMemo } from "react";
 import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
-import { Loader2, AlertCircle, Plus, Zap } from "lucide-react";
+import { Loader2, AlertCircle, Plus, Zap, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   useLotteryPacks,
-  useLotteryVariances,
   usePackReception,
   usePackActivation,
   usePackDetails,
-  useVarianceApproval,
   useInvalidateLottery,
+  useLotteryDayBins,
 } from "@/hooks/useLottery";
-import { LotteryPackCard } from "@/components/lottery/LotteryPackCard";
+import { DayBinsTable } from "@/components/lottery/DayBinsTable";
+import { DepletedPacksSection } from "@/components/lottery/DepletedPacksSection";
 import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
+import { CloseDayModal } from "@/components/lottery/CloseDayModal";
 import {
   PackActivationForm,
   type PackOption,
@@ -24,28 +25,25 @@ import {
   PackDetailsModal,
   type PackDetailsData,
 } from "@/components/lottery/PackDetailsModal";
-import {
-  VarianceAlert,
-  type LotteryVariance,
-} from "@/components/lottery/VarianceAlert";
-import { VarianceApprovalDialog } from "@/components/lottery/VarianceApprovalDialog";
 import { receivePack } from "@/lib/api/lottery";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle2 } from "lucide-react";
 
 /**
- * Lottery Management Page
- * Allows Store Managers to manage lottery packs and view reconciliation
+ * Lottery Management Page - Day-based Bin View
+ * Displays lottery bins with day-based tracking for the current business day.
  * Route: /mystore/lottery
  *
+ * Story: MyStore Lottery Page Redesign
+ *
  * @requirements
- * - AC #1: View packs with status indicators (RECEIVED, ACTIVE, DEPLETED, RETURNED)
- * - AC #2: Pack reception form
- * - AC #3: Pack activation form
- * - AC #4: Pack details view
- * - AC #5: Variance alerts displayed prominently
- * - AC #6: Variance approval dialog
+ * - Display bins table with columns (Bin, Name, Amount, Pack #, Starting, Ending)
+ * - Starting = first opening of the day OR last closing OR serial_start
+ * - Ending = last closing of the day (grayed out, read-only)
+ * - Click row to open pack details modal
+ * - Collapsible depleted packs section
+ * - Keep Receive Pack and Activate Pack buttons
  * - AC #8: All API calls use proper authentication (JWT tokens), RLS policies ensure store access only
  */
 export default function LotteryManagementPage() {
@@ -61,11 +59,9 @@ export default function LotteryManagementPage() {
   // Dialog state management
   const [receptionDialogOpen, setReceptionDialogOpen] = useState(false);
   const [activationDialogOpen, setActivationDialogOpen] = useState(false);
+  const [closeDayDialogOpen, setCloseDayDialogOpen] = useState(false);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
-  const [varianceDialogOpen, setVarianceDialogOpen] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
-  const [selectedVariance, setSelectedVariance] =
-    useState<LotteryVariance | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Get first active store ID from user's accessible stores
@@ -73,20 +69,16 @@ export default function LotteryManagementPage() {
     dashboardData?.stores.find((s) => s.status === "ACTIVE")?.store_id ||
     dashboardData?.stores[0]?.store_id;
 
-  // Fetch lottery data
-  // Note: These endpoints may not be implemented yet - API functions handle 404s gracefully
+  // Fetch day bins data for the new table view
   const {
-    data: packs,
-    isLoading: packsLoading,
-    isError: packsError,
-    error: packsErrorObj,
-  } = useLotteryPacks(storeId);
-  const {
-    data: variances,
-    isLoading: variancesLoading,
-    isError: variancesError,
-    error: variancesErrorObj,
-  } = useLotteryVariances(storeId, { status: "unresolved" });
+    data: dayBinsData,
+    isLoading: dayBinsLoading,
+    isError: dayBinsError,
+    error: dayBinsErrorObj,
+  } = useLotteryDayBins(storeId);
+
+  // Fetch lottery packs for activation form (need RECEIVED packs)
+  const { data: packs, isLoading: packsLoading } = useLotteryPacks(storeId);
 
   // Fetch pack details when selected
   const { data: packDetails, isLoading: packDetailsLoading } = usePackDetails(
@@ -97,8 +89,7 @@ export default function LotteryManagementPage() {
   // Mutations
   const packReceptionMutation = usePackReception();
   const packActivationMutation = usePackActivation();
-  const varianceApprovalMutation = useVarianceApproval();
-  const { invalidatePacks, invalidateVariances } = useInvalidateLottery();
+  const { invalidatePacks, invalidateAll } = useInvalidateLottery();
 
   // Filter packs for activation form (RECEIVED status only)
   const receivedPacks: PackOption[] = useMemo(() => {
@@ -114,39 +105,10 @@ export default function LotteryManagementPage() {
       }));
   }, [packs]);
 
-  // Convert API variance response to component format
-  const varianceData: LotteryVariance[] = useMemo(() => {
-    if (!variances) return [];
-    return variances.map((v) => ({
-      variance_id: v.variance_id,
-      shift_id: v.shift_id,
-      pack_id: v.pack_id,
-      expected_count: v.expected_count,
-      actual_count: v.actual_count,
-      difference: v.difference,
-      approved_at: v.approved_at,
-      pack: {
-        pack_number: v.pack?.pack_number || "Unknown",
-        game: {
-          name: v.pack?.game?.name || "Unknown Game",
-        },
-      },
-      shift: {
-        shift_id: v.shift_id,
-        opened_at: v.shift?.opened_at || "",
-      },
-    }));
-  }, [variances]);
-
   // Handlers
   const handlePackDetailsClick = (packId: string) => {
     setSelectedPackId(packId);
     setDetailsDialogOpen(true);
-  };
-
-  const handleVarianceClick = (variance: LotteryVariance) => {
-    setSelectedVariance(variance);
-    setVarianceDialogOpen(true);
   };
 
   const handlePackReception = async (
@@ -154,7 +116,7 @@ export default function LotteryManagementPage() {
   ) => {
     try {
       await packReceptionMutation.mutateAsync(data);
-      invalidatePacks();
+      invalidateAll(); // Invalidate all lottery data including day bins
       setReceptionDialogOpen(false);
       setSuccessMessage("Pack received successfully");
       setTimeout(() => setSuccessMessage(null), 5000);
@@ -166,35 +128,12 @@ export default function LotteryManagementPage() {
   const handlePackActivation = async (packId: string) => {
     try {
       await packActivationMutation.mutateAsync(packId);
-      invalidatePacks();
+      invalidateAll(); // Invalidate all lottery data including day bins
       setActivationDialogOpen(false);
       setSuccessMessage("Pack activated successfully");
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (error) {
       throw error; // Error handling is done in the form component
-    }
-  };
-
-  const handleVarianceApproval = async (varianceId: string, reason: string) => {
-    // Find the variance to get shift_id (varianceId is passed from dialog, but we need shift_id for API)
-    const variance =
-      varianceData.find((v) => v.variance_id === varianceId) ||
-      selectedVariance;
-    if (!variance) return;
-
-    try {
-      await varianceApprovalMutation.mutateAsync({
-        shiftId: variance.shift_id,
-        data: { variance_reason: reason },
-      });
-      invalidateVariances();
-      invalidatePacks();
-      setVarianceDialogOpen(false);
-      setSelectedVariance(null);
-      setSuccessMessage("Variance approved successfully");
-      setTimeout(() => setSuccessMessage(null), 5000);
-    } catch (error) {
-      throw error; // Error handling is done in the dialog component
     }
   };
 
@@ -264,6 +203,27 @@ export default function LotteryManagementPage() {
     );
   }
 
+  // Get store name and current date for subtitle
+  const storeName =
+    dashboardData?.stores.find((s) => s.store_id === storeId)?.name ||
+    "your store";
+  const currentDate = dayBinsData?.business_day?.date
+    ? new Date(dayBinsData.business_day.date + "T12:00:00").toLocaleDateString(
+        undefined,
+        {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        },
+      )
+    : new Date().toLocaleDateString(undefined, {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+
   // Convert pack details to modal format
   // Note: Convert null to undefined for location since PackDetailsData expects string | undefined
   const packDetailsForModal: PackDetailsData | null = packDetails
@@ -318,9 +278,7 @@ export default function LotteryManagementPage() {
             Lottery Management
           </h1>
           <p className="text-muted-foreground">
-            Manage lottery packs and view reconciliation for{" "}
-            {dashboardData?.stores.find((s) => s.store_id === storeId)?.name ||
-              "your store"}
+            {storeName} &bull; {currentDate}
           </p>
         </div>
         <div className="flex gap-2">
@@ -330,6 +288,15 @@ export default function LotteryManagementPage() {
           >
             <Plus className="mr-2 h-4 w-4" />
             Receive Pack
+          </Button>
+          <Button
+            onClick={() => setCloseDayDialogOpen(true)}
+            variant="outline"
+            data-testid="close-day-button"
+            disabled={!dayBinsData?.bins.some((bin) => bin.pack !== null)}
+          >
+            <Moon className="mr-2 h-4 w-4" />
+            Close Day
           </Button>
           <Button
             onClick={() => setActivationDialogOpen(true)}
@@ -354,92 +321,57 @@ export default function LotteryManagementPage() {
         </Alert>
       )}
 
-      {/* Variance Alerts */}
-      {!variancesLoading && !variancesError && (
-        <VarianceAlert
-          variances={varianceData}
-          onVarianceClick={handleVarianceClick}
-        />
-      )}
-
-      {/* Variances Error State */}
-      {variancesError && (
-        <div className="rounded-lg border border-destructive bg-destructive/10 p-4">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="h-5 w-5 text-destructive" />
-            <p className="text-sm font-medium text-destructive">
-              Failed to load variances
-            </p>
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {variancesErrorObj instanceof Error
-              ? variancesErrorObj.message
-              : "Please try refreshing the page."}
-          </p>
-        </div>
-      )}
-
-      {/* Packs Loading State */}
-      {packsLoading && (
+      {/* Day Bins Table Loading State */}
+      {dayBinsLoading && (
         <div className="flex items-center justify-center p-8">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           <span className="ml-2 text-sm text-muted-foreground">
-            Loading packs...
+            Loading bins...
           </span>
         </div>
       )}
 
-      {/* Packs Error State */}
-      {packsError && (
+      {/* Day Bins Table Error State */}
+      {dayBinsError && (
         <div className="rounded-lg border border-destructive bg-destructive/10 p-4">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-5 w-5 text-destructive" />
             <p className="text-sm font-medium text-destructive">
-              Failed to load packs
+              Failed to load bins
             </p>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {packsErrorObj instanceof Error
-              ? packsErrorObj.message
+            {dayBinsErrorObj instanceof Error
+              ? dayBinsErrorObj.message
               : "Please try refreshing the page."}
           </p>
         </div>
       )}
 
-      {/* Packs Grid */}
-      {!packsLoading && !packsError && (
+      {/* Day Bins Table */}
+      {!dayBinsLoading && !dayBinsError && dayBinsData && (
         <>
-          {!packs || packs.length === 0 ? (
-            <div className="rounded-lg border p-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                No lottery packs found. Click &quot;Receive Pack&quot; to add
-                your first pack.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {packs.map((pack) => (
-                <LotteryPackCard
-                  key={pack.pack_id}
-                  pack={{
-                    pack_id: pack.pack_id,
-                    pack_number: pack.pack_number,
-                    serial_start: pack.serial_start,
-                    serial_end: pack.serial_end,
-                    status: pack.status,
-                    game: pack.game || {
-                      game_id: pack.game_id,
-                      name: "Unknown Game",
-                    },
-                    tickets_remaining: pack.tickets_remaining,
-                    bin: pack.bin,
-                  }}
-                  onDetailsClick={handlePackDetailsClick}
-                />
-              ))}
-            </div>
-          )}
+          <DayBinsTable
+            bins={dayBinsData.bins}
+            onRowClick={handlePackDetailsClick}
+          />
+
+          {/* Depleted Packs Section (Collapsible) */}
+          <DepletedPacksSection
+            depletedPacks={dayBinsData.depleted_packs}
+            defaultOpen={false}
+          />
         </>
+      )}
+
+      {/* Empty State - No bins configured */}
+      {!dayBinsLoading && !dayBinsError && dayBinsData?.bins.length === 0 && (
+        <div className="rounded-lg border p-8 text-center">
+          <p className="text-sm text-muted-foreground">
+            No bins configured for this store. Contact your administrator to set
+            up lottery bins.
+          </p>
+        </div>
       )}
 
       {/* Pack Reception Dialog */}
@@ -448,7 +380,7 @@ export default function LotteryManagementPage() {
         open={receptionDialogOpen}
         onOpenChange={setReceptionDialogOpen}
         onSuccess={() => {
-          invalidatePacks();
+          invalidateAll();
         }}
       />
 
@@ -458,7 +390,7 @@ export default function LotteryManagementPage() {
         open={activationDialogOpen}
         onOpenChange={setActivationDialogOpen}
         onSuccess={() => {
-          invalidatePacks();
+          invalidateAll();
         }}
         onActivate={handlePackActivation}
       />
@@ -471,20 +403,18 @@ export default function LotteryManagementPage() {
         isLoading={packDetailsLoading}
       />
 
-      {/* Variance Approval Dialog */}
-      {selectedVariance && (
-        <VarianceApprovalDialog
-          variance={selectedVariance}
-          isOpen={varianceDialogOpen}
-          onClose={() => {
-            setVarianceDialogOpen(false);
-            setSelectedVariance(null);
-          }}
+      {/* Close Day Modal */}
+      {dayBinsData && (
+        <CloseDayModal
+          storeId={storeId}
+          bins={dayBinsData.bins}
+          open={closeDayDialogOpen}
+          onOpenChange={setCloseDayDialogOpen}
           onSuccess={() => {
-            invalidateVariances();
-            invalidatePacks();
+            invalidateAll();
+            setSuccessMessage("Lottery day closed successfully");
+            setTimeout(() => setSuccessMessage(null), 5000);
           }}
-          onApprove={handleVarianceApproval}
         />
       )}
     </div>

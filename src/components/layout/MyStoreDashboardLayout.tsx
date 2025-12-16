@@ -68,9 +68,7 @@ export function MyStoreDashboardLayout({
             >
               <Menu className="h-5 w-5" />
             </Button>
-            <h2 className="text-heading-3 font-bold text-foreground">
-              My Store
-            </h2>
+            <h2 className="text-heading-3 font-bold text-foreground">Nuvana</h2>
             <div className="flex-1" />
             <div className="flex items-center">
               <Header />

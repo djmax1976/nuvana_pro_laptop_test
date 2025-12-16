@@ -369,6 +369,7 @@ describe("6.13-INTEGRATION: Lottery Bin Soft Delete Functionality", () => {
           name: "Test Game",
           game_code: "9999",
           price: 1.0,
+          pack_value: 30,
           status: "ACTIVE",
         },
       });

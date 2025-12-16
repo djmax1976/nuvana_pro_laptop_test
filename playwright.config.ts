@@ -93,6 +93,9 @@ export default defineConfig({
             stderr: "pipe",
           },
           {
+            // IMPORTANT: Tests should be run via npm scripts (e.g., `npm run test:api`)
+            // which use cross-env to set DATABASE_URL=nuvana_test
+            // This ensures both the test fixtures AND the webServer connect to test DB
             command: "cd backend && npm run dev:test",
             url:
               (process.env.BACKEND_URL || "http://localhost:3001") + "/health",

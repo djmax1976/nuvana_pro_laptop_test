@@ -381,6 +381,8 @@ export interface LotteryGameResponse {
   name: string;
   description: string | null;
   price: number | null;
+  pack_value?: number | null;
+  total_tickets?: number | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -400,13 +402,14 @@ export async function getGames(): Promise<ApiResponse<LotteryGameResponse[]>> {
 /**
  * Create a new lottery game
  * POST /api/lottery/games
- * @param data - Game data (game_code, name, optional price and description)
+ * @param data - Game data (game_code, name, price, pack_value, optional description)
  * @returns Created game response
  */
 export interface CreateGameInput {
   game_code: string;
   name: string;
-  price?: number;
+  price: number;
+  pack_value: number;
   description?: string;
 }
 
@@ -415,6 +418,8 @@ export interface CreateGameResponse {
   game_code: string;
   name: string;
   price: number;
+  pack_value: number;
+  total_tickets: number;
   status: string;
 }
 
@@ -752,6 +757,175 @@ export async function getBinDisplay(
     `/api/lottery/bins/display/${storeId}`,
     {
       method: "GET",
+    },
+  );
+}
+
+// ============ Configuration Values API ============
+
+/**
+ * Lottery config value item
+ * Predefined values for dropdown selections
+ */
+export interface LotteryConfigValueItem {
+  config_value_id: string;
+  amount: number;
+  display_order: number;
+}
+
+/**
+ * Lottery config values response
+ * Contains both ticket prices and pack values
+ */
+export interface LotteryConfigValuesResponse {
+  ticket_prices: LotteryConfigValueItem[];
+  pack_values: LotteryConfigValueItem[];
+}
+
+/**
+ * Get lottery configuration values for dropdowns
+ * GET /api/lottery/config-values
+ * Returns predefined ticket prices and pack values for dropdown selections
+ * Story 6.x: Lottery Configuration Values Enhancement
+ * @param type - Optional filter by config type (PACK_VALUE or TICKET_PRICE)
+ * @returns Config values grouped by type
+ */
+export async function getLotteryConfigValues(
+  type?: "PACK_VALUE" | "TICKET_PRICE",
+): Promise<ApiResponse<LotteryConfigValuesResponse>> {
+  const queryParams = type ? `?type=${type}` : "";
+  return apiRequest<ApiResponse<LotteryConfigValuesResponse>>(
+    `/api/lottery/config-values${queryParams}`,
+    {
+      method: "GET",
+    },
+  );
+}
+
+// ============ Day Bins API (MyStore Lottery Page) ============
+
+/**
+ * Bin with pack information for day-based view
+ * Represents a bin that may or may not have an active pack
+ * Story: MyStore Lottery Page Redesign
+ */
+export interface DayBinPack {
+  pack_id: string;
+  pack_number: string;
+  game_name: string;
+  game_price: number;
+  starting_serial: string; // First opening of the day OR last closing OR pack's serial_start
+  ending_serial: string | null; // Most recent closing of the day, null if none
+  serial_end: string; // Pack's max serial (for reference)
+}
+
+export interface DayBin {
+  bin_id: string;
+  bin_number: number; // display_order + 1
+  name: string;
+  is_active: boolean;
+  pack: DayBinPack | null;
+}
+
+/**
+ * Business day information
+ */
+export interface BusinessDay {
+  date: string; // ISO date (YYYY-MM-DD)
+  first_shift_opened_at: string | null; // ISO datetime
+  last_shift_closed_at: string | null; // ISO datetime
+  shifts_count: number;
+}
+
+/**
+ * Depleted pack for the day
+ */
+export interface DepletedPackDay {
+  pack_id: string;
+  pack_number: string;
+  game_name: string;
+  game_price: number;
+  bin_number: number;
+  depleted_at: string; // ISO datetime
+}
+
+/**
+ * Day bins response
+ * Response from GET /api/lottery/bins/day/:storeId
+ */
+export interface DayBinsResponse {
+  bins: DayBin[];
+  business_day: BusinessDay;
+  depleted_packs: DepletedPackDay[];
+}
+
+/**
+ * Get lottery bins with day-based tracking
+ * GET /api/lottery/bins/day/:storeId
+ * Returns bins with active packs, starting/ending serials for the business day,
+ * and depleted packs for the day.
+ * Story: MyStore Lottery Page Redesign
+ * @param storeId - Store UUID
+ * @param date - Optional ISO date string (YYYY-MM-DD). Defaults to today in store timezone.
+ * @returns Day bins response with bins, business day info, and depleted packs
+ */
+export async function getLotteryDayBins(
+  storeId: string,
+  date?: string,
+): Promise<ApiResponse<DayBinsResponse>> {
+  const queryParams = date ? `?date=${date}` : "";
+  return apiRequest<ApiResponse<DayBinsResponse>>(
+    `/api/lottery/bins/day/${storeId}${queryParams}`,
+    {
+      method: "GET",
+    },
+  );
+}
+
+// ============ Day Closing API ============
+
+/**
+ * Input for closing lottery day
+ */
+export interface CloseLotteryDayInput {
+  closings: Array<{
+    pack_id: string;
+    closing_serial: string;
+  }>;
+  entry_method?: "SCAN" | "MANUAL";
+}
+
+/**
+ * Response from closing lottery day
+ */
+export interface CloseLotteryDayResponse {
+  closings_created: number;
+  business_day: string;
+  bins_closed: Array<{
+    bin_number: number;
+    pack_number: string;
+    game_name: string;
+    closing_serial: string;
+  }>;
+}
+
+/**
+ * Close lottery day - record ending serials for all active packs
+ * POST /api/lottery/bins/day/:storeId/close
+ * Story: Lottery Day Closing Feature
+ * @param storeId - Store UUID
+ * @param data - Closing data with pack_id and closing_serial pairs
+ * @returns Closing response with summary
+ */
+export async function closeLotteryDay(
+  storeId: string,
+  data: CloseLotteryDayInput,
+): Promise<ApiResponse<CloseLotteryDayResponse>> {
+  return apiRequest<ApiResponse<CloseLotteryDayResponse>>(
+    `/api/lottery/bins/day/${storeId}/close`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
     },
   );
 }

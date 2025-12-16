@@ -531,4 +531,169 @@ test.describe("10-5-API: Edge Cases", () => {
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RACE CONDITION / CONFLICT TESTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  test("10-5-API-EDGE-011: [P1] POST /api/stores/:storeId/lottery/bins/create-with-pack - should return 409 Conflict when bin already has an active pack", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager
+    // AND: A bin already exists at display_order 0 with an ACTIVE pack
+    // AND: I have a new pack in RECEIVED status I want to activate
+    // AND: An active shift exists
+    const game = await createLotteryGame(prismaClient, {
+      name: "$10 MegaMillions",
+      price: 10.0,
+    });
+
+    // Create an active shift first (needed for both pack activations)
+    const shift = await createActiveShift(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
+
+    // Create an existing bin with an ACTIVE pack (simulates race condition)
+    const existingBin = await prismaClient.lotteryBin.create({
+      data: {
+        store_id: storeManagerUser.store_id,
+        name: "Bin 1",
+        display_order: 0,
+        is_active: true,
+      },
+    });
+
+    const existingActivePack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: `PKG-${Date.now()}-ACTIVE`,
+      serial_start: "000112345670123456789012",
+      serial_end: "000112345670123456789680",
+      status: "ACTIVE",
+      current_bin_id: existingBin.bin_id,
+    });
+
+    // Create a new pack in RECEIVED status that we want to activate
+    const newPack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: `PKG-${Date.now()}-NEW`,
+      serial_start: "000212345670123456789012",
+      serial_end: "000212345670123456789680",
+      status: "RECEIVED",
+    });
+
+    // WHEN: Attempting to create a bin with pack at the same display_order
+    // (simulating race condition where user selected an available bin but it became occupied)
+    const response = await storeManagerApiRequest.post(
+      `/api/stores/${storeManagerUser.store_id}/lottery/bins/create-with-pack`,
+      {
+        bin_name: "Bin 1 Duplicate",
+        display_order: 0, // Same display_order as existing bin with active pack
+        pack_number: newPack.pack_number,
+        serial_start: "001",
+        activated_by: storeManagerUser.user_id,
+        activated_shift_id: shift.shift_id,
+      },
+    );
+
+    // THEN: Request fails with 409 Conflict (bin already occupied)
+    expect(response.status(), "Expected 409 Conflict").toBe(409);
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be CONFLICT").toBe("CONFLICT");
+    expect(
+      body.error.message,
+      "Error message should indicate bin is occupied",
+    ).toContain("already an active pack");
+    expect(
+      body.error.message,
+      "Error message should mention bin number",
+    ).toContain("Bin 1");
+    expect(
+      body.error.message,
+      "Error message should suggest selecting empty bin",
+    ).toContain("select an empty bin");
+  });
+
+  test("10-5-API-EDGE-012: [P1] POST /api/stores/:storeId/lottery/bins/create-with-pack - should allow creating bin when display_order has no active pack", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a Store Manager
+    // AND: A bin exists at display_order 0 but its pack is DEPLETED (not active)
+    // AND: I have a new pack in RECEIVED status I want to activate
+    // AND: An active shift exists
+    const game = await createLotteryGame(prismaClient, {
+      name: "$20 Scratch",
+      price: 20.0,
+    });
+
+    // Create an active shift
+    const shift = await createActiveShift(
+      prismaClient,
+      storeManagerUser.store_id,
+      storeManagerUser.user_id,
+    );
+
+    // Create an existing bin with a DEPLETED pack (not blocking)
+    const existingBin = await prismaClient.lotteryBin.create({
+      data: {
+        store_id: storeManagerUser.store_id,
+        name: "Bin 5",
+        display_order: 4, // Using display_order 4 (bin number 5)
+        is_active: true,
+      },
+    });
+
+    await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: `PKG-${Date.now()}-DEPLETED`,
+      serial_start: "000312345670123456789012",
+      serial_end: "000312345670123456789680",
+      status: "DEPLETED", // Pack is depleted, not active
+      current_bin_id: existingBin.bin_id,
+    });
+
+    // Create a new pack in RECEIVED status that we want to activate
+    const newPack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: storeManagerUser.store_id,
+      pack_number: `PKG-${Date.now()}-NEWPACK`,
+      serial_start: "000412345670123456789012",
+      serial_end: "000412345670123456789680",
+      status: "RECEIVED",
+    });
+
+    // WHEN: Creating a new bin at display_order 4 (same as depleted bin)
+    // This should succeed because the existing pack is DEPLETED, not ACTIVE
+    const response = await storeManagerApiRequest.post(
+      `/api/stores/${storeManagerUser.store_id}/lottery/bins/create-with-pack`,
+      {
+        bin_name: "Bin 5 New",
+        display_order: 4, // Same display_order as existing bin with DEPLETED pack
+        pack_number: newPack.pack_number,
+        serial_start: "001",
+        activated_by: storeManagerUser.user_id,
+        activated_shift_id: shift.shift_id,
+      },
+    );
+
+    // THEN: Request succeeds (depleted packs don't block new bin creation)
+    // Note: The exact behavior depends on business logic - if we want to prevent
+    // creating bins at the same display_order regardless of pack status, this test
+    // should expect 409. Current implementation only blocks ACTIVE packs.
+    expect(
+      [200, 201].includes(response.status()),
+      `Expected 200/201 but got ${response.status()}`,
+    ).toBe(true);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+  });
 });

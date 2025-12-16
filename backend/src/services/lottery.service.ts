@@ -121,16 +121,30 @@ export async function detectVariance(
 }
 
 /**
- * Lookup game by game code
+ * Lookup game by game code with store scoping
  * Story 6.12: Serialized Pack Reception with Batch Processing
  *
+ * Game Scoping Rules:
+ * - If storeId is provided, first look for a store-scoped game (store_id = storeId)
+ * - If no store-scoped game found, fall back to global game (store_id IS NULL)
+ * - If storeId is not provided, only look for global games
+ *
+ * This allows stores to create their own game definitions that override global games,
+ * while still being able to use Super Admin-created global games.
+ *
  * @param gameCode - 4-digit game code (e.g., "0001")
- * @returns Game information (game_id, name) if found
+ * @param storeId - Optional store ID for scoped lookup
+ * @returns Game information (game_id, name, tickets_per_pack, is_global) if found
  * @throws Error if game_code not found
  */
-export async function lookupGameByCode(gameCode: string): Promise<{
+export async function lookupGameByCode(
+  gameCode: string,
+  storeId?: string,
+): Promise<{
   game_id: string;
   name: string;
+  tickets_per_pack: number | null;
+  is_global: boolean;
 }> {
   // Validate game code format (4 digits)
   if (!/^\d{4}$/.test(gameCode)) {
@@ -139,22 +153,55 @@ export async function lookupGameByCode(gameCode: string): Promise<{
     );
   }
 
-  // Lookup game by game_code using Prisma ORM (prevents SQL injection)
-  const game = await prisma.lotteryGame.findUnique({
-    where: { game_code: gameCode },
+  // If storeId provided, first look for store-scoped game
+  if (storeId) {
+    const storeGame = await prisma.lotteryGame.findFirst({
+      where: {
+        game_code: gameCode,
+        store_id: storeId,
+        status: "ACTIVE",
+      },
+      select: {
+        game_id: true,
+        name: true,
+        tickets_per_pack: true,
+        store_id: true,
+      },
+    });
+
+    if (storeGame) {
+      return {
+        game_id: storeGame.game_id,
+        name: storeGame.name,
+        tickets_per_pack: storeGame.tickets_per_pack,
+        is_global: false,
+      };
+    }
+  }
+
+  // Look for global game (store_id IS NULL)
+  const globalGame = await prisma.lotteryGame.findFirst({
+    where: {
+      game_code: gameCode,
+      store_id: null,
+      status: "ACTIVE",
+    },
     select: {
       game_id: true,
       name: true,
+      tickets_per_pack: true,
     },
   });
 
-  if (!game) {
+  if (!globalGame) {
     throw new Error(`Game code ${gameCode} not found in database.`);
   }
 
   return {
-    game_id: game.game_id,
-    name: game.name,
+    game_id: globalGame.game_id,
+    name: globalGame.name,
+    tickets_per_pack: globalGame.tickets_per_pack,
+    is_global: true,
   };
 }
 

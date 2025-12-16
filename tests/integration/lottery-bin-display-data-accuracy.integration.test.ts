@@ -70,6 +70,7 @@ describe("6.13-INTEGRATION: Lottery Bin Display Data Accuracy", () => {
           name: "Game 1",
           game_code: "1111",
           price: 5.0,
+          pack_value: 150,
           status: "ACTIVE",
         },
       });
@@ -81,6 +82,7 @@ describe("6.13-INTEGRATION: Lottery Bin Display Data Accuracy", () => {
           name: "Game 2",
           game_code: "2222",
           price: 10.0,
+          pack_value: 300,
           status: "ACTIVE",
         },
       });

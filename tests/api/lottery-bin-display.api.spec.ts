@@ -69,6 +69,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
           name: "Test Game",
           game_code: gameCode,
           price: 5.0,
+          pack_value: 150,
           status: "ACTIVE",
         },
       });
@@ -261,6 +262,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
           name: "Test Game",
           game_code: gameCode,
           price: 10.0,
+          pack_value: 300,
           status: "ACTIVE",
         },
       });
@@ -469,6 +471,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
           name: "Test Game",
           game_code: gameCode,
           price: 2.0,
+          pack_value: 60,
           status: "ACTIVE",
         },
       });
@@ -880,6 +883,7 @@ test.describe("6.13-API: Lottery Bin Display Query Endpoint", () => {
           name: "Test Game",
           game_code: gameCode,
           price: 3.0,
+          pack_value: 90,
           status: "ACTIVE",
         },
       });

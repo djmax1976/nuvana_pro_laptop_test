@@ -1,4 +1,22 @@
+import { config } from "dotenv";
+// Load environment variables from .env.local FIRST before any other processing
+// Use override: true to ensure test config takes precedence over system env vars
+config({ path: ".env.local", override: true });
+
 import { PrismaClient } from "@prisma/client";
+
+// =============================================================================
+// DATABASE PROTECTION - Block dev/prod databases in test code
+// =============================================================================
+const dbUrl = process.env.DATABASE_URL || "";
+if (
+  /nuvana_dev|nuvana_prod|_prod$|_dev$/i.test(dbUrl) &&
+  !/test/i.test(dbUrl)
+) {
+  throw new Error(
+    `🚨 BLOCKED: Cannot use prisma-bypass with protected database: ${dbUrl}`,
+  );
+}
 
 /**
  * Create a Prisma client that bypasses RLS (Row-Level Security) for test cleanup

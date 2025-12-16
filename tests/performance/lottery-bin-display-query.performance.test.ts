@@ -53,6 +53,7 @@ beforeAll(async () => {
         name: "Performance Test Game",
         game_code: "PERF",
         price: 5.0,
+        pack_value: 150,
         status: "ACTIVE",
       },
     });

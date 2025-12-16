@@ -393,11 +393,13 @@ test.describe("10-5-API: Security", () => {
     expect(response.status(), "Expected 403 Forbidden").toBe(403);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    // Error message varies - could be "Permission denied" or "Access denied"
+    // Error message varies based on where access is denied:
+    // - validate-for-activation route: "Access denied to this store"
+    // - Permission middleware: "You do not have permission to access this feature"
     expect(
       body.error.message,
       "Error should indicate access/permission denied",
-    ).toMatch(/[Aa]ccess denied|[Pp]ermission denied/);
+    ).toMatch(/[Aa]ccess denied|[Pp]ermission|[Nn]ot have permission/);
   });
 
   test("10-5-API-SEC-008: [P0] POST /api/stores/:storeId/lottery/bins/create-with-pack - should prevent data leakage (store isolation)", async ({
@@ -442,10 +444,12 @@ test.describe("10-5-API: Security", () => {
     expect(response.status(), "Expected 403 Forbidden").toBe(403);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
-    // Error message varies - could be "Permission denied" or "Access denied"
+    // Error message varies based on where access is denied:
+    // - Route handler: "Access denied" / "Permission denied"
+    // - Permission middleware: "You do not have permission to access this feature"
     expect(
       body.error.message,
       "Error should indicate access/permission denied",
-    ).toMatch(/[Aa]ccess denied|[Pp]ermission denied/);
+    ).toMatch(/[Aa]ccess denied|[Pp]ermission|[Nn]ot have permission/);
   });
 });

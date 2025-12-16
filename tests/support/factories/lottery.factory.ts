@@ -19,7 +19,7 @@ import {
  *
  * @param prisma - PrismaClient instance to use for database operations
  * @param overrides - Optional fields to override default values
- *   Note: store_id is accepted but ignored - LotteryGame is global (not store-scoped)
+ *   Note: store_id is optional - games can be global or store-scoped
  * @returns LotteryGame object for test use
  */
 export const createLotteryGame = async (
@@ -29,8 +29,9 @@ export const createLotteryGame = async (
     name: string;
     description: string;
     price: number;
+    pack_value: number;
     status: LotteryGameStatus;
-    store_id: string; // Accepted for backward compatibility but ignored (games are global)
+    store_id: string; // Optional - if provided, game is scoped to store
   }> = {},
 ) => {
   // Generate unique game_code using random 4-digit number to avoid collisions
@@ -44,16 +45,26 @@ export const createLotteryGame = async (
         overrides.game_code ||
         faker.string.numeric({ length: 4, exclude: ["0000"] });
 
+      const price =
+        overrides.price !== undefined
+          ? overrides.price
+          : parseFloat(faker.commerce.price({ min: 1, max: 50 }));
+
+      // Calculate pack_value based on price if not provided (typically price * 30 for standard packs)
+      const pack_value =
+        overrides.pack_value !== undefined
+          ? overrides.pack_value
+          : Math.round(price * 30);
+
       return await prisma.lotteryGame.create({
         data: {
           game_code: uniqueCode,
           name: overrides.name || `Game ${faker.string.alphanumeric(6)}`,
           description: overrides.description || faker.lorem.sentence(),
-          price:
-            overrides.price !== undefined
-              ? overrides.price
-              : parseFloat(faker.commerce.price({ min: 1, max: 50 })),
+          price,
+          pack_value,
           status: overrides.status || LotteryGameStatus.ACTIVE,
+          ...(overrides.store_id && { store_id: overrides.store_id }),
         },
       });
     } catch (error: any) {

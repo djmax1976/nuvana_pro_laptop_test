@@ -69,8 +69,10 @@ export function ActivePacksTable({
 
     // Find next bin with active pack
     for (let i = currentIndex + 1; i < sortedBins.length; i++) {
-      if (sortedBins[i].pack !== null) {
-        return sortedBins[i].bin_id;
+      // eslint-disable-next-line security/detect-object-injection -- i is bounded by array length
+      const bin = sortedBins[i];
+      if (bin.pack !== null) {
+        return bin.bin_id;
       }
     }
 
@@ -96,7 +98,8 @@ export function ActivePacksTable({
     if (nextBinId) {
       // Use setTimeout to ensure DOM is updated
       setTimeout(() => {
-        const nextInput = inputRefs.current[nextBinId];
+        const refs = inputRefs.current;
+        const nextInput = refs[nextBinId as keyof typeof refs];
         if (nextInput) {
           nextInput.focus();
           nextInput.select(); // Select text for easy replacement
@@ -134,6 +137,9 @@ export function ActivePacksTable({
               <TableHead scope="col" className="w-20 md:w-24">
                 Amount
               </TableHead>
+              <TableHead scope="col" className="w-24 md:w-28">
+                Pack #
+              </TableHead>
               <TableHead scope="col" className="w-20 md:w-24">
                 Starting
               </TableHead>
@@ -170,6 +176,15 @@ export function ActivePacksTable({
                     className={`text-sm md:text-base ${isEmpty ? "text-muted-foreground" : ""}`}
                   >
                     {isEmpty ? "--" : `$${bin.pack!.game_price}`}
+                  </TableCell>
+
+                  {/* Pack Number */}
+                  <TableCell
+                    className={`font-mono text-sm md:text-base ${
+                      isEmpty ? "text-muted-foreground" : ""
+                    }`}
+                  >
+                    {isEmpty ? "--" : bin.pack!.pack_number}
                   </TableCell>
 
                   {/* Starting Serial */}
