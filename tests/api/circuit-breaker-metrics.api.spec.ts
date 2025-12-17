@@ -10,9 +10,6 @@
  */
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createUser } from "../support/factories";
-import bcrypt from "bcrypt";
-import { withBypassClient } from "../support/prisma-bypass";
 
 test.describe("Phase5-API: Circuit Breaker Metrics", () => {
   // ═══════════════════════════════════════════════════════════════════════════
@@ -98,61 +95,13 @@ test.describe("Phase5-API: Circuit Breaker Metrics", () => {
     });
 
     test("should return 403 for non-admin users", async ({
-      apiRequest,
-      prismaClient,
+      storeManagerApiRequest,
     }) => {
-      // GIVEN: A non-admin user
-      const password = "TestPassword123!";
-      const passwordHash = await bcrypt.hash(password, 10);
-      const userData = createUser({ password_hash: passwordHash });
-      const user = await prismaClient.user.create({ data: userData });
-
-      // Assign a non-admin role (STORE_MANAGER)
-      const role = await prismaClient.role.findFirst({
-        where: { code: "STORE_MANAGER" },
-      });
-
-      if (role) {
-        // Get a store for the role assignment
-        const store = await prismaClient.store.findFirst();
-        if (store) {
-          await withBypassClient(async (bypassClient) => {
-            await bypassClient.userRole.create({
-              data: {
-                user_id: user.user_id,
-                role_id: role.role_id,
-                store_id: store.store_id,
-              },
-            });
-          });
-        }
-      }
-
-      // Login to get token
-      const loginResponse = await apiRequest.post("/api/auth/login", {
-        email: user.email,
-        password: password,
-      });
-
-      if (loginResponse.status() !== 200) {
-        // Skip test if user setup failed
-        test.skip();
-        return;
-      }
-
-      const cookies = loginResponse.headers()["set-cookie"];
-      const cookieString = Array.isArray(cookies)
-        ? cookies.join("; ")
-        : cookies;
-      const accessTokenMatch = cookieString?.match(/access_token=([^;]+)/);
-      const accessToken = accessTokenMatch ? accessTokenMatch[1] : "";
-
+      // GIVEN: A non-admin user (store manager)
       // WHEN: Non-admin tries to access circuit breaker metrics
-      const response = await apiRequest.get("/api/health/circuit-breaker", {
-        headers: {
-          Cookie: `access_token=${accessToken}`,
-        },
-      });
+      const response = await storeManagerApiRequest.get(
+        "/api/health/circuit-breaker",
+      );
 
       // THEN: Should return 403 Forbidden
       expect(response.status()).toBe(403);
@@ -184,7 +133,7 @@ test.describe("Phase5-API: Circuit Breaker Metrics", () => {
       // GIVEN: An authenticated system admin
       const response = await superadminApiRequest.post(
         "/api/health/circuit-breaker/reset",
-        undefined,
+        {},
       );
 
       // THEN: Response should be successful
@@ -199,10 +148,7 @@ test.describe("Phase5-API: Circuit Breaker Metrics", () => {
       superadminApiRequest,
     }) => {
       // GIVEN: Reset was performed
-      await superadminApiRequest.post(
-        "/api/health/circuit-breaker/reset",
-        undefined,
-      );
+      await superadminApiRequest.post("/api/health/circuit-breaker/reset", {});
 
       // WHEN: Check circuit breaker metrics
       const response = await superadminApiRequest.get(
@@ -217,62 +163,13 @@ test.describe("Phase5-API: Circuit Breaker Metrics", () => {
     });
 
     test("should return 403 for non-admin users", async ({
-      apiRequest,
-      prismaClient,
+      cashierApiRequest,
     }) => {
-      // GIVEN: A non-admin user
-      const password = "TestPassword123!";
-      const passwordHash = await bcrypt.hash(password, 10);
-      const userData = createUser({ password_hash: passwordHash });
-      const user = await prismaClient.user.create({ data: userData });
-
-      // Assign a non-admin role
-      const role = await prismaClient.role.findFirst({
-        where: { code: "CASHIER" },
-      });
-
-      if (role) {
-        const store = await prismaClient.store.findFirst();
-        if (store) {
-          await withBypassClient(async (bypassClient) => {
-            await bypassClient.userRole.create({
-              data: {
-                user_id: user.user_id,
-                role_id: role.role_id,
-                store_id: store.store_id,
-              },
-            });
-          });
-        }
-      }
-
-      // Login
-      const loginResponse = await apiRequest.post("/api/auth/login", {
-        email: user.email,
-        password: password,
-      });
-
-      if (loginResponse.status() !== 200) {
-        test.skip();
-        return;
-      }
-
-      const cookies = loginResponse.headers()["set-cookie"];
-      const cookieString = Array.isArray(cookies)
-        ? cookies.join("; ")
-        : cookies;
-      const accessTokenMatch = cookieString?.match(/access_token=([^;]+)/);
-      const accessToken = accessTokenMatch ? accessTokenMatch[1] : "";
-
+      // GIVEN: A non-admin user (cashier)
       // WHEN: Non-admin tries to reset circuit breakers
-      const response = await apiRequest.post(
+      const response = await cashierApiRequest.post(
         "/api/health/circuit-breaker/reset",
-        undefined,
-        {
-          headers: {
-            Cookie: `access_token=${accessToken}`,
-          },
-        },
+        {},
       );
 
       // THEN: Should return 403 Forbidden
@@ -285,7 +182,7 @@ test.describe("Phase5-API: Circuit Breaker Metrics", () => {
       // WHEN: Unauthenticated request
       const response = await apiRequest.post(
         "/api/health/circuit-breaker/reset",
-        undefined,
+        {},
       );
 
       // THEN: Should return 401 Unauthorized
