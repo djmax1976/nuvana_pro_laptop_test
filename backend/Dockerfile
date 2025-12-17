@@ -1,5 +1,6 @@
 # Dockerfile - Fastify Backend Production Build
 # Multi-stage build for optimal image size
+# Force rebuild: 2025-12-17-v2
 
 # =============================================================================
 # Stage 1: Builder
