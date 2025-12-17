@@ -926,19 +926,22 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     }
   });
 
-  test("6.12-EDGE-006: [P1] should validate serial_end calculation (150 tickets per pack)", async ({
+  test("6.12-EDGE-006: [P1] should validate serial_end calculation based on tickets_per_pack", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
   }) => {
-    // GIVEN: Pack with serial_start = "000" with unique game code (let factory generate)
+    // GIVEN: Pack with explicit tickets_per_pack configuration
+    // Create game with 150 tickets ($2.00 price, $300 pack_value = 150 tickets)
     const game = await createLotteryGame(prismaClient, {
       name: "Test Game Edge 006",
       price: 2.0,
+      pack_value: 300, // $300 / $2.00 = 150 tickets
+      tickets_per_pack: 150,
     });
     const gameCode = game.game_code;
 
-    // Build serial with serial_start "000"
+    // Build serial with serial_start "000" (note: API ignores scanned serial_start and always uses "000")
     const serial = buildSerialNumber(gameCode, "1234567", "000");
 
     // WHEN: Receiving pack with serial_start "000"
@@ -949,14 +952,17 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
       },
     );
 
-    // THEN: serial_end should be calculated as 000 + 149 = 149
+    // THEN: serial_end should be calculated as tickets_per_pack - 1 = 149
+    // (serial range is 0 to 149 for 150 tickets)
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.data.created.length).toBe(1);
     const pack = body.data.created[0];
+    // API always forces serial_start to "000" regardless of scanned value
+    expect(pack.serial_start, "serial_start should always be 000").toBe("000");
     expect(
       pack.serial_end,
-      "serial_end should be calculated as serial_start + 149",
+      "serial_end should be tickets_per_pack - 1 = 149",
     ).toBe("149");
   });
 
@@ -986,5 +992,87 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     // THEN: Schema validation rejects the request with 400
     // Because each item must be a string matching the pattern
     expect(response.status()).toBe(400);
+  });
+
+  test("6.12-EDGE-008: [P1] should normalize serial_start to 000 regardless of scanned value", async ({
+    storeManagerApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: A game with known tickets_per_pack
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game Edge 008",
+      price: 2.0,
+      pack_value: 60, // $60 / $2.00 = 30 tickets (serial 000-029)
+      tickets_per_pack: 30,
+    });
+    const gameCode = game.game_code;
+
+    // AND: A serial with non-zero serial_start (e.g., "045" which indicates mid-pack scan)
+    // The barcode has serial_start "045" but API should normalize to "000"
+    const serial = buildSerialNumber(gameCode, "1234567", "045");
+
+    // WHEN: Receiving pack via batch API
+    const response = await storeManagerApiRequest.post(
+      "/api/lottery/packs/receive/batch",
+      {
+        serialized_numbers: [serial],
+      },
+    );
+
+    // THEN: Pack is created with normalized serial_start = "000"
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.data.created.length).toBe(1);
+    const pack = body.data.created[0];
+
+    // CRITICAL: API always sets serial_start to "000" regardless of scanned value
+    // This ensures consistent pack tracking from first ticket to last
+    expect(
+      pack.serial_start,
+      "serial_start should be normalized to 000 regardless of scanned barcode",
+    ).toBe("000");
+
+    // serial_end is tickets_per_pack - 1 = 29
+    expect(
+      pack.serial_end,
+      "serial_end should be tickets_per_pack - 1 = 029",
+    ).toBe("029");
+  });
+
+  test("6.12-EDGE-009: [P1] should correctly calculate serial_end for various ticket counts", async ({
+    storeManagerApiRequest,
+    prismaClient,
+  }) => {
+    // Test different ticket counts to ensure formula is correct
+    // Formula: serial_end = tickets_per_pack - 1 (since serial_start is always 0)
+
+    // Create game with 50 tickets ($1.00 price, $50 pack_value)
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game Edge 009",
+      price: 1.0,
+      pack_value: 50,
+      tickets_per_pack: 50,
+    });
+    const gameCode = game.game_code;
+
+    const serial = buildSerialNumber(gameCode, "7777777", "000");
+
+    const response = await storeManagerApiRequest.post(
+      "/api/lottery/packs/receive/batch",
+      {
+        serialized_numbers: [serial],
+      },
+    );
+
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.data.created.length).toBe(1);
+    const pack = body.data.created[0];
+
+    // For 50 tickets: serial range is 000-049 (50 tickets total)
+    expect(pack.serial_start).toBe("000");
+    expect(pack.serial_end, "serial_end for 50 tickets should be 049").toBe(
+      "049",
+    );
   });
 });

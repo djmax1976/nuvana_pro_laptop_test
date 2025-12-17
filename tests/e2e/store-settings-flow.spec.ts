@@ -37,7 +37,7 @@ import {
 
 /**
  * Helper function to perform login and wait for redirect to client-dashboard.
- * Uses the simple, proven pattern from lottery-management-flow tests.
+ * Uses simplified pattern that waits for navigation after form submission.
  */
 async function loginAsClientOwner(
   page: Page,
@@ -45,17 +45,35 @@ async function loginAsClientOwner(
   password: string,
 ): Promise<void> {
   // Navigate to login page and wait for full load
-  await page.goto("/login");
+  await page.goto("/login", { waitUntil: "networkidle" });
 
-  // Fill credentials using name/type selectors that work reliably
-  await page.fill('input[name="email"], input[type="email"]', email);
-  await page.fill('input[name="password"], input[type="password"]', password);
+  // Wait for login form to be visible and ready for input
+  const emailInput = page.locator('input[type="email"]');
+  const passwordInput = page.locator('input[type="password"]');
 
-  // Wait for navigation to /client-dashboard after form submission
+  await emailInput.waitFor({ state: "visible", timeout: 15000 });
+
+  // Wait for input to be editable (ensures React hydration is complete)
+  await expect(emailInput).toBeEditable({ timeout: 10000 });
+
+  // Fill credentials
+  await emailInput.fill(email);
+  await passwordInput.fill(password);
+
+  // Verify credentials were filled before submitting
+  await expect(emailInput).toHaveValue(email, { timeout: 5000 });
+  await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
+
+  // Click submit and wait for navigation to /client-dashboard
   await Promise.all([
     page.waitForURL(/.*client-dashboard.*/, { timeout: 30000 }),
     page.click('button[type="submit"]'),
   ]);
+
+  // Wait for page to be fully loaded
+  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+    // networkidle might timeout if there are long-polling requests, that's OK
+  });
 }
 
 test.describe.serial("Store Settings Flow (Critical Journey)", () => {
@@ -352,7 +370,10 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
 
     // THEN: Success notification is displayed
     // Toast message: "Email updated" (title) with description "Employee email has been updated successfully."
-    await expect(page.locator("text=/Email updated/i")).toBeVisible({
+    // Use .first() to handle case where toast content appears in multiple elements
+    await expect(
+      page.getByText("Email updated", { exact: true }).first(),
+    ).toBeVisible({
       timeout: 5000,
     });
 

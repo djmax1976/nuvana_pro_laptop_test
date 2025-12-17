@@ -34,13 +34,11 @@ test.describe("6.1-API: Lottery Game Creation API", () => {
 
       // WHEN: Creating game via API
       const response = await storeManagerApiRequest.post("/api/lottery/games", {
-        data: {
-          game_code: gameCode,
-          name: gameName,
-          price: price,
-          pack_value: packValue,
-          store_id: storeManagerUser.store_id,
-        },
+        game_code: gameCode,
+        name: gameName,
+        price: price,
+        pack_value: packValue,
+        store_id: storeManagerUser.store_id,
       });
 
       // THEN: Game is created successfully with correct tickets_per_pack
@@ -108,13 +106,11 @@ test.describe("6.1-API: Lottery Game Creation API", () => {
           const response = await storeManagerApiRequest.post(
             "/api/lottery/games",
             {
-              data: {
-                game_code: gameCode,
-                name: gameName,
-                price: testCase.price,
-                pack_value: testCase.packValue,
-                store_id: storeManagerUser.store_id,
-              },
+              game_code: gameCode,
+              name: gameName,
+              price: testCase.price,
+              pack_value: testCase.packValue,
+              store_id: storeManagerUser.store_id,
             },
           );
 
@@ -161,13 +157,11 @@ test.describe("6.1-API: Lottery Game Creation API", () => {
 
       // WHEN: Creating game with pack_value not divisible by price
       const response = await storeManagerApiRequest.post("/api/lottery/games", {
-        data: {
-          game_code: gameCode,
-          name: gameName,
-          price: 7, // $7 per ticket
-          pack_value: 300, // $300 / $7 = 42.857... (not a whole number)
-          store_id: storeManagerUser.store_id,
-        },
+        game_code: gameCode,
+        name: gameName,
+        price: 7, // $7 per ticket
+        pack_value: 300, // $300 / $7 = 42.857... (not a whole number)
+        store_id: storeManagerUser.store_id,
       });
 
       // THEN: Request is rejected with 400
@@ -199,22 +193,23 @@ test.describe("6.1-API: Lottery Game Creation API", () => {
 
       // WHEN: Creating game for user's store
       const response = await clientUserApiRequest.post("/api/lottery/games", {
-        data: {
-          game_code: gameCode,
-          name: gameName,
-          price: 5,
-          pack_value: 250,
-          store_id: clientUser.store_id,
-        },
+        game_code: gameCode,
+        name: gameName,
+        price: 5,
+        pack_value: 250,
+        store_id: clientUser.store_id,
       });
 
       // THEN: Game is created successfully with store_id set
       expect(response.status(), "Expected 201 Created").toBe(201);
       const body = await response.json();
       expect(body.success, "Response should indicate success").toBe(true);
-      expect(body.data.is_global, "Game should not be global").toBe(false);
+      expect(body.data.game_code, "API should return game_code").toBe(gameCode);
+      expect(body.data.total_tickets, "API should return total_tickets").toBe(
+        50,
+      ); // 250/5=50
 
-      // Verify database has store_id set
+      // Verify database has store_id set (confirms game is store-scoped, not global)
       const dbGame = await prismaClient.lotteryGame.findUnique({
         where: { game_id: body.data.game_id },
       });
@@ -266,13 +261,11 @@ test.describe("6.1-API: Lottery Game Creation API", () => {
       try {
         // WHEN: Attempting to create game for store in different company
         const response = await clientUserApiRequest.post("/api/lottery/games", {
-          data: {
-            game_code: gameCode,
-            name: gameName,
-            price: 5,
-            pack_value: 250,
-            store_id: otherStore.store_id,
-          },
+          game_code: gameCode,
+          name: gameName,
+          price: 5,
+          pack_value: 250,
+          store_id: otherStore.store_id,
         });
 
         // THEN: Request is rejected with 403 Forbidden
@@ -315,13 +308,11 @@ test.describe("6.1-API: Lottery Game Creation API", () => {
         const response = await storeManagerApiRequest.post(
           "/api/lottery/games",
           {
-            data: {
-              game_code: testCase.gameCode,
-              name: `Test Game ${faker.string.alphanumeric(6)}`,
-              price: 2,
-              pack_value: 300,
-              store_id: storeManagerUser.store_id,
-            },
+            game_code: testCase.gameCode,
+            name: `Test Game ${faker.string.alphanumeric(6)}`,
+            price: 2,
+            pack_value: 300,
+            store_id: storeManagerUser.store_id,
           },
         );
 
@@ -345,13 +336,11 @@ test.describe("6.1-API: Lottery Game Creation API", () => {
 
       // WHEN: Creating game with zero price
       const response = await storeManagerApiRequest.post("/api/lottery/games", {
-        data: {
-          game_code: gameCode,
-          name: `Test Game ${faker.string.alphanumeric(6)}`,
-          price: 0,
-          pack_value: 300,
-          store_id: storeManagerUser.store_id,
-        },
+        game_code: gameCode,
+        name: `Test Game ${faker.string.alphanumeric(6)}`,
+        price: 0,
+        pack_value: 300,
+        store_id: storeManagerUser.store_id,
       });
 
       // THEN: Request is rejected with 400
@@ -370,21 +359,21 @@ test.describe("6.1-API: Lottery Game Creation API", () => {
 
       // WHEN: Creating game with zero pack_value
       const response = await storeManagerApiRequest.post("/api/lottery/games", {
-        data: {
-          game_code: gameCode,
-          name: `Test Game ${faker.string.alphanumeric(6)}`,
-          price: 2,
-          pack_value: 0,
-          store_id: storeManagerUser.store_id,
-        },
+        game_code: gameCode,
+        name: `Test Game ${faker.string.alphanumeric(6)}`,
+        price: 2,
+        pack_value: 0,
+        store_id: storeManagerUser.store_id,
       });
 
       // THEN: Request is rejected with 400
       expect(response.status(), "Expected 400 for zero pack_value").toBe(400);
       const body = await response.json();
-      expect(body.error.message, "Error should mention pack value").toContain(
-        "Pack value",
-      );
+      // Fastify schema validation catches this with "pack_value: must be >= 1"
+      expect(
+        body.error.message.toLowerCase(),
+        "Error should mention pack_value",
+      ).toContain("pack_value");
     });
 
     test("6.1-API-009: [P1] should reject duplicate game_code within same store scope (AC #8)", async ({
@@ -410,13 +399,11 @@ test.describe("6.1-API: Lottery Game Creation API", () => {
         const response = await storeManagerApiRequest.post(
           "/api/lottery/games",
           {
-            data: {
-              game_code: gameCode,
-              name: `Duplicate Game ${faker.string.alphanumeric(6)}`,
-              price: 5,
-              pack_value: 250,
-              store_id: storeManagerUser.store_id,
-            },
+            game_code: gameCode,
+            name: `Duplicate Game ${faker.string.alphanumeric(6)}`,
+            price: 5,
+            pack_value: 250,
+            store_id: storeManagerUser.store_id,
           },
         );
 
@@ -446,7 +433,9 @@ test.describe("6.1-API: Lottery Game Creation API", () => {
       const gameCode = faker.string.numeric({ length: 4, exclude: ["0000"] });
 
       // WHEN: Creating game without authentication
-      const response = await request.post("/api/lottery/games", {
+      // Note: Using backendUrl from env since this uses raw Playwright request (not fixture)
+      const backendUrl = process.env.BACKEND_URL || "http://localhost:3001";
+      const response = await request.post(`${backendUrl}/api/lottery/games`, {
         data: {
           game_code: gameCode,
           name: `Test Game ${faker.string.alphanumeric(6)}`,

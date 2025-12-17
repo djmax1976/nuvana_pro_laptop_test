@@ -6780,15 +6780,23 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           day: "2-digit",
         });
         const businessDayStr = formatter.format(now); // Returns YYYY-MM-DD
-        const targetDate = new Date(businessDayStr + "T00:00:00");
+
+        // targetDate is the business date in the store's timezone (used for LotteryBusinessDay lookup)
+        // Parse as midnight UTC (the date component is what matters for the unique constraint)
+        const targetDate = new Date(businessDayStr + "T00:00:00Z");
 
         // Calculate day boundaries in UTC for database queries
-        const dayStartLocal = new Date(businessDayStr + "T00:00:00");
-        const dayEndLocal = new Date(businessDayStr + "T23:59:59.999");
+        // We need to find midnight and end of day in the store's timezone, then convert to UTC
+        // The businessDayStr is already in the store's local date (e.g., "2025-12-16" for Dec 16 in NY)
+        // We need to find what UTC time corresponds to midnight Dec 16 in NY
+        const utcOffset = getTimezoneOffset(storeTimezone, now);
 
-        const utcOffset = getTimezoneOffset(storeTimezone, targetDate);
-        const dayStartUtc = new Date(dayStartLocal.getTime() - utcOffset);
-        const dayEndUtc = new Date(dayEndLocal.getTime() - utcOffset);
+        // Parse the date string as midnight UTC, then adjust by the timezone offset
+        // to get the correct UTC time for midnight in the store's timezone
+        const dayStartUtc = new Date(targetDate.getTime() + utcOffset);
+        const dayEndUtc = new Date(
+          dayStartUtc.getTime() + 24 * 60 * 60 * 1000 - 1,
+        );
 
         // Find the most recent shift for today
         const todayShifts = await prisma.shift.findMany({
