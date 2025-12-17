@@ -27,11 +27,18 @@ function generateUniqueGameCode(): string {
 }
 
 /**
- * Get today's date string in YYYY-MM-DD format
+ * Get today's date string in YYYY-MM-DD format for a given timezone
+ * Used to match the API's business day calculation which uses the store's timezone
  */
-function getTodayDateString(): string {
+function getTodayDateString(timezone: string = "America/New_York"): string {
   const now = new Date();
-  return now.toISOString().split("T")[0];
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return formatter.format(now); // Returns YYYY-MM-DD
 }
 
 /**
@@ -1627,10 +1634,14 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     );
 
     const businessDay = await withBypassClient(async (tx) => {
+      // Use store's timezone to match the API's business day calculation
       return await tx.lotteryBusinessDay.findFirst({
         where: {
           store_id: store.store_id,
-          business_date: new Date(getTodayDateString() + "T00:00:00"),
+          business_date: new Date(
+            getTodayDateString(store.timezone || "America/New_York") +
+              "T00:00:00Z",
+          ),
         },
       });
     });

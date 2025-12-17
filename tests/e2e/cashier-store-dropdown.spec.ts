@@ -28,8 +28,6 @@ import {
 import { cleanupTestData } from "../support/cleanup-helper";
 import { createStore, createCompany } from "../support/factories";
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
-
 const prisma = new PrismaClient();
 const TEST_PASSWORD = "TestPassword123!";
 
@@ -40,7 +38,10 @@ let testEmail: string;
 const createdCashierIds: string[] = [];
 
 /**
- * Helper function to perform client login
+ * Helper function to perform client login and wait for navigation.
+ *
+ * CLIENT_OWNER users are redirected directly to /client-dashboard after login.
+ *
  * @param page - Playwright page object
  * @param email - User email
  * @param password - User password
@@ -50,34 +51,57 @@ async function performLogin(
   email: string,
   password: string,
 ): Promise<void> {
-  await page.goto(`${FRONTEND_URL}/client-login`, {
-    waitUntil: "domcontentloaded",
-  });
-  await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {
-    // Continue if networkidle times out
+  // Navigate to login page (use unified /login, not /client-login which redirects)
+  await page.goto("/login", { waitUntil: "domcontentloaded" });
+
+  // Wait for login form to be visible and ready for input
+  await page.waitForSelector('input[type="email"]', {
+    state: "visible",
+    timeout: 15000,
   });
 
-  const emailInput = page
-    .locator(
-      'input[type="email"], input[name="email"], input[placeholder*="email" i]',
-    )
-    .first();
-  await emailInput.waitFor({ state: "visible", timeout: 15000 });
+  // Wait for input to be editable (ensures React hydration is complete)
+  await expect(page.locator('input[type="email"]')).toBeEditable({
+    timeout: 10000,
+  });
+
+  // Wait for network to settle after page load (React hydration)
+  await page
+    .waitForLoadState("networkidle", { timeout: 10000 })
+    .catch(() => {});
+
+  // Get locators for the input fields
+  const emailInput = page.locator('input[type="email"]');
+  const passwordInput = page.locator('input[type="password"]');
+
+  // Click on each field before filling to ensure focus and React event binding
+  await emailInput.click();
   await emailInput.fill(email);
 
-  const passwordInput = page
-    .locator('input[type="password"], input[name="password"]')
-    .first();
+  await passwordInput.click();
   await passwordInput.fill(password);
 
-  // Set up navigation promise BEFORE clicking submit (order matters)
+  // Verify fields were filled by checking the DOM value attribute
+  await expect(emailInput).toHaveValue(email, { timeout: 5000 });
+  await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
+
+  // Set up response and navigation promises BEFORE clicking submit
+  const loginResponsePromise = page.waitForResponse(
+    (resp) => resp.url().includes("/api/auth/login") && resp.status() === 200,
+    { timeout: 30000 },
+  );
+
   const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {
     timeout: 30000,
     waitUntil: "domcontentloaded",
   });
 
-  const submitButton = page.locator('button[type="submit"]').first();
-  await submitButton.click();
+  // Click submit button (triggers login API request)
+  await page.click('button[type="submit"]');
+
+  // Wait for login API response (deterministic - waits for actual response)
+  const loginResponse = await loginResponsePromise;
+  expect(loginResponse.status()).toBe(200);
 
   // Wait for navigation to complete
   await navigationPromise;
@@ -93,7 +117,7 @@ async function performLogin(
  * @param page - Playwright page object
  */
 async function navigateToCashiersAndOpenDialog(page: Page): Promise<void> {
-  await page.goto(`${FRONTEND_URL}/client-dashboard/cashiers`, {
+  await page.goto("/client-dashboard/cashiers", {
     waitUntil: "domcontentloaded",
   });
 
@@ -116,8 +140,9 @@ async function navigateToCashiersAndOpenDialog(page: Page): Promise<void> {
   await addButton.waitFor({ state: "visible", timeout: 15000 });
   await addButton.click();
 
-  // Wait for dialog to be visible
-  await page.waitForSelector("text=Add New Cashier", {
+  // Wait for dialog to be visible - the dialog shows "Add New Cashier" or just the form
+  // Wait for the name input which is always present in the dialog
+  await page.waitForSelector('[data-testid="cashier-name"]', {
     state: "visible",
     timeout: 10000,
   });
@@ -175,6 +200,9 @@ async function waitForStoresLoaded(
 }
 
 test.describe("Cashier Store Dropdown", () => {
+  // Use serial mode to prevent parallel worker race conditions on shared test data
+  test.describe.configure({ mode: "serial" });
+
   test.beforeAll(async () => {
     // Clean up any existing test data from previous runs
     const existingUsers = await prisma.user.findMany({
@@ -193,7 +221,8 @@ test.describe("Cashier Store Dropdown", () => {
     });
 
     // Create test client user with identifiable email
-    testEmail = `cashier-e2e-${Date.now()}@test.com`;
+    // Using uuidv4() suffix ensures uniqueness even with parallel workers
+    testEmail = `cashier-e2e-${Date.now()}-${uuidv4().slice(0, 8)}@test.com`;
     const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10);
 
     testUser = await prisma.user.create({

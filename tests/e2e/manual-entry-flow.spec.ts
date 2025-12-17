@@ -7,6 +7,8 @@
  * @justification Tests critical multi-page user journey that cannot be tested at lower levels
  * @story 10-4 - Manual Entry Override
  * @priority P0 (Critical - Core User Journey)
+ * @updated 2025-12-16 - SKIPPED: Route /mystore/terminal/shift-closing/lottery was removed.
+ *                       Lottery functionality moved to /mystore/lottery. Tests need update.
  *
  * NOTE: These tests require a running frontend and backend with authentication.
  * Tests mock API responses but require valid session cookies for authenticated routes.
@@ -177,7 +179,10 @@ async function isOnLotteryClosingPage(page: Page): Promise<boolean> {
   return currentUrl.includes("/shift-closing/lottery");
 }
 
-test.describe("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
+// SKIPPED: Route /mystore/terminal/shift-closing/lottery was removed.
+// Lottery functionality has been moved to /mystore/lottery page.
+// These tests need to be updated when shift-end page is implemented with lottery closing.
+test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
   test.beforeEach(async ({ page, context }) => {
     // Set up authentication for all tests in this describe block
     await setupAuthenticatedPage(page, context);

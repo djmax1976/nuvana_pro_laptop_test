@@ -54,6 +54,7 @@ interface NewGameModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   gamesToCreate: GameToCreate[];
+  storeId: string;
   onGamesCreated: (
     createdGameCodes: string[],
     createdGames: Map<
@@ -72,6 +73,7 @@ export function NewGameModal({
   open,
   onOpenChange,
   gamesToCreate,
+  storeId,
   onGamesCreated,
   onCancel,
 }: NewGameModalProps) {
@@ -238,6 +240,7 @@ export function NewGameModal({
         name: gameName.trim(),
         price: price,
         pack_value: packValue,
+        store_id: storeId,
       });
 
       if (response.success) {
@@ -293,6 +296,7 @@ export function NewGameModal({
     isLastGame,
     createdGameCodes,
     createdGames,
+    storeId,
     toast,
     onGamesCreated,
     onOpenChange,

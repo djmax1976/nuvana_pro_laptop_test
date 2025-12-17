@@ -244,7 +244,7 @@ export class ShiftService {
    * Active shifts are those with status: OPEN, ACTIVE, CLOSING, RECONCILING
    * and closed_at IS NULL
    * @param posTerminalId - POS terminal UUID
-   * @returns Shift if active shift exists, null otherwise
+   * @returns Shift with cashier info if active shift exists, null otherwise
    */
   async checkActiveShift(posTerminalId: string) {
     const activeShift = await prisma.shift.findFirst({
@@ -259,6 +259,13 @@ export class ShiftService {
           ],
         },
         closed_at: null,
+      },
+      include: {
+        cashier: {
+          select: {
+            name: true,
+          },
+        },
       },
       orderBy: {
         opened_at: "desc",

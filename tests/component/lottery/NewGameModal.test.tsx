@@ -76,6 +76,7 @@ describe("6.12-COMPONENT: NewGameModal", () => {
         serial_start: "012",
       },
     ],
+    storeId: "test-store-id-123",
     onGamesCreated: mockOnGamesCreated,
     onCancel: mockOnCancel,
   };
@@ -411,13 +412,14 @@ describe("6.12-COMPONENT: NewGameModal", () => {
     const createButton = screen.getByTestId("create-game-button");
     await user.click(createButton);
 
-    // THEN: createGame API should be called with correct data including pack_value
+    // THEN: createGame API should be called with correct data including pack_value and store_id
     await waitFor(() => {
       expect(createGame).toHaveBeenCalledWith({
         game_code: "9999",
         name: "MEGA MILLIONS",
         price: 5.0,
         pack_value: 300,
+        store_id: "test-store-id-123",
       });
     });
   });

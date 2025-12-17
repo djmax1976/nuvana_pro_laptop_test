@@ -574,6 +574,7 @@ export function PackReceptionForm({
         open={showNewGameModal}
         onOpenChange={setShowNewGameModal}
         gamesToCreate={pendingGameToCreate ? [pendingGameToCreate] : []}
+        storeId={storeId}
         onGamesCreated={handleGamesCreated}
         onCancel={handleNewGameCancel}
       />

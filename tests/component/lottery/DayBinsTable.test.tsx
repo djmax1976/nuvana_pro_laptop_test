@@ -600,4 +600,288 @@ describe("DayBinsTable Component", () => {
     expect(screen.getAllByRole("rowgroup").length).toBeGreaterThanOrEqual(1); // thead and/or tbody
     expect(screen.getAllByRole("row")).toHaveLength(4); // header + 3 data rows
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MANUAL ENTRY MODE TESTS
+  // Story: Lottery Manual Entry Feature
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("Manual Entry Mode", () => {
+    const manualEntryProps: DayBinsTableProps = {
+      bins: mockBins,
+      manualEntryMode: true,
+      endingValues: {},
+      onEndingChange: vi.fn(),
+      onInputComplete: vi.fn(),
+    };
+
+    it("should render input fields in Ending column when manualEntryMode is true", () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      // WHEN: Component is rendered
+      render(<DayBinsTable {...manualEntryProps} />);
+
+      // THEN: Input fields are rendered for bins with packs
+      expect(screen.getByTestId("ending-input-bin-001")).toBeInTheDocument();
+      expect(screen.getByTestId("ending-input-bin-003")).toBeInTheDocument();
+
+      // Empty bin should not have input
+      expect(
+        screen.queryByTestId("ending-input-bin-002"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should display '(Edit)' indicator in Ending column header when in manual entry mode", () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      // WHEN: Component is rendered
+      render(<DayBinsTable {...manualEntryProps} />);
+
+      // THEN: Edit indicator is shown
+      expect(screen.getByText("(Edit)")).toBeInTheDocument();
+    });
+
+    it("should NOT display '(Edit)' indicator when not in manual entry mode", () => {
+      // GIVEN: DayBinsTable not in manual entry mode
+      // WHEN: Component is rendered
+      render(<DayBinsTable {...defaultProps} />);
+
+      // THEN: Edit indicator is not shown
+      expect(screen.queryByText("(Edit)")).not.toBeInTheDocument();
+    });
+
+    it("should call onEndingChange when user types in input", () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      const onEndingChange = vi.fn();
+      render(
+        <DayBinsTable {...manualEntryProps} onEndingChange={onEndingChange} />,
+      );
+
+      // WHEN: User types in the input
+      const input = screen.getByTestId("ending-input-bin-001");
+      fireEvent.change(input, { target: { value: "123" } });
+
+      // THEN: onEndingChange is called with bin_id and value
+      expect(onEndingChange).toHaveBeenCalledWith("bin-001", "123");
+    });
+
+    it("should only allow numeric input (strip non-numeric characters)", () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      const onEndingChange = vi.fn();
+      render(
+        <DayBinsTable {...manualEntryProps} onEndingChange={onEndingChange} />,
+      );
+
+      // WHEN: User types mixed characters
+      const input = screen.getByTestId("ending-input-bin-001");
+      fireEvent.change(input, { target: { value: "12a3b" } });
+
+      // THEN: Only numeric characters are passed
+      expect(onEndingChange).toHaveBeenCalledWith("bin-001", "123");
+    });
+
+    it("should enforce max length of 3 digits", () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      const onEndingChange = vi.fn();
+      render(
+        <DayBinsTable {...manualEntryProps} onEndingChange={onEndingChange} />,
+      );
+
+      // WHEN: User types more than 3 digits
+      const input = screen.getByTestId("ending-input-bin-001");
+      fireEvent.change(input, { target: { value: "12345" } });
+
+      // THEN: Value is truncated to 3 digits
+      expect(onEndingChange).toHaveBeenCalledWith("bin-001", "123");
+    });
+
+    it("should call onInputComplete when 3 digits are entered", () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      const onInputComplete = vi.fn();
+      render(
+        <DayBinsTable
+          {...manualEntryProps}
+          onInputComplete={onInputComplete}
+        />,
+      );
+
+      // WHEN: User enters 3 digits
+      const input = screen.getByTestId("ending-input-bin-001");
+      fireEvent.change(input, { target: { value: "123" } });
+
+      // THEN: onInputComplete is called with bin_id
+      expect(onInputComplete).toHaveBeenCalledWith("bin-001");
+    });
+
+    it("should NOT call onInputComplete when less than 3 digits are entered", () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      const onInputComplete = vi.fn();
+      render(
+        <DayBinsTable
+          {...manualEntryProps}
+          onInputComplete={onInputComplete}
+        />,
+      );
+
+      // WHEN: User enters less than 3 digits
+      const input = screen.getByTestId("ending-input-bin-001");
+      fireEvent.change(input, { target: { value: "12" } });
+
+      // THEN: onInputComplete is NOT called
+      expect(onInputComplete).not.toHaveBeenCalled();
+    });
+
+    it("should display current ending values from props", () => {
+      // GIVEN: DayBinsTable with pre-filled ending values
+      const endingValues = {
+        "bin-001": "025",
+        "bin-003": "075",
+      };
+      render(
+        <DayBinsTable {...manualEntryProps} endingValues={endingValues} />,
+      );
+
+      // THEN: Inputs display the values
+      const input1 = screen.getByTestId(
+        "ending-input-bin-001",
+      ) as HTMLInputElement;
+      const input3 = screen.getByTestId(
+        "ending-input-bin-003",
+      ) as HTMLInputElement;
+
+      expect(input1.value).toBe("025");
+      expect(input3.value).toBe("075");
+    });
+
+    it("should apply green border style when input has 3 digits", () => {
+      // GIVEN: DayBinsTable with complete ending value
+      const endingValues = {
+        "bin-001": "025",
+      };
+      render(
+        <DayBinsTable {...manualEntryProps} endingValues={endingValues} />,
+      );
+
+      // THEN: Input has green border class
+      const input = screen.getByTestId("ending-input-bin-001");
+      expect(input).toHaveClass("border-green-500");
+    });
+
+    it("should NOT have green border when input has less than 3 digits", () => {
+      // GIVEN: DayBinsTable with incomplete ending value
+      const endingValues = {
+        "bin-001": "02",
+      };
+      render(
+        <DayBinsTable {...manualEntryProps} endingValues={endingValues} />,
+      );
+
+      // THEN: Input does not have green border class
+      const input = screen.getByTestId("ending-input-bin-001");
+      expect(input).not.toHaveClass("border-green-500");
+      expect(input).toHaveClass("border-primary");
+    });
+
+    it("should disable row click in manual entry mode", () => {
+      // GIVEN: DayBinsTable in manual entry mode with onRowClick
+      const onRowClick = vi.fn();
+      render(<DayBinsTable {...manualEntryProps} onRowClick={onRowClick} />);
+
+      // WHEN: User clicks a row
+      const row = screen.getByTestId("day-bins-row-bin-001");
+      fireEvent.click(row);
+
+      // THEN: onRowClick is NOT called (row click disabled in manual entry mode)
+      expect(onRowClick).not.toHaveBeenCalled();
+    });
+
+    it("should NOT have cursor-pointer on rows in manual entry mode", () => {
+      // GIVEN: DayBinsTable in manual entry mode with onRowClick
+      render(<DayBinsTable {...manualEntryProps} onRowClick={vi.fn()} />);
+
+      // THEN: Rows should not have cursor-pointer
+      const row = screen.getByTestId("day-bins-row-bin-001");
+      expect(row).not.toHaveClass("cursor-pointer");
+    });
+
+    it("should apply highlight background to active rows in manual entry mode", () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      // WHEN: Component is rendered
+      render(<DayBinsTable {...manualEntryProps} />);
+
+      // THEN: Rows with packs have highlight background
+      const row = screen.getByTestId("day-bins-row-bin-001");
+      expect(row).toHaveClass("bg-primary/5");
+    });
+
+    it("should stop click propagation on input to prevent row click", () => {
+      // GIVEN: DayBinsTable in manual entry mode with onRowClick
+      const onRowClick = vi.fn();
+      render(<DayBinsTable {...manualEntryProps} onRowClick={onRowClick} />);
+
+      // WHEN: User clicks directly on the input
+      const input = screen.getByTestId("ending-input-bin-001");
+      fireEvent.click(input);
+
+      // THEN: onRowClick is NOT called
+      expect(onRowClick).not.toHaveBeenCalled();
+    });
+
+    it("should render display span with ending serial when NOT in manual entry mode", () => {
+      // GIVEN: DayBinsTable NOT in manual entry mode
+      // WHEN: Component is rendered
+      render(<DayBinsTable {...defaultProps} />);
+
+      // THEN: Display spans are rendered (not inputs)
+      expect(screen.getByTestId("ending-display-bin-001")).toBeInTheDocument();
+      expect(screen.getByTestId("ending-display-bin-001")).toHaveTextContent(
+        "025",
+      );
+    });
+
+    it("should have proper aria-label on inputs for accessibility", () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      // WHEN: Component is rendered
+      render(<DayBinsTable {...manualEntryProps} />);
+
+      // THEN: Input has aria-label
+      const input = screen.getByTestId("ending-input-bin-001");
+      expect(input).toHaveAttribute("aria-label", "Ending serial for bin 1");
+    });
+
+    it("should have numeric inputMode on inputs for mobile keyboards", () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      // WHEN: Component is rendered
+      render(<DayBinsTable {...manualEntryProps} />);
+
+      // THEN: Input has inputMode="numeric"
+      const input = screen.getByTestId("ending-input-bin-001");
+      expect(input).toHaveAttribute("inputMode", "numeric");
+    });
+
+    it("should have maxLength of 3 on inputs", () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      // WHEN: Component is rendered
+      render(<DayBinsTable {...manualEntryProps} />);
+
+      // THEN: Input has maxLength="3"
+      const input = screen.getByTestId("ending-input-bin-001");
+      expect(input).toHaveAttribute("maxLength", "3");
+    });
+
+    it("[SECURITY] should sanitize input to prevent script injection", () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      const onEndingChange = vi.fn();
+      render(
+        <DayBinsTable {...manualEntryProps} onEndingChange={onEndingChange} />,
+      );
+
+      // WHEN: User attempts to inject script via input
+      const input = screen.getByTestId("ending-input-bin-001");
+      fireEvent.change(input, {
+        target: { value: "<script>alert('xss')</script>123" },
+      });
+
+      // THEN: Only numeric characters are passed (script tags stripped)
+      expect(onEndingChange).toHaveBeenCalledWith("bin-001", "123");
+    });
+  });
 });

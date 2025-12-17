@@ -8,10 +8,11 @@
  *
  * @requirements
  * - AC #3: Modal with cashier authentication form
- * - Cashier Name dropdown with static placeholders
+ * - Cashier Name dropdown (for new shifts) or display-only (for resuming shifts)
  * - PIN Number masked input field
  * - Cancel and Submit buttons
- * - Form validation (cashier name required, PIN required)
+ * - Form validation (cashier name required for new shifts, PIN required)
+ * - Security: Only the cashier who owns an active shift can resume it
  */
 
 import { useForm } from "react-hook-form";
@@ -27,6 +28,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -42,8 +44,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2 } from "lucide-react";
-import { useEffect } from "react";
+import { Loader2, User } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useCashiers, useAuthenticateCashier } from "@/lib/api/cashiers";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useActiveShift, useShiftStart } from "@/lib/api/shifts";
@@ -52,16 +54,11 @@ import { useCashierSession } from "@/contexts/CashierSessionContext";
 
 /**
  * Form validation schema for terminal authentication
- * Validates cashier name (required) and PIN number (required, exactly 4 numeric digits)
- *
- * MCP Guidance Applied:
- * - FORM_VALIDATION: Mirror backend validation client-side, sanitize all user input
- * - INPUT_VALIDATION: Define strict schemas with length, type, and format constraints
+ * - cashier_name: Required for new shifts, optional for resume mode
+ * - pin_number: Always required, exactly 4 numeric digits
  */
 const terminalAuthFormSchema = z.object({
-  cashier_name: z
-    .string({ message: "Cashier name is required" })
-    .min(1, { message: "Cashier name is required" }),
+  cashier_name: z.string().optional(),
   pin_number: z
     .string({ message: "PIN number is required" })
     .min(1, { message: "PIN number is required" })
@@ -70,13 +67,19 @@ const terminalAuthFormSchema = z.object({
 
 type TerminalAuthFormValues = z.infer<typeof terminalAuthFormSchema>;
 
+/** Form values for onSubmit callback (new shift mode) */
+interface NewShiftFormValues {
+  cashier_name: string;
+  pin_number: string;
+}
+
 interface TerminalAuthModalProps {
   terminalId: string;
   terminalName: string;
   storeId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit?: (values: TerminalAuthFormValues) => void | Promise<void>;
+  onSubmit?: (values: NewShiftFormValues) => void | Promise<void>;
 }
 
 /**
@@ -84,10 +87,12 @@ interface TerminalAuthModalProps {
  * Dialog form for cashier authentication when selecting a terminal
  * Uses React Hook Form with Zod validation
  *
- * MCP Guidance Applied:
- * - FORM_VALIDATION: Display validation errors clearly, disable submission until fields pass checks
- * - INPUT_VALIDATION: Apply length, type, and format constraints at the boundary
- * - XSS: React automatically escapes output, no manual sanitization needed for text inputs
+ * Two modes:
+ * 1. New Shift Mode: Shows cashier dropdown + PIN input
+ * 2. Resume Shift Mode: Shows cashier name (read-only) + PIN input only
+ *
+ * Security: When resuming a shift, verifies the authenticated cashier
+ * matches the shift owner before allowing access.
  */
 export function TerminalAuthModal({
   terminalId,
@@ -99,6 +104,7 @@ export function TerminalAuthModal({
 }: TerminalAuthModalProps) {
   const router = useRouter();
   const { setSession } = useCashierSession();
+  const [ownershipError, setOwnershipError] = useState<string | null>(null);
 
   // Check for active shift when modal opens
   const {
@@ -107,8 +113,13 @@ export function TerminalAuthModal({
     error: activeShiftError,
   } = useActiveShift(terminalId, { enabled: open });
 
+  // Determine if we're in resume mode (active shift exists)
+  const isResumeMode = !!activeShift && !isLoadingActiveShift;
+
   // Shift start mutation
   const startShiftMutation = useShiftStart();
+
+  // Single form for both new shift and resume modes
   const form = useForm<TerminalAuthFormValues>({
     resolver: zodResolver(terminalAuthFormSchema),
     mode: "onSubmit",
@@ -120,20 +131,24 @@ export function TerminalAuthModal({
     },
   });
 
-  // Fetch cashiers for the store
+  // Fetch cashiers for the store (only needed for new shift mode)
   const {
     data: cashiers = [],
     isLoading: isLoadingCashiers,
     error: cashiersError,
-  } = useCashiers(storeId, { is_active: true }, { enabled: open });
+  } = useCashiers(
+    storeId,
+    { is_active: true },
+    { enabled: open && !isResumeMode },
+  );
 
   // Authenticate cashier mutation
   const authenticateMutation = useAuthenticateCashier();
 
   const isSubmitting =
-    form.formState.isSubmitting ||
-    authenticateMutation.isPending ||
-    startShiftMutation.isPending;
+    form.formState.isSubmitting === true ||
+    authenticateMutation.isPending === true ||
+    startShiftMutation.isPending === true;
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -144,27 +159,42 @@ export function TerminalAuthModal({
       });
       authenticateMutation.reset();
       startShiftMutation.reset();
+      setOwnershipError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  /**
+   * Handle form submission
+   * Routes to appropriate handler based on resume mode
+   */
   const handleSubmit = async (values: TerminalAuthFormValues) => {
-    if (onSubmit) {
-      await onSubmit(values);
-      return;
+    if (isResumeMode) {
+      await handleResumeSubmit(values);
+    } else {
+      await handleNewShiftSubmit(values);
     }
+  };
+
+  /**
+   * Handle form submission for resuming an existing shift
+   * Authenticates the cashier and verifies they own the shift
+   */
+  const handleResumeSubmit = async (values: TerminalAuthFormValues) => {
+    if (!activeShift) return;
+
+    setOwnershipError(null);
 
     try {
-      // Authenticate cashier and create session token for this terminal
-      // The session token is required for terminal operations (enterprise POS pattern)
+      // Authenticate cashier using the name from the active shift
       const authResult = await authenticateMutation.mutateAsync({
         storeId,
-        identifier: { name: values.cashier_name },
+        identifier: { name: activeShift.cashier_name! },
         pin: values.pin_number,
-        terminalId, // Pass terminal ID to create session token
+        terminalId,
       });
 
-      // Verify session was created (required for terminal operations)
+      // Verify session was created
       if (!authResult.session?.session_token) {
         form.setError("root", {
           type: "manual",
@@ -173,8 +203,72 @@ export function TerminalAuthModal({
         return;
       }
 
-      // Store session in context for subsequent terminal operations
-      // This enables other components to access the session token
+      // SECURITY CHECK: Verify the authenticated cashier owns this shift
+      if (authResult.cashier_id !== activeShift.cashier_id) {
+        setOwnershipError(
+          "Access denied. Only the cashier who started this shift can resume it.",
+        );
+        return;
+      }
+
+      // Store session in context
+      setSession({
+        sessionId: authResult.session.session_id,
+        sessionToken: authResult.session.session_token,
+        cashierId: authResult.cashier_id,
+        cashierName: activeShift.cashier_name!,
+        terminalId,
+        expiresAt: authResult.session.expires_at,
+      });
+
+      // Navigate to shift page
+      router.push(`/terminal/${terminalId}/shift`);
+      onOpenChange(false);
+    } catch {
+      // Errors are handled by mutation state
+    }
+  };
+
+  /**
+   * Handle form submission for starting a new shift
+   */
+  const handleNewShiftSubmit = async (values: TerminalAuthFormValues) => {
+    // Validate cashier_name is provided for new shifts
+    if (!values.cashier_name) {
+      form.setError("cashier_name", {
+        type: "manual",
+        message: "Cashier name is required",
+      });
+      return;
+    }
+
+    if (onSubmit) {
+      await onSubmit({
+        cashier_name: values.cashier_name,
+        pin_number: values.pin_number,
+      });
+      return;
+    }
+
+    try {
+      // Authenticate cashier and create session token
+      const authResult = await authenticateMutation.mutateAsync({
+        storeId,
+        identifier: { name: values.cashier_name },
+        pin: values.pin_number,
+        terminalId,
+      });
+
+      // Verify session was created
+      if (!authResult.session?.session_token) {
+        form.setError("root", {
+          type: "manual",
+          message: "Failed to create cashier session",
+        });
+        return;
+      }
+
+      // Store session in context
       setSession({
         sessionId: authResult.session.session_id,
         sessionToken: authResult.session.session_token,
@@ -184,28 +278,16 @@ export function TerminalAuthModal({
         expiresAt: authResult.session.expires_at,
       });
 
-      // Check if there's already an active shift for this terminal
-      // If so, just navigate to it. If not, start a new shift.
-      if (activeShift) {
-        // Active shift exists - just navigate to it (PIN auth creates session for operations)
-        router.push(`/terminal/${terminalId}/shift`);
-        onOpenChange(false);
-      } else {
-        // No active shift - start a new one
-        // Use session token instead of cashier ID for proper authorization
-        const shiftResult = await startShiftMutation.mutateAsync({
-          terminalId,
-          sessionToken: authResult.session.session_token,
-        });
+      // Start a new shift
+      await startShiftMutation.mutateAsync({
+        terminalId,
+        sessionToken: authResult.session.session_token,
+      });
 
-        // Success - redirect to shift page
-        // Note: Route is /terminal/... not /mystore/terminal/... because (mystore) is a route group
-        router.push(`/terminal/${terminalId}/shift`);
-        onOpenChange(false);
-      }
+      // Navigate to shift page
+      router.push(`/terminal/${terminalId}/shift`);
+      onOpenChange(false);
     } catch (error) {
-      // Set form error for non-mutation errors (e.g., missing session token)
-      // Mutation errors are handled by mutation state
       if (
         error instanceof Error &&
         error.message === "Failed to create cashier session"
@@ -215,12 +297,12 @@ export function TerminalAuthModal({
           message: error.message,
         });
       }
-      // Other errors are handled by mutation state - no console logging to avoid exposing sensitive data
     }
   };
 
   const handleCancel = () => {
     form.reset();
+    setOwnershipError(null);
     onOpenChange(false);
   };
 
@@ -233,116 +315,130 @@ export function TerminalAuthModal({
         <DialogHeader>
           <DialogTitle>Terminal Authentication</DialogTitle>
           <DialogDescription>
-            Authenticate to access terminal: {terminalName}
+            {isResumeMode
+              ? `Resume shift on terminal: ${terminalName}`
+              : `Authenticate to access terminal: ${terminalName}`}
           </DialogDescription>
         </DialogHeader>
 
+        {/* Error Alerts */}
+        {cashiersError && !isResumeMode && (
+          <Alert variant="destructive">
+            <AlertDescription>
+              Failed to load cashiers. Please try again.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {isLoadingActiveShift && (
+          <Alert>
+            <AlertDescription>Checking for active shift...</AlertDescription>
+          </Alert>
+        )}
+
+        {activeShiftError && (
+          <Alert variant="destructive">
+            <AlertDescription>
+              Failed to check for active shift. Please try again.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {startShiftMutation.isError && (
+          <Alert variant="destructive">
+            <AlertDescription>
+              {startShiftMutation.error instanceof Error
+                ? startShiftMutation.error.message
+                : "Failed to start shift. Please try again."}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {authenticateMutation.isError && (
+          <Alert variant="destructive">
+            <AlertDescription>
+              {authenticateMutation.error instanceof Error
+                ? authenticateMutation.error.message === "Authentication failed"
+                  ? "Invalid PIN. Please try again."
+                  : authenticateMutation.error.message
+                : "Authentication failed. Please check your credentials."}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {ownershipError && (
+          <Alert variant="destructive" data-testid="ownership-error">
+            <AlertDescription>{ownershipError}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Single Form for both resume and new shift modes */}
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleSubmit)}
             className="space-y-4"
           >
-            {cashiersError && (
-              <Alert variant="destructive">
-                <AlertDescription>
-                  Failed to load cashiers. Please try again.
-                </AlertDescription>
-              </Alert>
+            {/* Resume Mode: Display cashier name (read-only) */}
+            {isResumeMode && activeShift && (
+              <div className="space-y-2">
+                <Label>Cashier</Label>
+                <div
+                  className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2"
+                  data-testid="shift-owner-display"
+                >
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium" data-testid="shift-owner-name">
+                    {activeShift.cashier_name}
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  This terminal has an active shift. Enter your PIN to resume.
+                </p>
+              </div>
             )}
 
-            {isLoadingActiveShift && (
-              <Alert>
-                <AlertDescription>
-                  Checking for active shift...
-                </AlertDescription>
-              </Alert>
+            {/* New Shift Mode: Cashier dropdown */}
+            {!isResumeMode && (
+              <FormField
+                control={form.control}
+                name="cashier_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Cashier Name</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value || ""}
+                      disabled={isSubmitting || isLoadingCashiers}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="cashier-name-select">
+                          <SelectValue
+                            placeholder={
+                              isLoadingCashiers
+                                ? "Loading cashiers..."
+                                : "Select cashier name"
+                            }
+                          />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {cashiers.map((cashier) => (
+                          <SelectItem
+                            key={cashier.cashier_id}
+                            value={cashier.name}
+                          >
+                            {cashier.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage data-testid="cashier-name-error" />
+                  </FormItem>
+                )}
+              />
             )}
 
-            {activeShift && !isLoadingActiveShift && (
-              <Alert>
-                <AlertDescription>
-                  This terminal has an active shift. Authenticate to resume.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {activeShiftError && (
-              <Alert variant="destructive">
-                <AlertDescription>
-                  Failed to check for active shift. Please try again.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {startShiftMutation.isError && (
-              <Alert variant="destructive">
-                <AlertDescription>
-                  {startShiftMutation.error instanceof Error
-                    ? startShiftMutation.error.message
-                    : "Failed to start shift. Please try again."}
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {authenticateMutation.isError && (
-              <Alert variant="destructive">
-                <AlertDescription>
-                  {authenticateMutation.error instanceof Error
-                    ? authenticateMutation.error.message ===
-                      "Authentication failed"
-                      ? "Invalid PIN. Please try again."
-                      : authenticateMutation.error.message
-                    : "Authentication failed. Please check your credentials."}
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {form.formState.errors.root && (
-              <Alert variant="destructive">
-                <AlertDescription>
-                  {form.formState.errors.root.message}
-                </AlertDescription>
-              </Alert>
-            )}
-
-            <FormField
-              control={form.control}
-              name="cashier_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Cashier Name</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                    disabled={isSubmitting || isLoadingCashiers}
-                  >
-                    <FormControl>
-                      <SelectTrigger data-testid="cashier-name-select">
-                        <SelectValue
-                          placeholder={
-                            isLoadingCashiers
-                              ? "Loading cashiers..."
-                              : "Select cashier name"
-                          }
-                        />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {cashiers.map((cashier) => (
-                        <SelectItem
-                          key={cashier.cashier_id}
-                          value={cashier.name}
-                        >
-                          {cashier.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage data-testid="cashier-name-error" />
-                </FormItem>
-              )}
-            />
-
+            {/* PIN Number field - always shown */}
             <FormField
               control={form.control}
               name="pin_number"
@@ -352,8 +448,11 @@ export function TerminalAuthModal({
                   <FormControl>
                     <Input
                       type="password"
-                      placeholder="Enter PIN number"
+                      placeholder={
+                        isResumeMode ? "Enter your PIN" : "Enter PIN number"
+                      }
                       autoComplete="off"
+                      autoFocus={isResumeMode}
                       disabled={isSubmitting}
                       data-testid="pin-number-input"
                       {...field}
@@ -363,6 +462,14 @@ export function TerminalAuthModal({
                 </FormItem>
               )}
             />
+
+            {form.formState.errors.root && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  {form.formState.errors.root.message}
+                </AlertDescription>
+              </Alert>
+            )}
 
             <DialogFooter>
               <Button
@@ -382,7 +489,7 @@ export function TerminalAuthModal({
                 {isSubmitting && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                {activeShift ? "Resume Shift" : "Start Shift"}
+                {isResumeMode ? "Resume Shift" : "Start Shift"}
               </Button>
             </DialogFooter>
           </form>

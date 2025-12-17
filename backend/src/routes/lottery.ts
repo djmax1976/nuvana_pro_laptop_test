@@ -1066,8 +1066,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 }
 
                 // IMPORTANT: Always force serial_start to "000...0" regardless of scanned barcode
-                // Calculate serial_end based on game's tickets_per_pack or default to 150
-                const ticketsPerPack = game.tickets_per_pack || 150;
+                // Calculate serial_end based on game's tickets_per_pack
+                // tickets_per_pack is always set (computed from pack_value / price)
+                const ticketsPerPack = game.tickets_per_pack!;
                 const serialEndNum = BigInt(ticketsPerPack - 1); // e.g., 149 for 150 tickets (0-149)
                 const serialStartLength = parsed.serial_start?.length || 3;
                 const serialStart = "0".padStart(serialStartLength, "0");
@@ -1373,6 +1374,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               select: {
                 store_id: true,
                 name: true,
+                company_id: true, // Added for COMPANY scope RLS check
               },
             },
             bin: {
@@ -1396,13 +1398,23 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Validate store_id matches authenticated user's store (RLS enforcement)
-        // System admins can access any store
+        // Validate store access based on user's role scope (RLS enforcement)
+        // Scope hierarchy: SYSTEM > COMPANY > STORE
         if (!hasSystemScope) {
-          const userStoreRole = userRoles.find(
+          // Check for STORE scope: user has direct store assignment
+          const hasStoreAccess = userRoles.some(
             (role) => role.scope === "STORE" && role.store_id === pack.store_id,
           );
-          if (!userStoreRole) {
+
+          // Check for COMPANY scope: user has company-level access (e.g., CLIENT_OWNER)
+          // They can access any store within their assigned company
+          const hasCompanyAccess = userRoles.some(
+            (role) =>
+              role.scope === "COMPANY" &&
+              role.company_id === pack.store.company_id,
+          );
+
+          if (!hasStoreAccess && !hasCompanyAccess) {
             reply.code(403);
             return {
               success: false,
@@ -2225,13 +2237,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Create the game with pack_value and scoping
+        // Create the game with pack_value, tickets_per_pack, and scoping
         const newGame = await prisma.lotteryGame.create({
           data: {
             game_code: body.game_code,
             name: normalizedName,
             price: body.price,
             pack_value: body.pack_value,
+            tickets_per_pack: totalTickets, // Store computed tickets for serial range calculation
             description: body.description?.trim() || null,
             status: "ACTIVE",
             created_by_user_id: user.id,
@@ -2999,6 +3012,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               select: {
                 store_id: true,
                 name: true,
+                company_id: true, // Added for COMPANY scope RLS check
               },
             },
             bin: {
@@ -3044,13 +3058,23 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Validate store_id matches authenticated user's store (RLS enforcement)
-        // System admins can access any store
+        // Validate store access based on user's role scope (RLS enforcement)
+        // Scope hierarchy: SYSTEM > COMPANY > STORE
         if (!hasSystemScope) {
-          const userStoreRole = userRoles.find(
+          // Check for STORE scope: user has direct store assignment
+          const hasStoreAccess = userRoles.some(
             (role) => role.scope === "STORE" && role.store_id === pack.store_id,
           );
-          if (!userStoreRole) {
+
+          // Check for COMPANY scope: user has company-level access (e.g., CLIENT_OWNER)
+          // They can access any store within their assigned company
+          const hasCompanyAccess = userRoles.some(
+            (role) =>
+              role.scope === "COMPANY" &&
+              role.company_id === pack.store.company_id,
+          );
+
+          if (!hasStoreAccess && !hasCompanyAccess) {
             reply.code(403);
             return {
               success: false,
@@ -6756,15 +6780,23 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           day: "2-digit",
         });
         const businessDayStr = formatter.format(now); // Returns YYYY-MM-DD
-        const targetDate = new Date(businessDayStr + "T00:00:00");
+
+        // targetDate is the business date in the store's timezone (used for LotteryBusinessDay lookup)
+        // Parse as midnight UTC (the date component is what matters for the unique constraint)
+        const targetDate = new Date(businessDayStr + "T00:00:00Z");
 
         // Calculate day boundaries in UTC for database queries
-        const dayStartLocal = new Date(businessDayStr + "T00:00:00");
-        const dayEndLocal = new Date(businessDayStr + "T23:59:59.999");
+        // We need to find midnight and end of day in the store's timezone, then convert to UTC
+        // The businessDayStr is already in the store's local date (e.g., "2025-12-16" for Dec 16 in NY)
+        // We need to find what UTC time corresponds to midnight Dec 16 in NY
+        const utcOffset = getTimezoneOffset(storeTimezone, now);
 
-        const utcOffset = getTimezoneOffset(storeTimezone, targetDate);
-        const dayStartUtc = new Date(dayStartLocal.getTime() - utcOffset);
-        const dayEndUtc = new Date(dayEndLocal.getTime() - utcOffset);
+        // Parse the date string as midnight UTC, then adjust by the timezone offset
+        // to get the correct UTC time for midnight in the store's timezone
+        const dayStartUtc = new Date(targetDate.getTime() + utcOffset);
+        const dayEndUtc = new Date(
+          dayStartUtc.getTime() + 24 * 60 * 60 * 1000 - 1,
+        );
 
         // Find the most recent shift for today
         const todayShifts = await prisma.shift.findMany({

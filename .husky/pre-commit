@@ -36,6 +36,14 @@ STAGED_TEST_FILES=$(git diff --cached --name-only --diff-filter=ACMRTUXB | grep 
 
 if [ -n "$STAGED_TEST_FILES" ]; then
   echo "Running newly created or modified unit/component tests..."
+  # Load environment variables from .env.local if it exists (required for DATABASE_URL)
+  # Get the git root directory to find .env.local
+  GIT_ROOT=$(git rev-parse --show-toplevel)
+  if [ -f "$GIT_ROOT/.env.local" ]; then
+    set -a
+    source "$GIT_ROOT/.env.local"
+    set +a
+  fi
   # Run vitest on the staged test files
   npx vitest run $STAGED_TEST_FILES
   

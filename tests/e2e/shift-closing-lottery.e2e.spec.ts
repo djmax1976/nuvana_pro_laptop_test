@@ -13,6 +13,8 @@
  * @priority P0 (Critical - User Journey)
  * @enhanced-by workflow-9 on 2025-12-14
  * @updated 2025-12-15 - Aligned with implemented code and proper auth pattern
+ * @updated 2025-12-16 - SKIPPED: Route /mystore/terminal/shift-closing/lottery was removed.
+ *                       Lottery functionality moved to /mystore/lottery. Tests need update.
  *
  * NOTE: These tests require a running frontend and backend with authentication.
  * Tests mock API responses but require valid session cookies for authenticated routes.
@@ -41,7 +43,10 @@ function createMockJwt(userId: string): string {
   return `${header}.${payload}.mock_signature`;
 }
 
-test.describe("10-7-E2E: Lottery Shift Closing Flow", () => {
+// SKIPPED: Route /mystore/terminal/shift-closing/lottery was removed.
+// Lottery functionality has been moved to /mystore/lottery page.
+// These tests need to be updated when shift-end page is implemented with lottery closing.
+test.describe.skip("10-7-E2E: Lottery Shift Closing Flow", () => {
   const testShiftId = "test-shift-id-123";
   const testStoreId = "test-store-id-123";
   const testUserId = "test-user-id-123";

@@ -37,6 +37,50 @@ function getTodayDateString(): string {
   return now.toISOString().split("T")[0];
 }
 
+/**
+ * Get a timestamp that falls within "today" for a given timezone.
+ * This is crucial for tests because the API filters by date in the store's timezone.
+ *
+ * @param timezone - The IANA timezone string (e.g., "America/New_York")
+ * @returns A Date object representing noon today in the given timezone (converted to UTC)
+ */
+function getTodayNoonInTimezone(timezone: string = "America/New_York"): Date {
+  // Get current date string in the target timezone
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const todayStr = formatter.format(new Date()); // YYYY-MM-DD
+
+  // Create a date at noon in the target timezone
+  // We use noon to avoid any edge cases around midnight
+  const noonLocal = new Date(`${todayStr}T12:00:00`);
+
+  // Calculate the timezone offset
+  const utcFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const localParts = utcFormatter.formatToParts(noonLocal);
+  const localHour = parseInt(
+    localParts.find((p) => p.type === "hour")?.value || "12",
+  );
+
+  // Get UTC hour at the same instant
+  const utcHour = noonLocal.getUTCHours();
+
+  // Calculate offset: if local shows 12 and UTC shows 17, offset is -5 hours
+  // For America/New_York: EST is UTC-5, EDT is UTC-4
+  const offsetHours = localHour - utcHour;
+
+  // Adjust to get actual noon in the target timezone as UTC
+  return new Date(noonLocal.getTime() - offsetHours * 60 * 60 * 1000);
+}
+
 test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
   // ═══════════════════════════════════════════════════════════════════════════
   // GET /api/lottery/bins/day/:storeId - Basic Functionality
@@ -236,14 +280,16 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
         },
       });
 
-      // Create a shift that opened today
+      // Create a shift that opened today - use timezone-aware timestamp
+      // The API filters shifts by opened_at within the store's timezone "today"
+      const todayNoon = getTodayNoonInTimezone("America/New_York");
       const shift = await tx.shift.create({
         data: {
           store_id: storeId,
           cashier_id: cashier.cashier_id,
           opened_by: clientUser.user_id,
           status: "OPEN",
-          opened_at: new Date(),
+          opened_at: todayNoon,
           opening_cash: 100.0,
         },
       });
@@ -260,9 +306,18 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
       return { game, bin, pack, shift, opening, cashier };
     });
 
-    // WHEN: I query day bins
+    // WHEN: I query day bins for today in store timezone
+    // We must pass the same date string the API would use for "today"
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const todayInStoreTimezone = formatter.format(new Date());
+
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${storeId}`,
+      `/api/lottery/bins/day/${storeId}?date=${todayInStoreTimezone}`,
     );
 
     // THEN: Starting serial should be today's opening serial
@@ -502,15 +557,17 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
         },
       });
 
-      // Create a shift that opened today
+      // Create a shift that opened today - use timezone-aware timestamp
+      // The API filters shifts by opened_at within the store's timezone "today"
+      const todayNoon = getTodayNoonInTimezone("America/New_York");
       const shift = await tx.shift.create({
         data: {
           store_id: storeId,
           cashier_id: cashier.cashier_id,
           opened_by: clientUser.user_id,
           status: "CLOSED",
-          opened_at: new Date(),
-          closed_at: new Date(),
+          opened_at: todayNoon,
+          closed_at: todayNoon,
           opening_cash: 100.0,
           closing_cash: 150.0,
         },
@@ -529,9 +586,17 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
       return { game, bin, pack, shift, closing, cashier };
     });
 
-    // WHEN: I query day bins
+    // WHEN: I query day bins for today in store timezone
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const todayInStoreTimezone = formatter.format(new Date());
+
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${storeId}`,
+      `/api/lottery/bins/day/${storeId}?date=${todayInStoreTimezone}`,
     );
 
     // THEN: Ending serial should be the closing serial
@@ -625,6 +690,9 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
         },
       });
 
+      // Use timezone-aware timestamp for depleted_at
+      // The API filters depleted packs by depleted_at within the store's timezone "today"
+      const todayNoon = getTodayNoonInTimezone("America/New_York");
       const pack = await tx.lotteryPack.create({
         data: {
           game_id: game.game_id,
@@ -633,8 +701,8 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
           serial_start: "001",
           serial_end: "030",
           status: "DEPLETED",
-          activated_at: new Date(Date.now() - 86400000), // Yesterday
-          depleted_at: new Date(), // Today
+          activated_at: new Date(todayNoon.getTime() - 86400000), // Yesterday
+          depleted_at: todayNoon, // Today (at noon in store timezone)
           current_bin_id: bin.bin_id,
         },
       });
@@ -642,9 +710,17 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
       return { game, bin, pack };
     });
 
-    // WHEN: I query day bins
+    // WHEN: I query day bins for today in store timezone
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const todayInStoreTimezone = formatter.format(new Date());
+
     const response = await clientUserApiRequest.get(
-      `/api/lottery/bins/day/${storeId}`,
+      `/api/lottery/bins/day/${storeId}?date=${todayInStoreTimezone}`,
     );
 
     // THEN: Depleted pack should be in depleted_packs array

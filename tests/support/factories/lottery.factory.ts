@@ -30,6 +30,7 @@ export const createLotteryGame = async (
     description: string;
     price: number;
     pack_value: number;
+    tickets_per_pack: number;
     status: LotteryGameStatus;
     store_id: string; // Optional - if provided, game is scoped to store
   }> = {},
@@ -56,6 +57,12 @@ export const createLotteryGame = async (
           ? overrides.pack_value
           : Math.round(price * 30);
 
+      // Calculate tickets_per_pack: pack_value / price (required for serial_end calculation)
+      const tickets_per_pack =
+        overrides.tickets_per_pack !== undefined
+          ? overrides.tickets_per_pack
+          : Math.floor(pack_value / price);
+
       return await prisma.lotteryGame.create({
         data: {
           game_code: uniqueCode,
@@ -63,6 +70,7 @@ export const createLotteryGame = async (
           description: overrides.description || faker.lorem.sentence(),
           price,
           pack_value,
+          tickets_per_pack,
           status: overrides.status || LotteryGameStatus.ACTIVE,
           ...(overrides.store_id && { store_id: overrides.store_id }),
         },

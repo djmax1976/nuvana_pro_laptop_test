@@ -1782,14 +1782,16 @@ export const test = base.extend<RBACFixture>({
     }
 
     // Assign CLIENT_OWNER role to user
+    let userRoleId: string = "";
     await withBypassClient(async (bypassClient) => {
-      await bypassClient.userRole.create({
+      const userRole = await bypassClient.userRole.create({
         data: {
           user_id: user.user_id,
           role_id: role.role_id,
           company_id: company.company_id,
         },
       });
+      userRoleId = userRole.user_role_id;
     });
 
     // Clear RBAC cache to ensure the new role is visible to the API immediately
@@ -1884,6 +1886,24 @@ export const test = base.extend<RBACFixture>({
       // Client Role Management
       "CLIENT_ROLE_MANAGE",
     ];
+
+    // Pre-populate the Redis cache with user roles
+    // This is necessary because the permission middleware calls rbacService.getUserRoles()
+    // which queries the user_roles table. Due to RLS policies, this query returns empty
+    // unless we either use withRLSTransaction (complex) or pre-populate the cache (simple)
+    await populateUserRolesCache(user.user_id, [
+      {
+        user_role_id: userRoleId,
+        user_id: user.user_id,
+        role_id: role.role_id,
+        role_code: "CLIENT_OWNER",
+        scope: "COMPANY",
+        client_id: null,
+        company_id: company.company_id,
+        store_id: null,
+        permissions: clientPermissions,
+      },
+    ]);
 
     const token = createJWTAccessToken({
       user_id: user.user_id,

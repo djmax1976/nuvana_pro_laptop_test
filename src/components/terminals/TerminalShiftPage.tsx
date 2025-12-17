@@ -38,7 +38,13 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { useUpdateStartingCash } from "@/lib/api/shifts";
-import { Loader2, DollarSign, Receipt, XCircle } from "lucide-react";
+import {
+  Loader2,
+  DollarSign,
+  Receipt,
+  XCircle,
+  CalendarCheck,
+} from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useCashierSession } from "@/contexts/CashierSessionContext";
 
@@ -307,18 +313,27 @@ export function TerminalShiftPageContent({
           <CardTitle>Shift Actions</CardTitle>
           <CardDescription>Manage your shift</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col md:flex-row gap-3">
           <Button
-            variant="destructive"
+            variant="outline"
             onClick={() => {
-              router.push(
-                `/mystore/terminal/shift-closing/lottery?shiftId=${shift.shift_id}`,
-              );
+              router.push(`/mystore/shift-end?shiftId=${shift.shift_id}`);
             }}
             className="w-full md:w-auto"
             data-testid="end-shift-button"
           >
             End Shift
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              router.push(`/mystore/day-close?shiftId=${shift.shift_id}`);
+            }}
+            className="w-full md:w-auto"
+            data-testid="close-day-button"
+          >
+            <CalendarCheck className="mr-2 h-4 w-4" />
+            Close Day
           </Button>
         </CardContent>
       </Card>

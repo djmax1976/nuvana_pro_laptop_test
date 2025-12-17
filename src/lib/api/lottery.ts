@@ -410,6 +410,7 @@ export interface CreateGameInput {
   name: string;
   price: number;
   pack_value: number;
+  store_id: string;
   description?: string;
 }
 

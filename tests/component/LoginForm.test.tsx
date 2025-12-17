@@ -94,6 +94,31 @@ describe("2.1-COMPONENT: LoginForm Component", () => {
       const passwordInput = screen.getByLabelText(/password/i);
       expect(passwordInput).toHaveAttribute("type", "password");
     });
+
+    it("[P1] 2.1-COMPONENT-004: should toggle password visibility when clicking eye icon", async () => {
+      // GIVEN: LoginForm component
+      const user = userEvent.setup();
+      renderWithProviders(<LoginForm />);
+
+      const passwordInput = screen.getByLabelText(/password/i);
+      const toggleButton = screen.getByRole("button", { name: "Show" });
+
+      // THEN: Password should be hidden by default
+      expect(passwordInput).toHaveAttribute("type", "password");
+
+      // WHEN: User clicks the toggle button
+      await user.click(toggleButton);
+
+      // THEN: Password should be visible
+      expect(passwordInput).toHaveAttribute("type", "text");
+      expect(screen.getByRole("button", { name: "Hide" })).toBeInTheDocument();
+
+      // WHEN: User clicks the toggle button again
+      await user.click(screen.getByRole("button", { name: "Hide" }));
+
+      // THEN: Password should be hidden again
+      expect(passwordInput).toHaveAttribute("type", "password");
+    });
   });
 
   describe("AuthContext Integration", () => {
