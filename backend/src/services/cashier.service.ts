@@ -1,5 +1,5 @@
 import { Prisma, PrismaClient } from "@prisma/client";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { createHash } from "crypto";
 import { prisma } from "../utils/db";
 

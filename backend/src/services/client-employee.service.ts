@@ -1,5 +1,5 @@
 import { Prisma, User } from "@prisma/client";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 import { prisma } from "../utils/db";

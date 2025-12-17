@@ -7,14 +7,12 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Install build dependencies for native modules (bcrypt)
-RUN apk add --no-cache python3 make g++
-
 # Copy package files
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
 
 # Install all dependencies (including devDependencies for build)
+# Note: No native build tools needed - bcryptjs is pure JavaScript
 RUN npm ci
 
 # Generate Prisma client
@@ -32,14 +30,12 @@ RUN npm run build
 FROM node:20-alpine AS prod-deps
 WORKDIR /app
 
-# Install build dependencies for native modules (bcrypt)
-RUN apk add --no-cache python3 make g++
-
 # Copy package files
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
 
 # Install production dependencies only
+# Note: No native build tools needed - bcryptjs is pure JavaScript
 RUN npm ci --only=production
 
 # Generate Prisma client
@@ -55,9 +51,8 @@ ENV NODE_ENV=production
 
 # Install runtime dependencies:
 # - wget: for health checks
-# - libc6-compat: required for native modules (bcrypt, prisma) on Alpine
-# - libstdc++: required for some native Node.js addons
-RUN apk add --no-cache wget libc6-compat libstdc++
+# - libc6-compat: required for Prisma on Alpine
+RUN apk add --no-cache wget libc6-compat
 
 # Create non-root user for security
 RUN addgroup --system --gid 1001 nodejs
