@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
+import { SessionExpirationGuard } from "@/components/session/SessionExpirationGuard";
 
 /**
  * Dashboard layout for authenticated SUPERADMIN users only
@@ -11,6 +12,11 @@ import { useAuth } from "@/contexts/AuthContext";
  * Redirects to login if user is not authenticated
  * Redirects store-level users (CLIENT_USER, STORE_MANAGER, etc.) to /mystore
  * Redirects CLIENT_OWNER users to /client-dashboard (their proper dashboard)
+ *
+ * Session Expiration Handling:
+ * - Real-time session monitoring with warning modal
+ * - Automatic logout when session expires
+ * - Cross-tab synchronization
  */
 export default function DashboardRouteLayout({
   children,
@@ -49,5 +55,12 @@ export default function DashboardRouteLayout({
     return null;
   }
 
-  return <DashboardLayout>{children}</DashboardLayout>;
+  return (
+    <SessionExpirationGuard
+      loginPath="/login"
+      warningMessage="Your admin session is about to expire due to inactivity. Would you like to stay logged in?"
+    >
+      <DashboardLayout>{children}</DashboardLayout>
+    </SessionExpirationGuard>
+  );
 }

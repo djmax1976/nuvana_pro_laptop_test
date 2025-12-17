@@ -8,10 +8,16 @@ import {
   useClientAuth,
 } from "@/contexts/ClientAuthContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { SessionExpirationGuard } from "@/components/session/SessionExpirationGuard";
 
 /**
  * Inner layout component that uses client auth context
  * Only CLIENT_OWNER role users can access /client-dashboard
+ *
+ * Session Expiration Handling:
+ * - Real-time session monitoring with warning modal
+ * - Automatic logout when session expires
+ * - Cross-tab synchronization
  */
 function ClientDashboardLayoutInner({
   children,
@@ -56,7 +62,14 @@ function ClientDashboardLayoutInner({
     return null;
   }
 
-  return <ClientDashboardLayout>{children}</ClientDashboardLayout>;
+  return (
+    <SessionExpirationGuard
+      loginPath="/login"
+      warningMessage="Your session is about to expire due to inactivity. Would you like to stay logged in?"
+    >
+      <ClientDashboardLayout>{children}</ClientDashboardLayout>
+    </SessionExpirationGuard>
+  );
 }
 
 /**

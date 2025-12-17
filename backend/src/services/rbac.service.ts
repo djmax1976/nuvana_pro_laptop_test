@@ -19,7 +19,6 @@ export interface UserRole {
   role_id: string;
   role_code: string;
   scope: "SYSTEM" | "COMPANY" | "STORE" | "CLIENT";
-  client_id: string | null;
   company_id: string | null;
   store_id: string | null;
   permissions: string[];
@@ -66,15 +65,22 @@ export class RBACService {
 
     // Fetch from database
     const userRoles = await prisma.userRole.findMany({
-      where: {
-        user_id: userId,
-      },
-      include: {
+      where: { user_id: userId },
+      select: {
+        user_role_id: true,
+        user_id: true,
+        role_id: true,
+        company_id: true,
+        store_id: true,
         role: {
-          include: {
+          select: {
+            code: true,
+            scope: true,
             role_permissions: {
-              include: {
-                permission: true,
+              select: {
+                permission: {
+                  select: { code: true },
+                },
               },
             },
           },
@@ -83,18 +89,15 @@ export class RBACService {
     });
 
     // Transform to UserRole format
-    const roles: UserRole[] = userRoles.map((ur: any) => ({
+    const roles: UserRole[] = userRoles.map((ur) => ({
       user_role_id: ur.user_role_id,
       user_id: ur.user_id,
       role_id: ur.role_id,
       role_code: ur.role.code,
       scope: ur.role.scope as "SYSTEM" | "COMPANY" | "STORE" | "CLIENT",
-      client_id: ur.client_id,
       company_id: ur.company_id,
       store_id: ur.store_id,
-      permissions: ur.role.role_permissions.map(
-        (rp: any) => rp.permission.code,
-      ),
+      permissions: ur.role.role_permissions.map((rp) => rp.permission.code),
     }));
 
     // Cache the result (if Redis is available)

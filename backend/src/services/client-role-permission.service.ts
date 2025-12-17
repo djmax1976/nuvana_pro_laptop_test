@@ -105,7 +105,9 @@ export class ClientRolePermissionService {
       include: {
         role_permissions: {
           include: {
-            permission: true,
+            permission: {
+              select: { code: true, permission_id: true },
+            },
           },
         },
       },
@@ -128,7 +130,9 @@ export class ClientRolePermissionService {
     const clientOverrides = await prisma.clientRolePermission.findMany({
       where: { owner_user_id: ownerUserId },
       include: {
-        permission: true,
+        permission: {
+          select: { code: true, permission_id: true },
+        },
       },
     });
 
@@ -256,7 +260,9 @@ export class ClientRolePermissionService {
       include: {
         role_permissions: {
           include: {
-            permission: true,
+            permission: {
+              select: { code: true, permission_id: true },
+            },
           },
         },
       },
@@ -279,7 +285,9 @@ export class ClientRolePermissionService {
         role_id: roleId,
       },
       include: {
-        permission: true,
+        permission: {
+          select: { code: true, permission_id: true },
+        },
       },
     });
 
@@ -570,7 +578,9 @@ export class ClientRolePermissionService {
         role_id: roleId,
       },
       include: {
-        permission: true,
+        permission: {
+          select: { code: true, permission_id: true },
+        },
       },
     });
 
@@ -716,7 +726,9 @@ export class ClientRolePermissionService {
     const userRole = await prisma.userRole.findFirst({
       where: { user_id: userId },
       include: {
-        company: true,
+        company: {
+          select: { owner_user_id: true },
+        },
       },
     });
 

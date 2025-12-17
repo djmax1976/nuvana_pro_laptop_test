@@ -4,7 +4,7 @@ import { getUserById } from "../services/user.service";
 import { AuthService } from "../services/auth.service";
 import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { z } from "zod";
-import { prisma, withRLSTransaction } from "../utils/db";
+import { prisma } from "../utils/db";
 import { RBACService } from "../services/rbac.service";
 import { PERMISSIONS } from "../constants/permissions";
 import type { AuditContext } from "../services/cashier.service";
@@ -72,6 +72,14 @@ export async function authRoutes(fastify: FastifyInstance) {
         // Find user by email
         const user = await prisma.user.findUnique({
           where: { email: email.toLowerCase().trim() },
+          select: {
+            user_id: true,
+            email: true,
+            password_hash: true,
+            status: true,
+            name: true,
+            is_client_user: true,
+          },
         });
 
         if (!user) {
@@ -131,9 +139,11 @@ export async function authRoutes(fastify: FastifyInstance) {
           return;
         }
 
-        // Generate JWT tokens with RBAC
+        // Generate JWT tokens with RBAC data using RLS-aware transaction
+        // This ensures RLS policies are satisfied when querying user_roles table
+        // Returns userRoles for routing logic without needing a second query
         const authService = new AuthService();
-        const { accessToken, refreshToken, roles } =
+        const { accessToken, refreshToken, roles, userRoles } =
           await authService.generateTokenPairWithRBAC(user.user_id, user.email);
 
         // Set httpOnly cookies
@@ -189,18 +199,8 @@ export async function authRoutes(fastify: FastifyInstance) {
           refreshCookieOptions,
         );
 
-        // Fetch user roles to determine routing
-        // Use RLS transaction to ensure RLS policies allow the query
-        // This is critical in AWS environments with connection pooling
-        const userRoles = await withRLSTransaction(user.user_id, async (tx) => {
-          return await tx.userRole.findMany({
-            where: { user_id: user.user_id },
-            include: { role: { select: { code: true, scope: true } } },
-          });
-        });
-
-        // Extract role codes for routing logic
-        const roleCodes = userRoles.map((ur) => ur.role.code);
+        // Extract role codes for routing logic (already have from roles array)
+        const roleCodes = roles;
 
         // Determine if user should access client dashboard
         // A user is a client user if:
@@ -210,7 +210,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         let isClientUser = user.is_client_user;
 
         const hasClientRole = userRoles.some(
-          (ur) => ur.role.scope === "COMPANY" || ur.role.scope === "STORE",
+          (ur) => ur.scope === "COMPANY" || ur.scope === "STORE",
         );
 
         if (!isClientUser && hasClientRole) {
