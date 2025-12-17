@@ -94,4 +94,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT:-3001}/api/health || exit 1
 
 # Start the application (runs migrations first)
-CMD ["./start.sh"]
+# Use shell form to avoid shebang interpretation issues
+CMD ["/bin/sh", "./start.sh"]
