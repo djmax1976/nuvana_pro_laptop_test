@@ -127,7 +127,13 @@ export class CompanyRoleAccessService {
             role: { deleted_at: null }, // Only include non-deleted roles
           },
           include: {
-            role: true,
+            role: {
+              select: {
+                code: true,
+                scope: true,
+                description: true,
+              },
+            },
             assigner: {
               select: {
                 user_id: true,
@@ -188,7 +194,13 @@ export class CompanyRoleAccessService {
             role: { deleted_at: null }, // Only include non-deleted roles
           },
           include: {
-            role: true,
+            role: {
+              select: {
+                code: true,
+                scope: true,
+                description: true,
+              },
+            },
             assigner: {
               select: {
                 user_id: true,
@@ -632,7 +644,14 @@ export class CompanyRoleAccessService {
         },
       },
       include: {
-        role: true,
+        role: {
+          select: {
+            role_id: true,
+            code: true,
+            scope: true,
+            description: true,
+          },
+        },
       },
     });
 

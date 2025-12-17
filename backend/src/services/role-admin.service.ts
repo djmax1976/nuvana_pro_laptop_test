@@ -429,7 +429,11 @@ export class RoleAdminService {
       where: { role_id: roleId },
       include: {
         role_permissions: {
-          include: { permission: true },
+          include: {
+            permission: {
+              select: { code: true, permission_id: true, description: true },
+            },
+          },
         },
       },
     });

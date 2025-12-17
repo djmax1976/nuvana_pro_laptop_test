@@ -6,6 +6,7 @@
 
 -- Update all packs to have correct serial_end based on their game's tickets_per_pack
 -- The formula accounts for packs that may start at a non-zero serial
+-- Skip packs where tickets_per_pack <= 1 to avoid violating serial_start < serial_end constraint
 UPDATE "lottery_packs" p
 SET "serial_end" = LPAD(
     (p.serial_start::INTEGER + g.tickets_per_pack - 1)::TEXT,
@@ -14,7 +15,8 @@ SET "serial_end" = LPAD(
 )
 FROM "lottery_games" g
 WHERE p.game_id = g.game_id
-  AND g.tickets_per_pack IS NOT NULL;
+  AND g.tickets_per_pack IS NOT NULL
+  AND g.tickets_per_pack > 1;
 
 -- Verify the update
 DO $$

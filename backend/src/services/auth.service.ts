@@ -26,10 +26,21 @@ export interface TokenPair {
 }
 
 /**
- * Token generation result with role metadata for cookie expiry
+ * User role with scope information for routing logic
+ */
+export interface UserRoleWithScope {
+  role_code: string;
+  scope: "SYSTEM" | "COMPANY" | "STORE" | "CLIENT";
+  company_id: string | null;
+  store_id: string | null;
+}
+
+/**
+ * Token generation result with role metadata for cookie expiry and routing
  */
 export interface TokenPairWithMeta extends TokenPair {
   roles: string[];
+  userRoles: UserRoleWithScope[];
 }
 
 /**
@@ -242,15 +253,22 @@ export class AuthService {
       // where SET LOCAL was executed
       // The RLS policy should allow this query because user_id matches current_setting
       const userRoles = await tx.userRole.findMany({
-        where: {
-          user_id: user_id,
-        },
-        include: {
+        where: { user_id: user_id },
+        select: {
+          user_role_id: true,
+          user_id: true,
+          role_id: true,
+          company_id: true,
+          store_id: true,
           role: {
-            include: {
+            select: {
+              code: true,
+              scope: true,
               role_permissions: {
-                include: {
-                  permission: true,
+                select: {
+                  permission: {
+                    select: { code: true },
+                  },
                 },
               },
             },
@@ -283,35 +301,27 @@ export class AuthService {
       }
 
       // Transform to UserRole format (matching rbacService.getUserRoles format)
-      return userRoles.map((ur: any) => ({
+      return userRoles.map((ur) => ({
         user_role_id: ur.user_role_id,
         user_id: ur.user_id,
         role_id: ur.role_id,
         role_code: ur.role.code,
         scope: ur.role.scope as "SYSTEM" | "COMPANY" | "STORE" | "CLIENT",
-        client_id: ur.client_id,
         company_id: ur.company_id,
         store_id: ur.store_id,
-        permissions: ur.role.role_permissions.map(
-          (rp: any) => rp.permission.code,
-        ),
+        permissions: ur.role.role_permissions.map((rp) => rp.permission.code),
       }));
     });
 
-    // Extract role codes, collect permissions, and find client_id
+    // Extract role codes and collect permissions
     const roles: string[] = [];
     const permissionsSet = new Set<string>();
-    let client_id: string | undefined;
 
     for (const userRole of userRoles) {
       roles.push(userRole.role_code);
       // Add all permissions from this role
       for (const permission of userRole.permissions) {
         permissionsSet.add(permission);
-      }
-      // If user has CLIENT_OWNER role, extract client_id
-      if (userRole.role_code === "CLIENT_OWNER" && userRole.client_id) {
-        client_id = userRole.client_id;
       }
     }
 
@@ -328,15 +338,15 @@ export class AuthService {
     });
 
     return {
-      accessToken: this.generateAccessToken(
-        user_id,
-        email,
-        roles,
-        permissions,
-        client_id,
-      ),
+      accessToken: this.generateAccessToken(user_id, email, roles, permissions),
       refreshToken: await this.generateRefreshToken(user_id, email),
       roles, // Include roles for cookie expiry determination
+      userRoles: userRoles.map((ur) => ({
+        role_code: ur.role_code,
+        scope: ur.scope,
+        company_id: ur.company_id,
+        store_id: ur.store_id,
+      })), // Include full role data for routing logic
     };
   }
 

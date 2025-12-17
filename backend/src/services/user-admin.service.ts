@@ -513,12 +513,33 @@ export class UserAdminService {
           skip,
           take: limit,
           orderBy: { created_at: "desc" },
-          include: {
+          select: {
+            user_id: true,
+            email: true,
+            name: true,
+            status: true,
+            created_at: true,
+            updated_at: true,
             user_roles: {
-              include: {
-                role: true,
-                company: true,
-                store: true,
+              select: {
+                user_role_id: true,
+                assigned_at: true,
+                company_id: true,
+                store_id: true,
+                role: {
+                  select: {
+                    role_id: true,
+                    code: true,
+                    description: true,
+                    scope: true,
+                  },
+                },
+                company: {
+                  select: { name: true },
+                },
+                store: {
+                  select: { name: true },
+                },
               },
             },
           },
@@ -574,12 +595,33 @@ export class UserAdminService {
     try {
       const user = await prisma.user.findUnique({
         where: { user_id: userId },
-        include: {
+        select: {
+          user_id: true,
+          email: true,
+          name: true,
+          status: true,
+          created_at: true,
+          updated_at: true,
           user_roles: {
-            include: {
-              role: true,
-              company: true,
-              store: true,
+            select: {
+              user_role_id: true,
+              assigned_at: true,
+              company_id: true,
+              store_id: true,
+              role: {
+                select: {
+                  role_id: true,
+                  code: true,
+                  description: true,
+                  scope: true,
+                },
+              },
+              company: {
+                select: { name: true },
+              },
+              store: {
+                select: { name: true },
+              },
             },
           },
         },

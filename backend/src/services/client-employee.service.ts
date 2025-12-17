@@ -450,10 +450,19 @@ export class ClientEmployeeService {
               where: {
                 store_id: { in: targetStoreIds },
               },
-              include: {
-                role: true,
-                store: true,
-                company: true,
+              select: {
+                user_role_id: true,
+                store_id: true,
+                company_id: true,
+                role: {
+                  select: { code: true, description: true },
+                },
+                store: {
+                  select: { name: true },
+                },
+                company: {
+                  select: { name: true },
+                },
               },
             },
           },
@@ -515,12 +524,14 @@ export class ClientEmployeeService {
       where: { user_id: employeeId },
       include: {
         user_roles: {
-          include: {
-            role: true,
+          select: {
+            user_role_id: true,
+            store_id: true,
+            role: {
+              select: { scope: true, code: true },
+            },
             store: {
-              include: {
-                company: true,
-              },
+              select: { name: true },
             },
           },
         },
@@ -677,12 +688,8 @@ export class ClientEmployeeService {
         },
         include: {
           user_roles: {
-            include: {
-              store: {
-                include: {
-                  company: true,
-                },
-              },
+            select: {
+              store_id: true,
             },
           },
         },
