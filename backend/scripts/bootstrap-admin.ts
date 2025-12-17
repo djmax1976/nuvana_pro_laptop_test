@@ -12,7 +12,7 @@
  */
 
 import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../src/utils/public-id";
 
 const prisma = new PrismaClient();

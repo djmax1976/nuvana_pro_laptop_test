@@ -10,7 +10,7 @@
  * Requires DATABASE_URL environment variable or Railway connection.
  */
 
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 
 // Use public URL for local execution
