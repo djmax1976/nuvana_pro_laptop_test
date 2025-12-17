@@ -8,7 +8,13 @@ import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
 import { useStoreTerminals, TerminalWithStatus } from "@/lib/api/stores";
 import { useMenuPermissions } from "@/hooks/useMenuPermissions";
-import { Clock, Loader2, AlertCircle, Ticket } from "lucide-react";
+import {
+  LayoutDashboard,
+  Clock,
+  Loader2,
+  AlertCircle,
+  Ticket,
+} from "lucide-react";
 import { TerminalAuthModal } from "@/components/terminals/TerminalAuthModal";
 
 interface MyStoreSidebarProps {
@@ -51,6 +57,9 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
     enabled: !!firstStoreId && !dashboardLoading,
   });
 
+  // Determine if Dashboard link is active (exact match only)
+  const isDashboardActive = pathname === "/mystore";
+
   // Determine if Clock In/Out link is active
   const isClockInOutActive = pathname === "/mystore/clock-in-out";
 
@@ -88,6 +97,22 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
         <h2 className="text-heading-3 font-bold text-foreground">Nuvana</h2>
       </div>
       <nav className="flex-1 space-y-1 px-3 py-4">
+        {/* Dashboard Link */}
+        <Link
+          href="/mystore"
+          data-testid="dashboard-link"
+          onClick={() => onNavigate?.()}
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+            isDashboardActive
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+          )}
+        >
+          <LayoutDashboard className="h-5 w-5" />
+          <span>Dashboard</span>
+        </Link>
+
         {/* Clock In/Out Link */}
         <Link
           href="/mystore/clock-in-out"

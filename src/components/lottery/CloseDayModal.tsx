@@ -27,13 +27,12 @@ import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, X } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { closeLotteryDay, type DayBin } from "@/lib/api/lottery";
 import { parseSerializedNumber } from "@/lib/utils/lottery-serial-parser";
 
@@ -340,15 +339,11 @@ export function CloseDayModal({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto"
+        className="sm:max-w-[750px] max-h-[90vh] overflow-y-auto"
         data-testid="close-day-modal"
       >
         <DialogHeader>
           <DialogTitle>Close Lottery Day</DialogTitle>
-          <DialogDescription>
-            Scan the 24-digit serial number on the last ticket sold for each
-            active bin. All active bins must be scanned before closing the day.
-          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -375,77 +370,81 @@ export function CloseDayModal({
             </p>
           </div>
 
-          {/* Scanned Bins List */}
-          {scannedBins.length > 0 && (
+          {/* Bin Chips Grid - 10 columns with horizontal layout */}
+          {activeBins.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-sm font-medium">
-                  Scanned Bins ({scannedBins.length}/{activeBins.length})
+                  Bins ({scannedBins.length}/{activeBins.length} scanned)
                 </label>
+                {scannedBins.length > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    Click scanned bin to undo
+                  </span>
+                )}
               </div>
               <div
-                className="border rounded-md divide-y max-h-60 overflow-y-auto"
-                data-testid="scanned-bins-list"
+                className="grid grid-cols-10 gap-1.5"
+                data-testid="bin-chips-grid"
               >
-                {scannedBins.map((bin) => (
-                  <div
-                    key={bin.bin_id}
-                    className="p-3 flex items-center justify-between hover:bg-muted/50"
-                    data-testid={`scanned-bin-${bin.bin_id}`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium">
-                        Bin {bin.bin_number} | {bin.game_name} | Ending #
-                        {bin.closing_serial}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        Pack: {bin.pack_number}
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleRemoveBin(bin.bin_id)}
-                      disabled={isSubmitting}
-                      data-testid={`remove-bin-${bin.bin_id}`}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+                {activeBins
+                  .sort((a, b) => a.bin_number - b.bin_number)
+                  .map((bin) => {
+                    const scannedBin = scannedBins.find(
+                      (s) => s.bin_id === bin.bin_id,
+                    );
+                    const isScanned = !!scannedBin;
 
-          {/* Pending Bins (Still need scanning) */}
-          {pendingBins.length > 0 && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-amber-600 dark:text-amber-500">
-                Pending Bins ({pendingBins.length} remaining)
-              </label>
-              <div
-                className="border border-amber-300 dark:border-amber-700 rounded-md divide-y max-h-40 overflow-y-auto bg-amber-50/50 dark:bg-amber-950/20"
-                data-testid="pending-bins-list"
-              >
-                {pendingBins.map((bin) => (
-                  <div
-                    key={bin.bin_id}
-                    className="p-2 text-sm text-muted-foreground"
-                    data-testid={`pending-bin-${bin.bin_id}`}
-                  >
-                    Bin {bin.bin_number} - {bin.pack?.game_name || "Unknown"}
-                  </div>
-                ))}
+                    return (
+                      <button
+                        key={bin.bin_id}
+                        type="button"
+                        onClick={() => isScanned && handleRemoveBin(bin.bin_id)}
+                        disabled={isSubmitting || !isScanned}
+                        className={`
+                          flex items-center h-7 rounded border transition-colors
+                          ${
+                            isScanned
+                              ? "bg-green-100 dark:bg-green-900/40 border-green-500 dark:border-green-600 cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/60"
+                              : "bg-muted/50 border-muted-foreground/20 cursor-default justify-center"
+                          }
+                        `}
+                        data-testid={`bin-chip-${bin.bin_id}`}
+                        aria-label={
+                          isScanned
+                            ? `Bin ${bin.bin_number} scanned with serial ${scannedBin.closing_serial}. Click to undo.`
+                            : `Bin ${bin.bin_number} pending scan`
+                        }
+                      >
+                        {isScanned ? (
+                          <>
+                            <span className="w-[40%] text-center text-xs font-bold text-green-700 dark:text-green-300">
+                              {bin.bin_number}
+                            </span>
+                            <span className="text-gray-300 dark:text-gray-600">
+                              |
+                            </span>
+                            <span className="w-[60%] text-center text-xs font-mono font-black text-green-800 dark:text-green-200">
+                              {scannedBin.closing_serial}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-xs font-medium text-muted-foreground">
+                            {bin.bin_number}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
               </div>
             </div>
           )}
 
           {/* All Bins Scanned - Success Message */}
           {allBinsScanned && (
-            <div className="p-3 bg-green-50 dark:bg-green-950/20 border border-green-300 dark:border-green-700 rounded-md">
-              <p className="text-sm font-medium text-green-700 dark:text-green-400">
-                All bins scanned! Ready to close the day.
+            <div className="p-2 bg-green-50 dark:bg-green-950/20 border border-green-300 dark:border-green-700 rounded-md">
+              <p className="text-sm font-medium text-green-700 dark:text-green-400 text-center">
+                ✓ All bins scanned - Ready to close
               </p>
             </div>
           )}

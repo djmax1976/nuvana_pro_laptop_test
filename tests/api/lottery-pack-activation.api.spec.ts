@@ -570,6 +570,88 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     expect(body.success, "Response should indicate success").toBe(true);
   });
 
+  test("6.3-API-007b: [P0] SECURITY - should allow COMPANY scope user to activate packs from any store in their company", async ({
+    clientUserApiRequest,
+    clientUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a CLIENT_OWNER with COMPANY scope
+    // AND: A pack exists in a store within my company
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game",
+    });
+    const pack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: clientUser.store_id,
+      pack_number: "PACK-007b-COMPANY",
+      serial_start: "184303159650093783374530",
+      serial_end: "184303159650093783374680",
+      status: "RECEIVED",
+    });
+
+    // WHEN: Activating pack as COMPANY scope user
+    const response = await clientUserApiRequest.put(
+      `/api/lottery/packs/${pack.pack_id}/activate`,
+    );
+
+    // THEN: Request succeeds (COMPANY scope has access to all stores in company)
+    expect(response.status(), "COMPANY scope should allow activation").toBe(
+      200,
+    );
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(body.data.status, "Pack status should be ACTIVE").toBe("ACTIVE");
+  });
+
+  test("6.3-API-007c: [P0] SECURITY - COMPANY scope user cannot activate packs from different company", async ({
+    clientUserApiRequest,
+    clientUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a CLIENT_OWNER with COMPANY scope
+    // AND: A pack exists in a store from a DIFFERENT company
+    const otherOwner = await createUser(prismaClient);
+    const otherCompany = await createCompany(prismaClient, {
+      owner_user_id: otherOwner.user_id,
+    });
+    const otherStore = await createStore(prismaClient, {
+      company_id: otherCompany.company_id,
+    });
+    const game = await createLotteryGame(prismaClient, {
+      name: "Test Game",
+    });
+    const otherPack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: otherStore.store_id,
+      pack_number: "PACK-007c-OTHER-COMPANY",
+      serial_start: "184303159650093783374530",
+      serial_end: "184303159650093783374680",
+      status: "RECEIVED",
+    });
+
+    // WHEN: Attempting to activate pack from different company
+    const response = await clientUserApiRequest.put(
+      `/api/lottery/packs/${otherPack.pack_id}/activate`,
+    );
+
+    // THEN: Request is rejected with 403 Forbidden (RLS violation - different company)
+    expect(
+      response.status(),
+      "Should return 403 for cross-company activation",
+    ).toBe(403);
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be FORBIDDEN").toBe("FORBIDDEN");
+
+    // AND: Pack status remains unchanged
+    const unchangedPack = await prismaClient.lotteryPack.findUnique({
+      where: { pack_id: otherPack.pack_id },
+    });
+    expect(unchangedPack?.status, "Pack status should remain RECEIVED").toBe(
+      "RECEIVED",
+    );
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   // STATUS VALIDATION TESTS (P0 - Business Logic)
   // ═══════════════════════════════════════════════════════════════════════════

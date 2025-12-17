@@ -35,6 +35,7 @@ import {
 import {
   createCompany,
   createStore,
+  createUser,
 } from "../support/factories/database.factory";
 import { createShift } from "../support/helpers";
 import { LotteryPackStatus, LotteryGameStatus } from "@prisma/client";
@@ -631,6 +632,92 @@ test.describe("6.11-API: Lottery Query API Endpoints", () => {
     expect(body.error.code, "Error code should be PACK_NOT_FOUND").toBe(
       "PACK_NOT_FOUND",
     );
+  });
+
+  test("6.11-API-013a: [P0] GET /api/lottery/packs/:packId - should allow COMPANY scope user to access any pack in their company (AC #3)", async ({
+    clientUserApiRequest,
+    clientUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a CLIENT_OWNER with COMPANY scope
+    // AND: A pack exists in a store within my company
+    const game = await createLotteryGame(prismaClient, { name: "Test Game" });
+    const pack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: clientUser.store_id,
+      pack_number: "COMPANY-SCOPE-PACK-001",
+      serial_start: "000001",
+      serial_end: "000100",
+    });
+
+    // WHEN: I query the pack as a COMPANY scope user
+    const response = await clientUserApiRequest.get(
+      `/api/lottery/packs/${pack.pack_id}`,
+    );
+
+    // THEN: I receive 200 OK (COMPANY scope has access to all stores in company)
+    expect(response.status(), "Expected 200 OK for COMPANY scope access").toBe(
+      200,
+    );
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+    expect(body.data.pack_id, "Pack ID should match").toBe(pack.pack_id);
+    expect(body.data.pack_number, "Pack number should match").toBe(
+      pack.pack_number,
+    );
+  });
+
+  test("6.11-API-013b: [P0] GET /api/lottery/packs/:packId - COMPANY scope user cannot access pack from different company", async ({
+    clientUserApiRequest,
+    clientUser,
+    prismaClient,
+  }) => {
+    // GIVEN: I am authenticated as a CLIENT_OWNER with COMPANY scope
+    // AND: A pack exists in a store from a DIFFERENT company
+    const otherOwnerData = createUser({
+      name: "Test Other Owner",
+    });
+    const otherOwner = await prismaClient.user.create({
+      data: otherOwnerData,
+    });
+    const otherCompany = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: otherOwner.user_id }),
+    });
+    const otherStore = await prismaClient.store.create({
+      data: {
+        ...createStore({ company_id: otherCompany.company_id }),
+        location_json: {} as any,
+      },
+    });
+    const game = await createLotteryGame(prismaClient, { name: "Test Game" });
+    const otherPack = await createLotteryPack(prismaClient, {
+      game_id: game.game_id,
+      store_id: otherStore.store_id,
+      pack_number: "OTHER-COMPANY-PACK-001",
+    });
+
+    // WHEN: I try to query a pack from a different company
+    const response = await clientUserApiRequest.get(
+      `/api/lottery/packs/${otherPack.pack_id}`,
+    );
+
+    // THEN: I receive 403 Forbidden (RLS violation - different company)
+    expect(
+      response.status(),
+      "Expected 403 Forbidden for cross-company access",
+    ).toBe(403);
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error.code, "Error code should be FORBIDDEN").toBe("FORBIDDEN");
+
+    // Cleanup
+    await withBypassClient(async (bypass) => {
+      await bypass.store.delete({ where: { store_id: otherStore.store_id } });
+      await bypass.company.delete({
+        where: { company_id: otherCompany.company_id },
+      });
+      await bypass.user.delete({ where: { user_id: otherOwner.user_id } });
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

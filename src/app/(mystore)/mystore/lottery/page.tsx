@@ -1,9 +1,18 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
-import { Loader2, AlertCircle, Plus, Zap, Moon } from "lucide-react";
+import {
+  Loader2,
+  AlertCircle,
+  Plus,
+  Zap,
+  Moon,
+  PenLine,
+  X,
+  Save,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   useLotteryPacks,
@@ -25,10 +34,29 @@ import {
   PackDetailsModal,
   type PackDetailsData,
 } from "@/components/lottery/PackDetailsModal";
-import { receivePack } from "@/lib/api/lottery";
+import { ManualEntryAuthModal } from "@/components/lottery/ManualEntryAuthModal";
+import { ManualEntryIndicator } from "@/components/lottery/ManualEntryIndicator";
+import { receivePack, closeLotteryDay } from "@/lib/api/lottery";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle2 } from "lucide-react";
+
+/**
+ * Manual entry state interface
+ * Tracks manual entry mode activation and authorization
+ *
+ * MCP Guidance Applied:
+ * - FE-001: STATE_MANAGEMENT - Sensitive authorization state managed in memory
+ * - SEC-010: AUTHZ - Authorization tracked with user ID for audit
+ */
+interface ManualEntryState {
+  isActive: boolean;
+  authorizedBy: {
+    userId: string;
+    name: string;
+  } | null;
+  authorizedAt: Date | null;
+}
 
 /**
  * Lottery Management Page - Day-based Bin View
@@ -36,15 +64,24 @@ import { CheckCircle2 } from "lucide-react";
  * Route: /mystore/lottery
  *
  * Story: MyStore Lottery Page Redesign
+ * Story: Lottery Manual Entry Feature
  *
  * @requirements
  * - Display bins table with columns (Bin, Name, Amount, Pack #, Starting, Ending)
  * - Starting = first opening of the day OR last closing OR serial_start
- * - Ending = last closing of the day (grayed out, read-only)
+ * - Ending = last closing of the day (grayed out, read-only by default)
  * - Click row to open pack details modal
  * - Collapsible depleted packs section
  * - Keep Receive Pack and Activate Pack buttons
+ * - Manual Entry button: Opens auth modal, then enables inline ending serial inputs
+ * - Close Day: When in manual entry mode, saves data from table inputs
  * - AC #8: All API calls use proper authentication (JWT tokens), RLS policies ensure store access only
+ *
+ * MCP Guidance Applied:
+ * - FE-002: FORM_VALIDATION - Strict validation for 3-digit serial numbers
+ * - SEC-014: INPUT_VALIDATION - Length, type, and format constraints on inputs
+ * - SEC-010: AUTHZ - Permission-based access control for manual entry
+ * - FE-001: STATE_MANAGEMENT - Secure state management for auth data
  */
 export default function LotteryManagementPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useClientAuth();
@@ -63,6 +100,23 @@ export default function LotteryManagementPage() {
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Manual entry state management
+  const [manualEntryAuthModalOpen, setManualEntryAuthModalOpen] =
+    useState(false);
+  const [manualEntryState, setManualEntryState] = useState<ManualEntryState>({
+    isActive: false,
+    authorizedBy: null,
+    authorizedAt: null,
+  });
+
+  // Manual entry values - keyed by bin_id
+  const [manualEndingValues, setManualEndingValues] = useState<
+    Record<string, string>
+  >({});
+
+  // Submission state for manual entry close day
+  const [isSubmittingManualClose, setIsSubmittingManualClose] = useState(false);
 
   // Get first active store ID from user's accessible stores
   const storeId =
@@ -136,6 +190,174 @@ export default function LotteryManagementPage() {
       throw error; // Error handling is done in the form component
     }
   };
+
+  /**
+   * Handle Manual Entry button click
+   * Opens the auth modal for PIN verification
+   */
+  const handleManualEntryClick = useCallback(() => {
+    setManualEntryAuthModalOpen(true);
+  }, []);
+
+  /**
+   * Handle Manual Entry authorization success
+   * Called when user successfully verifies with LOTTERY_MANUAL_ENTRY permission
+   */
+  const handleManualEntryAuthorized = useCallback(
+    (authorizedBy: { userId: string; name: string }) => {
+      setManualEntryState({
+        isActive: true,
+        authorizedBy,
+        authorizedAt: new Date(),
+      });
+      setManualEntryAuthModalOpen(false);
+
+      // Clear any previous manual entry values
+      setManualEndingValues({});
+
+      toast({
+        title: "Manual Entry Enabled",
+        description: `Authorized by ${authorizedBy.name}. You can now enter ending serial numbers.`,
+      });
+    },
+    [toast],
+  );
+
+  /**
+   * Handle cancel/exit manual entry mode
+   * Clears authorization and entered values
+   */
+  const handleCancelManualEntry = useCallback(() => {
+    setManualEntryState({
+      isActive: false,
+      authorizedBy: null,
+      authorizedAt: null,
+    });
+    setManualEndingValues({});
+
+    toast({
+      title: "Manual Entry Cancelled",
+      description: "Manual entry mode has been deactivated.",
+    });
+  }, [toast]);
+
+  /**
+   * Handle ending value change in manual entry mode
+   * Called when user types in an ending serial input
+   */
+  const handleEndingValueChange = useCallback(
+    (binId: string, value: string) => {
+      setManualEndingValues((prev) => ({
+        ...prev,
+        [binId]: value,
+      }));
+    },
+    [],
+  );
+
+  /**
+   * Handle input complete (3 digits entered)
+   * Can be used for audio feedback or other UX enhancements
+   */
+  const handleInputComplete = useCallback((binId: string) => {
+    // Optional: Add audio feedback or visual confirmation
+    // The auto-advance is handled in DayBinsTable
+  }, []);
+
+  /**
+   * Check if all active bins have valid 3-digit ending values
+   * Used to enable/disable the Close Day button in manual entry mode
+   */
+  const canCloseManualEntry = useMemo(() => {
+    if (!manualEntryState.isActive || !dayBinsData?.bins) return false;
+
+    const activeBins = dayBinsData.bins.filter((bin) => bin.pack !== null);
+    if (activeBins.length === 0) return false;
+
+    return activeBins.every((bin) => {
+      const value = manualEndingValues[bin.bin_id];
+      return value && /^\d{3}$/.test(value);
+    });
+  }, [manualEntryState.isActive, dayBinsData?.bins, manualEndingValues]);
+
+  /**
+   * Handle Close Day in manual entry mode
+   * Submits the manually entered ending serial numbers
+   */
+  const handleManualCloseDay = useCallback(async () => {
+    if (!canCloseManualEntry || !storeId || !dayBinsData?.bins) {
+      return;
+    }
+
+    setIsSubmittingManualClose(true);
+
+    try {
+      // Build closings array from manual entry values
+      const activeBins = dayBinsData.bins.filter((bin) => bin.pack !== null);
+      const closings = activeBins.map((bin) => ({
+        pack_id: bin.pack!.pack_id,
+        closing_serial: manualEndingValues[bin.bin_id],
+      }));
+
+      // Submit to API with MANUAL entry method
+      const response = await closeLotteryDay(storeId, {
+        closings,
+        entry_method: "MANUAL",
+      });
+
+      if (response.success && response.data) {
+        // Reset manual entry state
+        setManualEntryState({
+          isActive: false,
+          authorizedBy: null,
+          authorizedAt: null,
+        });
+        setManualEndingValues({});
+
+        // Invalidate data to refresh the table
+        invalidateAll();
+
+        toast({
+          title: "Day Closed Successfully",
+          description: `Closed ${response.data.closings_created} pack(s) for business day ${response.data.business_day}`,
+        });
+
+        setSuccessMessage("Lottery day closed successfully via manual entry");
+        setTimeout(() => setSuccessMessage(null), 5000);
+      } else {
+        throw new Error("Failed to close lottery day");
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to close lottery day";
+      toast({
+        title: "Close Day Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmittingManualClose(false);
+    }
+  }, [
+    canCloseManualEntry,
+    storeId,
+    dayBinsData?.bins,
+    manualEndingValues,
+    invalidateAll,
+    toast,
+  ]);
+
+  /**
+   * Handle Close Day button click
+   * Routes to either manual close (if in manual entry mode) or opens scan modal
+   */
+  const handleCloseDayClick = useCallback(() => {
+    if (manualEntryState.isActive) {
+      handleManualCloseDay();
+    } else {
+      setCloseDayDialogOpen(true);
+    }
+  }, [manualEntryState.isActive, handleManualCloseDay]);
 
   // Loading state - waiting for auth or dashboard data
   if (authLoading || dashboardLoading) {
@@ -281,34 +503,79 @@ export default function LotteryManagementPage() {
             {storeName} &bull; {currentDate}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             onClick={() => setReceptionDialogOpen(true)}
             data-testid="receive-pack-button"
+            disabled={manualEntryState.isActive}
           >
             <Plus className="mr-2 h-4 w-4" />
             Receive Pack
           </Button>
+
+          {/* Manual Entry Button - Shows Cancel when active */}
+          {manualEntryState.isActive ? (
+            <Button
+              onClick={handleCancelManualEntry}
+              variant="destructive"
+              data-testid="cancel-manual-entry-button"
+            >
+              <X className="mr-2 h-4 w-4" />
+              Cancel Manual Entry
+            </Button>
+          ) : (
+            <Button
+              onClick={handleManualEntryClick}
+              variant="outline"
+              data-testid="manual-entry-button"
+              disabled={!dayBinsData?.bins.some((bin) => bin.pack !== null)}
+            >
+              <PenLine className="mr-2 h-4 w-4" />
+              Manual Entry
+            </Button>
+          )}
+
+          {/* Close Day Button - Different behavior based on manual entry mode */}
           <Button
-            onClick={() => setCloseDayDialogOpen(true)}
-            variant="outline"
+            onClick={handleCloseDayClick}
+            variant={manualEntryState.isActive ? "default" : "outline"}
             data-testid="close-day-button"
-            disabled={!dayBinsData?.bins.some((bin) => bin.pack !== null)}
+            disabled={
+              manualEntryState.isActive
+                ? !canCloseManualEntry || isSubmittingManualClose
+                : !dayBinsData?.bins.some((bin) => bin.pack !== null)
+            }
           >
-            <Moon className="mr-2 h-4 w-4" />
-            Close Day
+            {isSubmittingManualClose ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : manualEntryState.isActive ? (
+              <Save className="mr-2 h-4 w-4" />
+            ) : (
+              <Moon className="mr-2 h-4 w-4" />
+            )}
+            {manualEntryState.isActive ? "Save & Close Day" : "Close Day"}
           </Button>
+
           <Button
             onClick={() => setActivationDialogOpen(true)}
             variant="outline"
             data-testid="activate-pack-button"
-            disabled={receivedPacks.length === 0}
+            disabled={receivedPacks.length === 0 || manualEntryState.isActive}
           >
             <Zap className="mr-2 h-4 w-4" />
             Activate Pack
           </Button>
         </div>
       </div>
+
+      {/* Manual Entry Mode Indicator */}
+      {manualEntryState.isActive && (
+        <ManualEntryIndicator
+          isActive={manualEntryState.isActive}
+          authorizedBy={manualEntryState.authorizedBy}
+          authorizedAt={manualEntryState.authorizedAt}
+        />
+      )}
 
       {/* Success Message */}
       {successMessage && (
@@ -354,6 +621,10 @@ export default function LotteryManagementPage() {
           <DayBinsTable
             bins={dayBinsData.bins}
             onRowClick={handlePackDetailsClick}
+            manualEntryMode={manualEntryState.isActive}
+            endingValues={manualEndingValues}
+            onEndingChange={handleEndingValueChange}
+            onInputComplete={handleInputComplete}
           />
 
           {/* Depleted Packs Section (Collapsible) */}
@@ -403,8 +674,8 @@ export default function LotteryManagementPage() {
         isLoading={packDetailsLoading}
       />
 
-      {/* Close Day Modal */}
-      {dayBinsData && (
+      {/* Close Day Modal - Only used for scan mode */}
+      {dayBinsData && !manualEntryState.isActive && (
         <CloseDayModal
           storeId={storeId}
           bins={dayBinsData.bins}
@@ -415,6 +686,16 @@ export default function LotteryManagementPage() {
             setSuccessMessage("Lottery day closed successfully");
             setTimeout(() => setSuccessMessage(null), 5000);
           }}
+        />
+      )}
+
+      {/* Manual Entry Auth Modal */}
+      {storeId && (
+        <ManualEntryAuthModal
+          open={manualEntryAuthModalOpen}
+          onOpenChange={setManualEntryAuthModalOpen}
+          storeId={storeId}
+          onAuthorized={handleManualEntryAuthorized}
         />
       )}
     </div>

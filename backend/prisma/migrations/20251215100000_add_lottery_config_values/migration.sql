@@ -37,17 +37,10 @@ INSERT INTO "lottery_config_values" ("config_type", "amount", "display_order") V
     ('TICKET_PRICE', 30.00, 8),
     ('TICKET_PRICE', 50.00, 9);
 
--- Seed data: Standard pack values
+-- Seed data: Standard pack values (300 and 900 only)
 INSERT INTO "lottery_config_values" ("config_type", "amount", "display_order") VALUES
-    ('PACK_VALUE', 150.00, 1),
-    ('PACK_VALUE', 200.00, 2),
-    ('PACK_VALUE', 250.00, 3),
-    ('PACK_VALUE', 300.00, 4),
-    ('PACK_VALUE', 900.00, 5),
-    ('PACK_VALUE', 600.00, 6),
-    ('PACK_VALUE', 750.00, 7),
-    ('PACK_VALUE', 1000.00, 8),
-    ('PACK_VALUE', 1500.00, 9);
+    ('PACK_VALUE', 300.00, 1),
+    ('PACK_VALUE', 900.00, 2);
 
 -- Add RLS policy for lottery_config_values (read-only for all authenticated users)
 ALTER TABLE "lottery_config_values" ENABLE ROW LEVEL SECURITY;

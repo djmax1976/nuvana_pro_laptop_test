@@ -1820,6 +1820,7 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                   store_id: { type: "string", format: "uuid" },
                   opened_by: { type: "string", format: "uuid" },
                   cashier_id: { type: "string", format: "uuid" },
+                  cashier_name: { type: "string" },
                   pos_terminal_id: {
                     type: "string",
                     format: "uuid",
@@ -1873,6 +1874,7 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                 store_id: activeShift.store_id,
                 opened_by: activeShift.opened_by,
                 cashier_id: activeShift.cashier_id,
+                cashier_name: activeShift.cashier.name,
                 pos_terminal_id: activeShift.pos_terminal_id,
                 opened_at: activeShift.opened_at.toISOString(),
                 opening_cash: activeShift.opening_cash.toNumber(),

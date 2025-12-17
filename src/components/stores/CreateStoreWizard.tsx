@@ -103,10 +103,10 @@ const storeInfoSchema = z.object({
 
 /**
  * Password regex matching backend validation
- * Requires: 8+ chars, uppercase, lowercase, number, special char (@$!%*?&)
+ * Requires: 8+ chars, uppercase, lowercase, number, special char (!@#$%^&*(),.?":{}|<>)
  */
 const passwordRegex =
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])[\w!@#$%^&*(),.?":{}|<>]{8,}$/;
 
 /**
  * Step 2: Store Login and Terminals schema
@@ -121,7 +121,7 @@ const loginTerminalsSchema = z.object({
     .min(8, "Password must be at least 8 characters")
     .regex(
       passwordRegex,
-      "Password must include uppercase, lowercase, number, and special character (@$!%*?&)",
+      "Password must include uppercase, lowercase, number, and special character (!@#$%^&* etc.)",
     ),
 });
 
@@ -560,7 +560,7 @@ export function CreateStoreWizard({
                         </FormControl>
                         <FormDescription>
                           Minimum 8 characters with uppercase, lowercase,
-                          number, and special character (@$!%*?&)
+                          number, and special character (!@#$%^&* etc.)
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
