@@ -146,7 +146,8 @@ test.describe("1.6-API-002: JWT Token Validation Middleware", () => {
     const body = await response.json();
     expect(body).toHaveProperty("error");
     expect(body.error).toHaveProperty("code", "UNAUTHORIZED");
-    expect(body.error.message).toContain("token");
+    // Use case-insensitive match for "token" to handle variations like "Token structure is invalid"
+    expect(body.error.message.toLowerCase()).toContain("token");
   });
 
   test("[P0] 1.6-API-002-004: Protected route should return 401 for missing access token cookie", async ({

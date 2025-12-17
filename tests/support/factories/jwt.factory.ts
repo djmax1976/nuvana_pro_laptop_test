@@ -24,6 +24,10 @@ export type JWTTokenPayload = {
   exp?: number; // Expiration timestamp (Unix seconds)
   iat?: number; // Issued at timestamp (Unix seconds)
   type?: "access" | "refresh"; // Token type
+  // Phase 2: RLS scope information (set from user roles)
+  is_system_admin?: boolean; // true if user has SUPERADMIN role with SYSTEM scope
+  company_ids?: string[]; // All company_ids user has access to
+  store_ids?: string[]; // All store_ids user has access to
 };
 
 /**
@@ -39,6 +43,10 @@ export const createJWTAccessTokenPayload = (
   roles: ["USER"],
   permissions: ["READ"],
   type: "access",
+  // Phase 2: Default scope information
+  is_system_admin: false,
+  company_ids: [],
+  store_ids: [],
   ...overrides,
 });
 
@@ -202,6 +210,7 @@ export const createAdminJWTAccessToken = (
   return createJWTAccessToken({
     roles: ["ADMIN"],
     permissions: ["READ", "WRITE", "DELETE", "ADMIN"],
+    is_system_admin: true, // Phase 2: Set admin flag
     ...overrides,
   });
 };

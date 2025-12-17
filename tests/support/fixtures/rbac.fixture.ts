@@ -590,6 +590,10 @@ export const test = base.extend<RBACFixture>({
       email: user.email,
       roles: ["SUPERADMIN"],
       permissions: ["*"], // Superadmin has all permissions
+      // Phase 2: RLS scope information
+      is_system_admin: true, // SUPERADMIN has system-wide access
+      company_ids: [], // System admin doesn't need specific company access
+      store_ids: [], // System admin doesn't need specific store access
     });
 
     const superadminUser = {
@@ -723,6 +727,10 @@ export const test = base.extend<RBACFixture>({
         "TRANSACTION_CREATE",
         "TRANSACTION_READ",
       ],
+      // Phase 2: RLS scope information
+      is_system_admin: false,
+      company_ids: [company.company_id], // Corporate admin has access to their company
+      store_ids: [store.store_id], // Also has access to stores in their company
     });
 
     const corporateAdminUser = {
@@ -1009,6 +1017,10 @@ export const test = base.extend<RBACFixture>({
       email: user.email,
       roles: ["STORE_MANAGER"],
       permissions: storeManagerPermissions,
+      // Phase 2: RLS scope information
+      is_system_admin: false,
+      company_ids: [company.company_id], // Store manager has company-level visibility
+      store_ids: [store.store_id], // Store manager has access to their assigned store
     });
 
     const storeManagerUser = {
@@ -1910,6 +1922,10 @@ export const test = base.extend<RBACFixture>({
       email: user.email,
       roles: ["CLIENT_OWNER"],
       permissions: clientPermissions,
+      // Phase 2: RLS scope information
+      is_system_admin: false,
+      company_ids: [company.company_id], // Client owner has access to their own company
+      store_ids: [store.store_id], // And stores within their company
     });
 
     const clientUser = {
@@ -2440,6 +2456,10 @@ export const test = base.extend<RBACFixture>({
       email: user.email,
       roles: ["CLIENT_USER"],
       permissions: cashierPermissions,
+      // Phase 2: RLS scope information
+      is_system_admin: false,
+      company_ids: [company.company_id],
+      store_ids: [store.store_id],
     });
 
     const cashierUser = {
@@ -2901,6 +2921,10 @@ export const test = base.extend<RBACFixture>({
         "LOTTERY_BIN_CONFIG_READ",
         "LOTTERY_BIN_CONFIG_WRITE",
       ],
+      // Phase 2: RLS scope information
+      is_system_admin: false,
+      company_ids: [company.company_id],
+      store_ids: [store.store_id],
     });
 
     const anotherStoreManagerUser = {
