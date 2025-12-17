@@ -404,6 +404,9 @@ model Shift {
   @@index([store_id, status])
   @@index([store_id, opened_at])
   @@index([public_id])
+  // NOTE: Additional partial index for active shift lookups exists in migration
+  // 20251217_add_performance_indexes: idx_shifts_terminal_status_open
+  // WHERE pos_terminal_id = X AND status = Y AND closed_at IS NULL
   @@map("shifts")
 }
 

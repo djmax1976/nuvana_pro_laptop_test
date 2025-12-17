@@ -793,6 +793,7 @@ export class StoreService {
   async getStoreTerminals(storeId: string, userId: string) {
     try {
       // Check if user has access to the store (handles SYSTEM scope bypass)
+      // Note: checkUserStoreAccess also verifies store exists, so no redundant check needed
       let hasAccess: boolean;
       try {
         hasAccess = await this.checkUserStoreAccess(userId, storeId);
@@ -808,59 +809,52 @@ export class StoreService {
         throw new Error("Forbidden: You do not have access to this store");
       }
 
-      // Verify store exists (checkUserStoreAccess already verified, but double-check for safety)
-      const store = await prisma.store.findUnique({
-        where: {
-          store_id: storeId,
-        },
-      });
-
-      if (!store) {
-        throw new Error(`Store with ID ${storeId} not found`);
-      }
-
-      // Get all non-deleted terminals for the store
+      // PERFORMANCE OPTIMIZATION: Use eager loading with filtered relation to eliminate N+1 queries
+      // Instead of making N separate queries for each terminal's active shift, we fetch all data
+      // in a single query using Prisma's include with filtered relations.
+      // This reduces from N+1 queries to just 2 queries (terminals + shifts via IN clause).
       const terminals = await prisma.pOSTerminal.findMany({
         where: {
           store_id: storeId,
           deleted_at: null, // Only get non-deleted terminals
+        },
+        include: {
+          // Include only active shifts - Prisma will use efficient IN clause
+          shifts: {
+            where: {
+              status: {
+                in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"],
+              },
+              closed_at: null,
+            },
+            take: 1, // We only need to know if at least one exists
+            select: {
+              shift_id: true, // Minimal data - just need to check existence
+            },
+          },
         },
         orderBy: {
           name: "asc",
         },
       });
 
-      // For each terminal, check if it has an active shift
-      const terminalsWithStatus = await Promise.all(
-        terminals.map(async (terminal) => {
-          // Check for active shifts (status IN ['OPEN', 'ACTIVE', 'CLOSING', 'RECONCILING'])
-          const activeShift = await prisma.shift.findFirst({
-            where: {
-              pos_terminal_id: terminal.pos_terminal_id,
-              status: {
-                in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"],
-              },
-              closed_at: null,
-            },
-          });
-
-          return {
-            pos_terminal_id: terminal.pos_terminal_id,
-            store_id: terminal.store_id,
-            name: terminal.name,
-            device_id: terminal.device_id,
-            connection_type: terminal.connection_type,
-            connection_config: terminal.connection_config,
-            vendor_type: terminal.vendor_type,
-            terminal_status: terminal.terminal_status,
-            last_sync_at: terminal.last_sync_at,
-            sync_status: terminal.sync_status,
-            has_active_shift: !!activeShift,
-            created_at: terminal.created_at,
-            updated_at: terminal.updated_at,
-          };
-        }),
-      );
+      // Map terminals to response format with has_active_shift boolean
+      // This is an O(N) in-memory operation, much faster than N database queries
+      const terminalsWithStatus = terminals.map((terminal) => ({
+        pos_terminal_id: terminal.pos_terminal_id,
+        store_id: terminal.store_id,
+        name: terminal.name,
+        device_id: terminal.device_id,
+        connection_type: terminal.connection_type,
+        connection_config: terminal.connection_config,
+        vendor_type: terminal.vendor_type,
+        terminal_status: terminal.terminal_status,
+        last_sync_at: terminal.last_sync_at,
+        sync_status: terminal.sync_status,
+        has_active_shift: terminal.shifts.length > 0,
+        created_at: terminal.created_at,
+        updated_at: terminal.updated_at,
+      }));
 
       return terminalsWithStatus;
     } catch (error: any) {
