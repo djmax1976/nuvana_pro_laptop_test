@@ -78,3 +78,4 @@ my-files/
 bmad/
 # Local Netlify folder
 .netlify
+docs/

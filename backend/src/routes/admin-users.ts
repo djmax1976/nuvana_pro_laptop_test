@@ -14,6 +14,7 @@ import {
   updateUserStatusSchema,
   listUsersQuerySchema,
 } from "../schemas/user.schema";
+import { userAccessCacheService } from "../services/user-access-cache.service";
 
 // UUID validation helper - accepts standard UUIDs including nil UUID
 const UUID_REGEX =
@@ -357,6 +358,10 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           auditContext,
         );
 
+        // PHASE 4: Invalidate user access cache when status changes
+        // Deactivated users should have their cache cleared to force re-auth
+        await userAccessCacheService.invalidateUserCache(userId);
+
         reply.code(200);
         reply.send({
           success: true,
@@ -460,6 +465,10 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           },
           auditContext,
         );
+
+        // PHASE 4: Invalidate user access cache when roles change
+        // This ensures the next permission check fetches fresh data
+        await userAccessCacheService.invalidateUserCache(userId);
 
         reply.code(201);
         reply.send({
@@ -578,6 +587,10 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
 
         await userAdminService.revokeRole(userId, userRoleId, auditContext);
 
+        // PHASE 4: Invalidate user access cache when roles change
+        // This ensures the next permission check fetches fresh data
+        await userAccessCacheService.invalidateUserCache(userId);
+
         reply.code(200);
         reply.send({
           success: true,
@@ -673,6 +686,10 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           userId,
           auditContext,
         );
+
+        // PHASE 4: Invalidate user access cache when user is deleted
+        // Clean up cache entry for deleted user
+        await userAccessCacheService.invalidateUserCache(userId);
 
         reply.code(200);
         reply.send({

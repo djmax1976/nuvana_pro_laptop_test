@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
 import { getRedisClient } from "../utils/redis";
 import { withRLSTransaction } from "../utils/db";
+import { userAccessCacheService } from "./user-access-cache.service";
 
 /**
  * JWT token payload structure
@@ -12,6 +13,10 @@ export interface JWTPayload {
   roles: string[];
   permissions: string[];
   client_id?: string; // Optional client_id for CLIENT_OWNER users
+  // NEW: Add scope information for RLS
+  is_system_admin: boolean; // true if user has SUPERADMIN role with SYSTEM scope
+  company_ids: string[]; // All company_ids user has access to
+  store_ids: string[]; // All store_ids user has access to
   jti?: string; // JWT ID for token tracking/invalidation
   iat?: number;
   exp?: number;
@@ -134,6 +139,9 @@ export class AuthService {
    * @param roles - User roles array (empty array if no roles assigned yet)
    * @param permissions - User permissions array (empty array if no permissions assigned yet)
    * @param client_id - Optional client_id for CLIENT_OWNER users
+   * @param is_system_admin - Whether user has SUPERADMIN role with SYSTEM scope
+   * @param company_ids - All company_ids user has access to
+   * @param store_ids - All store_ids user has access to
    * @returns Signed JWT access token
    *
    * @security Audit log entry is created when super admin tokens are generated
@@ -145,12 +153,18 @@ export class AuthService {
     roles: string[] = [],
     permissions: string[] = [],
     client_id?: string,
+    is_system_admin: boolean = false,
+    company_ids: string[] = [],
+    store_ids: string[] = [],
   ): string {
     const payload: JWTPayload = {
       user_id,
       email,
       roles,
       permissions,
+      is_system_admin,
+      company_ids,
+      store_ids,
     };
 
     // Add client_id if provided
@@ -189,7 +203,10 @@ export class AuthService {
    */
   async generateRefreshToken(user_id: string, email: string): Promise<string> {
     const jti = randomUUID();
-    const payload: Omit<JWTPayload, "roles" | "permissions"> = {
+    const payload: Omit<
+      JWTPayload,
+      "roles" | "permissions" | "is_system_admin" | "company_ids" | "store_ids"
+    > = {
       user_id,
       email,
       jti,
@@ -327,6 +344,29 @@ export class AuthService {
 
     const permissions = Array.from(permissionsSet);
 
+    // Compute scope information for RLS
+    const is_system_admin = userRoles.some(
+      (ur) => ur.role_code === "SUPERADMIN" && ur.scope === "SYSTEM",
+    );
+
+    // Collect unique company_ids (excluding null values)
+    const company_ids = Array.from(
+      new Set(
+        userRoles
+          .map((ur) => ur.company_id)
+          .filter((id): id is string => id !== null),
+      ),
+    );
+
+    // Collect unique store_ids (excluding null values)
+    const store_ids = Array.from(
+      new Set(
+        userRoles
+          .map((ur) => ur.store_id)
+          .filter((id): id is string => id !== null),
+      ),
+    );
+
     // Log final token generation details
     console.log("[AuthService] Token generation summary:", {
       user_id,
@@ -334,11 +374,47 @@ export class AuthService {
       roles,
       permissions,
       hasAdminPermission: permissions.includes("ADMIN_SYSTEM_CONFIG"),
+      is_system_admin,
+      company_ids_count: company_ids.length,
+      store_ids_count: store_ids.length,
       environment: process.env.NODE_ENV,
     });
 
+    // PHASE 4: Populate user access cache on login for zero-DB-query permission checks
+    // This pre-populates the cache with the same data computed during token generation
+    const roleScopes = userRoles.map((ur) => ({
+      roleCode: ur.role_code,
+      scope: ur.scope,
+      companyId: ur.company_id,
+      storeId: ur.store_id,
+    }));
+
+    // Fire-and-forget cache population (don't block login on cache write)
+    userAccessCacheService
+      .populateOnLogin(user_id, {
+        isSystemAdmin: is_system_admin,
+        companyIds: company_ids,
+        storeIds: store_ids,
+        roleScopes,
+      })
+      .catch((error) => {
+        console.warn(
+          "[AuthService] Failed to populate user access cache:",
+          error,
+        );
+      });
+
     return {
-      accessToken: this.generateAccessToken(user_id, email, roles, permissions),
+      accessToken: this.generateAccessToken(
+        user_id,
+        email,
+        roles,
+        permissions,
+        undefined,
+        is_system_admin,
+        company_ids,
+        store_ids,
+      ),
       refreshToken: await this.generateRefreshToken(user_id, email),
       roles, // Include roles for cookie expiry determination
       userRoles: userRoles.map((ur) => ({

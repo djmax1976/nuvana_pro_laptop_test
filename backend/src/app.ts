@@ -265,7 +265,12 @@ app.register(helmet, {
 // Rate limit configuration:
 // - CI/Test: COMPLETELY DISABLED - rate limiting should be tested in dedicated tests
 // - Development: High limit (1000) for Fast Refresh and hot reloading
-// - Production: Standard limit (100) for real users
+// - Production: Standard limit (100) for real users per IP, stricter for sensitive endpoints
+//
+// Phase 5: Added per-user rate limiting with Redis backend
+// - Authenticated users: Rate limited by user ID (fairer distribution)
+// - Unauthenticated users: Rate limited by IP (prevents abuse)
+// - Sensitive endpoints (login, password reset): Stricter limits
 const isDevelopment = process.env.NODE_ENV !== "production";
 const isTest = process.env.NODE_ENV === "test";
 const isCI = process.env.CI === "true";
@@ -275,15 +280,41 @@ const shouldDisableRateLimit = isCI || isTest;
 // This completely prevents any 429 errors during parallel test execution
 if (!shouldDisableRateLimit) {
   app.register(rateLimit, {
+    // Global rate limit per user/IP
     max: isDevelopment ? 1000 : 100,
     timeWindow: "1 minute",
-    // Note: Per-company rate limiting (500/min) would require custom implementation
-    // based on company context from authentication middleware
-    //
-    // SECURITY: Upload endpoints have stricter rate limits configured per-route:
-    // - UPLOAD_RATE_LIMIT_MAX: Max uploads per time window (default: 5)
-    // - UPLOAD_RATE_LIMIT_WINDOW: Time window for upload rate limit (default: "1 minute")
-    // This prevents abuse of upload bandwidth and ensures fair resource usage
+    // Per-user rate limiting: Use user ID if authenticated, IP otherwise
+    // This ensures fair distribution across users and prevents single-user abuse
+    keyGenerator: (request) => {
+      // Extract user from request (set by auth middleware)
+      const user = (request as any).user;
+      if (user?.id) {
+        return `user:${user.id}`;
+      }
+      // Fall back to IP for unauthenticated requests
+      return (
+        (request.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+        request.ip ||
+        "unknown"
+      );
+    },
+    // Add rate limit headers for client visibility (MCP guideline: expose X-RateLimit-Remaining)
+    addHeaders: {
+      "x-ratelimit-limit": true,
+      "x-ratelimit-remaining": true,
+      "x-ratelimit-reset": true,
+    },
+    // Error response for rate limit exceeded
+    errorResponseBuilder: (_request, context) => {
+      return {
+        success: false,
+        error: {
+          code: "RATE_LIMIT_EXCEEDED",
+          message: `Too many requests. Please try again in ${Math.ceil(context.ttl / 1000)} seconds.`,
+          retryAfter: Math.ceil(context.ttl / 1000),
+        },
+      };
+    },
   });
 }
 

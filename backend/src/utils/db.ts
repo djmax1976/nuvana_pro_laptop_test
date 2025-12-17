@@ -96,42 +96,91 @@ export function getRLSContext(): string | null {
 }
 
 /**
+ * RLS context for database transactions
+ * Contains user identity and permissions information for RLS enforcement
+ */
+export interface RLSContext {
+  userId: string;
+  isAdmin?: boolean;
+  companyIds?: string[];
+  storeIds?: string[];
+}
+
+/**
  * Execute a function within an RLS-enforced transaction
  * This guarantees that SET LOCAL and all database operations run on the same connection
  *
  * Use this for operations that MUST enforce RLS (e.g., checking data access, updates)
  *
- * @param userId - User ID to set as RLS context (must be valid UUID)
+ * @param context - User ID string (legacy) or RLSContext object with user permissions
  * @param fn - Function receiving the transaction client to execute operations
  * @returns Result of the function
  *
  * @example
  * ```typescript
+ * // Legacy usage (still supported)
  * const shift = await withRLSTransaction(userId, async (tx) => {
  *   return await tx.shift.findUnique({ where: { shift_id: shiftId } });
+ * });
+ *
+ * // New usage with full context
+ * const result = await withRLSTransaction({
+ *   userId: user.id,
+ *   isAdmin: user.is_admin,
+ *   companyIds: user.company_ids,
+ *   storeIds: user.store_ids
+ * }, async (tx) => {
+ *   return await tx.company.findMany();
  * });
  * ```
  */
 export async function withRLSTransaction<T>(
-  userId: string,
+  context: string | RLSContext,
   fn: (tx: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {
+  // Normalize context to RLSContext object
+  const ctx: RLSContext =
+    typeof context === "string" ? { userId: context } : context;
+
   // Validate UUID format
-  if (!isValidUUID(userId)) {
+  if (!isValidUUID(ctx.userId)) {
     throw new Error(
-      `Invalid user ID format for RLS transaction: ${userId}. Expected valid UUID.`,
+      `Invalid user ID format for RLS transaction: ${ctx.userId}. Expected valid UUID.`,
     );
   }
 
   // Use interactive transaction to ensure SET LOCAL and operations share the same connection
   return prisma.$transaction(
     async (tx) => {
-      // Set RLS context using SET LOCAL (scoped to this transaction)
+      // Set user ID (required)
       // Note: UUID is validated above. Using Prisma.sql with Prisma.raw for the validated value
       // because SET LOCAL requires a literal value, not a parameter placeholder.
       await tx.$executeRaw(
-        Prisma.sql`SET LOCAL app.current_user_id = ${Prisma.raw(`'${userId}'`)}`,
+        Prisma.sql`SET LOCAL app.current_user_id = ${Prisma.raw(`'${ctx.userId}'`)}`,
       );
+
+      // Set admin flag if provided
+      if (ctx.isAdmin !== undefined) {
+        await tx.$executeRaw(
+          Prisma.sql`SET LOCAL app.is_admin = ${Prisma.raw(`'${ctx.isAdmin ? "true" : "false"}'`)}`,
+        );
+      }
+
+      // Set company IDs if provided
+      if (ctx.companyIds && ctx.companyIds.length > 0) {
+        const companyIdsStr = ctx.companyIds.join(",");
+        await tx.$executeRaw(
+          Prisma.sql`SET LOCAL app.company_ids = ${Prisma.raw(`'${companyIdsStr}'`)}`,
+        );
+      }
+
+      // Set store IDs if provided
+      if (ctx.storeIds && ctx.storeIds.length > 0) {
+        const storeIdsStr = ctx.storeIds.join(",");
+        await tx.$executeRaw(
+          Prisma.sql`SET LOCAL app.store_ids = ${Prisma.raw(`'${storeIdsStr}'`)}`,
+        );
+      }
 
       // Execute the function with the transaction client
       return fn(tx);
