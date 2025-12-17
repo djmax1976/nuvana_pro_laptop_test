@@ -53,8 +53,11 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Install wget for health checks (before switching user)
-RUN apk add --no-cache wget
+# Install runtime dependencies:
+# - wget: for health checks
+# - libc6-compat: required for native modules (bcrypt, prisma) on Alpine
+# - libstdc++: required for some native Node.js addons
+RUN apk add --no-cache wget libc6-compat libstdc++
 
 # Create non-root user for security
 RUN addgroup --system --gid 1001 nodejs
