@@ -63,10 +63,16 @@ test.describe("User Deactivation Security", () => {
       expect(loginBody.success).toBe(true);
 
       // Extract cookies for authenticated requests
+      // The set-cookie header contains full cookie strings with attributes (e.g., "name=value; Path=/; HttpOnly")
+      // We need to extract just the name=value part for the Cookie request header
       const cookies = loginResponse.headers()["set-cookie"];
+      const parseCookieValue = (cookieStr: string): string => {
+        // Extract just the "name=value" part before any semicolon
+        return cookieStr.split(";")[0].trim();
+      };
       const cookieString = Array.isArray(cookies)
-        ? cookies.join("; ")
-        : cookies;
+        ? cookies.map(parseCookieValue).join("; ")
+        : parseCookieValue(cookies || "");
 
       // 5. Verify user CAN access API before deactivation
       const meResponseBefore = await request.get(`${backendUrl}/api/auth/me`, {
@@ -202,10 +208,16 @@ test.describe("User Deactivation Security", () => {
       });
       expect(loginResponse.status()).toBe(200);
 
+      // Extract cookies for authenticated requests
+      // The set-cookie header contains full cookie strings with attributes (e.g., "name=value; Path=/; HttpOnly")
+      // We need to extract just the name=value part for the Cookie request header
       const cookies = loginResponse.headers()["set-cookie"];
+      const parseCookieValue = (cookieStr: string): string => {
+        return cookieStr.split(";")[0].trim();
+      };
       const cookieString = Array.isArray(cookies)
-        ? cookies.join("; ")
-        : cookies;
+        ? cookies.map(parseCookieValue).join("; ")
+        : parseCookieValue(cookies || "");
 
       // 4. Deactivate
       await prismaClient.user.update({
@@ -287,10 +299,16 @@ test.describe("User Deactivation Security", () => {
       });
       expect(loginResponse.status()).toBe(200);
 
+      // Extract cookies for authenticated requests
+      // The set-cookie header contains full cookie strings with attributes (e.g., "name=value; Path=/; HttpOnly")
+      // We need to extract just the name=value part for the Cookie request header
       const cookies = loginResponse.headers()["set-cookie"];
+      const parseCookieValue = (cookieStr: string): string => {
+        return cookieStr.split(";")[0].trim();
+      };
       const cookieString = Array.isArray(cookies)
-        ? cookies.join("; ")
-        : cookies;
+        ? cookies.map(parseCookieValue).join("; ")
+        : parseCookieValue(cookies || "");
 
       // 4. Deactivate
       await prismaClient.user.update({
