@@ -287,6 +287,48 @@ export const updateUserStatusSchema = z.object({
 
 export type UpdateUserStatusInput = z.infer<typeof updateUserStatusSchema>;
 
+/**
+ * User profile update schema (System Admin only)
+ * Allows updating name, email, and/or password
+ * At least one field must be provided
+ */
+export const updateUserProfileSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1, "Name cannot be empty")
+      .max(255, "Name cannot exceed 255 characters")
+      .refine((val) => val.trim().length > 0, {
+        message: "Name cannot be whitespace only",
+      })
+      .transform((val) => val.trim())
+      .optional(),
+
+    email: z
+      .string()
+      .email("Invalid email format")
+      .max(255, "Email cannot exceed 255 characters")
+      .transform((val) => val.toLowerCase().trim())
+      .optional(),
+
+    password: passwordSchema.optional(),
+  })
+  .refine(
+    (data) => {
+      // At least one field must be provided
+      return (
+        data.name !== undefined ||
+        data.email !== undefined ||
+        data.password !== undefined
+      );
+    },
+    {
+      message: "At least one field (name, email, or password) must be provided",
+    },
+  );
+
+export type UpdateUserProfileInput = z.infer<typeof updateUserProfileSchema>;
+
 // =============================================================================
 // Query Schemas
 // =============================================================================

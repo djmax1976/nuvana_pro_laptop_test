@@ -10,6 +10,7 @@ import {
   UserStatus,
   CreateUserInput,
   UpdateUserStatusInput,
+  UpdateUserProfileInput,
   AssignRoleRequest,
   ListUsersParams,
   ListUsersResponse,
@@ -154,6 +155,33 @@ export async function updateUserStatus(
   }
 
   return apiRequest<UserResponse>(`/api/admin/users/${userId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Update user profile (name, email, and/or password) (System Admin only)
+ * @param userId - User UUID
+ * @param data - Profile update data
+ * @returns Updated user with roles
+ */
+export async function updateUserProfile(
+  userId: string,
+  data: UpdateUserProfileInput,
+): Promise<UserResponse> {
+  if (!userId) {
+    throw new Error("User ID is required");
+  }
+
+  // Validate at least one field is provided
+  if (!data.name && !data.email && !data.password) {
+    throw new Error(
+      "At least one field (name, email, or password) must be provided",
+    );
+  }
+
+  return apiRequest<UserResponse>(`/api/admin/users/${userId}`, {
     method: "PATCH",
     body: JSON.stringify(data),
   });
@@ -336,6 +364,31 @@ export function useUpdateUserStatus() {
 }
 
 /**
+ * Hook to update user profile (name, email, password)
+ * @returns TanStack Query mutation for updating user profile
+ */
+export function useUpdateUserProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      userId,
+      data,
+    }: {
+      userId: string;
+      data: UpdateUserProfileInput;
+    }) => updateUserProfile(userId, data),
+    onSuccess: () => {
+      // Invalidate all user queries to ensure fresh data
+      queryClient.invalidateQueries({
+        queryKey: adminUserKeys.all,
+        refetchType: "all",
+      });
+    },
+  });
+}
+
+/**
  * Hook to assign a role to a user
  * @returns TanStack Query mutation for role assignment
  */
@@ -410,6 +463,7 @@ export type {
   UserStatus,
   CreateUserInput,
   UpdateUserStatusInput,
+  UpdateUserProfileInput,
   AssignRoleRequest,
   ListUsersParams,
   UserRoleDetail,

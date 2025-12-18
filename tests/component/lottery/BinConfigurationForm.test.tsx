@@ -20,11 +20,16 @@
  * Priority: P1 (High - Bin Configuration)
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { screen, waitFor, cleanup } from "@testing-library/react";
+import { renderWithProviders } from "../../support/test-utils";
 import userEvent from "@testing-library/user-event";
 import { BinConfigurationForm } from "@/components/lottery/BinConfigurationForm";
-import { getBinConfiguration, createBinConfiguration, updateBinConfiguration } from "@/lib/api/lottery";
+import {
+  getBinConfiguration,
+  createBinConfiguration,
+  updateBinConfiguration,
+} from "@/lib/api/lottery";
 import type { BinConfigurationResponse } from "@/lib/api/lottery";
 
 // Mock the API client
@@ -35,7 +40,9 @@ vi.mock("@/lib/api/lottery", () => ({
 }));
 
 // Helper to create mock BinConfigurationResponse with all required fields
-const createMockBinConfig = (bins: { name: string; location: string; display_order: number }[] = []): BinConfigurationResponse => ({
+const createMockBinConfig = (
+  bins: { name: string; location: string; display_order: number }[] = [],
+): BinConfigurationResponse => ({
   config_id: "config-123",
   store_id: "123e4567-e89b-12d3-a456-426614174000",
   bin_template: bins,
@@ -71,7 +78,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     });
 
     // WHEN: Component is rendered
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
 
     // THEN: Form elements are displayed
     await waitFor(() => {
@@ -97,7 +104,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     });
 
     // WHEN: Component is rendered
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
 
     // THEN: Existing bins are displayed
     await waitFor(() => {
@@ -117,7 +124,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     const user = userEvent.setup();
 
     // WHEN: Component is rendered and add button is clicked
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /add new bin/i }),
@@ -144,7 +151,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     const user = userEvent.setup();
 
     // WHEN: Component is rendered and remove button is clicked
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
     await waitFor(() => {
       expect(screen.getByDisplayValue("Bin 1")).toBeInTheDocument();
     });
@@ -170,7 +177,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     const user = userEvent.setup();
 
     // WHEN: Component is rendered and save is attempted
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /save configuration/i }),
@@ -200,7 +207,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     const user = userEvent.setup();
 
     // WHEN: Component is rendered and save is attempted
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /save configuration/i }),
@@ -230,7 +237,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     const user = userEvent.setup();
 
     // WHEN: Component is rendered and save is clicked
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /save configuration/i }),
@@ -261,7 +268,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     const user = userEvent.setup();
 
     // WHEN: Component is rendered and save is clicked
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /save configuration/i }),
@@ -297,7 +304,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     const user = userEvent.setup();
 
     for (const xssPayload of xssAttempts) {
-      render(<BinConfigurationForm {...defaultProps} />);
+      renderWithProviders(<BinConfigurationForm {...defaultProps} />);
       await waitFor(() => {
         expect(
           screen.getByRole("button", { name: /add new bin/i }),
@@ -322,6 +329,9 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
 
       // AND: No script execution occurs (verify no alert/error in console)
       // Note: React automatically escapes content, but we verify it's handled correctly
+
+      // Clean up before next iteration
+      cleanup();
     }
   });
 
@@ -334,7 +344,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     });
     const user = userEvent.setup();
 
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /add new bin/i }),
@@ -366,7 +376,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     });
     const user = userEvent.setup();
 
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /add new bin/i }),
@@ -404,7 +414,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     });
     const user = userEvent.setup();
 
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /add new bin/i }),
@@ -440,7 +450,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     });
     const user = userEvent.setup();
 
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /add new bin/i }),
@@ -468,7 +478,7 @@ describe("6.13-COMPONENT: BinConfigurationForm", () => {
     });
     const user = userEvent.setup();
 
-    render(<BinConfigurationForm {...defaultProps} />);
+    renderWithProviders(<BinConfigurationForm {...defaultProps} />);
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /add new bin/i }),

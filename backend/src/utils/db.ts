@@ -16,6 +16,89 @@ declare global {
 }
 
 /**
+ * Connection pool configuration values (for logging/debugging)
+ */
+interface PoolConfig {
+  connectionLimit: number;
+  poolTimeout: number;
+  connectTimeout: number;
+}
+
+let _poolConfig: PoolConfig | null = null;
+
+/**
+ * Get the current connection pool configuration
+ * Useful for debugging and health checks
+ */
+export function getPoolConfig(): PoolConfig {
+  if (!_poolConfig) {
+    const defaultConnectionLimit =
+      process.env.NODE_ENV === "production" ? 20 : 10;
+    _poolConfig = {
+      connectionLimit: parseInt(
+        process.env.DB_CONNECTION_LIMIT || String(defaultConnectionLimit),
+        10,
+      ),
+      poolTimeout: parseInt(process.env.DB_POOL_TIMEOUT || "30", 10),
+      connectTimeout: parseInt(process.env.DB_CONNECT_TIMEOUT || "10", 10),
+    };
+  }
+  return _poolConfig;
+}
+
+/**
+ * Connection pool configuration from environment variables
+ * These can be set differently per deployment (Railway, AWS, local)
+ *
+ * Environment variables:
+ *   DB_CONNECTION_LIMIT - Max concurrent connections (default: 10 dev, 20 prod)
+ *   DB_POOL_TIMEOUT     - Seconds to wait for connection (default: 30)
+ *   DB_CONNECT_TIMEOUT  - TCP connection timeout seconds (default: 10)
+ */
+function buildDatabaseUrl(): string {
+  const baseUrl = process.env.DATABASE_URL;
+  if (!baseUrl) {
+    throw new Error("DATABASE_URL environment variable is required");
+  }
+
+  // Parse existing URL to check for existing params
+  const url = new URL(baseUrl);
+  const existingParams = url.searchParams;
+
+  // Get pool config (also caches it for getPoolConfig())
+  const config = getPoolConfig();
+
+  // Only add pool params if not already specified in DATABASE_URL
+  // This allows DATABASE_URL to override defaults if needed
+  if (!existingParams.has("connection_limit")) {
+    url.searchParams.set("connection_limit", String(config.connectionLimit));
+  }
+
+  if (!existingParams.has("pool_timeout")) {
+    url.searchParams.set("pool_timeout", String(config.poolTimeout));
+  }
+
+  if (!existingParams.has("connect_timeout")) {
+    url.searchParams.set("connect_timeout", String(config.connectTimeout));
+  }
+
+  // Log pool configuration at startup (only once)
+  const finalConfig = {
+    connectionLimit:
+      existingParams.get("connection_limit") || String(config.connectionLimit),
+    poolTimeout:
+      existingParams.get("pool_timeout") || String(config.poolTimeout),
+    connectTimeout:
+      existingParams.get("connect_timeout") || String(config.connectTimeout),
+  };
+  console.log(
+    `[Prisma] Connection pool configured: connection_limit=${finalConfig.connectionLimit}, pool_timeout=${finalConfig.poolTimeout}s, connect_timeout=${finalConfig.connectTimeout}s`,
+  );
+
+  return url.toString();
+}
+
+/**
  * Standard Prisma client singleton
  *
  * In development, the PrismaClient instance is cached on the global object
@@ -30,11 +113,29 @@ declare global {
  * NOTE: Simple Prisma queries do NOT automatically enforce RLS because
  * Prisma's connection pooling makes session variables unreliable.
  * For RLS-critical operations, use withRLSTransaction() explicitly.
+ *
+ * CONNECTION POOL CONFIGURATION:
+ * Pool settings are automatically applied based on environment:
+ *   - Development: connection_limit=10 (lower for local resources)
+ *   - Production: connection_limit=20 (higher for concurrent requests)
+ *
+ * Override via environment variables:
+ *   DB_CONNECTION_LIMIT=20  - Max concurrent connections
+ *   DB_POOL_TIMEOUT=30      - Seconds to wait for available connection
+ *   DB_CONNECT_TIMEOUT=10   - Seconds for TCP connection establishment
+ *
+ * Or include directly in DATABASE_URL:
+ *   ?connection_limit=20&pool_timeout=30&connect_timeout=10
  */
 export const prisma =
   global.__prisma ??
   (global.__prisma = new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+    datasources: {
+      db: {
+        url: buildDatabaseUrl(),
+      },
+    },
   }));
 
 // In non-production, ensure the instance is cached on global
@@ -107,6 +208,28 @@ export interface RLSContext {
 }
 
 /**
+ * Options for RLS transaction execution
+ */
+export interface RLSTransactionOptions {
+  /** Transaction timeout in milliseconds (default: 30000) */
+  timeout?: number;
+  /** Transaction isolation level (default: ReadCommitted) */
+  isolationLevel?: Prisma.TransactionIsolationLevel;
+}
+
+/**
+ * Preset timeout values for common operation types
+ */
+export const TRANSACTION_TIMEOUTS = {
+  /** Fast operations: permission checks, simple lookups (10s) */
+  FAST: 10000,
+  /** Standard CRUD operations (30s) */
+  STANDARD: 30000,
+  /** Bulk operations: imports, migrations, reports (120s) */
+  BULK: 120000,
+} as const;
+
+/**
  * Execute a function within an RLS-enforced transaction
  * This guarantees that SET LOCAL and all database operations run on the same connection
  *
@@ -114,6 +237,7 @@ export interface RLSContext {
  *
  * @param context - User ID string (legacy) or RLSContext object with user permissions
  * @param fn - Function receiving the transaction client to execute operations
+ * @param options - Optional transaction settings (timeout, isolation level)
  * @returns Result of the function
  *
  * @example
@@ -132,11 +256,17 @@ export interface RLSContext {
  * }, async (tx) => {
  *   return await tx.company.findMany();
  * });
+ *
+ * // With custom timeout for fast operations
+ * const roles = await withRLSTransaction(userId, async (tx) => {
+ *   return await tx.userRole.findMany({ where: { user_id: userId } });
+ * }, { timeout: TRANSACTION_TIMEOUTS.FAST });
  * ```
  */
 export async function withRLSTransaction<T>(
   context: string | RLSContext,
   fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  options?: RLSTransactionOptions,
 ): Promise<T> {
   // Normalize context to RLSContext object
   const ctx: RLSContext =
@@ -186,8 +316,10 @@ export async function withRLSTransaction<T>(
       return fn(tx);
     },
     {
-      timeout: 60000, // 60 second timeout
-      isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+      timeout: options?.timeout ?? TRANSACTION_TIMEOUTS.STANDARD,
+      isolationLevel:
+        options?.isolationLevel ??
+        Prisma.TransactionIsolationLevel.ReadCommitted,
     },
   );
 }

@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
 import { getRedisClient } from "../utils/redis";
-import { withRLSTransaction } from "../utils/db";
+import { withRLSTransaction, TRANSACTION_TIMEOUTS } from "../utils/db";
 import { userAccessCacheService } from "./user-access-cache.service";
 
 /**
@@ -250,85 +250,90 @@ export class AuthService {
     //
     // IMPORTANT: The RLS policy has a condition: user_id::text = current_setting('app.current_user_id', true)
     // This allows users to see their own roles, bypassing the circular dependency with app.is_system_admin()
-    const userRoles = await withRLSTransaction(user_id, async (tx) => {
-      // First, verify the session variable is set correctly
-      const sessionCheck = await tx.$queryRaw<
-        Array<{ current_user_id: string | null }>
-      >`
+    // Use FAST timeout (10s) since this is a simple role lookup operation
+    const userRoles = await withRLSTransaction(
+      user_id,
+      async (tx) => {
+        // First, verify the session variable is set correctly
+        const sessionCheck = await tx.$queryRaw<
+          Array<{ current_user_id: string | null }>
+        >`
         SELECT current_setting('app.current_user_id', true) as current_user_id
       `;
 
-      // Log in all environments to debug staging issues
-      console.log("[AuthService] RLS context check:", {
-        user_id,
-        sessionUserId: sessionCheck[0]?.current_user_id,
-        match: sessionCheck[0]?.current_user_id === user_id,
-        environment: process.env.NODE_ENV,
-      });
+        // Log in all environments to debug staging issues
+        console.log("[AuthService] RLS context check:", {
+          user_id,
+          sessionUserId: sessionCheck[0]?.current_user_id,
+          match: sessionCheck[0]?.current_user_id === user_id,
+          environment: process.env.NODE_ENV,
+        });
 
-      // Use the transaction client to ensure queries run on the same connection
-      // where SET LOCAL was executed
-      // The RLS policy should allow this query because user_id matches current_setting
-      const userRoles = await tx.userRole.findMany({
-        where: { user_id: user_id },
-        select: {
-          user_role_id: true,
-          user_id: true,
-          role_id: true,
-          company_id: true,
-          store_id: true,
-          role: {
-            select: {
-              code: true,
-              scope: true,
-              role_permissions: {
-                select: {
-                  permission: {
-                    select: { code: true },
+        // Use the transaction client to ensure queries run on the same connection
+        // where SET LOCAL was executed
+        // The RLS policy should allow this query because user_id matches current_setting
+        const userRoles = await tx.userRole.findMany({
+          where: { user_id: user_id },
+          select: {
+            user_role_id: true,
+            user_id: true,
+            role_id: true,
+            company_id: true,
+            store_id: true,
+            role: {
+              select: {
+                code: true,
+                scope: true,
+                role_permissions: {
+                  select: {
+                    permission: {
+                      select: { code: true },
+                    },
                   },
                 },
               },
             },
           },
-        },
-      });
+        });
 
-      // Log in all environments to debug staging issues
-      console.log("[AuthService] Fetched user roles:", {
-        user_id,
-        roleCount: userRoles.length,
-        roles: userRoles.map((ur) => ur.role.code),
-        permissions: userRoles.flatMap((ur) =>
-          ur.role.role_permissions.map((rp: any) => rp.permission.code),
-        ),
-        environment: process.env.NODE_ENV,
-      });
+        // Log in all environments to debug staging issues
+        console.log("[AuthService] Fetched user roles:", {
+          user_id,
+          roleCount: userRoles.length,
+          roles: userRoles.map((ur) => ur.role.code),
+          permissions: userRoles.flatMap((ur) =>
+            ur.role.role_permissions.map((rp: any) => rp.permission.code),
+          ),
+          environment: process.env.NODE_ENV,
+        });
 
-      // If no roles found, this is a critical error - log it
-      if (userRoles.length === 0) {
-        console.error(
-          "[AuthService] CRITICAL: No roles found for user during token generation!",
-          {
-            user_id,
-            email,
-            sessionUserId: sessionCheck[0]?.current_user_id,
-            environment: process.env.NODE_ENV,
-          },
-        );
-      }
+        // If no roles found, this is a critical error - log it
+        if (userRoles.length === 0) {
+          console.error(
+            "[AuthService] CRITICAL: No roles found for user during token generation!",
+            {
+              user_id,
+              email,
+              sessionUserId: sessionCheck[0]?.current_user_id,
+              environment: process.env.NODE_ENV,
+            },
+          );
+        }
 
-      // Transform to UserRole format (matching rbacService.getUserRoles format)
-      return userRoles.map((ur) => ({
-        user_role_id: ur.user_role_id,
-        user_id: ur.user_id,
-        role_id: ur.role_id,
-        role_code: ur.role.code,
-        scope: ur.role.scope as "SYSTEM" | "COMPANY" | "STORE" | "CLIENT",
-        company_id: ur.company_id,
-        store_id: ur.store_id,
-        permissions: ur.role.role_permissions.map((rp) => rp.permission.code),
-      }));
-    });
+        // Transform to UserRole format (matching rbacService.getUserRoles format)
+        return userRoles.map((ur) => ({
+          user_role_id: ur.user_role_id,
+          user_id: ur.user_id,
+          role_id: ur.role_id,
+          role_code: ur.role.code,
+          scope: ur.role.scope as "SYSTEM" | "COMPANY" | "STORE" | "CLIENT",
+          company_id: ur.company_id,
+          store_id: ur.store_id,
+          permissions: ur.role.role_permissions.map((rp) => rp.permission.code),
+        }));
+      },
+      { timeout: TRANSACTION_TIMEOUTS.FAST },
+    );
 
     // Extract role codes and collect permissions
     const roles: string[] = [];

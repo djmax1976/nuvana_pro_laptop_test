@@ -47,14 +47,14 @@ describe("StoreEmployeesTab Component", () => {
       user_id: "user-1",
       name: "John Doe",
       email: "john@test.nuvana.local",
-      role: "STORE_MANAGER",
+      roles: [{ user_role_id: "role-1", role_code: "STORE_MANAGER" }],
       status: "ACTIVE",
     },
     {
       user_id: "user-2",
       name: "Jane Smith",
       email: "jane@test.nuvana.local",
-      role: "EMPLOYEE",
+      roles: [{ user_role_id: "role-2", role_code: "EMPLOYEE" }],
       status: "ACTIVE",
     },
   ];
@@ -222,7 +222,7 @@ describe("StoreEmployeesTab Component", () => {
         ...mockUseClientEmployees,
         isLoading: false,
         isError: true,
-        error: new Error("Failed to load"),
+        error: new Error("Failed to load employees"),
       } as any);
 
       renderWithProviders(<StoreEmployeesTab storeId={storeId} />);

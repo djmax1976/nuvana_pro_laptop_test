@@ -627,10 +627,22 @@ export async function authRoutes(fastify: FastifyInstance) {
           refreshCookieOptions,
         );
 
+        // Calculate expiresAt based on role for session monitoring
+        // Access token expiry: SUPERADMIN=8h, CLIENT_USER=30d, others=1h
+        const accessTokenExpiryMs = roles.includes("SUPERADMIN")
+          ? 8 * 60 * 60 * 1000
+          : roles.includes("CLIENT_USER")
+            ? 30 * 24 * 60 * 60 * 1000
+            : 60 * 60 * 1000;
+        const expiresAt = new Date(
+          Date.now() + accessTokenExpiryMs,
+        ).toISOString();
+
         // Return success response
         reply.code(200);
         return {
           message: "Tokens refreshed successfully",
+          expiresAt,
           user: {
             id: localUser.user_id,
             email: localUser.email,
@@ -680,6 +692,7 @@ export async function authRoutes(fastify: FastifyInstance) {
    * GET /api/auth/me
    * Requires valid JWT access token in httpOnly cookie
    * Returns user info including is_client_user for proper routing
+   * Also returns expiresAt for session monitoring on the frontend
    */
   fastify.get(
     "/api/auth/me",
@@ -707,6 +720,13 @@ export async function authRoutes(fastify: FastifyInstance) {
         };
       }
 
+      // Get session expiry from the JWT token exp claim
+      // The user object from authMiddleware includes exp from the decoded JWT
+      const tokenExp = (user as any).exp;
+      const expiresAt = tokenExp
+        ? new Date(tokenExp * 1000).toISOString()
+        : null;
+
       // Log permissions for debugging (especially in staging)
       console.log("[Auth] /api/auth/me response:", {
         userId: dbUser.user_id,
@@ -714,6 +734,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         roles: user.roles,
         permissions: user.permissions,
         hasAdminPermission: user.permissions.includes("ADMIN_SYSTEM_CONFIG"),
+        expiresAt,
         environment: process.env.NODE_ENV,
       });
 
@@ -727,6 +748,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           permissions: user.permissions,
           is_client_user: dbUser.is_client_user,
         },
+        expiresAt,
         message: "User session validated",
       };
     },

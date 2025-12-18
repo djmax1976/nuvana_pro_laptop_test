@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { tokenValidationService } from "../services/token-validation.service";
+import { activeStatusMiddleware } from "./active-status.middleware";
 
 /**
  * User identity extracted from validated JWT token
@@ -15,6 +16,8 @@ export interface UserIdentity {
   is_system_admin: boolean;
   company_ids: string[];
   store_ids: string[];
+  // Token expiry for session monitoring
+  exp?: number;
 }
 
 /**
@@ -25,6 +28,9 @@ export interface UserIdentity {
  * - Consistent JWT validation configuration
  * - Metrics tracking for monitoring
  * - Efficient single instance (no per-request instantiation)
+ *
+ * SECURITY: Also validates that the user's account is still active
+ * to prevent deactivated users from continuing to use their JWT tokens.
  */
 export async function authMiddleware(
   request: FastifyRequest & { cookies?: { access_token?: string } },
@@ -79,8 +85,14 @@ export async function authMiddleware(
     is_system_admin: decoded.is_system_admin || false,
     company_ids: decoded.company_ids || [],
     store_ids: decoded.store_ids || [],
+    // Include token expiry for session monitoring
+    exp: decoded.exp,
   };
 
   // Attach user identity to request for use in route handlers
   (request as any).user = userIdentity;
+
+  // SECURITY: Check if user's account is still active
+  // This prevents deactivated users from using their existing JWT tokens
+  await activeStatusMiddleware(request, reply);
 }

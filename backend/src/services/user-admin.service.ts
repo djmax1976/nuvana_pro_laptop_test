@@ -2,6 +2,10 @@ import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 import { prisma } from "../utils/db";
+import {
+  invalidateUserStatusCache,
+  invalidateMultipleUserStatusCache,
+} from "../middleware/active-status.middleware";
 
 /**
  * Audit context for logging operations
@@ -61,6 +65,15 @@ export interface UserListOptions {
   limit?: number;
   search?: string;
   status?: UserStatus;
+}
+
+/**
+ * Update user profile input
+ */
+export interface UpdateUserProfileInput {
+  name?: string;
+  email?: string;
+  password?: string;
 }
 
 /**
@@ -704,6 +717,24 @@ export class UserAdminService {
         (ur: any) => ur.role?.code === "CLIENT_OWNER",
       );
 
+      // Get list of affected user IDs before the transaction (for cache invalidation)
+      let affectedUserIds: string[] = [];
+      if (hasClientOwnerRole && existingUser.owned_companies.length > 0) {
+        const companyIds = existingUser.owned_companies.map(
+          (c: any) => c.company_id,
+        );
+        const affectedUserRoles = await prisma.userRole.findMany({
+          where: {
+            company_id: { in: companyIds },
+            user_id: { not: userId }, // Don't include the owner
+          },
+          select: { user_id: true },
+        });
+        affectedUserIds = Array.from(
+          new Set(affectedUserRoles.map((ur: any) => ur.user_id)),
+        );
+      }
+
       // Use transaction to update user and cascade to owned companies if applicable
       await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // Update user status
@@ -727,15 +758,42 @@ export class UserAdminService {
             },
             data: { status },
           });
+
+          // CRITICAL: Also deactivate/activate ALL users who have roles in these companies
+          // This ensures that when a CLIENT_OWNER is deactivated, all their employees
+          // (CLIENT_USER, STORE_MANAGER, CASHIER, etc.) are also deactivated
+          if (affectedUserIds.length > 0) {
+            await tx.user.updateMany({
+              where: {
+                user_id: { in: affectedUserIds },
+              },
+              data: { status },
+            });
+            console.log(
+              `[UserAdminService] Cascaded status ${status} to ${affectedUserIds.length} users in owned companies`,
+            );
+          }
         }
       });
 
+      // SECURITY: Immediately invalidate user status cache to prevent continued access
+      // This ensures deactivated users cannot use their existing JWT tokens
+      await invalidateUserStatusCache(userId);
+
+      // If updating a CLIENT_OWNER, also invalidate cache for all affected users
+      if (affectedUserIds.length > 0) {
+        await invalidateMultipleUserStatusCache(affectedUserIds);
+        console.log(
+          `[UserAdminService] Invalidated status cache for ${affectedUserIds.length} users in owned companies`,
+        );
+      }
+
       // Create audit log (non-blocking)
       try {
-        const auditReason =
-          hasClientOwnerRole && existingUser.owned_companies.length > 0
-            ? `User ${status === "INACTIVE" ? "deactivated" : "activated"} by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")}). ${existingUser.owned_companies.length} owned company/companies also ${status === "INACTIVE" ? "deactivated" : "activated"}.`
-            : `User ${status === "INACTIVE" ? "deactivated" : "activated"} by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`;
+        let auditReason = `User ${status === "INACTIVE" ? "deactivated" : "activated"} by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`;
+        if (hasClientOwnerRole && existingUser.owned_companies.length > 0) {
+          auditReason += `. CASCADE: ${existingUser.owned_companies.length} company/companies, their stores, and ${affectedUserIds.length} employee(s) also ${status === "INACTIVE" ? "deactivated" : "activated"}.`;
+        }
 
         await prisma.auditLog.create({
           data: {
@@ -768,6 +826,146 @@ export class UserAdminService {
         throw error;
       }
       console.error("Error updating user status:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update user profile (name, email, and/or password)
+   * System Admin only - allows updating any user's profile
+   * @param userId - User UUID to update
+   * @param data - Profile update data (name, email, password)
+   * @param auditContext - Audit context for logging
+   * @returns Updated user with roles
+   * @throws Error if user not found, email already exists, or validation fails
+   */
+  async updateUserProfile(
+    userId: string,
+    data: UpdateUserProfileInput,
+    auditContext: AuditContext,
+  ): Promise<UserWithRoles> {
+    // Validate at least one field is provided
+    if (!data.name && !data.email && !data.password) {
+      throw new Error(
+        "At least one field (name, email, or password) must be provided",
+      );
+    }
+
+    try {
+      // Check if user exists
+      const existingUser = await prisma.user.findUnique({
+        where: { user_id: userId },
+        select: {
+          user_id: true,
+          email: true,
+          name: true,
+          status: true,
+        },
+      });
+
+      if (!existingUser) {
+        throw new Error(`User with ID ${userId} not found`);
+      }
+
+      // If email is being changed, check for duplicates
+      if (
+        data.email &&
+        data.email.toLowerCase().trim() !== existingUser.email
+      ) {
+        const emailExists = await prisma.user.findUnique({
+          where: { email: data.email.toLowerCase().trim() },
+        });
+
+        if (emailExists) {
+          throw new Error("Email already exists");
+        }
+      }
+
+      // Prepare update data
+      const updateData: {
+        name?: string;
+        email?: string;
+        password_hash?: string;
+      } = {};
+
+      if (data.name) {
+        updateData.name = data.name.trim();
+      }
+
+      if (data.email) {
+        updateData.email = data.email.toLowerCase().trim();
+      }
+
+      if (data.password) {
+        updateData.password_hash = await bcrypt.hash(data.password, 10);
+      }
+
+      // Update user
+      await prisma.user.update({
+        where: { user_id: userId },
+        data: updateData,
+      });
+
+      // Build old values and new values for audit log
+      const oldValues: Record<string, string> = {};
+      const newValues: Record<string, string> = {};
+      const changes: string[] = [];
+
+      if (data.name && data.name.trim() !== existingUser.name) {
+        oldValues.name = existingUser.name;
+        newValues.name = data.name.trim();
+        changes.push("name");
+      }
+
+      if (
+        data.email &&
+        data.email.toLowerCase().trim() !== existingUser.email
+      ) {
+        oldValues.email = existingUser.email;
+        newValues.email = data.email.toLowerCase().trim();
+        changes.push("email");
+      }
+
+      if (data.password) {
+        // Don't log actual password values, just indicate it was changed
+        newValues.password = "[CHANGED]";
+        changes.push("password");
+      }
+
+      // Create audit log (non-blocking)
+      try {
+        await prisma.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "UPDATE",
+            table_name: "users",
+            record_id: userId,
+            old_values: oldValues as unknown as Record<string, any>,
+            new_values: newValues as unknown as Record<string, any>,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `User profile updated (${changes.join(", ")}) by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log the audit failure but don't fail the update
+        console.error(
+          "Failed to create audit log for user profile update:",
+          auditError,
+        );
+      }
+
+      return this.getUserById(userId);
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        (error.message.includes("not found") ||
+          error.message.includes("already exists") ||
+          error.message.includes("At least one field"))
+      ) {
+        throw error;
+      }
+      console.error("Error updating user profile:", error);
       throw error;
     }
   }
