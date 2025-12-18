@@ -81,6 +81,16 @@ export interface UpdateUserStatusInput {
 }
 
 /**
+ * Update user profile input (System Admin only)
+ * Allows updating name, email, and/or password
+ */
+export interface UpdateUserProfileInput {
+  name?: string;
+  email?: string;
+  password?: string;
+}
+
+/**
  * List users parameters
  */
 export interface ListUsersParams {

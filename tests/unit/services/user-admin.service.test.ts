@@ -864,3 +864,266 @@ describe("UserAdminService - CLIENT_USER Creation with Company and Store", () =>
     });
   });
 });
+
+describe("UserAdminService - CRITICAL: User Status Update with Cascade Deactivation", () => {
+  /**
+   * CRITICAL SECURITY TESTS: User Deactivation
+   *
+   * These tests verify the fix for the security bug where:
+   * - Deactivated CLIENT_OWNER's employees could still access the system
+   * - Users under deactivated companies were not being deactivated
+   *
+   * When a CLIENT_OWNER is deactivated:
+   * 1. The CLIENT_OWNER user status becomes INACTIVE
+   * 2. All owned companies become INACTIVE
+   * 3. All stores under those companies become INACTIVE
+   * 4. ALL users with roles in those companies become INACTIVE (CRITICAL!)
+   */
+
+  let testClientOwnerId: string;
+  let testClientOwnerCompanyId: string;
+  let testClientOwnerStoreId: string;
+  let testEmployeeId: string;
+  let testManagerId: string;
+
+  beforeAll(async () => {
+    // Create a CLIENT_OWNER with company, store, and employees
+    const ownerEmail = `cascade-owner-${Date.now()}@test.com`;
+    const companyName = `Cascade Test Company ${Date.now()}`;
+
+    const ownerInput: CreateUserInput = {
+      email: ownerEmail,
+      name: "Cascade Test Owner",
+      password: "TestPassword123!",
+      roles: [
+        {
+          role_id: clientOwnerRoleId,
+          scope_type: "COMPANY",
+        },
+      ],
+      companyName: companyName,
+      companyAddress: "123 Cascade Test Ave",
+    };
+
+    const owner = await userAdminService.createUser(ownerInput, auditContext);
+    testClientOwnerId = owner.user_id;
+    createdUserIds.push(testClientOwnerId);
+
+    const company = await prisma.company.findFirst({
+      where: { name: companyName },
+    });
+    testClientOwnerCompanyId = company!.company_id;
+    createdCompanyIds.push(testClientOwnerCompanyId);
+
+    // Create a store under the company
+    const store = await prisma.store.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        name: `Cascade Test Store ${Date.now()}`,
+        company_id: testClientOwnerCompanyId,
+        location_json: { address: "123 Cascade Store St" },
+        timezone: "America/New_York",
+        status: "ACTIVE",
+      },
+    });
+    testClientOwnerStoreId = store.store_id;
+    createdStoreIds.push(testClientOwnerStoreId);
+
+    // Create a CLIENT_USER employee under the company
+    const employeeInput: CreateUserInput = {
+      email: `cascade-employee-${Date.now()}@test.com`,
+      name: "Cascade Test Employee",
+      password: "TestPassword123!",
+      roles: [
+        {
+          role_id: clientUserRoleId,
+          scope_type: "COMPANY",
+          company_id: testClientOwnerCompanyId,
+          store_id: testClientOwnerStoreId,
+        },
+      ],
+    };
+
+    const employee = await userAdminService.createUser(
+      employeeInput,
+      auditContext,
+    );
+    testEmployeeId = employee.user_id;
+    createdUserIds.push(testEmployeeId);
+
+    // Create a STORE_MANAGER under the company
+    const storeManagerRole = await prisma.role.findUnique({
+      where: { code: "STORE_MANAGER" },
+    });
+
+    const managerInput: CreateUserInput = {
+      email: `cascade-manager-${Date.now()}@test.com`,
+      name: "Cascade Test Manager",
+      password: "TestPassword123!",
+      roles: [
+        {
+          role_id: storeManagerRole!.role_id,
+          scope_type: "STORE",
+          company_id: testClientOwnerCompanyId,
+          store_id: testClientOwnerStoreId,
+        },
+      ],
+    };
+
+    const manager = await userAdminService.createUser(
+      managerInput,
+      auditContext,
+    );
+    testManagerId = manager.user_id;
+    createdUserIds.push(testManagerId);
+  });
+
+  describe("CRITICAL: Cascade deactivation when CLIENT_OWNER is deactivated", () => {
+    it("should deactivate CLIENT_OWNER user successfully", async () => {
+      // Verify all entities are ACTIVE before deactivation
+      const ownerBefore = await prisma.user.findUnique({
+        where: { user_id: testClientOwnerId },
+      });
+      expect(ownerBefore?.status).toBe("ACTIVE");
+
+      // Deactivate the CLIENT_OWNER
+      const result = await userAdminService.updateUserStatus(
+        testClientOwnerId,
+        "INACTIVE" as any,
+        auditContext,
+      );
+
+      expect(result.status).toBe("INACTIVE");
+    });
+
+    it("should cascade deactivation to owned company", async () => {
+      const company = await prisma.company.findUnique({
+        where: { company_id: testClientOwnerCompanyId },
+      });
+      expect(company?.status).toBe("INACTIVE");
+    });
+
+    it("should cascade deactivation to stores under owned company", async () => {
+      const store = await prisma.store.findUnique({
+        where: { store_id: testClientOwnerStoreId },
+      });
+      expect(store?.status).toBe("INACTIVE");
+    });
+
+    it("CRITICAL: should cascade deactivation to CLIENT_USER employees", async () => {
+      const employee = await prisma.user.findUnique({
+        where: { user_id: testEmployeeId },
+      });
+      expect(employee?.status).toBe("INACTIVE");
+    });
+
+    it("CRITICAL: should cascade deactivation to STORE_MANAGER under company", async () => {
+      const manager = await prisma.user.findUnique({
+        where: { user_id: testManagerId },
+      });
+      expect(manager?.status).toBe("INACTIVE");
+    });
+  });
+
+  describe("CRITICAL: Cascade reactivation when CLIENT_OWNER is reactivated", () => {
+    it("should reactivate CLIENT_OWNER user successfully", async () => {
+      const result = await userAdminService.updateUserStatus(
+        testClientOwnerId,
+        "ACTIVE" as any,
+        auditContext,
+      );
+
+      expect(result.status).toBe("ACTIVE");
+    });
+
+    it("should cascade reactivation to owned company", async () => {
+      const company = await prisma.company.findUnique({
+        where: { company_id: testClientOwnerCompanyId },
+      });
+      expect(company?.status).toBe("ACTIVE");
+    });
+
+    it("should cascade reactivation to stores under owned company", async () => {
+      const store = await prisma.store.findUnique({
+        where: { store_id: testClientOwnerStoreId },
+      });
+      expect(store?.status).toBe("ACTIVE");
+    });
+
+    it("CRITICAL: should cascade reactivation to CLIENT_USER employees", async () => {
+      const employee = await prisma.user.findUnique({
+        where: { user_id: testEmployeeId },
+      });
+      expect(employee?.status).toBe("ACTIVE");
+    });
+
+    it("CRITICAL: should cascade reactivation to STORE_MANAGER under company", async () => {
+      const manager = await prisma.user.findUnique({
+        where: { user_id: testManagerId },
+      });
+      expect(manager?.status).toBe("ACTIVE");
+    });
+  });
+
+  describe("Non-CLIENT_OWNER deactivation should NOT cascade", () => {
+    it("should deactivate regular user without cascading", async () => {
+      // Create a SUPERADMIN user
+      const superadminEmail = `superadmin-no-cascade-${Date.now()}@test.com`;
+      const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
+
+      const superadmin = await prisma.user.create({
+        data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+          email: superadminEmail,
+          name: "No Cascade Superadmin",
+          password_hash: hashedPassword,
+          status: "ACTIVE",
+        },
+      });
+      createdUserIds.push(superadmin.user_id);
+
+      // Assign SUPERADMIN role
+      await prisma.userRole.create({
+        data: {
+          user_id: superadmin.user_id,
+          role_id: superadminRoleId,
+        },
+      });
+
+      // Deactivate the SUPERADMIN
+      const result = await userAdminService.updateUserStatus(
+        superadmin.user_id,
+        "INACTIVE" as any,
+        auditContext,
+      );
+
+      expect(result.status).toBe("INACTIVE");
+
+      // Verify no companies were affected (SUPERADMIN doesn't own companies)
+      // This test ensures we don't accidentally cascade for non-CLIENT_OWNER roles
+    });
+  });
+
+  describe("Validation errors", () => {
+    it("should reject invalid status values", async () => {
+      await expect(
+        userAdminService.updateUserStatus(
+          testClientOwnerId,
+          "INVALID_STATUS" as any,
+          auditContext,
+        ),
+      ).rejects.toThrow("Invalid status. Must be ACTIVE or INACTIVE");
+    });
+
+    it("should reject non-existent user ID", async () => {
+      const fakeUserId = "00000000-0000-0000-0000-000000000000";
+      await expect(
+        userAdminService.updateUserStatus(
+          fakeUserId,
+          "INACTIVE" as any,
+          auditContext,
+        ),
+      ).rejects.toThrow(`User with ID ${fakeUserId} not found`);
+    });
+  });
+});

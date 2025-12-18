@@ -12,6 +12,7 @@ import {
   createUserSchema,
   strictRoleAssignmentSchema,
   updateUserStatusSchema,
+  updateUserProfileSchema,
   listUsersQuerySchema,
 } from "../schemas/user.schema";
 import { userAccessCacheService } from "../services/user-access-cache.service";
@@ -402,6 +403,126 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to update user status",
+          },
+        });
+      }
+    },
+  );
+
+  /**
+   * PATCH /api/admin/users/:userId
+   * Update user profile (name, email, and/or password)
+   * System Admin only
+   */
+  fastify.patch(
+    "/api/admin/users/:userId",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { userId } = request.params as { userId: string };
+        const user = (request as unknown as { user: UserIdentity }).user;
+
+        // Validate UUID format
+        if (!isValidUUID(userId)) {
+          reply.code(400);
+          reply.send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "User ID must be a valid UUID",
+            },
+          });
+          return;
+        }
+
+        // Validate request body
+        const parseResult = updateUserProfileSchema.safeParse(request.body);
+        if (!parseResult.success) {
+          reply.code(400);
+          reply.send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: parseResult.error.issues[0].message,
+            },
+          });
+          return;
+        }
+
+        const profileData = parseResult.data;
+        const auditContext = getAuditContext(request, user);
+
+        const updatedUser = await userAdminService.updateUserProfile(
+          userId,
+          profileData,
+          auditContext,
+        );
+
+        // Invalidate user access cache when profile changes
+        // Email changes may affect session validity
+        await userAccessCacheService.invalidateUserCache(userId);
+
+        reply.code(200);
+        reply.send({
+          success: true,
+          data: updatedUser,
+        });
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        fastify.log.error({ error }, "Error updating user profile");
+
+        if (message.includes("not found")) {
+          reply.code(404);
+          reply.send({
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "User not found",
+            },
+          });
+          return;
+        }
+
+        if (message.includes("already exists")) {
+          reply.code(409);
+          reply.send({
+            success: false,
+            error: {
+              code: "CONFLICT",
+              message,
+            },
+          });
+          return;
+        }
+
+        if (
+          message.includes("At least one field") ||
+          message.includes("Invalid") ||
+          message.includes("whitespace")
+        ) {
+          reply.code(400);
+          reply.send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message,
+            },
+          });
+          return;
+        }
+
+        reply.code(500);
+        reply.send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update user profile",
           },
         });
       }

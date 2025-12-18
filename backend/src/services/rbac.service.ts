@@ -337,10 +337,24 @@ export class RBACService {
     if (redis) {
       try {
         await redis.del(`user_roles:${userId}`);
-        // Also invalidate all permission checks for this user
-        const keys = await redis.keys(`permission_check:${userId}:*`);
-        if (keys.length > 0) {
-          await redis.del(keys);
+
+        // Use SCAN iterator instead of KEYS for permission cache invalidation
+        // KEYS is O(N) and blocks Redis; SCAN is non-blocking, cursor-based O(1) per iteration
+        const keysToDelete: string[] = [];
+        for await (const key of redis.scanIterator({
+          MATCH: `permission_check:${userId}:*`,
+          COUNT: 100, // Hint for batch size per iteration
+        })) {
+          keysToDelete.push(key);
+        }
+
+        // Delete in batches for efficiency
+        if (keysToDelete.length > 0) {
+          const BATCH_SIZE = 100;
+          for (let i = 0; i < keysToDelete.length; i += BATCH_SIZE) {
+            const batch = keysToDelete.slice(i, i + BATCH_SIZE);
+            await redis.del(batch);
+          }
         }
       } catch (error) {
         console.error("Failed to invalidate user roles cache:", error);

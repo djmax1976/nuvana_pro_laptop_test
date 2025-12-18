@@ -56,7 +56,7 @@ describe("Lottery API Client", () => {
       const mockResponse = {
         success: true,
         data: {
-          pack_id: "pack-123",
+          pack_id: "12345678-1234-1234-1234-123456789abc",
           game_id: "game-123",
           pack_number: "PACK-001",
           serial_start: "1000",
@@ -187,7 +187,7 @@ describe("Lottery API Client", () => {
       const mockResponse = {
         success: true,
         data: {
-          pack_id: "pack-123",
+          pack_id: "12345678-1234-1234-1234-123456789abc",
           game_id: "game-123",
           pack_number: "PACK-001",
           serial_start: "1000",
@@ -264,7 +264,7 @@ describe("Lottery API Client", () => {
         success: true,
         data: [
           {
-            pack_id: "pack-123",
+            pack_id: "12345678-1234-1234-1234-123456789abc",
             game_id: "game-123",
             pack_number: "PACK-001",
             serial_start: "1000",
@@ -345,7 +345,7 @@ describe("Lottery API Client", () => {
       const mockResponse = {
         success: true,
         data: {
-          pack_id: "pack-123",
+          pack_id: "12345678-1234-1234-1234-123456789abc",
           game_id: "game-123",
           pack_number: "PACK-001",
           serial_start: "1000",
@@ -416,7 +416,7 @@ describe("Lottery API Client", () => {
           {
             variance_id: "variance-123",
             shift_id: "shift-123",
-            pack_id: "pack-123",
+            pack_id: "12345678-1234-1234-1234-123456789abc",
             expected_count: 100,
             actual_count: 95,
             difference: -5,
@@ -425,7 +425,7 @@ describe("Lottery API Client", () => {
             approved_at: null,
             created_at: "2025-01-28T12:00:00Z",
             pack: {
-              pack_id: "pack-123",
+              pack_id: "12345678-1234-1234-1234-123456789abc",
               pack_number: "PACK-001",
               status: "ACTIVE" as const,
             },

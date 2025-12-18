@@ -208,7 +208,9 @@ describe("6.10.1-UNIT: useLottery Hooks", () => {
         updatePack,
         "API should be called with pack ID and update data",
       ).toHaveBeenCalledWith("pack-1", mockUpdateData);
-      expect(result.current.isSuccess, "Mutation should succeed").toBe(true);
+      await waitFor(() => {
+        expect(result.current.isSuccess, "Mutation should succeed").toBe(true);
+      });
     });
 
     it("6.10.1-UNIT-HOOKS-005: [P1] should handle update errors (AC #5)", async () => {
@@ -273,7 +275,9 @@ describe("6.10.1-UNIT: useLottery Hooks", () => {
         deletePack,
         "API should be called with pack ID",
       ).toHaveBeenCalledWith("pack-1");
-      expect(result.current.isSuccess, "Mutation should succeed").toBe(true);
+      await waitFor(() => {
+        expect(result.current.isSuccess, "Mutation should succeed").toBe(true);
+      });
     });
 
     it("6.10.1-UNIT-HOOKS-007: [P1] should handle delete errors (AC #6)", async () => {

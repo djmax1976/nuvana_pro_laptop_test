@@ -9,17 +9,14 @@ import {
 } from "@/contexts/ClientAuthContext";
 import { CashierSessionProvider } from "@/contexts/CashierSessionContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SessionExpirationGuard } from "@/components/session/SessionExpirationGuard";
 
 /**
  * Inner layout component that uses client auth context
  * Only allows store-level users (CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER)
  * CLIENT_OWNER users should be redirected to /client-dashboard
  *
- * Session Expiration Handling:
- * - Real-time session monitoring with warning modal
- * - Automatic logout when session expires
- * - Cross-tab synchronization
+ * Session Expiration: Handled automatically by api-client.ts
+ * When any API returns 401, user is redirected to login
  */
 function MyStoreDashboardLayoutInner({
   children,
@@ -63,14 +60,7 @@ function MyStoreDashboardLayoutInner({
     return null;
   }
 
-  return (
-    <SessionExpirationGuard
-      loginPath="/login"
-      warningMessage="Your terminal session is about to expire due to inactivity. Would you like to stay logged in?"
-    >
-      <MyStoreDashboardLayout>{children}</MyStoreDashboardLayout>
-    </SessionExpirationGuard>
-  );
+  return <MyStoreDashboardLayout>{children}</MyStoreDashboardLayout>;
 }
 
 /**

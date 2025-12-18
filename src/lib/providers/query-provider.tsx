@@ -125,7 +125,7 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
       }),
   );
 
-  // Listen for session expiration events from other sources (api-client, SessionExpirationGuard)
+  // Listen for session expiration events from api-client
   useEffect(() => {
     if (typeof window === "undefined") return;
 

@@ -1,13 +1,16 @@
 // Generate to backend/node_modules for backend code
 generator client {
-  provider = "prisma-client-js"
-  output   = "../node_modules/.prisma/client"
+  provider      = "prisma-client-js"
+  output        = "../node_modules/.prisma/client"
+  // Include Alpine Linux (musl) binary for Docker production deployment
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 // Generate to root/node_modules for test files
 generator clientRoot {
-  provider = "prisma-client-js"
-  output   = "../../node_modules/.prisma/client"
+  provider      = "prisma-client-js"
+  output        = "../../node_modules/.prisma/client"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {

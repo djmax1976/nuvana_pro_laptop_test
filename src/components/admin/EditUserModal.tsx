@@ -20,6 +20,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -29,6 +30,7 @@ import {
 } from "@/components/ui/select";
 import {
   useUpdateUserStatus,
+  useUpdateUserProfile,
   useRoles,
   useAssignRole,
   useRevokeRole,
@@ -39,17 +41,62 @@ import { AdminUser, UserStatus, ScopeType } from "@/types/admin-user";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { X, Plus, Loader2 } from "lucide-react";
+import { X, Plus, Loader2, Eye, EyeOff } from "lucide-react";
+
+/**
+ * Password validation schema - matches backend requirements
+ */
+const passwordSchema = z
+  .string()
+  .min(8, "Password must be at least 8 characters")
+  .max(255, "Password cannot exceed 255 characters")
+  .refine((val) => !/\s/.test(val), {
+    message: "Password cannot contain whitespace",
+  })
+  .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+  .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+  .regex(/[0-9]/, "Password must contain at least one number")
+  .regex(
+    /(?=.*[^\w\s])/,
+    "Password must contain at least one special character (punctuation or symbol)",
+  );
 
 /**
  * User edit form validation schema
- * Note: Only status can be changed. Email and name cannot be modified after creation.
+ * Super Admin can edit name, email, password, and status
  */
-const editUserSchema = z.object({
-  status: z.nativeEnum(UserStatus, {
-    message: "Please select a status",
-  }),
-});
+const editUserSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1, "Name is required")
+      .max(255, "Name cannot exceed 255 characters")
+      .refine((val) => val.trim().length > 0, {
+        message: "Name cannot be whitespace only",
+      }),
+    email: z
+      .string()
+      .email("Invalid email format")
+      .max(255, "Email cannot exceed 255 characters"),
+    password: z.union([z.literal(""), passwordSchema]).optional(),
+    confirmPassword: z.string().optional(),
+    status: z.nativeEnum(UserStatus, {
+      message: "Please select a status",
+    }),
+  })
+  .refine(
+    (data) => {
+      // If password is provided and not empty, confirmPassword must match
+      if (data.password && data.password.length > 0) {
+        return data.confirmPassword === data.password;
+      }
+      return true;
+    },
+    {
+      message: "Passwords do not match",
+      path: ["confirmPassword"],
+    },
+  );
 
 type EditUserFormValues = z.infer<typeof editUserSchema>;
 
@@ -62,9 +109,9 @@ interface EditUserModalProps {
 
 /**
  * EditUserModal component
- * Modal dialog for editing an existing user's status and roles
+ * Modal dialog for editing an existing user's profile, status, and roles
+ * Super Admin can edit: name, email, password, status, and role assignments
  * Uses Shadcn/ui Dialog and Form components with Zod validation
- * Note: Only status can be changed - email and name cannot be modified
  */
 export function EditUserModal({
   open,
@@ -81,8 +128,11 @@ export function EditUserModal({
     null,
   );
   const [selectedRoleToAdd, setSelectedRoleToAdd] = useState<string>("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const updateMutation = useUpdateUserStatus();
+  const updateStatusMutation = useUpdateUserStatus();
+  const updateProfileMutation = useUpdateUserProfile();
   const assignRoleMutation = useAssignRole();
   const revokeRoleMutation = useRevokeRole();
   const { data: rolesData } = useRoles();
@@ -109,6 +159,10 @@ export function EditUserModal({
   const form = useForm<EditUserFormValues>({
     resolver: zodResolver(editUserSchema),
     defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
       status: UserStatus.ACTIVE,
     },
   });
@@ -117,12 +171,19 @@ export function EditUserModal({
   useEffect(() => {
     if (user && open) {
       form.reset({
+        name: user.name || "",
+        email: user.email || "",
+        password: "",
+        confirmPassword: "",
         status: user.status || UserStatus.ACTIVE,
       });
       setSelectedRoleToAdd("");
       // Reset scope-related fields when modal opens
       setSelectedCompanyId("");
       setSelectedStoreId("");
+      // Reset password visibility
+      setShowPassword(false);
+      setShowConfirmPassword(false);
     }
   }, [user, open, form]);
 
@@ -159,16 +220,62 @@ export function EditUserModal({
 
     setIsSubmitting(true);
     try {
-      await updateMutation.mutateAsync({
-        userId: user.user_id,
-        data: {
-          status: values.status,
-        },
-      });
+      // Check what fields have changed
+      const nameChanged = values.name.trim() !== user.name;
+      const emailChanged =
+        values.email.toLowerCase().trim() !== user.email.toLowerCase();
+      const passwordProvided = values.password && values.password.length > 0;
+      const statusChanged = values.status !== user.status;
+
+      const profileChanged = nameChanged || emailChanged || passwordProvided;
+
+      // Update profile if name, email, or password changed
+      if (profileChanged) {
+        const profileData: {
+          name?: string;
+          email?: string;
+          password?: string;
+        } = {};
+
+        if (nameChanged) {
+          profileData.name = values.name.trim();
+        }
+        if (emailChanged) {
+          profileData.email = values.email.toLowerCase().trim();
+        }
+        if (passwordProvided) {
+          profileData.password = values.password;
+        }
+
+        await updateProfileMutation.mutateAsync({
+          userId: user.user_id,
+          data: profileData,
+        });
+      }
+
+      // Update status if changed
+      if (statusChanged) {
+        await updateStatusMutation.mutateAsync({
+          userId: user.user_id,
+          data: {
+            status: values.status,
+          },
+        });
+      }
+
+      // Show appropriate success message
+      const changes: string[] = [];
+      if (nameChanged) changes.push("name");
+      if (emailChanged) changes.push("email");
+      if (passwordProvided) changes.push("password");
+      if (statusChanged) changes.push("status");
 
       toast({
         title: "Success",
-        description: "User status updated successfully",
+        description:
+          changes.length > 0
+            ? `User ${changes.join(", ")} updated successfully`
+            : "No changes were made",
       });
 
       // Reset form and close modal
@@ -185,7 +292,7 @@ export function EditUserModal({
         description:
           error instanceof Error
             ? error.message
-            : "Failed to update user status. Please try again.",
+            : "Failed to update user. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -345,8 +452,7 @@ export function EditUserModal({
           <DialogHeader>
             <DialogTitle>Edit User</DialogTitle>
             <DialogDescription>
-              Update user status and manage role assignments. Note: Email and
-              name cannot be changed after user creation.
+              Update user profile, status, and manage role assignments.
             </DialogDescription>
           </DialogHeader>
 
@@ -356,26 +462,131 @@ export function EditUserModal({
               className="space-y-6"
               noValidate
             >
-              {/* Display user info (read-only) */}
-              {user && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-sm font-medium">Name</label>
-                    <div className="mt-2 rounded-md border bg-muted px-3 py-2 text-sm">
-                      {user.name}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Email</label>
-                    <div className="mt-2 rounded-md border bg-muted px-3 py-2 text-sm">
-                      {user.email}
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Name and email cannot be changed after creation
+              {/* Editable user profile fields */}
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Enter user name"
+                        {...field}
+                        disabled={isSubmitting}
+                        data-testid="edit-user-name-input"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="email"
+                        placeholder="Enter email address"
+                        {...field}
+                        disabled={isSubmitting}
+                        data-testid="edit-user-email-input"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Password Change Section */}
+              <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
+                <div>
+                  <h4 className="text-sm font-medium text-foreground">
+                    Change Password (Optional)
+                  </h4>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Leave blank to keep the current password
                   </p>
                 </div>
-              )}
+
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>New Password</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Input
+                            type={showPassword ? "text" : "password"}
+                            placeholder="Enter new password"
+                            {...field}
+                            disabled={isSubmitting}
+                            data-testid="edit-user-password-input"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            tabIndex={-1}
+                          >
+                            {showPassword ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                      </FormControl>
+                      <FormDescription>
+                        Min 8 chars, uppercase, lowercase, number, special
+                        character
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="confirmPassword"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Confirm New Password</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Input
+                            type={showConfirmPassword ? "text" : "password"}
+                            placeholder="Confirm new password"
+                            {...field}
+                            disabled={isSubmitting}
+                            data-testid="edit-user-confirm-password-input"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setShowConfirmPassword(!showConfirmPassword)
+                            }
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            tabIndex={-1}
+                          >
+                            {showConfirmPassword ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
               <FormField
                 control={form.control}
