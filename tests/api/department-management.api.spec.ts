@@ -62,7 +62,7 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
     ).toBe(true);
   });
 
-  test("1.2-API-002: [P0] GET /api/config/departments - should return sorted by sort_order", async ({
+  test("1.2-API-002: [P0] GET /api/config/departments - should return ordered by level, sort_order, display_name", async ({
     clientUserApiRequest,
   }) => {
     // GIVEN: I am authenticated as a Client User
@@ -70,15 +70,35 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
     // WHEN: Fetching departments
     const response = await clientUserApiRequest.get("/api/config/departments");
 
-    // THEN: Results are sorted by sort_order
+    // THEN: Results are ordered by level, sort_order, display_name
     expect(response.status()).toBe(200);
     const body = await response.json();
 
-    const sortOrders = body.data.map(
-      (d: { sort_order: number }) => d.sort_order,
+    const isOrdered = body.data.every(
+      (
+        current: { level: number; sort_order: number; display_name: string },
+        index: number,
+        list: {
+          level: number;
+          sort_order: number;
+          display_name: string;
+        }[],
+      ) => {
+        if (index === 0) return true;
+        const prev = list[index - 1];
+        if (prev.level !== current.level) {
+          return prev.level <= current.level;
+        }
+        if (prev.sort_order !== current.sort_order) {
+          return prev.sort_order <= current.sort_order;
+        }
+        return prev.display_name.localeCompare(current.display_name) <= 0;
+      },
     );
-    const sortedOrders = [...sortOrders].sort((a, b) => a - b);
-    expect(sortOrders, "Should be sorted by sort_order").toEqual(sortedOrders);
+    expect(
+      isOrdered,
+      "Should be ordered by level, sort_order, display_name",
+    ).toBe(true);
   });
 
   test("1.2-API-003: [P1] GET /api/config/departments - should filter by is_lottery", async ({

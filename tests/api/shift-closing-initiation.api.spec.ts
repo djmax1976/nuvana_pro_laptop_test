@@ -11,22 +11,22 @@ import { Prisma } from "@prisma/client";
 /**
  * @test-level API
  * @justification Endpoint integration tests verifying HTTP layer, authentication, authorization, request/response format, and error handling for POST /api/shifts/:shiftId/close
- * @story 4-3-shift-closing-initiation
+ * @story simplified-shift-closing
  * @enhanced-by workflow-9 on 2025-11-29
  *
- * Shift Closing Initiation API Tests - Story 4.3
+ * Shift Closing API Tests - Simplified Direct Close
  *
- * STORY: As a Shift Manager, I want to initiate shift closing,
- * so that I can begin the reconciliation process.
+ * STORY: As a Shift Manager, I want to close a shift directly with actual cash,
+ * so that the shift is finalized in a single step.
  *
  * TEST LEVEL: API (endpoint integration tests)
- * PRIMARY GOAL: Verify POST /api/shifts/:shiftId/close endpoint initiates shift closing with validation
+ * PRIMARY GOAL: Verify POST /api/shifts/:shiftId/close endpoint closes shifts directly with validation
  *
  * BUSINESS RULES TESTED:
- * - Shift status changes to CLOSING
- * - Expected cash calculation (opening_cash + cash transactions)
- * - Transaction blocking for CLOSING shifts
- * - Audit log creation
+ * - Shift status changes to CLOSED
+ * - closing_cash is recorded
+ * - closed_at and closed_by are set
+ * - Audit log creation (SHIFT_CLOSED_DIRECT)
  * - Authentication required (JWT token)
  * - Authorization required (SHIFT_CLOSE permission)
  * - Multi-tenant isolation (store_id must be accessible to user)
@@ -144,7 +144,7 @@ async function createActiveShift(
 
 /**
  * Creates a cash transaction with payment for a shift
- * Used to test expected cash calculation (opening_cash + cash payments)
+ * Used to ensure close logic is not affected by transaction history
  *
  * @param prismaClient - Prisma client instance
  * @param shiftId - Shift UUID
@@ -225,7 +225,7 @@ test.describe("4.3-API: Shift Closing - Authentication", () => {
     // WHEN: Sending request without JWT token
     const response = await apiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 0 },
     );
 
     // THEN: Should return 401 Unauthorized
@@ -283,10 +283,10 @@ test.describe("4.3-API: Shift Closing - Authentication", () => {
     // WHEN: Sending request with invalid JWT
     const response = await apiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 0 },
       {
         headers: {
-          Authorization: `Bearer ${invalidToken}`,
+          Cookie: `access_token=${invalidToken}`,
         },
       },
     );
@@ -347,7 +347,7 @@ test.describe("4.3-API: Shift Closing - Authentication", () => {
     // WHEN: User without SHIFT_CLOSE permission sends request
     const response = await regularUserApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 0 },
     );
 
     // THEN: Should return 403 Forbidden (permission denied)
@@ -380,7 +380,7 @@ test.describe("4.3-API: Shift Closing - Authentication", () => {
 // =============================================================================
 
 test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
-  test("4.3-API-004: [P0] should change shift status to CLOSING when valid OPEN shift provided", async ({
+  test("4.3-API-004: [P0] should change shift status to CLOSED when valid OPEN shift provided", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
@@ -406,9 +406,10 @@ test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
     );
 
     // WHEN: Initiating shift closing
+    const closingCash = 175.25;
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: closingCash },
     );
 
     // THEN: Should return 200 OK
@@ -417,29 +418,15 @@ test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
     expect(body.success, "Response should indicate success").toBe(true);
     expect(body.data, "Response should contain shift data").toBeDefined();
 
-    // AND: Shift status should be CLOSING
-    expect(body.data.status, "Shift status should be CLOSING").toBe("CLOSING");
-
-    // AND: Expected cash should be calculated (opening_cash + cash transactions)
-    expect(
-      body.data.expected_cash,
-      "Expected cash should be calculated",
-    ).toBeDefined();
-    expect(body.data.opening_cash, "Opening cash should be present").toBe(
-      150.75,
+    // AND: Shift status should be CLOSED
+    expect(body.data.status, "Shift status should be CLOSED").toBe("CLOSED");
+    expect(body.data.closing_cash, "Closing cash should be recorded").toBe(
+      closingCash,
     );
-    expect(
-      body.data.cash_transactions_total,
-      "Cash transactions total should be present",
-    ).toBeDefined();
-    expect(
-      body.data.closing_initiated_at,
-      "Closing initiated at should be set",
-    ).toBeDefined();
-    expect(
-      body.data.closing_initiated_by,
-      "Closing initiated by should be set",
-    ).toBe(storeManagerUser.user_id);
+    expect(body.data.closed_at, "Closed at should be set").toBeDefined();
+    expect(body.data.closed_by, "Closed by should be set").toBe(
+      storeManagerUser.user_id,
+    );
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
@@ -451,7 +438,7 @@ test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
     });
   });
 
-  test("4.3-API-005: [P0] should change shift status to CLOSING when valid ACTIVE shift provided", async ({
+  test("4.3-API-005: [P0] should change shift status to CLOSED when valid ACTIVE shift provided", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
@@ -479,7 +466,7 @@ test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
     // WHEN: Initiating shift closing
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 210.0 },
     );
 
     // THEN: Should return 200 OK
@@ -487,8 +474,8 @@ test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
     const body = await response.json();
     expect(body.success, "Response should indicate success").toBe(true);
 
-    // AND: Shift status should be CLOSING
-    expect(body.data.status, "Shift status should be CLOSING").toBe("CLOSING");
+    // AND: Shift status should be CLOSED
+    expect(body.data.status, "Shift status should be CLOSED").toBe("CLOSED");
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
@@ -500,7 +487,7 @@ test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
     });
   });
 
-  test("4.3-API-006: [P0] should calculate expected cash correctly (opening_cash + cash transactions)", async ({
+  test("4.3-API-006: [P0] should record closing_cash even when cash transactions exist", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
@@ -546,17 +533,15 @@ test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
     // WHEN: Initiating shift closing
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 150.0 },
     );
 
     // THEN: Should return 200 OK
     expect(response.status()).toBe(200);
     const body = await response.json();
 
-    // AND: Expected cash should be opening_cash + cash transactions = 100.0 + 50.0 = 150.0
-    expect(body.data.expected_cash).toBe(150.0);
-    expect(body.data.opening_cash).toBe(100.0);
-    expect(body.data.cash_transactions_total).toBe(50.0);
+    // AND: closing_cash should match request body
+    expect(body.data.closing_cash).toBe(150.0);
 
     // Cleanup - delete transactions first (they reference shift via foreign key)
     await prismaClient.transaction.deleteMany({
@@ -571,7 +556,7 @@ test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
     });
   });
 
-  test("4.3-API-007: [P0] should calculate expected cash as opening_cash when no cash transactions exist", async ({
+  test("4.3-API-007: [P0] should record closing_cash when no cash transactions exist", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
@@ -600,17 +585,15 @@ test.describe("4.3-API: Shift Closing - Valid Data (AC-1)", () => {
     // WHEN: Initiating shift closing
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 100.0 },
     );
 
     // THEN: Should return 200 OK
     expect(response.status()).toBe(200);
     const body = await response.json();
 
-    // AND: Expected cash should equal opening_cash (100.0) when no transactions
-    expect(body.data.expected_cash).toBe(100.0);
-    expect(body.data.opening_cash).toBe(100.0);
-    expect(body.data.cash_transactions_total).toBe(0);
+    // AND: closing_cash should match request body
+    expect(body.data.closing_cash).toBe(100.0);
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
@@ -639,7 +622,7 @@ test.describe("4.3-API: Shift Closing - Validation & Errors", () => {
     // WHEN: Attempting to close non-existent shift
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${nonExistentShiftId}/close`,
-      {},
+      { closing_cash: 0 },
     );
 
     // THEN: Should return 404 Not Found
@@ -651,7 +634,7 @@ test.describe("4.3-API: Shift Closing - Validation & Errors", () => {
     expect(body.error.code).toBe("SHIFT_NOT_FOUND");
   });
 
-  test("4.3-API-009: [P0] should return 409 when shift is already CLOSING", async ({
+  test("4.3-API-009: [P0] should close shift that is already CLOSING", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
@@ -681,17 +664,14 @@ test.describe("4.3-API: Shift Closing - Validation & Errors", () => {
     // WHEN: Attempting to close shift that is already CLOSING
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 100.0 },
     );
 
-    // THEN: Should return 409 Conflict
-    expect(
-      response.status(),
-      "Should return 409 for shift already CLOSING",
-    ).toBe(409);
+    // THEN: Should allow closing and return CLOSED status
+    expect(response.status(), "Should return 200 for CLOSING shift").toBe(200);
     const body = await response.json();
-    expect(body.success).toBe(false);
-    expect(body.error.code).toBe("SHIFT_ALREADY_CLOSING");
+    expect(body.success).toBe(true);
+    expect(body.data.status).toBe("CLOSED");
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
@@ -734,7 +714,7 @@ test.describe("4.3-API: Shift Closing - Validation & Errors", () => {
     // WHEN: Attempting to close shift that is already CLOSED
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 100.0 },
     );
 
     // THEN: Should return 409 Conflict
@@ -786,7 +766,7 @@ test.describe("4.3-API: Shift Closing - Validation & Errors", () => {
     // WHEN: Attempting to close shift with invalid status
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 0 },
     );
 
     // THEN: Should return 400 Bad Request
@@ -841,7 +821,7 @@ test.describe("4.3-API: Shift Closing - Validation & Errors", () => {
     // WHEN: Attempting to close shift from inaccessible store
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 0 },
     );
 
     // THEN: Should return 404 Not Found (RLS hides shift from user)
@@ -876,13 +856,13 @@ test.describe("4.3-API: Shift Closing - Validation & Errors", () => {
 // =============================================================================
 
 test.describe("4.3-API: Shift Closing - Transaction Blocking", () => {
-  test("4.3-API-013: [P0] should prevent new transactions for shifts in CLOSING status", async ({
+  test("4.3-API-013: [P0] should mark shift as CLOSED to block new transactions", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
   }) => {
     // GIVEN: Authenticated user with SHIFT_CLOSE permission
-    // AND: A shift that has been closed (status = CLOSING)
+    // AND: A shift that will be closed
     const cashier = await createTestCashier(
       prismaClient,
       storeManagerUser.store_id,
@@ -903,19 +883,18 @@ test.describe("4.3-API: Shift Closing - Transaction Blocking", () => {
     // WHEN: Closing the shift
     const closeResponse = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 0 },
     );
     expect(closeResponse.status()).toBe(200);
 
-    // THEN: Attempting to create a transaction for the CLOSING shift should fail
-    // NOTE: This test verifies the transaction blocking logic in transaction.service.ts
-    // The actual transaction creation endpoint would return SHIFT_CLOSING_TRANSACTION_BLOCKED
-    // For now, we verify the shift is in CLOSING status and document the requirement
+    // THEN: Attempting to create a transaction for the CLOSED shift should fail
+    // NOTE: This test verifies the status that blocks transactions in transaction.service.ts.
+    // The actual transaction creation endpoint would reject the request.
 
     const shiftAfterClose = await prismaClient.shift.findUnique({
       where: { shift_id: shift.shift_id },
     });
-    expect(shiftAfterClose?.status).toBe("CLOSING");
+    expect(shiftAfterClose?.status).toBe("CLOSED");
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
@@ -933,7 +912,7 @@ test.describe("4.3-API: Shift Closing - Transaction Blocking", () => {
 // =============================================================================
 
 test.describe("4.3-API: Shift Closing - Audit Logging", () => {
-  test("4.3-API-014: [P0] should create audit log entry when shift closing is initiated", async ({
+  test("4.3-API-014: [P0] should create audit log entry when shift is closed", async ({
     storeManagerApiRequest,
     storeManagerUser,
     prismaClient,
@@ -960,14 +939,14 @@ test.describe("4.3-API: Shift Closing - Audit Logging", () => {
     // WHEN: Initiating shift closing
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 0 },
     );
     expect(response.status()).toBe(200);
 
-    // THEN: Audit log entry should be created with action "SHIFT_CLOSING_INITIATED"
+    // THEN: Audit log entry should be created with action "SHIFT_CLOSED_DIRECT"
     const auditLog = await prismaClient.auditLog.findFirst({
       where: {
-        action: "SHIFT_CLOSING_INITIATED",
+        action: "SHIFT_CLOSED_DIRECT",
         user_id: storeManagerUser.user_id,
         record_id: shift.shift_id,
       },
@@ -975,7 +954,7 @@ test.describe("4.3-API: Shift Closing - Audit Logging", () => {
     });
 
     expect(auditLog, "Audit log should be created").not.toBeNull();
-    expect(auditLog?.action).toBe("SHIFT_CLOSING_INITIATED");
+    expect(auditLog?.action).toBe("SHIFT_CLOSED_DIRECT");
     expect(auditLog?.user_id).toBe(storeManagerUser.user_id);
     expect(auditLog?.table_name).toBe("shifts");
     expect(auditLog?.record_id).toBe(shift.shift_id);
@@ -1027,10 +1006,11 @@ test.describe("4.3-API: Shift Closing - Response Format", () => {
       100.0,
     );
 
-    // WHEN: Initiating shift closing
+    // WHEN: Initiating shift closing with matching closing_cash
+    const closingCash = 100.0;
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: closingCash },
     );
 
     // THEN: Response should match API contract
@@ -1041,15 +1021,10 @@ test.describe("4.3-API: Shift Closing - Response Format", () => {
     expect(body.success).toBe(true);
     expect(body.data).toBeDefined();
     expect(body.data.shift_id).toBeDefined();
-    expect(body.data.status).toBe("CLOSING");
-    expect(body.data.closing_initiated_at).toBeDefined();
-    expect(body.data.closing_initiated_by).toBe(storeManagerUser.user_id);
-    expect(body.data.expected_cash).toBeDefined();
-    expect(typeof body.data.expected_cash).toBe("number");
-    expect(body.data.opening_cash).toBe(100.0);
-    expect(body.data.cash_transactions_total).toBeDefined();
-    expect(typeof body.data.cash_transactions_total).toBe("number");
-    expect(body.data.calculated_at).toBeDefined();
+    expect(body.data.status).toBe("CLOSED");
+    expect(body.data.closing_cash).toBe(closingCash);
+    expect(body.data.closed_at).toBeDefined();
+    expect(body.data.closed_by).toBe(storeManagerUser.user_id);
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
@@ -1085,7 +1060,7 @@ test.describe("4.3-API: Shift Closing - Security Tests", () => {
       // WHEN: Attempting to close shift with SQL injection in shiftId
       const response = await storeManagerApiRequest.post(
         `/api/shifts/${encodeURIComponent(maliciousShiftId)}/close`,
-        {},
+        { closing_cash: 0 },
       );
 
       // THEN: Should return 400 Bad Request (validation error) or 404 Not Found
@@ -1138,7 +1113,7 @@ test.describe("4.3-API: Shift Closing - Security Tests", () => {
     // WHEN: Sending request with expired JWT token
     const response = await apiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 0 },
       {
         headers: {
           Authorization: `Bearer ${expiredToken}`,
@@ -1206,10 +1181,10 @@ test.describe("4.3-API: Shift Closing - Security Tests", () => {
       // WHEN: Sending request with malformed JWT token
       const response = await apiRequest.post(
         `/api/shifts/${shift.shift_id}/close`,
-        {},
+        { closing_cash: 0 },
         {
           headers: {
-            Authorization: `Bearer ${malformedToken}`,
+            Cookie: `access_token=${malformedToken}`,
           },
         },
       );
@@ -1271,7 +1246,7 @@ test.describe("4.3-API: Shift Closing - Security Tests", () => {
     // WHEN: Attempting to close shift from different company
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 0 },
     );
 
     // THEN: Should return 404 Not Found (RLS prevents access)
@@ -1311,7 +1286,7 @@ test.describe("4.3-API: Shift Closing - Security Tests", () => {
     // WHEN: Attempting to close non-existent shift
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${nonExistentShiftId}/close`,
-      {},
+      { closing_cash: 0 },
     );
 
     // THEN: Should return 404 Not Found
@@ -1355,7 +1330,7 @@ test.describe("4.3-API: Shift Closing - Input Validation & Edge Cases", () => {
       // WHEN: Attempting to close shift with invalid UUID
       const response = await storeManagerApiRequest.post(
         `/api/shifts/${encodeURIComponent(invalidUuid)}/close`,
-        {},
+        { closing_cash: 0 },
       );
 
       // THEN: Should return 400 Bad Request (validation error)
@@ -1378,7 +1353,7 @@ test.describe("4.3-API: Shift Closing - Input Validation & Edge Cases", () => {
     // WHEN: Attempting to close shift with very long shiftId
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${encodeURIComponent(veryLongString)}/close`,
-      {},
+      { closing_cash: 0 },
     );
 
     // THEN: Should return 400 Bad Request (validation error) or 404 Not Found
@@ -1416,7 +1391,7 @@ test.describe("4.3-API: Shift Closing - Input Validation & Edge Cases", () => {
       // WHEN: Attempting to close shift with special characters in shiftId
       const response = await storeManagerApiRequest.post(
         `/api/shifts/${encodeURIComponent(specialId)}/close`,
-        {},
+        { closing_cash: 0 },
       );
 
       // THEN: Should return 400 Bad Request (validation error)
@@ -1457,7 +1432,7 @@ test.describe("4.3-API: Shift Closing - Input Validation & Edge Cases", () => {
     // WHEN: Initiating shift closing
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 0 },
     );
 
     // THEN: Should return 200 OK
@@ -1467,15 +1442,8 @@ test.describe("4.3-API: Shift Closing - Input Validation & Edge Cases", () => {
     ).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(
-      body.data.expected_cash,
-      "Expected cash should be 0 when no transactions",
-    ).toBe(0);
-    expect(body.data.opening_cash, "Opening cash should be 0").toBe(0);
-    expect(
-      body.data.cash_transactions_total,
-      "Cash transactions total should be 0",
-    ).toBe(0);
+    expect(body.data.status, "Status should be CLOSED").toBe("CLOSED");
+    expect(body.data.closing_cash, "Closing cash should be 0").toBe(0);
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
@@ -1516,7 +1484,7 @@ test.describe("4.3-API: Shift Closing - Input Validation & Edge Cases", () => {
     // WHEN: Initiating shift closing
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: largeCash },
     );
 
     // THEN: Should return 200 OK
@@ -1527,13 +1495,9 @@ test.describe("4.3-API: Shift Closing - Input Validation & Edge Cases", () => {
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(
-      body.data.opening_cash,
-      "Opening cash should match large value",
+      body.data.closing_cash,
+      "Closing cash should match large value",
     ).toBe(largeCash);
-    expect(
-      typeof body.data.expected_cash,
-      "Expected cash should be number",
-    ).toBe("number");
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
@@ -1574,7 +1538,7 @@ test.describe("4.3-API: Shift Closing - Input Validation & Edge Cases", () => {
     // WHEN: Initiating shift closing
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: preciseCash },
     );
 
     // THEN: Should return 200 OK
@@ -1586,13 +1550,9 @@ test.describe("4.3-API: Shift Closing - Input Validation & Edge Cases", () => {
     // Use Number() to handle potential Prisma Decimal string serialization
     // and toBeCloseTo for floating-point comparison with 2 decimal precision
     expect(
-      Number(body.data.opening_cash),
-      "Opening cash should preserve precision",
+      Number(body.data.closing_cash),
+      "Closing cash should preserve precision",
     ).toBeCloseTo(preciseCash, 2);
-    expect(
-      typeof Number(body.data.expected_cash),
-      "Expected cash should be number",
-    ).toBe("number");
 
     // Cleanup
     await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
@@ -1632,7 +1592,7 @@ test.describe("4.3-API: Shift Closing - Input Validation & Edge Cases", () => {
     // WHEN: Initiating shift closing
     const response = await storeManagerApiRequest.post(
       `/api/shifts/${shift.shift_id}/close`,
-      {},
+      { closing_cash: 0 },
     );
 
     // THEN: Should return 200 OK
@@ -1654,75 +1614,37 @@ test.describe("4.3-API: Shift Closing - Input Validation & Edge Cases", () => {
     ).toBe(36);
 
     expect(body.data.status, "status should exist").toBeDefined();
-    expect(body.data.status, "status should be CLOSING").toBe("CLOSING");
+    expect(body.data.status, "status should be CLOSED").toBe("CLOSED");
 
-    expect(
-      body.data.closing_initiated_at,
-      "closing_initiated_at should exist",
-    ).toBeDefined();
-    expect(
-      typeof body.data.closing_initiated_at,
-      "closing_initiated_at should be string",
-    ).toBe("string");
-    // Verify ISO 8601 format (contains T and Z or timezone)
-    expect(
-      body.data.closing_initiated_at,
-      "closing_initiated_at should be ISO 8601 format",
-    ).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
-
-    expect(
-      body.data.closing_initiated_by,
-      "closing_initiated_by should exist",
-    ).toBeDefined();
-    expect(
-      typeof body.data.closing_initiated_by,
-      "closing_initiated_by should be string",
-    ).toBe("string");
-    expect(
-      body.data.closing_initiated_by.length,
-      "closing_initiated_by should be UUID format",
-    ).toBe(36);
-
-    expect(body.data.expected_cash, "expected_cash should exist").toBeDefined();
-    expect(
-      typeof body.data.expected_cash,
-      "expected_cash should be number",
-    ).toBe("number");
-
-    expect(body.data.opening_cash, "opening_cash should exist").toBeDefined();
-    expect(typeof body.data.opening_cash, "opening_cash should be number").toBe(
+    expect(body.data.closing_cash, "closing_cash should exist").toBeDefined();
+    expect(typeof body.data.closing_cash, "closing_cash should be number").toBe(
       "number",
     );
+    // Verify ISO 8601 format (contains T and Z or timezone)
+    expect(body.data.closed_at, "closed_at should be ISO 8601 format").toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+    );
 
-    expect(
-      body.data.cash_transactions_total,
-      "cash_transactions_total should exist",
-    ).toBeDefined();
-    expect(
-      typeof body.data.cash_transactions_total,
-      "cash_transactions_total should be number",
-    ).toBe("number");
+    expect(body.data.closed_by, "closed_by should exist").toBeDefined();
+    expect(typeof body.data.closed_by, "closed_by should be string").toBe(
+      "string",
+    );
+    expect(body.data.closed_by.length, "closed_by should be UUID format").toBe(
+      36,
+    );
 
-    expect(body.data.calculated_at, "calculated_at should exist").toBeDefined();
-    expect(
-      typeof body.data.calculated_at,
-      "calculated_at should be string",
-    ).toBe("string");
-    expect(
-      body.data.calculated_at,
-      "calculated_at should be ISO 8601 format",
-    ).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    expect(body.data.closed_at, "closed_at should exist").toBeDefined();
+    expect(typeof body.data.closed_at, "closed_at should be string").toBe(
+      "string",
+    );
 
     // Verify no unexpected fields are present (data leakage prevention)
     const allowedFields = [
       "shift_id",
       "status",
-      "closing_initiated_at",
-      "closing_initiated_by",
-      "expected_cash",
-      "opening_cash",
-      "cash_transactions_total",
-      "calculated_at",
+      "closing_cash",
+      "closed_at",
+      "closed_by",
     ];
     const actualFields = Object.keys(body.data);
     const unexpectedFields = actualFields.filter(

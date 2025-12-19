@@ -378,7 +378,6 @@ test.describe("DAY-SUMMARY-API: Authentication", () => {
 test.describe("DAY-SUMMARY-API: Authorization", () => {
   test("DAY-SUMMARY-010: [P0] should return 403 when user lacks SHIFT_REPORT_VIEW permission", async ({
     regularUserApiRequest,
-    regularUser,
     prismaClient,
   }) => {
     // GIVEN: User without SHIFT_REPORT_VIEW permission
@@ -405,8 +404,8 @@ test.describe("DAY-SUMMARY-API: Authorization", () => {
       ).toBe(403);
       const body = await response.json();
       expect(body.success, "Response should indicate failure").toBe(false);
-      expect(body.error.code, "Error code should be FORBIDDEN").toBe(
-        "FORBIDDEN",
+      expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
+        "PERMISSION_DENIED",
       );
     } finally {
       await cleanupStoreData(prismaClient, store.store_id);
@@ -419,11 +418,10 @@ test.describe("DAY-SUMMARY-API: Authorization", () => {
   });
 
   test("DAY-SUMMARY-011: [P0] should return 403 when user lacks SHIFT_CLOSE permission for close endpoint", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    regularUserApiRequest,
     prismaClient,
   }) => {
-    // GIVEN: Store manager with view but not close permission
+    // GIVEN: User without SHIFT_CLOSE permission
     const owner = await prismaClient.user.create({
       data: createUser({ name: "Store Owner" }),
     });
@@ -437,16 +435,20 @@ test.describe("DAY-SUMMARY-API: Authorization", () => {
 
     try {
       // WHEN: Attempting to close day without permission
-      const response = await storeManagerApiRequest.post(
+      const response = await regularUserApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/${today}/close`,
       );
 
-      // THEN: Should return 403 Forbidden (assuming manager lacks SHIFT_CLOSE)
-      // Note: This may return 403 or succeed depending on role configuration
+      // THEN: Should return 403 Forbidden
       expect(
-        [200, 400, 403, 404].includes(response.status()),
-        "Should return valid status",
-      ).toBe(true);
+        response.status(),
+        "Should return 403 for missing permission",
+      ).toBe(403);
+      const body = await response.json();
+      expect(body.success, "Response should indicate failure").toBe(false);
+      expect(body.error.code, "Error code should be PERMISSION_DENIED").toBe(
+        "PERMISSION_DENIED",
+      );
     } finally {
       await cleanupStoreData(prismaClient, store.store_id);
       await prismaClient.store.delete({ where: { store_id: store.store_id } });
@@ -458,22 +460,21 @@ test.describe("DAY-SUMMARY-API: Authorization", () => {
   });
 
   test("DAY-SUMMARY-012: [P0] should allow access with valid SHIFT_REPORT_VIEW permission", async ({
-    corporateAdminApiRequest,
-    corporateAdminUser,
+    storeManagerApiRequest,
+    storeManagerUser,
     prismaClient,
   }) => {
-    // GIVEN: Corporate admin with SHIFT_REPORT_VIEW permission
-    const company = await prismaClient.company.create({
-      data: createCompany({ owner_user_id: corporateAdminUser.user_id }),
-    });
-    const store = await prismaClient.store.create({
-      data: createStore({ company_id: company.company_id }),
-    });
+    // GIVEN: Store manager with SHIFT_REPORT_VIEW permission
+    // Use the store from the fixture that the store manager already has access to
+    const storeId = storeManagerUser.store_id;
 
     try {
+      // Ensure no day summaries exist from previous tests
+      await cleanupStoreData(prismaClient, storeId);
+
       // WHEN: Requesting day summaries with proper permission
-      const response = await corporateAdminApiRequest.get(
-        `/api/stores/${store.store_id}/day-summaries`,
+      const response = await storeManagerApiRequest.get(
+        `/api/stores/${storeId}/day-summaries`,
       );
 
       // THEN: Should return 200 OK
@@ -484,11 +485,7 @@ test.describe("DAY-SUMMARY-API: Authorization", () => {
       expect(body.success, "Response should indicate success").toBe(true);
       expect(Array.isArray(body.data), "Data should be an array").toBe(true);
     } finally {
-      await cleanupStoreData(prismaClient, store.store_id);
-      await prismaClient.store.delete({ where: { store_id: store.store_id } });
-      await prismaClient.company.delete({
-        where: { company_id: company.company_id },
-      });
+      await cleanupStoreData(prismaClient, storeId);
     }
   });
 });
@@ -972,7 +969,6 @@ test.describe("DAY-SUMMARY-API: Business Logic - Get Day Summary", () => {
 test.describe("DAY-SUMMARY-API: Business Logic - Close Day", () => {
   test("DAY-SUMMARY-050: [P1] should return 400 when closing day with open shifts", async ({
     superadminApiRequest,
-    superadminUser,
     prismaClient,
   }) => {
     // GIVEN: Store with an ACTIVE shift
@@ -1009,6 +1005,7 @@ test.describe("DAY-SUMMARY-API: Business Logic - Close Day", () => {
       // WHEN: Attempting to close the day
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/${formatDate(today)}/close`,
+        {}, // Empty body is valid - notes are optional
       );
 
       // THEN: Should return 400 Bad Request
@@ -1036,7 +1033,6 @@ test.describe("DAY-SUMMARY-API: Business Logic - Close Day", () => {
 
   test("DAY-SUMMARY-051: [P1] should return 409 when day is already closed", async ({
     superadminApiRequest,
-    superadminUser,
     prismaClient,
   }) => {
     // GIVEN: Store with a CLOSED day summary
@@ -1063,6 +1059,7 @@ test.describe("DAY-SUMMARY-API: Business Logic - Close Day", () => {
       // WHEN: Attempting to close again
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/close`,
+        {}, // Empty body is valid - notes are optional
       );
 
       // THEN: Should return 409 Conflict
@@ -1086,7 +1083,6 @@ test.describe("DAY-SUMMARY-API: Business Logic - Close Day", () => {
 
   test("DAY-SUMMARY-052: [P1] should successfully close day when all shifts are closed", async ({
     superadminApiRequest,
-    superadminUser,
     prismaClient,
   }) => {
     // GIVEN: Store with all shifts closed
@@ -1128,9 +1124,7 @@ test.describe("DAY-SUMMARY-API: Business Logic - Close Day", () => {
       // WHEN: Closing the day
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/close`,
-        {
-          data: { notes: "Day closed successfully" },
-        },
+        { notes: "Day closed successfully" },
       );
 
       // THEN: Should return 200 OK with closed summary
@@ -1210,8 +1204,18 @@ test.describe("DAY-SUMMARY-API: Weekly Report", () => {
         body.data.day_count,
         "Should have day_count",
       ).toBeGreaterThanOrEqual(0);
-      expect(body.data.gross_sales, "Should have gross_sales").toBeDefined();
-      expect(body.data.net_sales, "Should have net_sales").toBeDefined();
+      expect(
+        body.data.totals?.gross_sales,
+        "Should have gross_sales",
+      ).toBeDefined();
+      expect(
+        body.data.totals?.net_sales,
+        "Should have net_sales",
+      ).toBeDefined();
+      expect(
+        Array.isArray(body.data.daily_breakdown),
+        "Should have daily_breakdown",
+      ).toBe(true);
     } finally {
       await cleanupStoreData(prismaClient, store.store_id);
       await prismaClient.store.delete({ where: { store_id: store.store_id } });
@@ -1265,6 +1269,14 @@ test.describe("DAY-SUMMARY-API: Monthly Report", () => {
         body.data.day_count,
         "Should have day_count",
       ).toBeGreaterThanOrEqual(0);
+      expect(
+        body.data.totals?.gross_sales,
+        "Should have gross_sales",
+      ).toBeDefined();
+      expect(
+        body.data.totals?.net_sales,
+        "Should have net_sales",
+      ).toBeDefined();
     } finally {
       await cleanupStoreData(prismaClient, store.store_id);
       await prismaClient.store.delete({ where: { store_id: store.store_id } });
@@ -1428,18 +1440,15 @@ test.describe("DAY-SUMMARY-API: Date Range Report", () => {
 
 test.describe("DAY-SUMMARY-API: Tenant Isolation", () => {
   test("DAY-SUMMARY-090: [P2] should not return day summaries from other companies", async ({
-    corporateAdminApiRequest,
-    corporateAdminUser,
+    storeManagerApiRequest,
+    storeManagerUser,
     prismaClient,
   }) => {
-    // GIVEN: Two companies with day summaries
-    const company1 = await prismaClient.company.create({
-      data: createCompany({ owner_user_id: corporateAdminUser.user_id }),
-    });
-    const store1 = await prismaClient.store.create({
-      data: createStore({ company_id: company1.company_id }),
-    });
+    // GIVEN: Store manager's store (from fixture) and another company's store
+    // Use the store from the fixture that the store manager already has access to
+    const store1Id = storeManagerUser.store_id;
 
+    // Create a separate company and store that the manager should NOT have access to
     const otherOwner = await prismaClient.user.create({
       data: createUser({ name: "Other Owner" }),
     });
@@ -1450,11 +1459,10 @@ test.describe("DAY-SUMMARY-API: Tenant Isolation", () => {
       data: createStore({ company_id: company2.company_id }),
     });
 
-    await createDaySummary(
-      prismaClient,
-      store1.store_id,
-      new Date("2024-01-15"),
-    );
+    // Clean up any existing day summaries first
+    await cleanupStoreData(prismaClient, store1Id);
+
+    await createDaySummary(prismaClient, store1Id, new Date("2024-01-15"));
     await createDaySummary(
       prismaClient,
       store2.store_id,
@@ -1462,22 +1470,22 @@ test.describe("DAY-SUMMARY-API: Tenant Isolation", () => {
     );
 
     try {
-      // WHEN: Requesting day summaries for company 1's store
-      const response = await corporateAdminApiRequest.get(
-        `/api/stores/${store1.store_id}/day-summaries`,
+      // WHEN: Requesting day summaries for store manager's store
+      const response = await storeManagerApiRequest.get(
+        `/api/stores/${store1Id}/day-summaries`,
       );
 
-      // THEN: Should only return company 1's summaries
+      // THEN: Should only return store manager's company summaries
       expect(response.status(), "Should return 200").toBe(200);
       const body = await response.json();
       expect(body.success, "Response should indicate success").toBe(true);
       expect(body.data.length, "Should return 1 summary").toBe(1);
       expect(body.data[0].store_id, "Should be from correct store").toBe(
-        store1.store_id,
+        store1Id,
       );
 
       // WHEN: Trying to access other company's store
-      const otherResponse = await corporateAdminApiRequest.get(
+      const otherResponse = await storeManagerApiRequest.get(
         `/api/stores/${store2.store_id}/day-summaries`,
       );
 
@@ -1487,13 +1495,9 @@ test.describe("DAY-SUMMARY-API: Tenant Isolation", () => {
         "Should return 403 for other company",
       ).toBe(403);
     } finally {
-      await cleanupStoreData(prismaClient, store1.store_id);
+      await cleanupStoreData(prismaClient, store1Id);
       await cleanupStoreData(prismaClient, store2.store_id);
-      await prismaClient.store.delete({ where: { store_id: store1.store_id } });
       await prismaClient.store.delete({ where: { store_id: store2.store_id } });
-      await prismaClient.company.delete({
-        where: { company_id: company1.company_id },
-      });
       await prismaClient.company.delete({
         where: { company_id: company2.company_id },
       });
@@ -1534,9 +1538,7 @@ test.describe("DAY-SUMMARY-API: Update Notes", () => {
       // WHEN: Updating notes
       const response = await superadminApiRequest.patch(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/notes`,
-        {
-          data: { notes: "Manager notes for the day" },
-        },
+        { notes: "Manager notes for the day" },
       );
 
       // THEN: Should return updated summary
@@ -1585,9 +1587,7 @@ test.describe("DAY-SUMMARY-API: Update Notes", () => {
       // WHEN: Clearing notes
       const response = await superadminApiRequest.patch(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/notes`,
-        {
-          data: { notes: null },
-        },
+        { notes: null },
       );
 
       // THEN: Should return summary with cleared notes
@@ -1631,9 +1631,7 @@ test.describe("DAY-SUMMARY-API: Update Notes", () => {
       const longNotes = "x".repeat(2001);
       const response = await superadminApiRequest.patch(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/notes`,
-        {
-          data: { notes: longNotes },
-        },
+        { notes: longNotes },
       );
 
       // THEN: Should return 400 Bad Request
@@ -1766,8 +1764,10 @@ test.describe("DAY-SUMMARY-API: Refresh Endpoint", () => {
 
     try {
       // WHEN: Refreshing the day summary
+      // Note: Empty object {} is required as server validates JSON body format
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/refresh`,
+        {},
       );
 
       // THEN: Should return refreshed summary

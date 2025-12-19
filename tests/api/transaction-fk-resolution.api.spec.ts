@@ -1,9 +1,5 @@
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import {
-  createTransactionPayload,
-  createStore,
-  createCashier,
-} from "../support/factories";
+import { createStore, createCashier } from "../support/factories";
 
 /**
  * Phase 1.5: Transaction FK Resolution Tests
@@ -21,6 +17,8 @@ import {
  * - department_code populated as denormalized snapshot
  * - tax_amount captured per line item
  * - Query response includes FK fields
+ *
+ * FIXTURE: Uses corporateAdminUser/corporateAdminApiRequest which has TRANSACTION_CREATE permission
  */
 
 // =============================================================================
@@ -28,17 +26,24 @@ import {
 // =============================================================================
 
 /**
- * Creates a test store and open shift for transaction testing
+ * Creates a test store, cashier, and open shift for transaction testing.
+ * Uses proper test marker prefix for cleanup.
+ *
+ * @param prismaClient - Prisma client
+ * @param companyId - Company ID
+ * @param createdByUserId - User ID for shift opener and cashier creator
+ * @returns Store, cashier, and shift objects
  */
 async function createTestStoreAndShift(
   prismaClient: any,
   companyId: string,
   createdByUserId: string,
 ) {
+  // Use "Test " prefix for proper cleanup
   const store = await prismaClient.store.create({
     data: createStore({
       company_id: companyId,
-      name: `FK Test Store ${Date.now()}`,
+      name: `Test FK Store ${Date.now()}`,
       timezone: "America/New_York",
       status: "ACTIVE",
     }),
@@ -64,27 +69,77 @@ async function createTestStoreAndShift(
   return { store, cashier, shift };
 }
 
+/**
+ * Wait for async worker to process transaction.
+ * Uses polling with timeout and looks up by transaction_id (correlation_id from API response).
+ *
+ * @param prismaClient - Prisma client
+ * @param transactionId - Transaction ID (correlation_id from API response)
+ * @param maxWaitMs - Maximum wait time (default 30000ms for worker processing)
+ * @param pollIntervalMs - Polling interval (default 500ms)
+ * @returns Transaction if found, null if timeout
+ */
+async function waitForTransaction(
+  prismaClient: any,
+  transactionId: string,
+  maxWaitMs: number = 30000,
+  pollIntervalMs: number = 500,
+): Promise<any | null> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWaitMs) {
+    try {
+      const transaction = await prismaClient.transaction.findUnique({
+        where: { transaction_id: transactionId },
+        include: {
+          payments: true,
+          line_items: true,
+        },
+      });
+
+      if (transaction) {
+        return transaction;
+      }
+    } catch (error) {
+      // Log error but continue polling
+      console.warn(`Error checking for transaction ${transactionId}:`, error);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  return null;
+}
+
+// Skip tests if worker is not running - set WORKER_RUNNING=true to enable
+const workerRunning = process.env.WORKER_RUNNING === "true";
+
 // =============================================================================
 // TEST SUITES
 // =============================================================================
 
 test.describe("Phase 1.5: Transaction FK Resolution", () => {
+  // Skip all tests in this suite if worker is not running
+  test.skip(
+    !workerRunning,
+    "Worker process not running - set WORKER_RUNNING=true to enable these tests",
+  );
+
   test.describe("P1 - Tender Type FK Resolution", () => {
     test("should populate tender_type_id and tender_code from payment method", async ({
-      authenticatedApiRequest,
-      authenticatedUser,
+      corporateAdminApiRequest,
+      corporateAdminUser,
+      prismaClient,
     }) => {
-      const { prisma, company, user } = authenticatedUser;
-
-      // Setup
+      // Setup - create store and shift for corporate admin's company
       const { store, cashier, shift } = await createTestStoreAndShift(
-        prisma,
-        company.company_id,
-        user.user_id,
+        prismaClient,
+        corporateAdminUser.company_id,
+        corporateAdminUser.user_id,
       );
 
-      // Ensure tender type exists for CASH
-      const cashTenderType = await prisma.tenderType.findFirst({
+      // Ensure tender type exists for CASH (should be seeded)
+      const cashTenderType = await prismaClient.tenderType.findFirst({
         where: { code: "CASH", is_active: true },
       });
 
@@ -94,31 +149,43 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         return;
       }
 
-      // Create transaction with CASH payment
-      const payload = createTransactionPayload({
+      // Create simple transaction with known amounts (payment must >= subtotal + tax - discount)
+      const subtotal = 50.0;
+      const tax = 4.0;
+      const total = subtotal + tax;
+
+      const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: cashier.cashier_id,
-        payments: [{ method: "CASH", amount: 100.0 }],
-      });
+        subtotal,
+        tax,
+        discount: 0,
+        line_items: [
+          {
+            sku: "TEST-CASH-001",
+            name: "Cash Test Product",
+            quantity: 1,
+            unit_price: subtotal,
+            discount: 0,
+          },
+        ],
+        payments: [{ method: "CASH" as const, amount: total }],
+      };
 
-      const response = await authenticatedApiRequest.post("/api/transactions", {
-        data: payload,
-      });
+      const response = await corporateAdminApiRequest.post(
+        "/api/transactions",
+        payload,
+      );
 
       expect(response.status()).toBe(202);
 
-      // Wait for worker to process (adjust timeout as needed)
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Get correlation_id from response to wait for transaction
+      const responseBody = await response.json();
+      const correlationId = responseBody.data.correlation_id;
 
-      // Query the created transaction
-      const transaction = await prisma.transaction.findFirst({
-        where: { shift_id: shift.shift_id },
-        include: {
-          payments: true,
-        },
-        orderBy: { created_at: "desc" },
-      });
+      // Wait for worker to process transaction using correlation_id
+      const transaction = await waitForTransaction(prismaClient, correlationId);
 
       // Verify FK fields were populated
       expect(transaction).not.toBeNull();
@@ -130,20 +197,19 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
     });
 
     test("should use tender_code from payload when explicitly provided", async ({
-      authenticatedApiRequest,
-      authenticatedUser,
+      corporateAdminApiRequest,
+      corporateAdminUser,
+      prismaClient,
     }) => {
-      const { prisma, company, user } = authenticatedUser;
-
       // Setup
       const { store, cashier, shift } = await createTestStoreAndShift(
-        prisma,
-        company.company_id,
-        user.user_id,
+        prismaClient,
+        corporateAdminUser.company_id,
+        corporateAdminUser.user_id,
       );
 
-      // Ensure tender type exists for CREDIT
-      const creditTenderType = await prisma.tenderType.findFirst({
+      // Ensure tender type exists for CREDIT (should be seeded)
+      const creditTenderType = await prismaClient.tenderType.findFirst({
         where: { code: "CREDIT", is_active: true },
       });
 
@@ -152,38 +218,50 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         return;
       }
 
-      // Create transaction with explicit tender_code
+      // Create simple transaction with explicit tender_code
+      const subtotal = 75.0;
+      const tax = 6.0;
+      const total = subtotal + tax;
+
       const payload = {
-        ...createTransactionPayload({
-          store_id: store.store_id,
-          shift_id: shift.shift_id,
-          cashier_id: cashier.cashier_id,
-        }),
+        store_id: store.store_id,
+        shift_id: shift.shift_id,
+        cashier_id: cashier.cashier_id,
+        subtotal,
+        tax,
+        discount: 0,
+        line_items: [
+          {
+            sku: "TEST-CREDIT-001",
+            name: "Credit Test Product",
+            quantity: 1,
+            unit_price: subtotal,
+            discount: 0,
+          },
+        ],
         payments: [
           {
             method: "CREDIT" as const,
-            amount: 100.0,
+            amount: total,
             tender_code: "CREDIT",
             reference: "1234",
           },
         ],
       };
 
-      const response = await authenticatedApiRequest.post("/api/transactions", {
-        data: payload,
-      });
+      const response = await corporateAdminApiRequest.post(
+        "/api/transactions",
+        payload,
+      );
 
       expect(response.status()).toBe(202);
 
-      // Wait for processing
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Get correlation_id from response to wait for transaction
+      const responseBody = await response.json();
+      const correlationId = responseBody.data.correlation_id;
 
-      // Verify
-      const transaction = await prisma.transaction.findFirst({
-        where: { shift_id: shift.shift_id },
-        include: { payments: true },
-        orderBy: { created_at: "desc" },
-      });
+      // Wait for worker to process transaction using correlation_id
+      const transaction = await waitForTransaction(prismaClient, correlationId);
 
       const payment = transaction?.payments[0];
       expect(payment?.tender_type_id).toBe(creditTenderType.tender_type_id);
@@ -191,68 +269,84 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
     });
 
     test("should handle unknown tender_code gracefully", async ({
-      authenticatedApiRequest,
-      authenticatedUser,
+      corporateAdminApiRequest,
+      corporateAdminUser,
+      prismaClient,
     }) => {
-      const { prisma, company, user } = authenticatedUser;
-
       const { store, cashier, shift } = await createTestStoreAndShift(
-        prisma,
-        company.company_id,
-        user.user_id,
+        prismaClient,
+        corporateAdminUser.company_id,
+        corporateAdminUser.user_id,
       );
 
-      // Create transaction with valid method but unknown tender_code
-      const payload = createTransactionPayload({
+      // Create simple transaction with OTHER method (which may not have a tender type seeded)
+      const subtotal = 25.0;
+      const tax = 2.0;
+      const total = subtotal + tax;
+
+      const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: cashier.cashier_id,
-        payments: [{ method: "OTHER", amount: 100.0 }],
-      });
+        subtotal,
+        tax,
+        discount: 0,
+        line_items: [
+          {
+            sku: "TEST-OTHER-001",
+            name: "Other Payment Product",
+            quantity: 1,
+            unit_price: subtotal,
+            discount: 0,
+          },
+        ],
+        payments: [{ method: "OTHER" as const, amount: total }],
+      };
 
-      const response = await authenticatedApiRequest.post("/api/transactions", {
-        data: payload,
-      });
+      const response = await corporateAdminApiRequest.post(
+        "/api/transactions",
+        payload,
+      );
 
       // Transaction should still be accepted (202)
       expect(response.status()).toBe(202);
 
-      // Wait for processing
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Get correlation_id from response to wait for transaction
+      const responseBody = await response.json();
+      const correlationId = responseBody.data.correlation_id;
 
-      // Check if transaction was created (FK resolution failure should not block transaction)
-      const transaction = await prisma.transaction.findFirst({
-        where: { shift_id: shift.shift_id },
-        include: { payments: true },
-        orderBy: { created_at: "desc" },
-      });
+      // Wait for worker to process transaction using correlation_id
+      const transaction = await waitForTransaction(prismaClient, correlationId);
 
       // Transaction should exist even if tender type wasn't resolved
+      // FK resolution failure should NOT block transaction creation
       expect(transaction).not.toBeNull();
+
+      // Payment should exist but tender_type_id may be null
+      expect(transaction?.payments).toHaveLength(1);
     });
   });
 
   test.describe("P1 - Department FK Resolution", () => {
     test("should populate department_id and department_code from line item", async ({
-      authenticatedApiRequest,
-      authenticatedUser,
+      corporateAdminApiRequest,
+      corporateAdminUser,
+      prismaClient,
     }) => {
-      const { prisma, company, user } = authenticatedUser;
-
       // Setup
       const { store, cashier, shift } = await createTestStoreAndShift(
-        prisma,
-        company.company_id,
-        user.user_id,
+        prismaClient,
+        corporateAdminUser.company_id,
+        corporateAdminUser.user_id,
       );
 
-      // Find or create a test department
-      let testDepartment = await prisma.department.findFirst({
+      // Find or create a test department (GROCERY should be seeded as system dept)
+      let testDepartment = await prismaClient.department.findFirst({
         where: { code: "GROCERY", is_active: true },
       });
 
       if (!testDepartment) {
-        testDepartment = await prisma.department.create({
+        testDepartment = await prismaClient.department.create({
           data: {
             code: "GROCERY",
             display_name: "Grocery",
@@ -285,21 +379,19 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         payments: [{ method: "CASH" as const, amount: 10.8 }],
       };
 
-      const response = await authenticatedApiRequest.post("/api/transactions", {
-        data: payload,
-      });
+      const response = await corporateAdminApiRequest.post(
+        "/api/transactions",
+        payload,
+      );
 
       expect(response.status()).toBe(202);
 
-      // Wait for processing
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Get correlation_id from response to wait for transaction
+      const responseBody = await response.json();
+      const correlationId = responseBody.data.correlation_id;
 
-      // Verify
-      const transaction = await prisma.transaction.findFirst({
-        where: { shift_id: shift.shift_id },
-        include: { line_items: true },
-        orderBy: { created_at: "desc" },
-      });
+      // Wait for worker to process transaction using correlation_id
+      const transaction = await waitForTransaction(prismaClient, correlationId);
 
       expect(transaction).not.toBeNull();
       expect(transaction?.line_items).toHaveLength(1);
@@ -311,40 +403,56 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
     });
 
     test("should allow line items without department_code", async ({
-      authenticatedApiRequest,
-      authenticatedUser,
+      corporateAdminApiRequest,
+      corporateAdminUser,
+      prismaClient,
     }) => {
-      const { prisma, company, user } = authenticatedUser;
-
       const { store, cashier, shift } = await createTestStoreAndShift(
-        prisma,
-        company.company_id,
-        user.user_id,
+        prismaClient,
+        corporateAdminUser.company_id,
+        corporateAdminUser.user_id,
       );
 
-      // Create transaction without department_code
-      const payload = createTransactionPayload({
+      // Create simple transaction without department_code
+      const subtotal = 30.0;
+      const tax = 2.4;
+      const total = subtotal + tax;
+
+      const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: cashier.cashier_id,
-      });
+        subtotal,
+        tax,
+        discount: 0,
+        line_items: [
+          {
+            sku: "TEST-NO-DEPT-001",
+            name: "No Department Product",
+            quantity: 1,
+            unit_price: subtotal,
+            discount: 0,
+            // No department_code specified
+          },
+        ],
+        payments: [{ method: "CASH" as const, amount: total }],
+      };
 
-      const response = await authenticatedApiRequest.post("/api/transactions", {
-        data: payload,
-      });
+      const response = await corporateAdminApiRequest.post(
+        "/api/transactions",
+        payload,
+      );
 
       expect(response.status()).toBe(202);
 
-      // Wait for processing
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Get correlation_id from response to wait for transaction
+      const responseBody = await response.json();
+      const correlationId = responseBody.data.correlation_id;
 
-      // Verify line items have null department
-      const transaction = await prisma.transaction.findFirst({
-        where: { shift_id: shift.shift_id },
-        include: { line_items: true },
-        orderBy: { created_at: "desc" },
-      });
+      // Wait for worker to process transaction using correlation_id
+      const transaction = await waitForTransaction(prismaClient, correlationId);
 
+      // Verify line items have null department (no department_code was provided)
       expect(transaction).not.toBeNull();
       transaction?.line_items.forEach((li: any) => {
         expect(li.department_id).toBeNull();
@@ -355,62 +463,85 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
 
   test.describe("P1 - Query Response with FK Fields", () => {
     test("should include tender_type fields in query response", async ({
-      authenticatedApiRequest,
-      authenticatedUser,
+      corporateAdminApiRequest,
+      corporateAdminUser,
+      prismaClient,
     }) => {
-      const { prisma, company, user } = authenticatedUser;
-
       // Setup
       const { store, cashier, shift } = await createTestStoreAndShift(
-        prisma,
-        company.company_id,
-        user.user_id,
+        prismaClient,
+        corporateAdminUser.company_id,
+        corporateAdminUser.user_id,
       );
 
-      // Create and wait for transaction
-      const payload = createTransactionPayload({
+      // Create simple transaction for query test
+      const subtotal = 40.0;
+      const tax = 3.2;
+      const total = subtotal + tax;
+
+      const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
         cashier_id: cashier.cashier_id,
-        payments: [{ method: "CASH", amount: 100.0 }],
-      });
+        subtotal,
+        tax,
+        discount: 0,
+        line_items: [
+          {
+            sku: "TEST-QUERY-001",
+            name: "Query Test Product",
+            quantity: 1,
+            unit_price: subtotal,
+            discount: 0,
+          },
+        ],
+        payments: [{ method: "CASH" as const, amount: total }],
+      };
 
-      await authenticatedApiRequest.post("/api/transactions", {
-        data: payload,
-      });
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const createResponse = await corporateAdminApiRequest.post(
+        "/api/transactions",
+        payload,
+      );
+
+      expect(createResponse.status()).toBe(202);
+
+      // Get correlation_id from response to wait for transaction
+      const responseBody = await createResponse.json();
+      const correlationId = responseBody.data.correlation_id;
+
+      // Wait for worker to process transaction using correlation_id
+      await waitForTransaction(prismaClient, correlationId);
 
       // Query transactions with include_payments=true
-      const queryResponse = await authenticatedApiRequest.get(
+      const queryResponse = await corporateAdminApiRequest.get(
         `/api/transactions?shift_id=${shift.shift_id}&include_payments=true`,
       );
 
       expect(queryResponse.status()).toBe(200);
 
       const data = await queryResponse.json();
-      expect(data.transactions).toHaveLength(1);
+      expect(data.data.transactions).toHaveLength(1);
 
-      const payments = data.transactions[0].payments;
+      const payments = data.data.transactions[0].payments;
       expect(payments).toBeDefined();
       expect(payments[0]).toHaveProperty("tender_type_id");
       expect(payments[0]).toHaveProperty("tender_code");
-      // tender_name is optional (populated from join)
+      // tender_name is optional (populated from join if available)
     });
 
     test("should include department fields in query response", async ({
-      authenticatedApiRequest,
-      authenticatedUser,
+      corporateAdminApiRequest,
+      corporateAdminUser,
+      prismaClient,
     }) => {
-      const { prisma, company, user } = authenticatedUser;
-
       // Setup
       const { store, cashier, shift } = await createTestStoreAndShift(
-        prisma,
-        company.company_id,
-        user.user_id,
+        prismaClient,
+        corporateAdminUser.company_id,
+        corporateAdminUser.user_id,
       );
 
-      // Create transaction with department
+      // Create transaction with line items (no department_code specified)
       const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
@@ -431,23 +562,33 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         payments: [{ method: "CASH" as const, amount: 10.8 }],
       };
 
-      await authenticatedApiRequest.post("/api/transactions", {
-        data: payload,
-      });
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const createResponse = await corporateAdminApiRequest.post(
+        "/api/transactions",
+        payload,
+      );
+
+      expect(createResponse.status()).toBe(202);
+
+      // Get correlation_id from response to wait for transaction
+      const responseBody = await createResponse.json();
+      const correlationId = responseBody.data.correlation_id;
+
+      // Wait for worker to process transaction using correlation_id
+      await waitForTransaction(prismaClient, correlationId);
 
       // Query with include_line_items=true
-      const queryResponse = await authenticatedApiRequest.get(
+      const queryResponse = await corporateAdminApiRequest.get(
         `/api/transactions?shift_id=${shift.shift_id}&include_line_items=true`,
       );
 
       expect(queryResponse.status()).toBe(200);
 
       const data = await queryResponse.json();
-      expect(data.transactions).toHaveLength(1);
+      expect(data.data.transactions).toHaveLength(1);
 
-      const lineItems = data.transactions[0].line_items;
+      const lineItems = data.data.transactions[0].line_items;
       expect(lineItems).toBeDefined();
+      // These fields should exist in the response even if null
       expect(lineItems[0]).toHaveProperty("department_id");
       expect(lineItems[0]).toHaveProperty("department_code");
       expect(lineItems[0]).toHaveProperty("tax_amount");
@@ -456,15 +597,14 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
 
   test.describe("P2 - Tax Amount Per Line Item", () => {
     test("should store and return tax_amount per line item", async ({
-      authenticatedApiRequest,
-      authenticatedUser,
+      corporateAdminApiRequest,
+      corporateAdminUser,
+      prismaClient,
     }) => {
-      const { prisma, company, user } = authenticatedUser;
-
       const { store, cashier, shift } = await createTestStoreAndShift(
-        prisma,
-        company.company_id,
-        user.user_id,
+        prismaClient,
+        corporateAdminUser.company_id,
+        corporateAdminUser.user_id,
       );
 
       // Create transaction with specific tax amounts per line item
@@ -496,24 +636,29 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         payments: [{ method: "CASH" as const, amount: 27.0 }],
       };
 
-      const response = await authenticatedApiRequest.post("/api/transactions", {
-        data: payload,
-      });
+      const response = await corporateAdminApiRequest.post(
+        "/api/transactions",
+        payload,
+      );
       expect(response.status()).toBe(202);
 
-      // Wait for processing
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Get correlation_id from response to wait for transaction
+      const responseBody = await response.json();
+      const correlationId = responseBody.data.correlation_id;
+
+      // Wait for worker to process transaction using correlation_id
+      const transaction = await waitForTransaction(prismaClient, correlationId);
 
       // Verify tax amounts stored correctly
-      const transaction = await prisma.transaction.findFirst({
-        where: { shift_id: shift.shift_id },
-        include: { line_items: { orderBy: { sku: "asc" } } },
-        orderBy: { created_at: "desc" },
-      });
-
       expect(transaction?.line_items).toHaveLength(2);
-      expect(Number(transaction?.line_items[0]?.tax_amount)).toBe(0.8);
-      expect(Number(transaction?.line_items[1]?.tax_amount)).toBe(1.2);
+
+      // Sort line items by SKU for predictable order
+      const sortedLineItems = [...transaction.line_items].sort(
+        (a: any, b: any) => a.sku.localeCompare(b.sku),
+      );
+
+      expect(Number(sortedLineItems[0]?.tax_amount)).toBe(0.8);
+      expect(Number(sortedLineItems[1]?.tax_amount)).toBe(1.2);
     });
   });
 });

@@ -216,7 +216,7 @@ export async function daySummaryRoutes(
         const body = CloseDayRequestSchema.parse(request.body || {});
 
         const user = (request as any).user;
-        if (!user?.userId) {
+        if (!user?.id) {
           return reply.status(401).send({
             success: false,
             error: {
@@ -231,7 +231,7 @@ export async function daySummaryRoutes(
         const summary = await daySummaryService.closeDaySummary(
           params.storeId,
           businessDate,
-          user.userId,
+          user.id,
           body.notes,
         );
 
