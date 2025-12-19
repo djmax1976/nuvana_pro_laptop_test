@@ -521,7 +521,7 @@ test.describe("Reconciliation API - Authentication", () => {
   }) => {
     // GIVEN: Expired JWT token
     const expiredToken = createExpiredJWTAccessToken({
-      userId: storeManagerUser.user_id,
+      user_id: storeManagerUser.user_id,
       email: storeManagerUser.email,
       roles: storeManagerUser.roles,
     });

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen } from "../../support/test-utils";
 import { XReportViewer } from "@/components/reports/XReportViewer";
+import type { XReport } from "@/lib/api/reports";
 import userEvent from "@testing-library/user-event";
 
 /**
@@ -23,10 +24,12 @@ import userEvent from "@testing-library/user-event";
 const mockPrint = vi.fn();
 Object.defineProperty(window, "print", { value: mockPrint });
 
-describe("Phase 6.5-COMPONENT: XReportViewer - Display X Report", () => {
-  const mockReport = {
+// Factory function to create mock XReport with all required properties
+const createMockXReport = (overrides: Partial<XReport> = {}): XReport =>
+  ({
     x_report_id: "xr-1",
     shift_id: "shift-1",
+    store_id: "store-1",
     x_number: 3,
     business_date: "2024-03-15T00:00:00Z",
     cashier_id: "cashier-1",
@@ -34,6 +37,7 @@ describe("Phase 6.5-COMPONENT: XReportViewer - Display X Report", () => {
     shift_opened_at: "2024-03-15T06:00:00Z",
     shift_status: "open",
     generated_at: "2024-03-15T12:00:00Z",
+    generated_by: "user-1",
     gross_sales: 1200.0,
     returns_total: 25.0,
     discounts_total: 15.0,
@@ -73,7 +77,14 @@ describe("Phase 6.5-COMPONENT: XReportViewer - Display X Report", () => {
         gross_sales: 500.0,
       },
     ],
-  };
+    print_count: 0,
+    last_printed_at: null,
+    created_at: "2024-03-15T12:00:00Z",
+    ...overrides,
+  }) as unknown as XReport;
+
+describe("Phase 6.5-COMPONENT: XReportViewer - Display X Report", () => {
+  const mockReport = createMockXReport();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -213,10 +224,7 @@ describe("Phase 6.5-COMPONENT: XReportViewer - Display X Report", () => {
   });
 
   it("should display zero variance in green", () => {
-    const zeroVarianceReport = {
-      ...mockReport,
-      current_variance: 0,
-    };
+    const zeroVarianceReport = createMockXReport({ current_variance: 0 });
 
     const { container } = renderWithProviders(
       <XReportViewer report={zeroVarianceReport} />,
@@ -227,10 +235,7 @@ describe("Phase 6.5-COMPONENT: XReportViewer - Display X Report", () => {
   });
 
   it("should display positive variance in amber", () => {
-    const positiveVarianceReport = {
-      ...mockReport,
-      current_variance: 5.0,
-    };
+    const positiveVarianceReport = createMockXReport({ current_variance: 5.0 });
 
     const { container } = renderWithProviders(
       <XReportViewer report={positiveVarianceReport} />,

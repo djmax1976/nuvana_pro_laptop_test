@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderWithProviders, screen } from "../../support/test-utils";
 import { DaySummaryCard } from "@/components/reports/DaySummaryCard";
+import type { DaySummary } from "@/lib/api/day-summaries";
 
 /**
  * @test-level Component
@@ -16,8 +17,9 @@ import { DaySummaryCard } from "@/components/reports/DaySummaryCard";
  * - Click handler triggers navigation
  */
 
-describe("Phase 6.4-COMPONENT: DaySummaryCard - Display Day Summary", () => {
-  const mockSummary = {
+// Helper to create mock DaySummary with test-specific properties
+const createMockSummary = (overrides: Partial<DaySummary> = {}): DaySummary =>
+  ({
     day_summary_id: "ds-1",
     store_id: "store-1",
     business_date: "2024-03-15T00:00:00Z",
@@ -27,13 +29,29 @@ describe("Phase 6.4-COMPONENT: DaySummaryCard - Display Day Summary", () => {
     tax_collected: 120.25,
     transaction_count: 45,
     shift_count: 3,
-    variance_amount: -5.5,
-    variance_percentage: -0.37,
-    opened_at: "2024-03-15T06:00:00Z",
+    items_sold_count: 100,
+    returns_total: 50.0,
+    discounts_total: 99.25,
+    total_cash: 800.0,
+    total_credit: 500.0,
+    total_debit: 200.75,
+    total_other_tender: 0,
+    expected_cash: 805.5,
+    actual_cash: 800.0,
+    total_cash_variance: -5.5,
+    notes: null,
+    closed_by: "user-1",
     closed_at: "2024-03-15T22:00:00Z",
     created_at: "2024-03-15T22:30:00Z",
     updated_at: "2024-03-15T22:30:00Z",
-  };
+    // Extended properties for component display
+    variance_amount: -5.5,
+    variance_percentage: -0.37,
+    ...overrides,
+  }) as unknown as DaySummary;
+
+describe("Phase 6.4-COMPONENT: DaySummaryCard - Display Day Summary", () => {
+  const mockSummary = createMockSummary();
 
   it("should display the day number", () => {
     renderWithProviders(<DaySummaryCard summary={mockSummary} />);
@@ -67,7 +85,7 @@ describe("Phase 6.4-COMPONENT: DaySummaryCard - Display Day Summary", () => {
 
     const card = container.querySelector('[class*="cursor-pointer"]');
     if (card) {
-      card.click();
+      (card as HTMLElement).click();
     }
 
     expect(onClick).toHaveBeenCalled();
@@ -83,11 +101,10 @@ describe("Phase 6.4-COMPONENT: DaySummaryCard - Display Day Summary", () => {
   });
 
   it("should display positive variance in amber", () => {
-    const positiveSummary = {
-      ...mockSummary,
+    const positiveSummary = createMockSummary({
       variance_amount: 5.5,
       variance_percentage: 0.37,
-    };
+    } as Partial<DaySummary>);
 
     const { container } = renderWithProviders(
       <DaySummaryCard summary={positiveSummary} />,
@@ -98,11 +115,10 @@ describe("Phase 6.4-COMPONENT: DaySummaryCard - Display Day Summary", () => {
   });
 
   it("should display zero variance in green", () => {
-    const zeroSummary = {
-      ...mockSummary,
+    const zeroSummary = createMockSummary({
       variance_amount: 0,
       variance_percentage: 0,
-    };
+    } as Partial<DaySummary>);
 
     const { container } = renderWithProviders(
       <DaySummaryCard summary={zeroSummary} />,
@@ -119,10 +135,9 @@ describe("Phase 6.4-COMPONENT: DaySummaryCard - Display Day Summary", () => {
   });
 
   it("should display open status badge for open day", () => {
-    const openSummary = {
-      ...mockSummary,
-      status: "open",
-    };
+    const openSummary = createMockSummary({
+      status: "open" as DaySummary["status"],
+    });
 
     renderWithProviders(<DaySummaryCard summary={openSummary} />);
 

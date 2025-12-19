@@ -89,7 +89,7 @@ describe("Phase 6.1-COMPONENT: TenderTypeForm - Create Mode", () => {
     vi.mocked(tenderTypesApi.useCreateTenderType).mockReturnValue({
       mutateAsync: mockCreate,
       isPending: false,
-    } as ReturnType<typeof tenderTypesApi.useCreateTenderType>);
+    } as unknown as ReturnType<typeof tenderTypesApi.useCreateTenderType>);
 
     const user = userEvent.setup();
     renderWithProviders(<TenderTypeForm mode="create" />);
@@ -151,7 +151,7 @@ describe("Phase 6.1-COMPONENT: TenderTypeForm - Edit Mode", () => {
       data: { data: mockTenderType },
       isLoading: false,
       error: null,
-    } as ReturnType<typeof tenderTypesApi.useTenderType>);
+    } as unknown as ReturnType<typeof tenderTypesApi.useTenderType>);
 
     renderWithProviders(<TenderTypeForm mode="edit" tenderTypeId="tt-1" />);
 
@@ -169,7 +169,7 @@ describe("Phase 6.1-COMPONENT: TenderTypeForm - Edit Mode", () => {
       data: { data: mockTenderType },
       isLoading: false,
       error: null,
-    } as ReturnType<typeof tenderTypesApi.useTenderType>);
+    } as unknown as ReturnType<typeof tenderTypesApi.useTenderType>);
 
     renderWithProviders(<TenderTypeForm mode="edit" tenderTypeId="tt-1" />);
 
@@ -183,13 +183,13 @@ describe("Phase 6.1-COMPONENT: TenderTypeForm - Edit Mode", () => {
       data: { data: mockTenderType },
       isLoading: false,
       error: null,
-    } as ReturnType<typeof tenderTypesApi.useTenderType>);
+    } as unknown as ReturnType<typeof tenderTypesApi.useTenderType>);
 
     const mockUpdate = vi.fn().mockResolvedValue({});
     vi.mocked(tenderTypesApi.useUpdateTenderType).mockReturnValue({
       mutateAsync: mockUpdate,
       isPending: false,
-    } as ReturnType<typeof tenderTypesApi.useUpdateTenderType>);
+    } as unknown as ReturnType<typeof tenderTypesApi.useUpdateTenderType>);
 
     const user = userEvent.setup();
     renderWithProviders(<TenderTypeForm mode="edit" tenderTypeId="tt-1" />);
@@ -220,7 +220,7 @@ describe("Phase 6.1-COMPONENT: TenderTypeForm - Edit Mode", () => {
       data: undefined,
       isLoading: true,
       error: null,
-    } as ReturnType<typeof tenderTypesApi.useTenderType>);
+    } as unknown as ReturnType<typeof tenderTypesApi.useTenderType>);
 
     renderWithProviders(<TenderTypeForm mode="edit" tenderTypeId="tt-1" />);
 

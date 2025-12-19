@@ -203,7 +203,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -224,7 +224,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -245,7 +245,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: true,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -263,7 +263,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: new Error(errorMessage),
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -282,7 +282,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -303,7 +303,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -329,7 +329,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       const user = userEvent.setup();
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -356,7 +356,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       const user = userEvent.setup();
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -382,7 +382,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       const user = userEvent.setup();
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -411,11 +411,11 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
       vi.mocked(tenderTypesApi.useUpdateTenderType).mockReturnValue({
         mutateAsync: mockUpdate,
         isPending: false,
-      } as ReturnType<typeof tenderTypesApi.useUpdateTenderType>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useUpdateTenderType>);
 
       const user = userEvent.setup();
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -449,7 +449,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       const onEdit = vi.fn();
       const user = userEvent.setup();
@@ -474,7 +474,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       const user = userEvent.setup();
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -505,7 +505,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -523,7 +523,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       const user = userEvent.setup();
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -549,7 +549,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       const user = userEvent.setup();
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -580,7 +580,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -612,7 +612,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       const { container } = renderWithProviders(
@@ -634,7 +634,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       const { container } = renderWithProviders(
@@ -661,7 +661,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -681,7 +681,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);
@@ -700,7 +700,7 @@ describe("Phase 6.1 - TenderTypeList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof tenderTypesApi.useTenderTypes>);
+      } as unknown as ReturnType<typeof tenderTypesApi.useTenderTypes>);
 
       // WHEN: Component is rendered
       renderWithProviders(<TenderTypeList onEdit={vi.fn()} />);

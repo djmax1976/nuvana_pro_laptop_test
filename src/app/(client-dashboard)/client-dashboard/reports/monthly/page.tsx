@@ -9,7 +9,11 @@
  */
 
 import { useState } from "react";
-import { useMonthlyReport } from "@/lib/api/day-summaries";
+import {
+  useMonthlyReport,
+  WeekBreakdownItem,
+  DayBreakdownItem,
+} from "@/lib/api/day-summaries";
 import { useStores } from "@/lib/api/stores";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,13 +59,12 @@ export default function MonthlyReportsPage() {
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth() + 1;
 
-  const { data: reportData, isLoading: reportLoading } = useMonthlyReport(
+  const { data: report, isLoading: reportLoading } = useMonthlyReport(
     selectedStoreId,
     year,
     month,
     { enabled: !!selectedStoreId },
   );
-  const report = reportData?.data;
 
   const handlePrevMonth = () => {
     setCurrentMonth(
@@ -266,33 +269,35 @@ export default function MonthlyReportsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {report.weekly_breakdown.map((week, index) => (
-                        <TableRow key={index}>
-                          <TableCell className="font-medium">
-                            Week {index + 1}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatCurrency(week.net_sales)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {week.transaction_count}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {week.shift_count}
-                          </TableCell>
-                          <TableCell
-                            className={`text-right ${
-                              week.variance_amount < -0.01
-                                ? "text-red-600"
-                                : week.variance_amount > 0.01
-                                  ? "text-amber-600"
-                                  : "text-green-600"
-                            }`}
-                          >
-                            {formatCurrency(week.variance_amount)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {(report.weekly_breakdown ?? []).map(
+                        (week: WeekBreakdownItem, index: number) => (
+                          <TableRow key={index}>
+                            <TableCell className="font-medium">
+                              Week {index + 1}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(week.net_sales)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {week.transaction_count}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {week.shift_count}
+                            </TableCell>
+                            <TableCell
+                              className={`text-right ${
+                                week.variance_amount < -0.01
+                                  ? "text-red-600"
+                                  : week.variance_amount > 0.01
+                                    ? "text-amber-600"
+                                    : "text-green-600"
+                              }`}
+                            >
+                              {formatCurrency(week.variance_amount)}
+                            </TableCell>
+                          </TableRow>
+                        ),
+                      )}
                     </TableBody>
                   </Table>
                 </CardContent>
@@ -320,7 +325,7 @@ export default function MonthlyReportsPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {report.daily_breakdown.map((day) => (
+                        {report.daily_breakdown.map((day: DayBreakdownItem) => (
                           <TableRow key={day.business_date}>
                             <TableCell className="font-medium">
                               {new Date(day.business_date).toLocaleDateString(

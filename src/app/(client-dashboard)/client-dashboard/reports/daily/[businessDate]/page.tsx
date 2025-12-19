@@ -32,6 +32,7 @@ export default function DailyReportDetailPage({
   const { data, isLoading, error } = useDaySummaryByDate(
     storeId,
     businessDate,
+    undefined,
     {
       enabled: !!storeId && !!businessDate,
     },
@@ -76,7 +77,7 @@ export default function DailyReportDetailPage({
     );
   }
 
-  if (error || !data?.data) {
+  if (error || !data) {
     return (
       <div className="space-y-6">
         <Button variant="ghost" onClick={handleBack}>
@@ -102,7 +103,7 @@ export default function DailyReportDetailPage({
         <ArrowLeft className="mr-2 h-4 w-4" />
         Back to Daily Reports
       </Button>
-      <DaySummaryDetail summary={data.data} />
+      <DaySummaryDetail summary={data} />
     </div>
   );
 }

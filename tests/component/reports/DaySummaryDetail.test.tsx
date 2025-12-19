@@ -58,34 +58,34 @@ vi.mock("@/lib/utils", () => ({
 // TEST DATA FACTORIES
 // ============================================================================
 
-const createMockDaySummary = (overrides?: Partial<DaySummary>): DaySummary => ({
-  day_summary_id: "ds-test-001",
-  store_id: "store-001",
-  business_date: "2024-03-15T00:00:00Z",
-  status: "CLOSED",
-  gross_sales: 5000.0,
-  returns_total: 150.0,
-  discounts_total: 100.0,
-  net_sales: 4750.0,
-  tax_collected: 380.0,
-  transaction_count: 125,
-  items_sold_count: 450,
-  shift_count: 3,
-  total_cash: 2500.0,
-  total_credit: 1800.0,
-  total_debit: 350.0,
-  total_other_tender: 100.0,
-  expected_cash: 2500.0,
-  actual_cash: 2495.0,
-  total_cash_variance: -5.0,
-  opened_at: "2024-03-15T06:00:00Z",
-  closed_at: "2024-03-15T22:00:00Z",
-  closed_by: "user-001",
-  notes: null,
-  created_at: "2024-03-15T22:30:00Z",
-  updated_at: "2024-03-15T22:30:00Z",
-  ...overrides,
-});
+const createMockDaySummary = (overrides?: Partial<DaySummary>): DaySummary =>
+  ({
+    day_summary_id: "ds-test-001",
+    store_id: "store-001",
+    business_date: "2024-03-15T00:00:00Z",
+    status: "CLOSED",
+    gross_sales: 5000.0,
+    returns_total: 150.0,
+    discounts_total: 100.0,
+    net_sales: 4750.0,
+    tax_collected: 380.0,
+    transaction_count: 125,
+    items_sold_count: 450,
+    shift_count: 3,
+    total_cash: 2500.0,
+    total_credit: 1800.0,
+    total_debit: 350.0,
+    total_other_tender: 100.0,
+    expected_cash: 2500.0,
+    actual_cash: 2495.0,
+    total_cash_variance: -5.0,
+    closed_at: "2024-03-15T22:00:00Z",
+    closed_by: "user-001",
+    notes: null,
+    created_at: "2024-03-15T22:30:00Z",
+    updated_at: "2024-03-15T22:30:00Z",
+    ...overrides,
+  }) as unknown as DaySummary;
 
 const createMockTenderSummary = (
   overrides?: Partial<{
@@ -126,12 +126,14 @@ const createMockHourlySummary = (
     hour: number;
     transaction_count: number;
     item_count: number;
+    gross_sales: number;
     net_sales: number;
   }>,
 ) => ({
   hour: 10,
   transaction_count: 15,
   item_count: 45,
+  gross_sales: 500.0,
   net_sales: 450.0,
   ...overrides,
 });

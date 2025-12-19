@@ -64,37 +64,6 @@ async function createTestStoreAndShift(
   return { store, cashier, shift };
 }
 
-/**
- * Wait for transaction to be processed by the worker
- */
-async function waitForTransactionProcessing(
-  prismaClient: any,
-  correlationId: string,
-  timeoutMs: number = 10000,
-): Promise<any> {
-  const startTime = Date.now();
-  while (Date.now() - startTime < timeoutMs) {
-    const transaction = await prismaClient.transaction.findFirst({
-      where: {
-        // The correlation ID is stored in metadata or we can look up by shift
-        // For now, let's query the most recent transaction
-      },
-      include: {
-        line_items: true,
-        payments: true,
-      },
-      orderBy: { created_at: "desc" },
-    });
-
-    if (transaction) {
-      return transaction;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  throw new Error(`Transaction not processed within ${timeoutMs}ms`);
-}
-
 // =============================================================================
 // TEST SUITES
 // =============================================================================
@@ -102,16 +71,16 @@ async function waitForTransactionProcessing(
 test.describe("Phase 1.5: Transaction FK Resolution", () => {
   test.describe("P1 - Tender Type FK Resolution", () => {
     test("should populate tender_type_id and tender_code from payment method", async ({
-      authenticatedRequest,
-      prisma,
-      testCompany,
-      testUser,
+      authenticatedApiRequest,
+      authenticatedUser,
     }) => {
+      const { prisma, company, user } = authenticatedUser;
+
       // Setup
       const { store, cashier, shift } = await createTestStoreAndShift(
         prisma,
-        testCompany.company_id,
-        testUser.user_id,
+        company.company_id,
+        user.user_id,
       );
 
       // Ensure tender type exists for CASH
@@ -133,7 +102,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         payments: [{ method: "CASH", amount: 100.0 }],
       });
 
-      const response = await authenticatedRequest.post("/api/transactions", {
+      const response = await authenticatedApiRequest.post("/api/transactions", {
         data: payload,
       });
 
@@ -161,16 +130,16 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
     });
 
     test("should use tender_code from payload when explicitly provided", async ({
-      authenticatedRequest,
-      prisma,
-      testCompany,
-      testUser,
+      authenticatedApiRequest,
+      authenticatedUser,
     }) => {
+      const { prisma, company, user } = authenticatedUser;
+
       // Setup
       const { store, cashier, shift } = await createTestStoreAndShift(
         prisma,
-        testCompany.company_id,
-        testUser.user_id,
+        company.company_id,
+        user.user_id,
       );
 
       // Ensure tender type exists for CREDIT
@@ -200,7 +169,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         ],
       };
 
-      const response = await authenticatedRequest.post("/api/transactions", {
+      const response = await authenticatedApiRequest.post("/api/transactions", {
         data: payload,
       });
 
@@ -222,15 +191,15 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
     });
 
     test("should handle unknown tender_code gracefully", async ({
-      authenticatedRequest,
-      prisma,
-      testCompany,
-      testUser,
+      authenticatedApiRequest,
+      authenticatedUser,
     }) => {
+      const { prisma, company, user } = authenticatedUser;
+
       const { store, cashier, shift } = await createTestStoreAndShift(
         prisma,
-        testCompany.company_id,
-        testUser.user_id,
+        company.company_id,
+        user.user_id,
       );
 
       // Create transaction with valid method but unknown tender_code
@@ -241,7 +210,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         payments: [{ method: "OTHER", amount: 100.0 }],
       });
 
-      const response = await authenticatedRequest.post("/api/transactions", {
+      const response = await authenticatedApiRequest.post("/api/transactions", {
         data: payload,
       });
 
@@ -265,16 +234,16 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
 
   test.describe("P1 - Department FK Resolution", () => {
     test("should populate department_id and department_code from line item", async ({
-      authenticatedRequest,
-      prisma,
-      testCompany,
-      testUser,
+      authenticatedApiRequest,
+      authenticatedUser,
     }) => {
+      const { prisma, company, user } = authenticatedUser;
+
       // Setup
       const { store, cashier, shift } = await createTestStoreAndShift(
         prisma,
-        testCompany.company_id,
-        testUser.user_id,
+        company.company_id,
+        user.user_id,
       );
 
       // Find or create a test department
@@ -316,7 +285,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         payments: [{ method: "CASH" as const, amount: 10.8 }],
       };
 
-      const response = await authenticatedRequest.post("/api/transactions", {
+      const response = await authenticatedApiRequest.post("/api/transactions", {
         data: payload,
       });
 
@@ -342,15 +311,15 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
     });
 
     test("should allow line items without department_code", async ({
-      authenticatedRequest,
-      prisma,
-      testCompany,
-      testUser,
+      authenticatedApiRequest,
+      authenticatedUser,
     }) => {
+      const { prisma, company, user } = authenticatedUser;
+
       const { store, cashier, shift } = await createTestStoreAndShift(
         prisma,
-        testCompany.company_id,
-        testUser.user_id,
+        company.company_id,
+        user.user_id,
       );
 
       // Create transaction without department_code
@@ -360,7 +329,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         cashier_id: cashier.cashier_id,
       });
 
-      const response = await authenticatedRequest.post("/api/transactions", {
+      const response = await authenticatedApiRequest.post("/api/transactions", {
         data: payload,
       });
 
@@ -386,16 +355,16 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
 
   test.describe("P1 - Query Response with FK Fields", () => {
     test("should include tender_type fields in query response", async ({
-      authenticatedRequest,
-      prisma,
-      testCompany,
-      testUser,
+      authenticatedApiRequest,
+      authenticatedUser,
     }) => {
+      const { prisma, company, user } = authenticatedUser;
+
       // Setup
       const { store, cashier, shift } = await createTestStoreAndShift(
         prisma,
-        testCompany.company_id,
-        testUser.user_id,
+        company.company_id,
+        user.user_id,
       );
 
       // Create and wait for transaction
@@ -406,11 +375,13 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         payments: [{ method: "CASH", amount: 100.0 }],
       });
 
-      await authenticatedRequest.post("/api/transactions", { data: payload });
+      await authenticatedApiRequest.post("/api/transactions", {
+        data: payload,
+      });
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Query transactions with include_payments=true
-      const queryResponse = await authenticatedRequest.get(
+      const queryResponse = await authenticatedApiRequest.get(
         `/api/transactions?shift_id=${shift.shift_id}&include_payments=true`,
       );
 
@@ -427,16 +398,16 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
     });
 
     test("should include department fields in query response", async ({
-      authenticatedRequest,
-      prisma,
-      testCompany,
-      testUser,
+      authenticatedApiRequest,
+      authenticatedUser,
     }) => {
+      const { prisma, company, user } = authenticatedUser;
+
       // Setup
       const { store, cashier, shift } = await createTestStoreAndShift(
         prisma,
-        testCompany.company_id,
-        testUser.user_id,
+        company.company_id,
+        user.user_id,
       );
 
       // Create transaction with department
@@ -460,11 +431,13 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         payments: [{ method: "CASH" as const, amount: 10.8 }],
       };
 
-      await authenticatedRequest.post("/api/transactions", { data: payload });
+      await authenticatedApiRequest.post("/api/transactions", {
+        data: payload,
+      });
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Query with include_line_items=true
-      const queryResponse = await authenticatedRequest.get(
+      const queryResponse = await authenticatedApiRequest.get(
         `/api/transactions?shift_id=${shift.shift_id}&include_line_items=true`,
       );
 
@@ -483,15 +456,15 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
 
   test.describe("P2 - Tax Amount Per Line Item", () => {
     test("should store and return tax_amount per line item", async ({
-      authenticatedRequest,
-      prisma,
-      testCompany,
-      testUser,
+      authenticatedApiRequest,
+      authenticatedUser,
     }) => {
+      const { prisma, company, user } = authenticatedUser;
+
       const { store, cashier, shift } = await createTestStoreAndShift(
         prisma,
-        testCompany.company_id,
-        testUser.user_id,
+        company.company_id,
+        user.user_id,
       );
 
       // Create transaction with specific tax amounts per line item
@@ -523,7 +496,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
         payments: [{ method: "CASH" as const, amount: 27.0 }],
       };
 
-      const response = await authenticatedRequest.post("/api/transactions", {
+      const response = await authenticatedApiRequest.post("/api/transactions", {
         data: payload,
       });
       expect(response.status()).toBe(202);

@@ -24,11 +24,18 @@ export interface XReport {
   x_report_id: string;
   shift_id: string;
   store_id: string;
-  report_number: number;
+  x_number: number;
+  business_date: string;
   generated_at: string;
   generated_by: string;
   generated_by_name?: string;
+  // Shift info
+  shift_opened_at: string;
+  shift_status: string;
+  cashier_id: string;
+  cashier_name?: string;
   // Snapshot data
+  opening_cash: number;
   gross_sales: number;
   returns_total: number;
   discounts_total: number;
@@ -38,6 +45,21 @@ export interface XReport {
   items_sold_count: number;
   cash_in_drawer: number;
   expected_cash: number;
+  current_variance: number;
+  // Tender breakdown
+  tender_breakdown?: Array<{
+    tender_code: string;
+    tender_name: string;
+    amount: number;
+    transaction_count: number;
+  }>;
+  // Department breakdown (optional, may be populated for detailed X reports)
+  department_breakdown?: Array<{
+    department_code: string;
+    department_name: string;
+    gross_sales: number;
+    item_count: number;
+  }>;
   // Printing info
   print_count: number;
   last_printed_at: string | null;

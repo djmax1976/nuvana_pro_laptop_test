@@ -692,7 +692,7 @@ test.describe("DAY-SUMMARY-SECURITY: Parameter Tampering", () => {
 
       for (const params of noSqlAttempts) {
         const queryString = new URLSearchParams(
-          params as Record<string, string>,
+          params as unknown as Record<string, string>,
         ).toString();
 
         // WHEN: Sending request with NoSQL injection
@@ -893,7 +893,10 @@ test.describe("DAY-SUMMARY-SECURITY: Data Leakage Prevention", () => {
       const sensitiveHeaders = ["x-powered-by", "server", "x-aspnet-version"];
 
       for (const header of sensitiveHeaders) {
-        const headerValue = response.headers()[header];
+        const allHeaders = response.headers();
+        const headerValue = Object.hasOwn(allHeaders, header)
+          ? allHeaders[header as keyof typeof allHeaders]
+          : undefined;
         if (headerValue) {
           // If present, should not reveal detailed version info
           expect(

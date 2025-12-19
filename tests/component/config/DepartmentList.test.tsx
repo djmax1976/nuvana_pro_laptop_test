@@ -193,7 +193,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -214,7 +214,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -235,7 +235,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: true,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -253,7 +253,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: new Error(errorMessage),
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -272,7 +272,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -291,7 +291,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -316,7 +316,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       const user = userEvent.setup();
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -343,7 +343,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       const user = userEvent.setup();
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -369,7 +369,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       const user = userEvent.setup();
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -397,7 +397,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -417,11 +417,11 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
       vi.mocked(departmentsApi.useUpdateDepartment).mockReturnValue({
         mutateAsync: mockUpdate,
         isPending: false,
-      } as ReturnType<typeof departmentsApi.useUpdateDepartment>);
+      } as unknown as ReturnType<typeof departmentsApi.useUpdateDepartment>);
 
       const user = userEvent.setup();
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -455,7 +455,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       const onEdit = vi.fn();
       const user = userEvent.setup();
@@ -480,7 +480,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       const user = userEvent.setup();
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -511,7 +511,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -529,7 +529,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -547,7 +547,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       const user = userEvent.setup();
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -591,7 +591,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -621,7 +621,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       const { container } = renderWithProviders(
@@ -643,7 +643,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       const { container } = renderWithProviders(
@@ -671,7 +671,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -694,7 +694,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -713,7 +713,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);
@@ -732,7 +732,7 @@ describe("Phase 6.2 - DepartmentList Component Tests", () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      } as ReturnType<typeof departmentsApi.useDepartments>);
+      } as unknown as ReturnType<typeof departmentsApi.useDepartments>);
 
       // WHEN: Component is rendered
       renderWithProviders(<DepartmentList onEdit={vi.fn()} />);

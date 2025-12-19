@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderWithProviders, screen, waitFor } from "../../support/test-utils";
 import { ZReportViewer } from "@/components/reports/ZReportViewer";
+import type { ZReport } from "@/lib/api/reports";
 import userEvent from "@testing-library/user-event";
 import * as reportsApi from "@/lib/api/reports";
 
@@ -69,67 +70,89 @@ Object.defineProperty(window, "print", { value: mockPrint, writable: true });
 // TEST DATA
 // ============================================================================
 
-const createMockZReport = () => ({
-  z_report_id: "zr-1",
-  shift_id: "shift-1",
-  z_number: 42,
-  business_date: "2024-03-15T00:00:00Z",
-  cashier_id: "cashier-1",
-  cashier_name: "John Doe",
-  shift_opened_at: "2024-03-15T06:00:00Z",
-  shift_closed_at: "2024-03-15T14:00:00Z",
-  generated_at: "2024-03-15T14:05:00Z",
-  gross_sales: 2500.0,
-  returns_total: 50.0,
-  discounts_total: 25.0,
-  net_sales: 2425.0,
-  tax_collected: 181.88,
-  transaction_count: 75,
-  items_sold_count: 150,
-  opening_cash: 200.0,
-  expected_cash: 1425.0,
-  closing_cash: 1420.0,
-  variance_amount: -5.0,
-  variance_percentage: -0.35,
-  is_verified: true,
-  print_count: 2,
-  last_printed_at: "2024-03-15T14:10:00Z",
-  tender_breakdown: [
-    {
-      tender_code: "CASH",
-      tender_name: "Cash",
-      transaction_count: 45,
-      amount: 1225.0,
-    },
-    {
-      tender_code: "CREDIT",
-      tender_name: "Credit Card",
-      transaction_count: 30,
-      amount: 1200.0,
-    },
-  ],
-  department_breakdown: [
-    {
-      department_code: "GROCERY",
-      department_name: "Grocery",
-      item_count: 100,
-      gross_sales: 1500.0,
-    },
-    {
-      department_code: "DAIRY",
-      department_name: "Dairy",
-      item_count: 50,
-      gross_sales: 1000.0,
-    },
-  ],
-});
+const createMockZReport = (overrides: Partial<ZReport> = {}): ZReport =>
+  ({
+    z_report_id: "zr-1",
+    shift_id: "shift-1",
+    store_id: "store-1",
+    z_number: 42,
+    business_date: "2024-03-15T00:00:00Z",
+    cashier_id: "cashier-1",
+    cashier_name: "John Doe",
+    shift_opened_at: "2024-03-15T06:00:00Z",
+    shift_closed_at: "2024-03-15T14:00:00Z",
+    generated_at: "2024-03-15T14:05:00Z",
+    gross_sales: 2500.0,
+    returns_total: 50.0,
+    discounts_total: 25.0,
+    net_sales: 2425.0,
+    tax_collected: 181.88,
+    transaction_count: 75,
+    items_sold_count: 150,
+    opening_cash: 200.0,
+    expected_cash: 1425.0,
+    closing_cash: 1420.0,
+    variance_amount: -5.0,
+    variance_percentage: -0.35,
+    is_verified: true,
+    integrity_hash: "sha256-abc123",
+    print_count: 2,
+    last_printed_at: "2024-03-15T14:10:00Z",
+    export_count: 0,
+    last_exported_at: null,
+    last_exported_format: null,
+    created_at: "2024-03-15T14:05:00Z",
+    tender_breakdown: [
+      {
+        tender_code: "CASH",
+        tender_name: "Cash",
+        transaction_count: 45,
+        amount: 1225.0,
+      },
+      {
+        tender_code: "CREDIT",
+        tender_name: "Credit Card",
+        transaction_count: 30,
+        amount: 1200.0,
+      },
+    ],
+    department_breakdown: [
+      {
+        department_code: "GROCERY",
+        department_name: "Grocery",
+        item_count: 100,
+        gross_sales: 1500.0,
+      },
+      {
+        department_code: "DAIRY",
+        department_name: "Dairy",
+        item_count: 50,
+        gross_sales: 1000.0,
+      },
+    ],
+    tax_breakdown: [
+      {
+        tax_name: "State Tax",
+        tax_rate: 0.0725,
+        taxable_amount: 2425.0,
+        tax_collected: 175.81,
+      },
+      {
+        tax_name: "Local Tax",
+        tax_rate: 0.0025,
+        taxable_amount: 2425.0,
+        tax_collected: 6.06,
+      },
+    ],
+    ...overrides,
+  }) as unknown as ZReport;
 
 // ============================================================================
 // COMPONENT TESTS
 // ============================================================================
 
 describe("Phase 6.5 - ZReportViewer Component Tests", () => {
-  let mockReport: ReturnType<typeof createMockZReport>;
+  let mockReport: ZReport;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -162,7 +185,7 @@ describe("Phase 6.5 - ZReportViewer Component Tests", () => {
     });
 
     it("[Z-RPT-003b] should display cashier_id when name is not available", () => {
-      const reportWithoutName = { ...mockReport, cashier_name: null };
+      const reportWithoutName = createMockZReport({ cashier_name: undefined });
       renderWithProviders(<ZReportViewer report={reportWithoutName} />);
       expect(screen.getByText("cashier-1")).toBeInTheDocument();
     });

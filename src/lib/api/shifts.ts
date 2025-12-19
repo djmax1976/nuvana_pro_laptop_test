@@ -64,6 +64,10 @@ export interface ShiftResponse {
   store_name?: string;
   cashier_name?: string;
   opener_name?: string;
+  // Report-related fields (optional, populated for shift list views)
+  net_sales?: number;
+  x_report_count?: number;
+  has_z_report?: boolean;
 }
 
 /**

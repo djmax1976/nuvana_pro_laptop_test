@@ -60,14 +60,15 @@ export default function ShiftReportsPage() {
   const endDate = new Date(currentDate);
 
   const { data: shiftsData, isLoading: shiftsLoading } = useShifts(
-    selectedStoreId,
     {
-      startDate: startDate.toISOString().split("T")[0],
-      endDate: endDate.toISOString().split("T")[0],
+      store_id: selectedStoreId || undefined,
+      from: startDate.toISOString().split("T")[0],
+      to: endDate.toISOString().split("T")[0],
     },
+    undefined,
     { enabled: !!selectedStoreId },
   );
-  const shifts = shiftsData?.data || [];
+  const shifts = shiftsData?.shifts || [];
 
   const handlePrevWeek = () => {
     const newDate = new Date(currentDate);
@@ -115,19 +116,19 @@ export default function ShiftReportsPage() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case "open":
+      case "OPEN":
         return (
           <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
             Open
           </Badge>
         );
-      case "closing":
+      case "CLOSING":
         return (
           <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300">
             Closing
           </Badge>
         );
-      case "closed":
+      case "CLOSED":
         return (
           <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
             Closed
@@ -261,7 +262,7 @@ export default function ShiftReportsPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-1">
-                            {shift.x_report_count > 0 && (
+                            {(shift.x_report_count ?? 0) > 0 && (
                               <Badge variant="outline" className="text-xs">
                                 <FileText className="mr-1 h-3 w-3" />
                                 {shift.x_report_count} X

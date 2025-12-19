@@ -6,6 +6,7 @@
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
 import { createUser, createClientUser } from "../support/factories";
+import { createTransaction as createTransactionFactory } from "../support/factories/transaction.factory";
 import { PrismaClient, Prisma } from "@prisma/client";
 import {
   createShift as createShiftHelper,
@@ -94,29 +95,31 @@ async function createClosedShiftWithTransactions(
   // Create transactions with different payment methods
   const transaction1 = await prismaClient.transaction.create({
     data: {
-      store_id: storeId,
-      shift_id: shift.shift_id,
-      cashier_id: openedBy,
-      pos_terminal_id: posTerminalId,
-      subtotal: new Prisma.Decimal(50.0),
-      tax: new Prisma.Decimal(4.0),
-      discount: new Prisma.Decimal(0),
-      total: new Prisma.Decimal(54.0),
-      status: "COMPLETED",
+      ...createTransactionFactory({
+        store_id: storeId,
+        shift_id: shift.shift_id,
+        cashier_id: openedBy,
+        pos_terminal_id: posTerminalId,
+        subtotal: 50.0,
+        tax: 4.0,
+        discount: 0,
+        total: 54.0,
+      }),
     },
   });
 
   const transaction2 = await prismaClient.transaction.create({
     data: {
-      store_id: storeId,
-      shift_id: shift.shift_id,
-      cashier_id: openedBy,
-      pos_terminal_id: posTerminalId,
-      subtotal: new Prisma.Decimal(100.0),
-      tax: new Prisma.Decimal(8.0),
-      discount: new Prisma.Decimal(0),
-      total: new Prisma.Decimal(108.0),
-      status: "COMPLETED",
+      ...createTransactionFactory({
+        store_id: storeId,
+        shift_id: shift.shift_id,
+        cashier_id: openedBy,
+        pos_terminal_id: posTerminalId,
+        subtotal: 100.0,
+        tax: 8.0,
+        discount: 0,
+        total: 108.0,
+      }),
     },
   });
 

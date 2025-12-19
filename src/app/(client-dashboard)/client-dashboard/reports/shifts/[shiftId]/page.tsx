@@ -10,7 +10,7 @@
 
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useShift } from "@/lib/api/shifts";
+import { useShiftDetail } from "@/lib/api/shifts";
 import {
   useXReportsByShift,
   useZReportByShift,
@@ -57,24 +57,21 @@ export default function ShiftDetailPage({ params }: ShiftDetailPageProps) {
   const [isGenerating, setIsGenerating] = useState(false);
 
   const {
-    data: shiftData,
+    data: shift,
     isLoading: shiftLoading,
     error: shiftError,
-  } = useShift(shiftId);
-  const shift = shiftData?.data;
+  } = useShiftDetail(shiftId);
 
   const {
-    data: xReportsData,
+    data: xReports = [],
     isLoading: xReportsLoading,
     refetch: refetchXReports,
   } = useXReportsByShift(shiftId, { enabled: !!shiftId });
-  const xReports = xReportsData?.data || [];
 
-  const { data: zReportData, isLoading: zReportLoading } = useZReportByShift(
+  const { data: zReport, isLoading: zReportLoading } = useZReportByShift(
     shiftId,
-    { enabled: !!shiftId && shift?.status === "closed" },
+    { enabled: !!shiftId && shift?.status === "CLOSED" },
   );
-  const zReport = zReportData?.data;
 
   const generateXReportMutation = useGenerateXReport();
 
@@ -116,19 +113,19 @@ export default function ShiftDetailPage({ params }: ShiftDetailPageProps) {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case "open":
+      case "OPEN":
         return (
           <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
             Open
           </Badge>
         );
-      case "closing":
+      case "CLOSING":
         return (
           <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300">
             Closing
           </Badge>
         );
-      case "closed":
+      case "CLOSED":
         return (
           <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
             Closed
@@ -181,7 +178,7 @@ export default function ShiftDetailPage({ params }: ShiftDetailPageProps) {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Shifts
         </Button>
-        {shift.status === "open" && (
+        {shift.status === "OPEN" && (
           <Button onClick={handleGenerateXReport} disabled={isGenerating}>
             {isGenerating ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -255,7 +252,7 @@ export default function ShiftDetailPage({ params }: ShiftDetailPageProps) {
           <TabsTrigger
             value="z-report"
             className="flex items-center gap-2"
-            disabled={shift.status !== "closed"}
+            disabled={shift.status !== "CLOSED"}
           >
             <FileCheck className="h-4 w-4" />Z Report
           </TabsTrigger>
@@ -273,7 +270,7 @@ export default function ShiftDetailPage({ params }: ShiftDetailPageProps) {
               <CardContent className="py-8 text-center text-muted-foreground">
                 <FileText className="mx-auto h-12 w-12 mb-4 opacity-50" />
                 <p>No X Reports generated for this shift</p>
-                {shift.status === "open" && (
+                {shift.status === "OPEN" && (
                   <Button
                     variant="outline"
                     className="mt-4"
@@ -340,7 +337,7 @@ export default function ShiftDetailPage({ params }: ShiftDetailPageProps) {
               <CardContent className="py-8 text-center text-muted-foreground">
                 <FileCheck className="mx-auto h-12 w-12 mb-4 opacity-50" />
                 <p>
-                  {shift.status === "closed"
+                  {shift.status === "CLOSED"
                     ? "Z Report not found for this shift"
                     : "Z Report will be available after the shift is closed"}
                 </p>

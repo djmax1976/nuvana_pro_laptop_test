@@ -9,7 +9,7 @@
  */
 
 import { useState } from "react";
-import { useWeeklyReport } from "@/lib/api/day-summaries";
+import { useWeeklyReport, DayBreakdownItem } from "@/lib/api/day-summaries";
 import { useStores } from "@/lib/api/stores";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,12 +55,11 @@ export default function WeeklyReportsPage() {
 
   const weekStartStr = weekStart.toISOString().split("T")[0];
 
-  const { data: reportData, isLoading: reportLoading } = useWeeklyReport(
+  const { data: report, isLoading: reportLoading } = useWeeklyReport(
     selectedStoreId,
     weekStartStr,
     { enabled: !!selectedStoreId },
   );
-  const report = reportData?.data;
 
   const handlePrevWeek = () => {
     const newDate = new Date(weekStart);
@@ -265,7 +264,7 @@ export default function WeeklyReportsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {report.daily_breakdown.map((day) => (
+                      {report.daily_breakdown.map((day: DayBreakdownItem) => (
                         <TableRow key={day.business_date}>
                           <TableCell className="font-medium">
                             {new Date(day.business_date).toLocaleDateString(
