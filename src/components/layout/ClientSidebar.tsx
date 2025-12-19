@@ -18,6 +18,7 @@ import {
   BarChart3,
   Bot,
   Settings,
+  Wrench,
 } from "lucide-react";
 
 interface NavItem {
@@ -106,6 +107,12 @@ const ALL_NAV_ITEMS: NavItem[] = [
     title: "Reports",
     href: "/client-dashboard/reports",
     icon: BarChart3,
+  },
+  // Configuration: Manage lookup tables (tender types, departments, tax rates)
+  {
+    title: "Configuration",
+    href: "/client-dashboard/config",
+    icon: Wrench,
   },
   // AI Assistant: AI-powered assistance
   {

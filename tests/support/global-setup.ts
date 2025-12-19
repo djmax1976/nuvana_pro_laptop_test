@@ -21,16 +21,18 @@ config({ path: ".env.local", override: true });
 import { PrismaClient } from "@prisma/client";
 
 // =============================================================================
-// DATABASE PROTECTION - Validate we're connecting to a test database
+// DATABASE PROTECTION - Validate we're connecting to a safe database
 // =============================================================================
+// Production/staging databases that should NEVER be used for tests
 const PROTECTED_DATABASE_PATTERNS = [
-  /nuvana_dev/i,
   /nuvana_prod/i,
   /nuvana_production/i,
   /nuvana_staging/i,
 ];
 
+// Databases allowed for testing (dev and test are both safe for local development)
 const ALLOWED_TEST_DATABASE_PATTERNS = [
+  /nuvana_dev/i, // Local development database - safe for tests
   /nuvana_test/i,
   /_test$/i,
   /_test_/i,

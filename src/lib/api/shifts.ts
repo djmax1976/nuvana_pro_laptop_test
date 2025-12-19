@@ -267,17 +267,15 @@ export interface OpenShiftResponse {
 }
 
 /**
- * Close shift response
+ * Close shift response (simplified single-step flow)
+ * Story: Simplified Shift Closing
  */
 export interface CloseShiftResponse {
   shift_id: string;
   status: ShiftStatus;
-  closing_initiated_at: string;
-  closing_initiated_by: string;
-  expected_cash: number;
-  opening_cash: number;
-  cash_transactions_total: number;
-  calculated_at: string;
+  closing_cash: number;
+  closed_at: string;
+  closed_by: string;
 }
 
 /**
@@ -321,17 +319,32 @@ export async function openShift(
 }
 
 /**
- * Initiate shift closing
+ * Close shift input (simplified single-step flow)
+ * Story: Simplified Shift Closing
+ */
+export interface CloseShiftInput {
+  closing_cash: number;
+}
+
+/**
+ * Close a shift directly with closing cash (simplified single-step flow)
+ * Goes directly from OPEN/ACTIVE → CLOSED
+ *
+ * Story: Simplified Shift Closing
+ *
  * @param shiftId - Shift UUID
- * @returns Close shift response with expected cash
+ * @param closingCash - Actual cash in drawer
+ * @returns Close shift response
  */
 export async function closeShift(
   shiftId: string,
+  closingCash: number,
 ): Promise<ApiResponse<CloseShiftResponse>> {
   return apiRequest<ApiResponse<CloseShiftResponse>>(
     `/api/shifts/${shiftId}/close`,
     {
       method: "POST",
+      body: JSON.stringify({ closing_cash: closingCash }),
     },
   );
 }
@@ -572,14 +585,21 @@ export function useOpenShift() {
 }
 
 /**
- * Hook to close a shift
+ * Hook to close a shift directly (simplified single-step flow)
+ * Story: Simplified Shift Closing
  * @returns Mutation hook for closing shifts
  */
 export function useCloseShift() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: closeShift,
+    mutationFn: ({
+      shiftId,
+      closingCash,
+    }: {
+      shiftId: string;
+      closingCash: number;
+    }) => closeShift(shiftId, closingCash),
     onSuccess: () => {
       // Invalidate shift list and detail queries to refresh after closing
       queryClient.invalidateQueries({ queryKey: shiftKeys.lists() });

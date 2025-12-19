@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { rbacService } from "../services/rbac.service";
 import type { PermissionCode } from "../constants/permissions";
-import { prisma, withRLSContext } from "../utils/db";
+import { prisma, withRLSContext, isValidUUID } from "../utils/db";
 import type { UserIdentity } from "./auth.middleware";
 import { permissionCacheService } from "../services/permission-cache.service";
 import { userAccessCacheService } from "../services/user-access-cache.service";
@@ -58,7 +58,8 @@ function extractScope(request: AuthenticatedRequest): RequestScope {
       (request.params as any)?.companyId ||
       (request.query as any)?.company_id ||
       (request.body as any)?.company_id;
-    if (companyId) {
+    // Only include companyId if it's a valid UUID to prevent DB query errors
+    if (companyId && isValidUUID(String(companyId))) {
       scope.companyId = String(companyId);
     }
   }
@@ -77,7 +78,8 @@ function extractScope(request: AuthenticatedRequest): RequestScope {
       (request.params as any)?.storeId ||
       (request.query as any)?.store_id ||
       (request.body as any)?.store_id;
-    if (storeId) {
+    // Only include storeId if it's a valid UUID to prevent DB query errors
+    if (storeId && isValidUUID(String(storeId))) {
       scope.storeId = String(storeId);
     }
   }

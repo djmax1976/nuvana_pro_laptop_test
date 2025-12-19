@@ -14,6 +14,7 @@ import { getRedisClient } from "../utils/redis";
 import { toStoreTime, toUTC } from "../utils/timezone.utils";
 import { startOfDay, addDays } from "date-fns";
 import * as crypto from "crypto";
+import { shiftSummaryService } from "./shift-summary.service";
 
 /**
  * Audit context for logging operations
@@ -69,6 +70,18 @@ export interface ApprovalResult {
   approved_by: string;
   approved_at: Date;
   closed_at: Date;
+}
+
+/**
+ * Result of direct shift close (simplified single-step flow)
+ * Story: Simplified Shift Closing - single step OPEN/ACTIVE → CLOSED
+ */
+export interface DirectCloseResult {
+  shift_id: string;
+  status: ShiftStatus;
+  closing_cash: number;
+  closed_at: Date;
+  closed_by: string;
 }
 
 /**
@@ -1527,6 +1540,21 @@ export class ShiftService {
       };
     });
 
+    // Create pre-aggregated shift summary (Phase 2.1)
+    // This creates a frozen snapshot for fast reporting
+    try {
+      await shiftSummaryService.createShiftSummary(
+        shiftId,
+        auditContext.userId,
+      );
+    } catch (summaryError) {
+      // Log but don't fail the close - summary can be regenerated if needed
+      console.error(
+        `Failed to create shift summary for shift ${shiftId}:`,
+        summaryError,
+      );
+    }
+
     // Invalidate report cache since shift data changed
     await this.invalidateReportCache(shiftId);
 
@@ -2125,6 +2153,318 @@ export class ShiftService {
         console.warn("Failed to invalidate report cache:", error);
       }
     }
+  }
+
+  /**
+   * Close a shift directly in a single step (simplified flow)
+   * Goes directly from OPEN/ACTIVE → CLOSED without intermediate CLOSING state
+   * No expected cash calculation - just records actual cash and closes
+   *
+   * Story: Simplified Shift Closing
+   *
+   * @param shiftId - Shift UUID
+   * @param closingCash - Actual cash in drawer
+   * @param auditContext - Audit context for logging
+   * @returns DirectCloseResult with closed shift details
+   * @throws ShiftServiceError if validation fails
+   */
+  async closeShiftDirect(
+    shiftId: string,
+    closingCash: number,
+    auditContext: AuditContext,
+  ): Promise<DirectCloseResult> {
+    // Validate closing_cash is non-negative
+    if (closingCash < 0) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.INVALID_CASH_AMOUNT,
+        "closing_cash must be a non-negative number",
+      );
+    }
+
+    // Validate shift exists and user has access
+    const shift = await this.validateShiftAccess(shiftId, auditContext.userId);
+
+    // Validate shift is in a closeable status (OPEN or ACTIVE)
+    const closeableStatuses: ShiftStatus[] = [
+      ShiftStatus.OPEN,
+      ShiftStatus.ACTIVE,
+    ];
+    if (!closeableStatuses.includes(shift.status)) {
+      if (shift.status === ShiftStatus.CLOSED) {
+        throw new ShiftServiceError(
+          ShiftErrorCode.SHIFT_ALREADY_CLOSED,
+          `Shift with ID ${shiftId} is already closed`,
+          { current_status: shift.status },
+        );
+      }
+      if (shift.status === ShiftStatus.CLOSING) {
+        // Allow closing from CLOSING status as well (in case of stuck state)
+        // Fall through to close the shift
+      } else {
+        throw new ShiftServiceError(
+          ShiftErrorCode.SHIFT_INVALID_STATUS,
+          `Shift with ID ${shiftId} cannot be closed. Current status: ${shift.status}. Only OPEN or ACTIVE shifts can be closed.`,
+          {
+            current_status: shift.status,
+            allowed_statuses: closeableStatuses,
+          },
+        );
+      }
+    }
+
+    const closedAt = new Date();
+
+    // Update shift and create audit log in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Update shift to CLOSED with closing cash
+      const updatedShift = await tx.shift.update({
+        where: { shift_id: shiftId },
+        data: {
+          status: ShiftStatus.CLOSED,
+          closing_cash: closingCash,
+          closed_at: closedAt,
+        },
+      });
+
+      // Create audit log entry
+      try {
+        await tx.auditLog.create({
+          data: {
+            user_id: auditContext.userId,
+            action: "SHIFT_CLOSED_DIRECT",
+            table_name: "shifts",
+            record_id: shiftId,
+            new_values: {
+              shift_id: shiftId,
+              store_id: shift.store_id,
+              status: ShiftStatus.CLOSED,
+              closing_cash: closingCash.toString(),
+              closed_at: closedAt.toISOString(),
+              closed_by: auditContext.userId,
+            } as Record<string, any>,
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+            reason: `Shift closed directly by ${auditContext.userEmail} (roles: ${auditContext.userRoles.join(", ")})`,
+          },
+        });
+      } catch (auditError) {
+        // Log but don't fail the close operation
+        console.error(
+          "Failed to create audit log for direct shift close:",
+          auditError,
+        );
+      }
+
+      return {
+        shift_id: updatedShift.shift_id,
+        status: updatedShift.status,
+        closing_cash: closingCash,
+        closed_at: closedAt,
+        closed_by: auditContext.userId,
+      };
+    });
+
+    // Create pre-aggregated shift summary (Phase 2.1)
+    // This creates a frozen snapshot for fast reporting
+    try {
+      await shiftSummaryService.createShiftSummary(
+        shiftId,
+        auditContext.userId,
+      );
+    } catch (summaryError) {
+      // Log but don't fail the close - summary can be regenerated if needed
+      console.error(
+        `Failed to create shift summary for shift ${shiftId}:`,
+        summaryError,
+      );
+    }
+
+    // Invalidate report cache
+    await this.invalidateReportCache(shiftId);
+
+    return result;
+  }
+
+  /**
+   * Get shift summary with payment methods and sales totals
+   * Lighter-weight alternative to generateShiftReport for closed shifts
+   *
+   * Story: Client Owner Dashboard - Shift Detail View
+   *
+   * Phase 2.7: Updated to read from pre-calculated ShiftSummary table for performance.
+   * Falls back to runtime aggregation for shifts closed before summary tables existed.
+   *
+   * @param shiftId - Shift UUID
+   * @param userId - User UUID (for RLS validation)
+   * @returns Shift summary data with payment methods and totals
+   * @throws ShiftServiceError if validation fails
+   */
+  async getShiftSummary(
+    shiftId: string,
+    userId: string,
+  ): Promise<{
+    shift_id: string;
+    total_sales: number;
+    transaction_count: number;
+    payment_methods: Array<{ method: string; total: number; count: number }>;
+    // Enhanced fields from ShiftSummary (when available)
+    gross_sales?: number;
+    returns_total?: number;
+    discounts_total?: number;
+    net_sales?: number;
+    tax_collected?: number;
+    avg_transaction?: number;
+    items_sold_count?: number;
+    from_summary_table?: boolean;
+  }> {
+    // Validate shiftId format
+    if (!shiftId || typeof shiftId !== "string") {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        "Invalid shift ID",
+      );
+    }
+
+    // Query shift data with minimal includes
+    const shift = await prisma.shift.findUnique({
+      where: { shift_id: shiftId },
+      select: {
+        shift_id: true,
+        store_id: true,
+        status: true,
+      },
+    });
+
+    // Validate shift exists
+    if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found or you do not have access`,
+        { shift_id: shiftId },
+      );
+    }
+
+    // Validate user has access to the store this shift belongs to
+    const hasAccess = await this.checkUserStoreAccess(userId, shift.store_id);
+    if (!hasAccess) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift with ID ${shiftId} not found or you do not have access`,
+        { shift_id: shiftId },
+      );
+    }
+
+    // Validate shift status is CLOSED (summary only available for closed shifts)
+    if (shift.status !== ShiftStatus.CLOSED) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_CLOSED,
+        `Shift is not in CLOSED status. Current status: ${shift.status}. Summary is only available for closed shifts.`,
+        {
+          shift_id: shiftId,
+          current_status: shift.status,
+          expected_status: ShiftStatus.CLOSED,
+        },
+      );
+    }
+
+    // =========================================================================
+    // Phase 2.7: Try to read from pre-calculated ShiftSummary table first
+    // This provides ~10-50x faster response times for closed shifts
+    // =========================================================================
+    try {
+      const shiftSummary = await shiftSummaryService.getByShiftId(shiftId, {
+        include_tender_summaries: true,
+      });
+
+      if (shiftSummary) {
+        // Convert tender summaries to payment_methods format for backward compatibility
+        const paymentMethods = shiftSummary.tender_summaries.map((tender) => ({
+          method: tender.tender_code,
+          total: Number(tender.net_amount),
+          count: tender.transaction_count,
+        }));
+
+        return {
+          shift_id: shiftId,
+          total_sales: Number(shiftSummary.net_sales),
+          transaction_count: shiftSummary.transaction_count,
+          payment_methods: paymentMethods,
+          // Enhanced fields from ShiftSummary
+          gross_sales: Number(shiftSummary.gross_sales),
+          returns_total: Number(shiftSummary.returns_total),
+          discounts_total: Number(shiftSummary.discounts_total),
+          net_sales: Number(shiftSummary.net_sales),
+          tax_collected: Number(shiftSummary.tax_collected),
+          avg_transaction: Number(shiftSummary.avg_transaction),
+          items_sold_count: shiftSummary.items_sold_count,
+          from_summary_table: true,
+        };
+      }
+    } catch (error) {
+      // Log warning but continue with fallback calculation
+      console.warn(
+        `[ShiftService] Could not retrieve shift summary from table for shift ${shiftId}, using fallback calculation:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+
+    // =========================================================================
+    // Fallback: Runtime aggregation for shifts without pre-calculated summaries
+    // This handles historical shifts closed before summary tables were implemented
+    // =========================================================================
+
+    // Query transactions with payments only (no line items needed for basic summary)
+    const transactions = await prisma.transaction.findMany({
+      where: { shift_id: shiftId },
+      include: {
+        payments: true,
+      },
+    });
+
+    // Calculate totals
+    let totalSales = 0;
+    const transactionCount = transactions.length;
+
+    transactions.forEach((tx) => {
+      totalSales += Number(tx.total);
+    });
+
+    // Calculate payment method breakdown
+    const paymentMethodMap = new Map<
+      string,
+      { total: number; count: number }
+    >();
+    transactions.forEach((tx) => {
+      tx.payments.forEach((payment) => {
+        // Prefer tender_code if available (Phase 1.5), fall back to legacy method field
+        const method = payment.tender_code || payment.method;
+        const amount = Number(payment.amount);
+        const existing = paymentMethodMap.get(method);
+        if (existing) {
+          existing.total += amount;
+          existing.count += 1;
+        } else {
+          paymentMethodMap.set(method, { total: amount, count: 1 });
+        }
+      });
+    });
+
+    // Convert payment method map to array
+    const paymentMethods = Array.from(paymentMethodMap.entries()).map(
+      ([method, data]) => ({
+        method,
+        total: data.total,
+        count: data.count,
+      }),
+    );
+
+    return {
+      shift_id: shiftId,
+      total_sales: totalSales,
+      transaction_count: transactionCount,
+      payment_methods: paymentMethods,
+      from_summary_table: false,
+    };
   }
 }
 

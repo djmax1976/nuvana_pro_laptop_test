@@ -66,6 +66,12 @@ export const REPORT_DAILY = "REPORT_DAILY";
 export const REPORT_ANALYTICS = "REPORT_ANALYTICS";
 export const REPORT_EXPORT = "REPORT_EXPORT";
 
+// X/Z Report Permissions (Phase 4: Report Snapshots)
+export const X_REPORT_GENERATE = "X_REPORT_GENERATE";
+export const X_REPORT_READ = "X_REPORT_READ";
+export const Z_REPORT_READ = "Z_REPORT_READ";
+export const Z_REPORT_VERIFY = "Z_REPORT_VERIFY";
+
 // Admin Permissions
 export const ADMIN_OVERRIDE = "ADMIN_OVERRIDE";
 export const ADMIN_AUDIT_VIEW = "ADMIN_AUDIT_VIEW";
@@ -88,6 +94,22 @@ export const CASHIER_CREATE = "CASHIER_CREATE";
 export const CASHIER_READ = "CASHIER_READ";
 export const CASHIER_UPDATE = "CASHIER_UPDATE";
 export const CASHIER_DELETE = "CASHIER_DELETE";
+
+// Configuration Management Permissions (Phase 1: Shift & Day Summary)
+export const TENDER_TYPE_READ = "TENDER_TYPE_READ";
+export const TENDER_TYPE_MANAGE = "TENDER_TYPE_MANAGE";
+export const DEPARTMENT_READ = "DEPARTMENT_READ";
+export const DEPARTMENT_MANAGE = "DEPARTMENT_MANAGE";
+export const TAX_RATE_READ = "TAX_RATE_READ";
+export const TAX_RATE_MANAGE = "TAX_RATE_MANAGE";
+export const CONFIG_READ = "CONFIG_READ";
+export const CONFIG_MANAGE = "CONFIG_MANAGE";
+
+// POS Integration Permissions (Phase 1.6: POS Integration & Auto-Onboarding)
+export const POS_CONNECTION_READ = "POS_CONNECTION_READ";
+export const POS_CONNECTION_MANAGE = "POS_CONNECTION_MANAGE";
+export const POS_SYNC_TRIGGER = "POS_SYNC_TRIGGER";
+export const POS_SYNC_LOG_READ = "POS_SYNC_LOG_READ";
 
 /**
  * All permission codes as a constant object
@@ -151,6 +173,12 @@ export const PERMISSIONS = {
   REPORT_ANALYTICS,
   REPORT_EXPORT,
 
+  // X/Z Reports (Phase 4)
+  X_REPORT_GENERATE,
+  X_REPORT_READ,
+  Z_REPORT_READ,
+  Z_REPORT_VERIFY,
+
   // Admin
   ADMIN_OVERRIDE,
   ADMIN_AUDIT_VIEW,
@@ -173,6 +201,22 @@ export const PERMISSIONS = {
   CASHIER_READ,
   CASHIER_UPDATE,
   CASHIER_DELETE,
+
+  // Configuration Management (Phase 1: Shift & Day Summary)
+  TENDER_TYPE_READ,
+  TENDER_TYPE_MANAGE,
+  DEPARTMENT_READ,
+  DEPARTMENT_MANAGE,
+  TAX_RATE_READ,
+  TAX_RATE_MANAGE,
+  CONFIG_READ,
+  CONFIG_MANAGE,
+
+  // POS Integration (Phase 1.6: POS Integration & Auto-Onboarding)
+  POS_CONNECTION_READ,
+  POS_CONNECTION_MANAGE,
+  POS_SYNC_TRIGGER,
+  POS_SYNC_LOG_READ,
 } as const;
 
 /**
@@ -249,6 +293,12 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [REPORT_ANALYTICS]: "View analytics reports",
   [REPORT_EXPORT]: "Export reports",
 
+  // X/Z Reports (Phase 4)
+  [X_REPORT_GENERATE]: "Generate X Reports (mid-shift snapshots)",
+  [X_REPORT_READ]: "View X Reports",
+  [Z_REPORT_READ]: "View Z Reports (end-of-shift final snapshots)",
+  [Z_REPORT_VERIFY]: "Verify Z Report integrity",
+
   // Admin
   [ADMIN_OVERRIDE]: "Override system restrictions",
   [ADMIN_AUDIT_VIEW]: "View audit logs",
@@ -273,6 +323,22 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [CASHIER_READ]: "View cashier list and details",
   [CASHIER_UPDATE]: "Update cashier information",
   [CASHIER_DELETE]: "Deactivate/remove cashiers",
+
+  // Configuration Management (Phase 1: Shift & Day Summary)
+  [TENDER_TYPE_READ]: "View tender types (payment methods)",
+  [TENDER_TYPE_MANAGE]: "Create, update, and delete tender types",
+  [DEPARTMENT_READ]: "View departments",
+  [DEPARTMENT_MANAGE]: "Create, update, and delete departments",
+  [TAX_RATE_READ]: "View tax rates",
+  [TAX_RATE_MANAGE]: "Create, update, and delete tax rates",
+  [CONFIG_READ]: "View system configuration",
+  [CONFIG_MANAGE]: "Manage system configuration",
+
+  // POS Integration (Phase 1.6: POS Integration & Auto-Onboarding)
+  [POS_CONNECTION_READ]: "View POS integration connection details",
+  [POS_CONNECTION_MANAGE]: "Create, update, and delete POS connections",
+  [POS_SYNC_TRIGGER]: "Trigger manual POS data synchronization",
+  [POS_SYNC_LOG_READ]: "View POS synchronization history and logs",
 };
 
 /**
@@ -333,7 +399,16 @@ export const PERMISSION_CATEGORIES = {
   REPORTS: {
     name: "Reports",
     description: "Permissions for viewing and generating reports",
-    permissions: [REPORT_SHIFT, REPORT_DAILY, REPORT_ANALYTICS, REPORT_EXPORT],
+    permissions: [
+      REPORT_SHIFT,
+      REPORT_DAILY,
+      REPORT_ANALYTICS,
+      REPORT_EXPORT,
+      X_REPORT_GENERATE,
+      X_REPORT_READ,
+      Z_REPORT_READ,
+      Z_REPORT_VERIFY,
+    ],
   },
   EMPLOYEES: {
     name: "Employee Management",
@@ -358,6 +433,32 @@ export const PERMISSION_CATEGORIES = {
     name: "Cashier Management",
     description: "Permissions for managing cashiers at store terminals",
     permissions: [CASHIER_CREATE, CASHIER_READ, CASHIER_UPDATE, CASHIER_DELETE],
+  },
+  CONFIG: {
+    name: "Configuration",
+    description:
+      "Permissions for managing system configuration (tender types, departments, tax rates)",
+    permissions: [
+      TENDER_TYPE_READ,
+      TENDER_TYPE_MANAGE,
+      DEPARTMENT_READ,
+      DEPARTMENT_MANAGE,
+      TAX_RATE_READ,
+      TAX_RATE_MANAGE,
+      CONFIG_READ,
+      CONFIG_MANAGE,
+    ],
+  },
+  POS_INTEGRATION: {
+    name: "POS Integration",
+    description:
+      "Permissions for managing POS system connections and synchronization",
+    permissions: [
+      POS_CONNECTION_READ,
+      POS_CONNECTION_MANAGE,
+      POS_SYNC_TRIGGER,
+      POS_SYNC_LOG_READ,
+    ],
   },
 } as const;
 
@@ -428,6 +529,12 @@ export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
   REPORT_ANALYTICS,
   REPORT_EXPORT,
 
+  // X/Z Reports - Mid-shift and end-of-shift snapshots (Phase 4)
+  X_REPORT_GENERATE,
+  X_REPORT_READ,
+  Z_REPORT_READ,
+  Z_REPORT_VERIFY,
+
   // Client Employee Management - Managing store staff (delegation)
   CLIENT_EMPLOYEE_CREATE,
   CLIENT_EMPLOYEE_READ,
@@ -443,6 +550,12 @@ export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
   // Store - Read and update store information
   STORE_READ,
   STORE_UPDATE,
+
+  // POS Integration - Managing store POS connections
+  POS_CONNECTION_READ,
+  POS_CONNECTION_MANAGE,
+  POS_SYNC_TRIGGER,
+  POS_SYNC_LOG_READ,
 ];
 
 /**

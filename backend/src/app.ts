@@ -31,6 +31,14 @@ import { cashierRoutes } from "./routes/cashiers";
 import { adminRolesRoutes } from "./routes/admin-roles";
 import { lotteryRoutes } from "./routes/lottery";
 import { shiftClosingRoutes } from "./routes/shift-closing";
+import { tenderTypeRoutes } from "./routes/tender-types";
+import { departmentRoutes } from "./routes/departments";
+import { taxRateRoutes } from "./routes/tax-rates";
+import { posIntegrationRoutes } from "./routes/pos-integrations";
+import { daySummaryRoutes } from "./routes/day-summaries";
+import { xReportRoutes } from "./routes/x-reports";
+import { zReportRoutes } from "./routes/z-reports";
+import { reconciliationRoutes } from "./routes/reconciliation";
 import { rlsPlugin } from "./middleware/rls.middleware";
 
 // Load environment variables
@@ -376,6 +384,30 @@ app.register(lotteryRoutes);
 // Register shift closing routes
 app.register(shiftClosingRoutes);
 
+// Register tender type configuration routes (Phase 1: Shift & Day Summary)
+app.register(tenderTypeRoutes, { prefix: "/api/config/tender-types" });
+
+// Register department configuration routes (Phase 1.2: Shift & Day Summary)
+app.register(departmentRoutes, { prefix: "/api/config/departments" });
+
+// Register tax rate configuration routes (Phase 1.3: Shift & Day Summary)
+app.register(taxRateRoutes, { prefix: "/api/config/tax-rates" });
+
+// Register POS integration routes (Phase 1.6: POS Integration & Auto-Onboarding)
+app.register(posIntegrationRoutes, {
+  prefix: "/api/stores/:storeId/pos-integration",
+});
+
+// Register day summary routes (Phase 3.1: Shift & Day Summary)
+app.register(daySummaryRoutes);
+
+// Register X/Z report routes (Phase 4: Report Snapshots)
+app.register(xReportRoutes);
+app.register(zReportRoutes);
+
+// Register reconciliation routes (Phase 5.3: Validation & Reconciliation)
+app.register(reconciliationRoutes);
+
 // Root endpoint - API information and status
 app.get("/", async () => {
   return {
@@ -404,6 +436,11 @@ app.get("/", async () => {
       //           DELETE /api/stores/:storeId/cashiers/:cashierId - Soft delete cashier (requires CASHIER_DELETE permission)
       //           POST /api/stores/:storeId/cashiers/authenticate - Authenticate cashier by name/employee_id and PIN (public endpoint for terminal access)
       cashiers: "/api/stores/:storeId/cashiers",
+      // POS Integration: GET/POST/PATCH/DELETE /api/stores/:storeId/pos-integration - Manage POS connection for store
+      //                  POST /api/stores/:storeId/pos-integration/test - Test POS connection
+      //                  POST /api/stores/:storeId/pos-integration/sync - Trigger manual sync
+      //                  GET /api/stores/:storeId/pos-integration/logs - Get sync history
+      posIntegration: "/api/stores/:storeId/pos-integration",
     },
     documentation: "https://github.com/your-org/nuvana-pro",
   };

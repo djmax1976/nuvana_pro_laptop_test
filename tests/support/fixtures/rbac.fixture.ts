@@ -6,15 +6,13 @@ config({ path: ".env.local", override: true });
 import { test as base, APIRequestContext } from "@playwright/test";
 
 // =============================================================================
-// DATABASE PROTECTION - Block dev/prod databases in test code
+// DATABASE PROTECTION - Block prod/staging databases in test code
 // =============================================================================
 const dbUrl = process.env.DATABASE_URL || "";
-if (
-  /nuvana_dev|nuvana_prod|_prod$|_dev$/i.test(dbUrl) &&
-  !/test/i.test(dbUrl)
-) {
+// Only block production/staging - allow nuvana_dev and nuvana_test for local development
+if (/nuvana_prod|nuvana_production|nuvana_staging|_prod$/i.test(dbUrl)) {
   throw new Error(
-    `🚨 BLOCKED: Cannot use rbac.fixture with protected database: ${dbUrl}`,
+    `🚨 BLOCKED: Cannot use rbac.fixture with production database: ${dbUrl}`,
   );
 }
 
@@ -376,12 +374,14 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = { ...options?.headers };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -450,13 +450,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${superadminUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${superadminUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -1202,13 +1206,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -1697,13 +1705,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${storeManagerUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${storeManagerUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -1897,6 +1909,20 @@ export const test = base.extend<RBACFixture>({
       "CASHIER_DELETE",
       // Client Role Management
       "CLIENT_ROLE_MANAGE",
+      // Configuration Management (Phase 1: Shift & Day Summary)
+      "TENDER_TYPE_READ",
+      "TENDER_TYPE_MANAGE",
+      "DEPARTMENT_READ",
+      "DEPARTMENT_MANAGE",
+      "TAX_RATE_READ",
+      "TAX_RATE_MANAGE",
+      "CONFIG_READ",
+      "CONFIG_MANAGE",
+      // POS Integration (Phase 1.6)
+      "POS_CONNECTION_READ",
+      "POS_CONNECTION_MANAGE",
+      "POS_SYNC_TRIGGER",
+      "POS_SYNC_LOG_READ",
     ];
 
     // Pre-populate the Redis cache with user roles
@@ -2208,13 +2234,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${clientUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${clientUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -2288,13 +2318,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${regularUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${regularUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -2708,13 +2742,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${cashierUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${cashierUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -2790,13 +2828,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${superadminUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${superadminUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (

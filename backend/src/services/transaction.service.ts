@@ -403,11 +403,29 @@ export const transactionService = {
         },
       },
     };
+    // Phase 1.5: Include department relation when line_items requested
     if (include.line_items) {
-      prismaInclude.line_items = true;
+      prismaInclude.line_items = {
+        include: {
+          department: {
+            select: {
+              display_name: true,
+            },
+          },
+        },
+      };
     }
+    // Phase 1.5: Include tender_type relation when payments requested
     if (include.payments) {
-      prismaInclude.payments = true;
+      prismaInclude.payments = {
+        include: {
+          tender_type: {
+            select: {
+              display_name: true,
+            },
+          },
+        },
+      };
     }
 
     // Execute count query for total
@@ -438,6 +456,7 @@ export const transactionService = {
         public_id: tx.public_id,
         cashier_name: tx.cashier?.name,
         store_name: tx.store?.name,
+        // Phase 1.5: Include FK fields in line item response
         line_items: tx.line_items?.map(
           (li: any): TransactionLineItemResponse => ({
             line_item_id: li.line_item_id,
@@ -447,15 +466,23 @@ export const transactionService = {
             quantity: li.quantity,
             unit_price: Number(li.unit_price),
             discount: Number(li.discount),
+            tax_amount: Number(li.tax_amount || 0),
             line_total: Number(li.line_total),
+            department_id: li.department_id,
+            department_code: li.department_code,
+            department_name: li.department?.display_name,
           }),
         ),
+        // Phase 1.5: Include FK fields in payment response
         payments: tx.payments?.map(
           (p: any): TransactionPaymentResponse => ({
             payment_id: p.payment_id,
             method: p.method,
             amount: Number(p.amount),
             reference: p.reference,
+            tender_type_id: p.tender_type_id,
+            tender_code: p.tender_code,
+            tender_name: p.tender_type?.display_name,
           }),
         ),
       }),

@@ -32,9 +32,24 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
-import { closeLotteryDay, type DayBin } from "@/lib/api/lottery";
+import { useNotificationSound } from "@/hooks/use-notification-sound";
+import { Loader2, Volume2, VolumeX } from "lucide-react";
+import {
+  closeLotteryDay,
+  type DayBin,
+  type CloseLotteryDayResponse,
+} from "@/lib/api/lottery";
 import { parseSerializedNumber } from "@/lib/utils/lottery-serial-parser";
+
+/**
+ * Lottery close result data passed to parent on success
+ */
+export interface LotteryCloseResult {
+  closings_created: number;
+  business_day: string;
+  lottery_total: number;
+  bins_closed: CloseLotteryDayResponse["bins_closed"];
+}
 
 /**
  * Props interface
@@ -44,7 +59,10 @@ interface CloseDayModalProps {
   bins: DayBin[]; // From useLotteryDayBins hook
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Simple success callback (legacy) */
   onSuccess?: () => void;
+  /** Enhanced success callback with lottery data for Day Close page integration */
+  onSuccessWithData?: (data: LotteryCloseResult) => void;
 }
 
 /**
@@ -69,8 +87,11 @@ export function CloseDayModal({
   open,
   onOpenChange,
   onSuccess,
+  onSuccessWithData,
 }: CloseDayModalProps) {
   const { toast } = useToast();
+  const { playSuccess, playError, isMuted, toggleMute } =
+    useNotificationSound();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [scannedBins, setScannedBins] = useState<ScannedBin[]>([]);
   const [inputValue, setInputValue] = useState<string>("");
@@ -161,6 +182,7 @@ export function CloseDayModal({
         );
 
         if (!matchingBin || !matchingBin.pack) {
+          playError();
           toast({
             title: "Pack not found",
             description: `No active pack found matching serial ${serial}. Pack: ${packNumber}`,
@@ -175,6 +197,7 @@ export function CloseDayModal({
           (scanned) => scanned.bin_id === matchingBin.bin_id,
         );
         if (alreadyScanned) {
+          playError();
           toast({
             title: "Duplicate scan",
             description: `Bin ${matchingBin.bin_number} has already been scanned`,
@@ -193,6 +216,7 @@ export function CloseDayModal({
         const serialEndNum = parseInt(matchingBin.pack.serial_end, 10);
 
         if (closingSerialNum < startingSerialNum) {
+          playError();
           toast({
             title: "Invalid ending serial",
             description: `Ending serial ${closingSerial} is less than starting serial ${matchingBin.pack.starting_serial}`,
@@ -203,6 +227,7 @@ export function CloseDayModal({
         }
 
         if (closingSerialNum > serialEndNum) {
+          playError();
           toast({
             title: "Invalid ending serial",
             description: `Ending serial ${closingSerial} exceeds pack's maximum serial ${matchingBin.pack.serial_end}`,
@@ -228,6 +253,7 @@ export function CloseDayModal({
         clearInputAndFocus();
 
         // Success feedback
+        playSuccess();
         toast({
           title: "Bin scanned",
           description: `Bin ${matchingBin.bin_number} - ${matchingBin.pack.game_name} (${closingSerial})`,
@@ -235,6 +261,7 @@ export function CloseDayModal({
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Invalid serial format";
+        playError();
         toast({
           title: "Invalid serial",
           description: errorMessage,
@@ -243,7 +270,14 @@ export function CloseDayModal({
         clearInputAndFocus();
       }
     },
-    [activeBins, scannedBins, toast, clearInputAndFocus],
+    [
+      activeBins,
+      scannedBins,
+      toast,
+      clearInputAndFocus,
+      playSuccess,
+      playError,
+    ],
   );
 
   /**
@@ -304,6 +338,7 @@ export function CloseDayModal({
       });
 
       if (response.success && response.data) {
+        playSuccess();
         toast({
           title: "Day closed successfully",
           description: `Closed ${response.data.closings_created} pack(s) for business day ${response.data.business_day}`,
@@ -313,13 +348,24 @@ export function CloseDayModal({
         setScannedBins([]);
         setInputValue("");
         onOpenChange(false);
+
+        // Call legacy callback
         onSuccess?.();
+
+        // Call enhanced callback with lottery data
+        onSuccessWithData?.({
+          closings_created: response.data.closings_created,
+          business_day: response.data.business_day,
+          lottery_total: response.data.lottery_total,
+          bins_closed: response.data.bins_closed,
+        });
       } else {
         throw new Error("Failed to close lottery day");
       }
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Failed to close lottery day";
+      playError();
       toast({
         title: "Error",
         description: errorMessage,
@@ -328,7 +374,17 @@ export function CloseDayModal({
     } finally {
       setIsSubmitting(false);
     }
-  }, [allBinsScanned, scannedBins, storeId, toast, onOpenChange, onSuccess]);
+  }, [
+    allBinsScanned,
+    scannedBins,
+    storeId,
+    toast,
+    onOpenChange,
+    onSuccess,
+    onSuccessWithData,
+    playSuccess,
+    playError,
+  ]);
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!isSubmitting) {
@@ -343,7 +399,25 @@ export function CloseDayModal({
         data-testid="close-day-modal"
       >
         <DialogHeader>
-          <DialogTitle>Close Lottery Day</DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle>Close Lottery Day</DialogTitle>
+            <button
+              type="button"
+              onClick={toggleMute}
+              className="p-1.5 rounded-md hover:bg-muted transition-colors"
+              title={isMuted ? "Enable scan sounds" : "Disable scan sounds"}
+              aria-label={
+                isMuted ? "Enable scan sounds" : "Disable scan sounds"
+              }
+              data-testid="sound-toggle"
+            >
+              {isMuted ? (
+                <VolumeX className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <Volume2 className="h-4 w-4 text-green-600" />
+              )}
+            </button>
+          </div>
         </DialogHeader>
 
         <div className="space-y-4">

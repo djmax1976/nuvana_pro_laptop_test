@@ -749,8 +749,11 @@ export async function shiftRoutes(fastify: FastifyInstance) {
 
   /**
    * POST /api/shifts/:shiftId/close
-   * Initiate shift closing
+   * Close a shift directly with closing cash (simplified single-step flow)
+   * Goes directly from OPEN/ACTIVE → CLOSED
    * Protected route - requires SHIFT_CLOSE permission
+   *
+   * Story: Simplified Shift Closing
    */
   fastify.post(
     "/api/shifts/:shiftId/close",
@@ -760,7 +763,8 @@ export async function shiftRoutes(fastify: FastifyInstance) {
         permissionMiddleware(PERMISSIONS.SHIFT_CLOSE),
       ],
       schema: {
-        description: "Initiate shift closing",
+        description:
+          "Close a shift directly with closing cash amount (simplified single-step flow)",
         tags: ["shifts"],
         params: {
           type: "object",
@@ -773,6 +777,17 @@ export async function shiftRoutes(fastify: FastifyInstance) {
             },
           },
         },
+        body: {
+          type: "object",
+          required: ["closing_cash"],
+          properties: {
+            closing_cash: {
+              type: "number",
+              minimum: 0,
+              description: "Actual cash in drawer (non-negative)",
+            },
+          },
+        },
         response: {
           200: {
             type: "object",
@@ -782,13 +797,10 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                 type: "object",
                 properties: {
                   shift_id: { type: "string", format: "uuid" },
-                  status: { type: "string", enum: ["CLOSING"] },
-                  closing_initiated_at: { type: "string", format: "date-time" },
-                  closing_initiated_by: { type: "string", format: "uuid" },
-                  expected_cash: { type: "number" },
-                  opening_cash: { type: "number" },
-                  cash_transactions_total: { type: "number" },
-                  calculated_at: { type: "string", format: "date-time" },
+                  status: { type: "string", enum: ["CLOSED"] },
+                  closing_cash: { type: "number" },
+                  closed_at: { type: "string", format: "date-time" },
+                  closed_by: { type: "string", format: "uuid" },
                 },
               },
             },
@@ -854,16 +866,30 @@ export async function shiftRoutes(fastify: FastifyInstance) {
       try {
         const user = (request as any).user as UserIdentity;
         const params = request.params as { shiftId: string };
+        const body = request.body as { closing_cash: number };
 
         // shiftId is already validated by Fastify schema (UUID format)
         const shiftId = params.shiftId;
+        const closingCash = body.closing_cash;
+
+        // Validate closing_cash
+        if (typeof closingCash !== "number" || closingCash < 0) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "closing_cash must be a non-negative number",
+            },
+          });
+        }
 
         // Get audit context
         const auditContext = getAuditContext(request, user);
 
-        // Initiate shift closing using service layer
-        const result = await shiftService.initiateClosing(
+        // Close shift directly using simplified service method
+        const result = await shiftService.closeShiftDirect(
           shiftId,
+          closingCash,
           auditContext,
         );
 
@@ -873,12 +899,9 @@ export async function shiftRoutes(fastify: FastifyInstance) {
           data: {
             shift_id: result.shift_id,
             status: result.status,
-            closing_initiated_at: result.closing_initiated_at.toISOString(),
-            closing_initiated_by: result.closing_initiated_by,
-            expected_cash: result.expected_cash,
-            opening_cash: result.opening_cash,
-            cash_transactions_total: result.cash_transactions_total,
-            calculated_at: result.calculated_at.toISOString(),
+            closing_cash: result.closing_cash,
+            closed_at: result.closed_at.toISOString(),
+            closed_by: result.closed_by,
           },
         });
       } catch (error) {
@@ -902,10 +925,7 @@ export async function shiftRoutes(fastify: FastifyInstance) {
           let statusCode = 400;
           if (error.code === ShiftErrorCode.SHIFT_NOT_FOUND) {
             statusCode = 404;
-          } else if (
-            error.code === ShiftErrorCode.SHIFT_ALREADY_CLOSING ||
-            error.code === ShiftErrorCode.SHIFT_ALREADY_CLOSED
-          ) {
+          } else if (error.code === ShiftErrorCode.SHIFT_ALREADY_CLOSED) {
             statusCode = 409;
           }
 
@@ -1303,6 +1323,159 @@ export async function shiftRoutes(fastify: FastifyInstance) {
 
         // Handle unexpected errors
         fastify.log.error({ error }, "Unexpected error in cash reconciliation");
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "An unexpected error occurred",
+          },
+        });
+      }
+    },
+  );
+
+  /**
+   * GET /api/shifts/:shiftId/summary
+   * Get shift summary with payment methods and sales totals
+   * Works for CLOSED shifts - returns aggregated data without full transaction details
+   * Protected route - requires SHIFT_READ permission
+   *
+   * Story: Client Owner Dashboard - Shift Detail View
+   */
+  fastify.get(
+    "/api/shifts/:shiftId/summary",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.SHIFT_READ),
+      ],
+      schema: {
+        description:
+          "Get shift summary with payment methods and sales totals for closed shifts",
+        tags: ["shifts"],
+        params: {
+          type: "object",
+          required: ["shiftId"],
+          properties: {
+            shiftId: {
+              type: "string",
+              format: "uuid",
+              description: "Shift UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  shift_id: { type: "string" },
+                  total_sales: { type: "number" },
+                  transaction_count: { type: "number" },
+                  payment_methods: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        method: { type: "string" },
+                        total: { type: "number" },
+                        count: { type: "number" },
+                      },
+                    },
+                  },
+                  // Phase 2.7: Enhanced fields from ShiftSummary table (optional for backward compatibility)
+                  gross_sales: { type: "number" },
+                  returns_total: { type: "number" },
+                  discounts_total: { type: "number" },
+                  net_sales: { type: "number" },
+                  tax_collected: { type: "number" },
+                  avg_transaction: { type: "number" },
+                  items_sold_count: { type: "number" },
+                  from_summary_table: { type: "boolean" },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as any).user as UserIdentity;
+        const params = request.params as { shiftId: string };
+
+        // Validate shiftId using Zod schema
+        const shiftId = validateShiftId(params.shiftId);
+
+        // Get shift summary using service layer
+        const summary = await shiftService.getShiftSummary(shiftId, user.id);
+
+        // Return success response with summary data
+        return reply.code(200).send({
+          success: true,
+          data: summary,
+        });
+      } catch (error) {
+        // Handle Zod validation errors
+        if (error instanceof ZodError) {
+          return reply.code(400).send({
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid shift ID format",
+            },
+          });
+        }
+
+        // Handle ShiftServiceError
+        if (error instanceof ShiftServiceError) {
+          let statusCode = 500;
+          if (error.code === ShiftErrorCode.SHIFT_NOT_FOUND) {
+            statusCode = 404;
+          } else if (error.code === ShiftErrorCode.SHIFT_NOT_CLOSED) {
+            statusCode = 400;
+          }
+
+          return reply.code(statusCode).send({
+            success: false,
+            error: {
+              code: error.code,
+              message: error.message,
+            },
+          });
+        }
+
+        // Handle unexpected errors
+        fastify.log.error({ error }, "Unexpected error in shift summary");
         return reply.code(500).send({
           success: false,
           error: {

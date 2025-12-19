@@ -14,6 +14,7 @@ let transactionsChannel: Channel | null = null;
  */
 export const QUEUES = {
   TRANSACTIONS_PROCESSING: "transactions.processing",
+  POS_SYNC: "pos.sync",
 } as const;
 
 /**
