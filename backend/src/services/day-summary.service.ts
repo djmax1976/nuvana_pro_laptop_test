@@ -27,7 +27,7 @@ import {
   format,
   getWeek,
 } from "date-fns";
-import { cacheService, CACHE_TTL, CacheKeys } from "./cache.service";
+import { cacheService } from "./cache.service";
 import {
   DaySummaryWithDetails,
   DaySummaryResponse,

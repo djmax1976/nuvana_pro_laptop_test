@@ -17,7 +17,7 @@
 import { Prisma, ShiftStatus } from "@prisma/client";
 import { prisma } from "../utils/db";
 import { startOfHour, differenceInMinutes } from "date-fns";
-import { cacheService, CACHE_TTL, CacheKeys } from "./cache.service";
+import { cacheService } from "./cache.service";
 import {
   ShiftSummaryWithDetails,
   ShiftSummaryResponse,
