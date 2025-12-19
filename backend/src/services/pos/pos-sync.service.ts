@@ -1019,7 +1019,9 @@ export class POSSyncService {
     const key = this.getEncryptionKey();
     const iv = Buffer.from(encrypted.iv, "base64");
     const authTag = Buffer.from(encrypted.authTag, "base64");
-    const decipher = crypto.createDecipheriv(this.algorithm, key, iv);
+    const decipher = crypto.createDecipheriv(this.algorithm, key, iv, {
+      authTagLength: 16,
+    });
     decipher.setAuthTag(authTag);
 
     let decrypted = decipher.update(encrypted.encryptedData, "base64", "utf8");
