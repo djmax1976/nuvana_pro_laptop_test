@@ -549,6 +549,10 @@ test.describe("Store Creation with Login and Terminals", () => {
     expect(terminal).toBeDefined();
     expect(terminal?.connection_type).toBe("API");
     expect(terminal?.vendor_type).toBe("SQUARE");
+    expect(terminal?.connection_config).toMatchObject({
+      baseUrl: "https://api.square.com",
+      apiKey: "test-api-key",
+    });
   });
 
   /**
@@ -871,6 +875,12 @@ test.describe("Store Creation with Login and Terminals", () => {
     expect(body.success).toBe(false);
     expect(body.error).toBeDefined();
     expect(body.error.message).toContain("device_id");
+
+    // AND: Store should not have been created (atomic rollback)
+    const store = await prismaClient.store.findFirst({
+      where: { name: "Test Duplicate Device Store" },
+    });
+    expect(store).toBeNull();
   });
 
   /**

@@ -11,7 +11,15 @@ import type { POSAdapter } from "../../types/pos-integration.types";
 import type { POSSystemType } from "@prisma/client";
 
 import { GilbarcoPassportAdapter } from "./adapters/gilbarco-passport.adapter";
+import { GilbarcoNAXMLAdapter } from "./adapters/gilbarco-naxml.adapter";
 import { ManualEntryAdapter } from "./adapters/manual-entry.adapter";
+import { CloverAdapter } from "./adapters/clover.adapter";
+import { SquareAdapter } from "./adapters/square.adapter";
+import { ToastAdapter } from "./adapters/toast.adapter";
+import { GenericXMLAdapter } from "./adapters/generic-xml.adapter";
+import { GenericRESTAdapter } from "./adapters/generic-rest.adapter";
+import { VerifoneCommanderAdapter } from "./adapters/verifone-commander.adapter";
+import { VerifoneRuby2Adapter } from "./adapters/verifone-ruby2.adapter";
 
 /**
  * Singleton registry for POS adapters
@@ -30,15 +38,23 @@ class POSAdapterRegistry {
   private registerDefaultAdapters(): void {
     // Gilbarco adapters
     this.register(new GilbarcoPassportAdapter());
+    this.register(new GilbarcoNAXMLAdapter()); // File-based NAXML exchange
 
     // Manual entry (no POS)
     this.register(new ManualEntryAdapter());
 
-    // TODO: Add more adapters as they're implemented
-    // this.register(new GilbarcoCommanderAdapter());
-    // this.register(new VerifoneRuby2Adapter());
-    // this.register(new CloverAdapter());
-    // this.register(new SquareAdapter());
+    // REST API adapters (Phase 4)
+    this.register(new CloverAdapter());
+    this.register(new SquareAdapter());
+    this.register(new ToastAdapter());
+
+    // Generic adapters (Phase 5)
+    this.register(new GenericXMLAdapter());
+    this.register(new GenericRESTAdapter());
+
+    // Verifone adapters (Phase 3)
+    this.register(new VerifoneCommanderAdapter());
+    this.register(new VerifoneRuby2Adapter());
   }
 
   /**

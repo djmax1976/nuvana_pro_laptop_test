@@ -116,6 +116,8 @@ export class CashierService {
 
   /**
    * Generate next sequential employee_id for a store
+   * Only considers active cashiers (disabled_at IS NULL) to ensure sequential IDs
+   * based on active cashiers, not soft-deleted ones
    * @param storeId - Store UUID
    * @param prismaClient - Prisma client (for transaction support)
    * @returns Next employee_id (4-digit zero-padded)
@@ -124,9 +126,13 @@ export class CashierService {
     storeId: string,
     prismaClient: PrismaClient | Prisma.TransactionClient = prisma,
   ): Promise<string> {
-    // Query max employee_id for this store
+    // Query max employee_id for this store, ignoring soft-deleted cashiers
+    // This ensures employee IDs are sequential based on active cashiers only
     const maxCashier = await prismaClient.cashier.findFirst({
-      where: { store_id: storeId },
+      where: {
+        store_id: storeId,
+        disabled_at: null, // Only active (non-soft-deleted) cashiers
+      },
       orderBy: { employee_id: "desc" },
       select: { employee_id: true },
     });
@@ -512,11 +518,13 @@ export class CashierService {
     data: UpdateCashierInput,
     auditContext: AuditContext,
   ): Promise<CashierResponse> {
-    // Verify cashier exists and belongs to store
+    // Verify cashier exists, belongs to store, and is active (not soft-deleted)
+    // This ensures consistency with getCashierById which filters out soft-deleted cashiers
     const existing = await prisma.cashier.findFirst({
       where: {
         cashier_id: cashierId,
         store_id: storeId,
+        disabled_at: null, // Only allow updating active cashiers
       },
     });
 

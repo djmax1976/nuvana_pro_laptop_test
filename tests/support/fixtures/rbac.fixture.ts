@@ -1,7 +1,8 @@
 import { config } from "dotenv";
-// Load environment variables from .env.local FIRST before any other processing
-// Use override: true to ensure test config takes precedence over system env vars
-config({ path: ".env.local", override: true });
+// Load environment variables from .env.local as defaults
+// IMPORTANT: Do NOT use override: true - the test script's DATABASE_URL
+// (e.g., nuvana_test) must take precedence over .env.local's DATABASE_URL
+config({ path: ".env.local" });
 
 import { test as base, APIRequestContext } from "@playwright/test";
 
@@ -1505,20 +1506,22 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
-        // Check if data is FormData - if so, use multipart and don't set Content-Type
-        const isFormData = data instanceof FormData;
+        // Check if data is multipart object (for file uploads)
+        // Playwright multipart expects: { fieldName: { name: string, mimeType: string, buffer: Buffer } }
+        const isMultipart =
+          data && typeof data === "object" && "multipart" in data;
         const headers: Record<string, string> = {
           Cookie: `access_token=${superadminUser.token}`,
         };
-        // Only set Content-Type for non-FormData requests
-        if (!isFormData) {
+        // Only set Content-Type for non-multipart requests
+        if (!isMultipart) {
           headers["Content-Type"] = "application/json";
         }
-        // Merge with provided headers (but filter out Content-Type for FormData)
+        // Merge with provided headers (but filter out Content-Type for multipart)
         if (options?.headers) {
           Object.entries(options.headers).forEach(([key, value]) => {
-            // For FormData, skip Content-Type header to let Playwright set it with boundary
-            if (isFormData && key.toLowerCase() === "content-type") {
+            // For multipart, skip Content-Type header to let Playwright set it with boundary
+            if (isMultipart && key.toLowerCase() === "content-type") {
               return;
             }
             // eslint-disable-next-line security/detect-object-injection -- Safe: key comes from Object.entries on options.headers
@@ -1526,8 +1529,8 @@ export const test = base.extend<RBACFixture>({
           });
         }
         return request.post(`${backendUrl}${path}`, {
-          data: isFormData ? undefined : data,
-          multipart: isFormData ? data : undefined,
+          data: isMultipart ? undefined : data,
+          multipart: isMultipart ? (data as any).multipart : undefined,
           headers,
         });
       },
@@ -1923,6 +1926,14 @@ export const test = base.extend<RBACFixture>({
       "POS_CONNECTION_MANAGE",
       "POS_SYNC_TRIGGER",
       "POS_SYNC_LOG_READ",
+      // POS Audit (Phase 0)
+      "POS_AUDIT_READ",
+      // NAXML File Management (Phase 1)
+      "NAXML_FILE_READ",
+      "NAXML_FILE_IMPORT",
+      "NAXML_FILE_EXPORT",
+      "NAXML_WATCHER_READ",
+      "NAXML_WATCHER_MANAGE",
     ];
 
     // Pre-populate the Redis cache with user roles

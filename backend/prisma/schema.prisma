@@ -59,6 +59,10 @@ model User {
   tax_rates_created           TaxRate[]               @relation("TaxRateCreatedBy")
   pos_integrations_created    POSIntegration[]        @relation("POSIntegrationCreatedBy")
   pos_sync_logs_triggered     POSSyncLog[]            @relation("POSSyncLogTriggeredBy")
+  // POS Audit relations (Phase 0)
+  pos_audits_accessed         POSDataExchangeAudit[]  @relation("POSAuditAccessedBy")
+  // NAXML Scheduled Export relations (Phase 2)
+  scheduled_exports_created   NAXMLScheduledExport[]  @relation("ScheduledExportCreatedBy")
   // Shift Summary relations (Phase 2.1)
   shift_summaries_opened      ShiftSummary[]          @relation("ShiftSummaryOpenedBy")
   shift_summaries_closed      ShiftSummary[]          @relation("ShiftSummaryClosedBy")
@@ -93,6 +97,8 @@ model Company {
   tender_types  TenderType[]         @relation("TenderTypeClient")
   departments   Department[]         @relation("DepartmentClient")
   tax_rates     TaxRate[]            @relation("TaxRateClient")
+  // POS Audit relations (Phase 0)
+  pos_audits    POSDataExchangeAudit[]
 
   @@index([owner_user_id])
   @@index([status])
@@ -136,6 +142,14 @@ model Store {
   // X/Z Report relations (Phase 4)
   x_reports             XReport[]
   z_reports             ZReport[]
+  // POS Audit relations (Phase 0)
+  pos_audits            POSDataExchangeAudit[]
+  // NAXML Infrastructure relations (Phase 1)
+  naxml_file_logs       NAXMLFileLog[]
+  file_watcher_config   POSFileWatcherConfig?
+  // NAXML Scheduled Export relations (Phase 2)
+  scheduled_exports     NAXMLScheduledExport[]
+  scheduled_export_logs NAXMLScheduledExportLog[]
 
   @@index([company_id])
   @@index([status])
@@ -370,6 +384,7 @@ enum POSVendorType {
 /// POS System Types - Different POS vendors and their protocols
 enum POSSystemType {
   GILBARCO_PASSPORT // Gilbarco Passport POS (XML protocol)
+  GILBARCO_NAXML // Gilbarco Passport NAXML file-based exchange (XMLGateway)
   GILBARCO_COMMANDER // Gilbarco Commander (older XML)
   VERIFONE_RUBY2 // Verifone Ruby2
   VERIFONE_COMMANDER // Verifone Commander
@@ -415,6 +430,49 @@ enum POSSyncTrigger {
   RECONNECT // After connection restored
   WEBHOOK // POS-initiated webhook
   ENTITY_CHANGE // Triggered by entity change in POS
+}
+
+// ============================================================================
+// POS DATA EXCHANGE AUDIT ENUMS (Phase 0: Mandatory Audit Infrastructure)
+// ============================================================================
+
+enum POSExchangeType {
+  FILE_IMPORT // File imported from POS
+  FILE_EXPORT // File exported to POS
+  API_REQUEST // API request to POS
+  API_RESPONSE // API response from POS
+  WEBHOOK // Webhook from POS
+  SYNC_OPERATION // General sync operation
+}
+
+enum POSDataCategory {
+  TRANSACTION // Transaction data
+  PRICEBOOK // Price book/items
+  DEPARTMENT // Department/category data
+  TENDER_TYPE // Payment methods
+  TAX_RATE // Tax rates
+  EMPLOYEE // Employee data
+  CASHIER // Cashier data
+  INVENTORY // Inventory data
+  FINANCIAL // Financial/settlement data
+  PII // Personal identifiable information
+  SYSTEM_CONFIG // System configuration
+}
+
+enum POSAuditStatus {
+  PENDING // Audit record created, processing not started
+  PROCESSING // Currently processing
+  SUCCESS // Processing completed successfully
+  PARTIAL // Partially successful
+  FAILED // Processing failed
+  REJECTED // Rejected by validation
+}
+
+enum POSRetentionPolicy {
+  STANDARD // 7 years (default for financial records)
+  EXTENDED // 10 years
+  PERMANENT // Never expires
+  PII_RESTRICTED // 2 years or upon request
 }
 
 enum POSTerminalStatus {
@@ -1310,16 +1368,30 @@ model POSIntegration {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
   created_by String?  @db.Uuid // User who created this integration
 
+  // === NAXML-SPECIFIC FIELDS (Phase 1) ===
+  naxml_version             String?  @db.VarChar(10) @default("3.4")
+  xml_gateway_path          String?  @db.VarChar(500)
+  generate_acknowledgments  Boolean  @default(true)
+  connection_mode           String   @default("API") @db.VarChar(20) // 'API', 'FILE_EXCHANGE', 'HYBRID'
+
   // === RELATIONS ===
   store           Store        @relation("StorePOSIntegration", fields: [store_id], references: [store_id], onDelete: Cascade)
   created_by_user User?        @relation("POSIntegrationCreatedBy", fields: [created_by], references: [user_id], onDelete: SetNull)
   sync_logs       POSSyncLog[]
+  // POS Audit relations (Phase 0)
+  audit_records   POSDataExchangeAudit[]
+  // NAXML Infrastructure relations (Phase 1)
+  naxml_file_logs       NAXMLFileLog[]
+  file_watcher_configs  POSFileWatcherConfig[]
+  // NAXML Scheduled Export relations (Phase 2)
+  scheduled_exports     NAXMLScheduledExport[]
 
   // === INDEXES ===
   @@index([store_id])
   @@index([pos_type])
   @@index([is_active, next_sync_at])
   @@index([last_sync_status])
+  @@index([connection_mode])
   @@map("pos_integrations")
 }
 
@@ -1367,6 +1439,351 @@ model POSSyncLog {
   @@index([started_at])
   @@index([trigger_type])
   @@map("pos_sync_logs")
+}
+
+// ============================================================================
+// POS DATA EXCHANGE AUDIT - Regulatory Compliance (Phase 0: MANDATORY)
+// ============================================================================
+// CRITICAL: All POS data exchanges MUST create a record in this table.
+// This table provides complete audit trail for regulatory compliance.
+// DO NOT SKIP: Any adapter that processes data without updating this table
+// is in violation of data privacy requirements.
+// ============================================================================
+
+model POSDataExchangeAudit {
+  audit_id String @id @default(uuid()) @db.Uuid
+
+  // === FOREIGN KEYS FOR CONTEXT ===
+  store_id           String @db.Uuid
+  pos_integration_id String @db.Uuid
+  company_id         String @db.Uuid
+
+  // === EXCHANGE IDENTIFICATION ===
+  exchange_id   String          @db.VarChar(100) // Unique ID for this exchange (can group related records)
+  exchange_type POSExchangeType
+
+  // === DATA FLOW DIRECTION AND CLASSIFICATION ===
+  direction          String          @db.VarChar(10) // 'INBOUND' or 'OUTBOUND'
+  data_category      POSDataCategory
+  contains_pii       Boolean         @default(false) // Personal Identifiable Information flag
+  contains_financial Boolean         @default(false) // Financial data flag
+
+  // === SOURCE AND DESTINATION TRACKING ===
+  source_system          String  @db.VarChar(100)
+  source_identifier      String? @db.VarChar(255) // File path, API endpoint, webhook URL
+  destination_system     String  @db.VarChar(100)
+  destination_identifier String? @db.VarChar(255)
+
+  // === DATA METRICS ===
+  record_count    Int? // Number of records in the exchange
+  data_size_bytes BigInt? // Size of the data payload
+  file_hash       String? @db.VarChar(128) // SHA-256 or SHA-512 hash for integrity
+
+  // === PROCESSING STATUS ===
+  status        POSAuditStatus @default(PENDING)
+  error_code    String?        @db.VarChar(50)
+  error_message String?        @db.Text
+
+  // === DATA RETENTION AND COMPLIANCE ===
+  retention_policy     POSRetentionPolicy @default(STANDARD)
+  retention_expires_at DateTime?          @db.Timestamptz(6) // When this record can be purged
+  jurisdiction         String?            @default("US") @db.VarChar(50) // Regulatory jurisdiction
+
+  // === CONSENT AND ACCESS TRACKING ===
+  data_subject_consent  Boolean? // For PII: was consent obtained?
+  accessed_by_user_id   String?  @db.Uuid // Who initiated this exchange
+  access_reason         String?  @db.VarChar(255) // Why was this data accessed/exchanged
+
+  // === TIMESTAMPS ===
+  initiated_at DateTime  @default(now()) @db.Timestamptz(6)
+  completed_at DateTime? @db.Timestamptz(6)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+
+  // === METADATA FOR EXTENSIBILITY ===
+  metadata Json? @default("{}") @db.JsonB
+
+  // === RELATIONS ===
+  store           Store          @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  pos_integration POSIntegration @relation(fields: [pos_integration_id], references: [pos_integration_id], onDelete: Cascade)
+  company         Company        @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  accessed_by     User?          @relation("POSAuditAccessedBy", fields: [accessed_by_user_id], references: [user_id], onDelete: SetNull)
+
+  // === INDEXES ===
+  @@index([store_id, initiated_at])
+  @@index([company_id, initiated_at])
+  @@index([exchange_id])
+  @@index([pos_integration_id, initiated_at])
+  @@index([status])
+  @@index([data_category, initiated_at])
+  @@index([contains_pii])
+  @@index([retention_expires_at])
+  @@index([jurisdiction])
+  @@map("pos_data_exchange_audit")
+}
+
+// ============================================================================
+// NAXML INFRASTRUCTURE (Phase 1: NAXML Core Infrastructure)
+// ============================================================================
+// Tables for NAXML file processing and file watcher configuration
+// ============================================================================
+
+/// NAXML File Status enum
+enum NAXMLFileStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  PARTIAL
+  FAILED
+  SKIPPED
+}
+
+/// NAXML File Direction enum
+enum NAXMLFileDirection {
+  IMPORT
+  EXPORT
+}
+
+/// NAXML Document Type enum
+enum NAXMLDocumentType {
+  PriceBookMaintenance
+  TransactionDocument
+  InventoryMovement
+  EmployeeMaintenance
+  TenderMaintenance
+  DepartmentMaintenance
+  TaxRateMaintenance
+  Acknowledgment
+}
+
+/// NAXML File Log - Tracks all NAXML files processed by the system
+/// Used for auditing, duplicate detection, and processing history.
+model NAXMLFileLog {
+  file_log_id String @id @default(uuid()) @db.Uuid
+
+  // === FOREIGN KEYS ===
+  store_id           String @db.Uuid
+  pos_integration_id String @db.Uuid
+
+  // === FILE INFORMATION ===
+  file_name   String             @db.VarChar(255)
+  file_type   NAXMLDocumentType
+  direction   NAXMLFileDirection
+  status      NAXMLFileStatus    @default(PENDING)
+
+  // === PROCESSING METRICS ===
+  record_count        Int?
+  file_size_bytes     BigInt
+  processing_time_ms  Int?
+
+  // === ERROR TRACKING ===
+  error_code    String? @db.VarChar(50)
+  error_message String? @db.Text
+
+  // === DUPLICATE DETECTION ===
+  file_hash String @db.VarChar(64) // SHA-256 hash
+
+  // === FILE PATHS ===
+  source_path    String? @db.VarChar(500)
+  processed_path String? @db.VarChar(500)
+
+  // === TIMESTAMPS ===
+  processed_at DateTime? @db.Timestamptz(6)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+
+  // === METADATA FOR EXTENSIBILITY ===
+  metadata Json? @default("{}") @db.JsonB
+
+  // === RELATIONS ===
+  store           Store          @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  pos_integration POSIntegration @relation(fields: [pos_integration_id], references: [pos_integration_id], onDelete: Cascade)
+
+  // === INDEXES ===
+  @@unique([store_id, file_hash])
+  @@index([store_id, created_at])
+  @@index([pos_integration_id, created_at])
+  @@index([status])
+  @@index([file_hash])
+  @@index([file_type, created_at])
+  @@map("naxml_file_log")
+}
+
+/// POS File Watcher Config - Configuration for file watchers
+/// Each store can have one active file watcher configuration.
+model POSFileWatcherConfig {
+  config_id String @id @default(uuid()) @db.Uuid
+
+  // === FOREIGN KEYS ===
+  store_id           String @unique @db.Uuid // One watcher per store
+  pos_integration_id String @db.Uuid
+
+  // === PATH CONFIGURATION ===
+  watch_path     String  @db.VarChar(500)
+  processed_path String? @db.VarChar(500)
+  error_path     String? @db.VarChar(500)
+
+  // === FILE PATTERNS ===
+  file_patterns Json @default("[\"*.xml\", \"TLog*.xml\", \"Dept*.xml\"]") @db.JsonB
+
+  // === POLLING CONFIGURATION ===
+  poll_interval_seconds Int @default(60)
+
+  // === STATUS ===
+  is_active     Boolean   @default(true)
+  last_poll_at  DateTime? @db.Timestamptz(6)
+  last_error    String?   @db.Text
+  last_error_at DateTime? @db.Timestamptz(6)
+
+  // === STATISTICS ===
+  files_processed          Int       @default(0)
+  files_errored            Int       @default(0)
+  last_file_processed_at   DateTime? @db.Timestamptz(6)
+
+  // === TIMESTAMPS ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  store           Store          @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  pos_integration POSIntegration @relation(fields: [pos_integration_id], references: [pos_integration_id], onDelete: Cascade)
+
+  // === INDEXES ===
+  @@index([is_active])
+  @@index([pos_integration_id])
+  @@map("pos_file_watcher_config")
+}
+
+// ============================================================================
+// NAXML SCHEDULED EXPORT (Phase 2: Gilbarco NAXML Adapter)
+// ============================================================================
+// Configuration for automated NAXML exports on a schedule.
+// Supports cron-style scheduling for departments, tender types, tax rates, etc.
+// ============================================================================
+
+/// Export Type enum for scheduled exports
+enum NAXMLExportType {
+  DEPARTMENTS
+  TENDER_TYPES
+  TAX_RATES
+  PRICE_BOOK
+  FULL_SYNC
+}
+
+/// Scheduled Export Status
+enum ScheduledExportStatus {
+  ACTIVE
+  PAUSED
+  DISABLED
+}
+
+/// NAXML Scheduled Export Configuration
+/// Each store can have multiple scheduled exports for different export types.
+model NAXMLScheduledExport {
+  schedule_id String @id @default(uuid()) @db.Uuid
+
+  // === FOREIGN KEYS ===
+  store_id           String @db.Uuid
+  pos_integration_id String @db.Uuid
+
+  // === EXPORT CONFIGURATION ===
+  export_type      NAXMLExportType // What to export
+  export_name      String          @db.VarChar(255) // Human-friendly name
+  maintenance_type String          @default("Full") @db.VarChar(20) // "Full" or "Incremental"
+
+  // === SCHEDULE CONFIGURATION (Cron-style) ===
+  // Standard cron format: minute hour day_of_month month day_of_week
+  // Examples: "0 2 * * *" (daily at 2 AM), "0 */6 * * *" (every 6 hours)
+  cron_expression String @db.VarChar(50)
+  timezone        String @default("America/New_York") @db.VarChar(50)
+
+  // === OUTPUT CONFIGURATION ===
+  output_path     String? @db.VarChar(500) // Path to write file (if null, uses POS integration default)
+  file_name_pattern String @default("{type}_{date}_{time}.xml") @db.VarChar(255) // Supports: {type}, {date}, {time}, {store_id}
+
+  // === STATUS ===
+  status            ScheduledExportStatus @default(ACTIVE)
+  last_run_at       DateTime?             @db.Timestamptz(6)
+  last_run_status   NAXMLFileStatus?
+  last_run_error    String?               @db.Text
+  next_run_at       DateTime?             @db.Timestamptz(6)
+
+  // === STATISTICS ===
+  total_runs          Int @default(0)
+  successful_runs     Int @default(0)
+  failed_runs         Int @default(0)
+  last_record_count   Int?
+  last_file_size      BigInt?
+
+  // === NOTIFICATIONS ===
+  notify_on_failure Boolean @default(true)
+  notify_on_success Boolean @default(false)
+  notify_emails     Json?   @default("[]") @db.JsonB // Array of email addresses
+
+  // === METADATA ===
+  created_by String?  @db.Uuid
+  metadata   Json?    @default("{}") @db.JsonB
+
+  // === TIMESTAMPS ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  store             Store          @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  pos_integration   POSIntegration @relation(fields: [pos_integration_id], references: [pos_integration_id], onDelete: Cascade)
+  created_by_user   User?          @relation("ScheduledExportCreatedBy", fields: [created_by], references: [user_id], onDelete: SetNull)
+  export_logs       NAXMLScheduledExportLog[]
+
+  // === INDEXES ===
+  @@index([store_id])
+  @@index([pos_integration_id])
+  @@index([status, next_run_at])
+  @@index([export_type])
+  @@map("naxml_scheduled_export")
+}
+
+/// NAXML Scheduled Export Log - History of scheduled export runs
+model NAXMLScheduledExportLog {
+  log_id String @id @default(uuid()) @db.Uuid
+
+  // === FOREIGN KEYS ===
+  schedule_id String @db.Uuid
+  store_id    String @db.Uuid
+
+  // === TIMING ===
+  started_at   DateTime  @db.Timestamptz(6)
+  completed_at DateTime? @db.Timestamptz(6)
+  duration_ms  Int?
+
+  // === STATUS ===
+  status        NAXMLFileStatus
+  error_code    String?         @db.VarChar(50)
+  error_message String?         @db.Text
+
+  // === EXPORT DETAILS ===
+  export_type      NAXMLExportType
+  maintenance_type String          @db.VarChar(20)
+  record_count     Int?
+  file_size_bytes  BigInt?
+  file_hash        String?         @db.VarChar(64)
+  output_path      String?         @db.VarChar(500)
+
+  // === TRIGGER INFO ===
+  trigger_type String @default("SCHEDULED") @db.VarChar(20) // SCHEDULED, MANUAL, API
+
+  // === METADATA ===
+  metadata Json? @default("{}") @db.JsonB
+
+  // === TIMESTAMPS ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  schedule NAXMLScheduledExport @relation(fields: [schedule_id], references: [schedule_id], onDelete: Cascade)
+  store    Store                @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+
+  // === INDEXES ===
+  @@index([schedule_id, started_at])
+  @@index([store_id, started_at])
+  @@index([status])
+  @@map("naxml_scheduled_export_log")
 }
 
 // ============================================================================

@@ -678,6 +678,42 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     expect(body.success).toBe(false);
   });
 
+  test("4.91-API-010a: [P2] GET /api/stores/:storeId/cashiers/:cashierId - should return 404 for soft-deleted cashier (AC #5)", async ({
+    clientUserApiRequest,
+    clientUser,
+  }) => {
+    // GIVEN: I am authenticated and have created then soft-deleted a cashier
+    const cashierData = createCashierRequest({
+      store_id: clientUser.store_id,
+    });
+    const createResponse = await clientUserApiRequest.post(
+      `/api/stores/${clientUser.store_id}/cashiers`,
+      {
+        name: cashierData.name,
+        pin: cashierData.pin,
+        hired_on: cashierData.hired_on,
+      },
+    );
+    const cashierId = (await createResponse.json()).data.cashier_id;
+
+    // Soft delete the cashier
+    await clientUserApiRequest.delete(
+      `/api/stores/${clientUser.store_id}/cashiers/${cashierId}`,
+    );
+
+    // WHEN: Fetching soft-deleted cashier by ID
+    const response = await clientUserApiRequest.get(
+      `/api/stores/${clientUser.store_id}/cashiers/${cashierId}`,
+    );
+
+    // THEN: Request returns 404 Not Found (soft-deleted cashiers are filtered out)
+    expect(response.status()).toBe(404);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("NOT_FOUND");
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   // UPDATE CASHIER TESTS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -714,6 +750,45 @@ test.describe("4.91-API: Cashier Management - CRUD Operations", () => {
     expect(body.success).toBe(true);
     expect(body.data.name).toBe("Updated Name");
     expect(body.data.updated_at).toBeDefined();
+  });
+
+  test("4.91-API-011a: [P1] PUT /api/stores/:storeId/cashiers/:cashierId - should return 404 for soft-deleted cashier (AC #6)", async ({
+    clientUserApiRequest,
+    clientUser,
+  }) => {
+    // GIVEN: I am authenticated and have created then soft-deleted a cashier
+    const cashierData = createCashierRequest({
+      store_id: clientUser.store_id,
+    });
+    const createResponse = await clientUserApiRequest.post(
+      `/api/stores/${clientUser.store_id}/cashiers`,
+      {
+        name: cashierData.name,
+        pin: cashierData.pin,
+        hired_on: cashierData.hired_on,
+      },
+    );
+    const cashierId = (await createResponse.json()).data.cashier_id;
+
+    // Soft delete the cashier
+    await clientUserApiRequest.delete(
+      `/api/stores/${clientUser.store_id}/cashiers/${cashierId}`,
+    );
+
+    // WHEN: Attempting to update soft-deleted cashier
+    const response = await clientUserApiRequest.put(
+      `/api/stores/${clientUser.store_id}/cashiers/${cashierId}`,
+      {
+        name: "Updated Name",
+      },
+    );
+
+    // THEN: Request returns 404 Not Found (soft-deleted cashiers cannot be updated)
+    expect(response.status()).toBe(404);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe("NOT_FOUND");
   });
 
   test("4.91-API-012: [P1] PUT /api/stores/:storeId/cashiers/:cashierId - should update PIN with validation (AC #6)", async ({

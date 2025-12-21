@@ -109,9 +109,9 @@ async function createClosedShiftWithSummary(
         opened_by: openedBy,
         cashier_id: cashierId,
         pos_terminal_id: posTerminalId,
-        opening_cash: new Prisma.Decimal(summaryData.opening_cash || 100),
-        closing_cash: new Prisma.Decimal(summaryData.closing_cash || 200),
-        expected_cash: new Prisma.Decimal(summaryData.expected_cash || 200),
+        opening_cash: new Prisma.Decimal(summaryData.opening_cash ?? 100),
+        closing_cash: new Prisma.Decimal(summaryData.closing_cash ?? 200),
+        expected_cash: new Prisma.Decimal(summaryData.expected_cash ?? 200),
         variance: new Prisma.Decimal(0),
         status: "CLOSED",
         opened_at: openedAt,
@@ -125,11 +125,12 @@ async function createClosedShiftWithSummary(
     (closedAt.getTime() - openedAt.getTime()) / (1000 * 60),
   );
 
-  // Calculate derived values
-  const netSales = summaryData.net_sales || 450;
-  const transactionCount = summaryData.transaction_count || 10;
+  // Calculate derived values (use ?? to allow 0 values)
+  const netSales = summaryData.net_sales ?? 450;
+  const transactionCount = summaryData.transaction_count ?? 10;
   const avgTransaction = transactionCount > 0 ? netSales / transactionCount : 0;
-  const itemsSold = 25;
+  // When transaction_count is 0, items_sold should also be 0
+  const itemsSold = transactionCount > 0 ? 25 : 0;
   const avgItemsPerTxn =
     transactionCount > 0 ? itemsSold / transactionCount : 0;
 
@@ -146,13 +147,13 @@ async function createClosedShiftWithSummary(
       opened_by_user_id: openedBy,
       closed_by_user_id: openedBy,
       cashier_user_id: null,
-      // Sales
-      gross_sales: new Prisma.Decimal(summaryData.gross_sales || 500),
+      // Sales (use ?? to allow 0 values)
+      gross_sales: new Prisma.Decimal(summaryData.gross_sales ?? 500),
       net_sales: new Prisma.Decimal(netSales),
       returns_total: new Prisma.Decimal(0),
-      discounts_total: new Prisma.Decimal(50),
-      // Tax
-      tax_collected: new Prisma.Decimal(summaryData.tax_collected || 40),
+      discounts_total: new Prisma.Decimal(transactionCount > 0 ? 50 : 0),
+      // Tax (use ?? to allow 0 values)
+      tax_collected: new Prisma.Decimal(summaryData.tax_collected ?? 40),
       tax_exempt_sales: new Prisma.Decimal(0),
       taxable_sales: new Prisma.Decimal(netSales),
       // Transaction counts
@@ -166,10 +167,10 @@ async function createClosedShiftWithSummary(
       // Averages
       avg_transaction: new Prisma.Decimal(avgTransaction.toFixed(2)),
       avg_items_per_txn: new Prisma.Decimal(avgItemsPerTxn.toFixed(2)),
-      // Cash drawer
-      opening_cash: new Prisma.Decimal(summaryData.opening_cash || 100),
-      closing_cash: new Prisma.Decimal(summaryData.closing_cash || 200),
-      expected_cash: new Prisma.Decimal(summaryData.expected_cash || 200),
+      // Cash drawer (use ?? to allow 0 values)
+      opening_cash: new Prisma.Decimal(summaryData.opening_cash ?? 100),
+      closing_cash: new Prisma.Decimal(summaryData.closing_cash ?? 200),
+      expected_cash: new Prisma.Decimal(summaryData.expected_cash ?? 200),
       cash_variance: new Prisma.Decimal(0),
       variance_percentage: new Prisma.Decimal(0),
       variance_approved: false,
@@ -297,6 +298,7 @@ test.describe("DAY-SUMMARY-SERVICE: Aggregation Logic", () => {
       // WHEN: Requesting the day summary (which triggers aggregation)
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/refresh`,
+        {}, // Empty body required for POST
       );
 
       // THEN: Should aggregate values correctly
@@ -377,6 +379,7 @@ test.describe("DAY-SUMMARY-SERVICE: Aggregation Logic", () => {
       // WHEN: Refreshing the day summary
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/refresh`,
+        {}, // Empty body required for POST
       );
 
       // THEN: Should calculate avg_transaction correctly
@@ -445,6 +448,7 @@ test.describe("DAY-SUMMARY-SERVICE: Aggregation Logic", () => {
       // WHEN: Refreshing the day summary
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/refresh`,
+        {}, // Empty body required for POST
       );
 
       // THEN: Should handle zero transactions without error
@@ -513,6 +517,7 @@ test.describe("DAY-SUMMARY-SERVICE: Status Transitions", () => {
       // WHEN: Refreshing the day summary
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/refresh`,
+        {}, // Empty body required for POST
       );
 
       // THEN: Status should be PENDING_CLOSE
@@ -581,6 +586,7 @@ test.describe("DAY-SUMMARY-SERVICE: Status Transitions", () => {
       // WHEN: Refreshing the day summary
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/refresh`,
+        {}, // Empty body required for POST
       );
 
       // THEN: Status should remain OPEN
@@ -628,6 +634,7 @@ test.describe("DAY-SUMMARY-SERVICE: Edge Cases", () => {
       // WHEN: Refreshing a day with no shifts
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/refresh`,
+        {}, // Empty body required for POST
       );
 
       // THEN: Should create/update summary with zero values
@@ -691,6 +698,7 @@ test.describe("DAY-SUMMARY-SERVICE: Edge Cases", () => {
       // WHEN: Refreshing the day summary
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/refresh`,
+        {}, // Empty body required for POST
       );
 
       // THEN: Should handle large values without precision loss
@@ -853,6 +861,7 @@ test.describe("DAY-SUMMARY-SERVICE: Edge Cases", () => {
       // WHEN: Refreshing the day summary
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/refresh`,
+        {}, // Empty body required for POST
       );
 
       // THEN: Should track first and last correctly
@@ -888,15 +897,33 @@ test.describe("DAY-SUMMARY-SERVICE: Edge Cases", () => {
 // =============================================================================
 
 test.describe("DAY-SUMMARY-SERVICE: Error Handling", () => {
-  test("SVC-030: [P0] should throw StoreNotFoundError for invalid store", async ({
+  test("SVC-030: [P0] should throw StoreNotFoundError for non-existent store", async ({
     superadminApiRequest,
+    prismaClient,
   }) => {
-    // GIVEN: Non-existent store ID
-    const nonExistentStoreId = "00000000-0000-0000-0000-000000000001";
+    // GIVEN: Create and delete a store to get a valid but non-existent store ID
+    const owner = await prismaClient.user.create({
+      data: createUser({ name: "Store Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: owner.user_id }),
+    });
+    const store = await prismaClient.store.create({
+      data: createStore({ company_id: company.company_id }),
+    });
+    const nonExistentStoreId = store.store_id;
 
-    // WHEN: Attempting to refresh day summary
+    // Delete the store immediately to make it non-existent
+    await prismaClient.store.delete({ where: { store_id: store.store_id } });
+    await prismaClient.company.delete({
+      where: { company_id: company.company_id },
+    });
+    await prismaClient.user.delete({ where: { user_id: owner.user_id } });
+
+    // WHEN: Attempting to refresh day summary for deleted store
     const response = await superadminApiRequest.post(
       `/api/stores/${nonExistentStoreId}/day-summary/2024-01-15/refresh`,
+      {}, // Empty body required for POST
     );
 
     // THEN: Should return 404 with STORE_NOT_FOUND
@@ -924,15 +951,17 @@ test.describe("DAY-SUMMARY-SERVICE: Error Handling", () => {
     });
 
     try {
-      // WHEN: Attempting to close a non-existent day
+      // WHEN: Attempting to close a non-existent day (send empty object for valid JSON body)
       const response = await superadminApiRequest.post(
         `/api/stores/${store.store_id}/day-summary/2024-01-15/close`,
+        {}, // Required: valid JSON body
       );
 
-      // THEN: Should return 404
+      // THEN: Should return 404 with NOT_FOUND error code
       expect(response.status(), "Should return 404").toBe(404);
       const body = await response.json();
       expect(body.success, "Should indicate failure").toBe(false);
+      expect(body.error.code, "Should be NOT_FOUND").toBe("NOT_FOUND");
     } finally {
       await cleanupStoreData(prismaClient, store.store_id);
       await prismaClient.store.delete({ where: { store_id: store.store_id } });
@@ -987,9 +1016,11 @@ test.describe("DAY-SUMMARY-SERVICE: Concurrency", () => {
       const [response1, response2] = await Promise.all([
         superadminApiRequest.post(
           `/api/stores/${store.store_id}/day-summary/2024-01-15/refresh`,
+          {}, // Empty body required for POST
         ),
         superadminApiRequest.post(
           `/api/stores/${store.store_id}/day-summary/2024-01-15/refresh`,
+          {}, // Empty body required for POST
         ),
       ]);
 

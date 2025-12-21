@@ -4,7 +4,6 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
-import dotenv from "dotenv";
 import addFormats from "ajv-formats";
 import { ZodError } from "zod";
 import { initializeRedis, closeRedis } from "./utils/redis";
@@ -35,14 +34,13 @@ import { tenderTypeRoutes } from "./routes/tender-types";
 import { departmentRoutes } from "./routes/departments";
 import { taxRateRoutes } from "./routes/tax-rates";
 import { posIntegrationRoutes } from "./routes/pos-integrations";
+import { storePosAuditRoutes, adminPosAuditRoutes } from "./routes/pos-audit";
+import { naxmlRoutes } from "./routes/naxml";
 import { daySummaryRoutes } from "./routes/day-summaries";
 import { xReportRoutes } from "./routes/x-reports";
 import { zReportRoutes } from "./routes/z-reports";
 import { reconciliationRoutes } from "./routes/reconciliation";
 import { rlsPlugin } from "./middleware/rls.middleware";
-
-// Load environment variables
-dotenv.config();
 
 const PORT = parseInt(
   process.env.BACKEND_PORT || process.env.PORT || "3001",
@@ -398,6 +396,19 @@ app.register(posIntegrationRoutes, {
   prefix: "/api/stores/:storeId/pos-integration",
 });
 
+// Register POS audit routes (Phase 0: Data Exchange Audit Infrastructure)
+app.register(storePosAuditRoutes, {
+  prefix: "/api/stores/:storeId/pos-audit",
+});
+app.register(adminPosAuditRoutes, {
+  prefix: "/api/admin/pos-audit",
+});
+
+// Register NAXML file management routes (Phase 1: NAXML Core Infrastructure)
+app.register(naxmlRoutes, {
+  prefix: "/api/stores/:storeId/naxml",
+});
+
 // Register day summary routes (Phase 3.1: Shift & Day Summary)
 app.register(daySummaryRoutes);
 
@@ -441,6 +452,25 @@ app.get("/", async () => {
       //                  POST /api/stores/:storeId/pos-integration/sync - Trigger manual sync
       //                  GET /api/stores/:storeId/pos-integration/logs - Get sync history
       posIntegration: "/api/stores/:storeId/pos-integration",
+      // POS Audit: GET /api/stores/:storeId/pos-audit - Get audit records for a store (requires POS_AUDIT_READ permission)
+      //            GET /api/stores/:storeId/pos-audit/summary - Get audit summary for a store
+      //            GET /api/stores/:storeId/pos-audit/:auditId - Get specific audit record
+      //            GET /api/admin/pos-audit - Query all audit records (admin only)
+      //            GET /api/admin/pos-audit/summary - Get system-wide audit summary (admin only)
+      //            GET /api/admin/pos-audit/pii-report - Generate PII access report (admin only)
+      //            POST /api/admin/pos-audit/retention-cleanup - Trigger retention cleanup (admin only)
+      posAudit: "/api/stores/:storeId/pos-audit",
+      posAuditAdmin: "/api/admin/pos-audit",
+      // NAXML: GET /api/stores/:storeId/naxml/files - List NAXML file logs
+      //        GET /api/stores/:storeId/naxml/files/:fileLogId - Get file log details
+      //        POST /api/stores/:storeId/naxml/files/import - Manual file import
+      //        POST /api/stores/:storeId/naxml/export/departments - Export departments
+      //        POST /api/stores/:storeId/naxml/export/tender-types - Export tender types
+      //        POST /api/stores/:storeId/naxml/export/tax-rates - Export tax rates
+      //        GET/POST/PATCH /api/stores/:storeId/naxml/watcher - Watcher config
+      //        POST /api/stores/:storeId/naxml/watcher/start - Start watcher
+      //        POST /api/stores/:storeId/naxml/watcher/stop - Stop watcher
+      naxml: "/api/stores/:storeId/naxml",
     },
     documentation: "https://github.com/your-org/nuvana-pro",
   };

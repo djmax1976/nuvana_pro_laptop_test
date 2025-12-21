@@ -14,9 +14,10 @@
  */
 
 import { config } from "dotenv";
-// Load environment variables from .env.local before any other processing
-// Use override: true to ensure test config takes precedence over system env vars
-config({ path: ".env.local", override: true });
+// Load environment variables from .env.local as defaults
+// IMPORTANT: Do NOT use override: true - the test script's DATABASE_URL
+// (e.g., nuvana_test) must take precedence over .env.local's DATABASE_URL
+config({ path: ".env.local" });
 
 import { PrismaClient } from "@prisma/client";
 

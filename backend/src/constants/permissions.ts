@@ -111,6 +111,16 @@ export const POS_CONNECTION_MANAGE = "POS_CONNECTION_MANAGE";
 export const POS_SYNC_TRIGGER = "POS_SYNC_TRIGGER";
 export const POS_SYNC_LOG_READ = "POS_SYNC_LOG_READ";
 
+// POS Audit Permissions (Phase 0: Data Exchange Audit Infrastructure)
+export const POS_AUDIT_READ = "POS_AUDIT_READ";
+
+// NAXML File Management Permissions (Phase 1: NAXML Core Infrastructure)
+export const NAXML_FILE_READ = "NAXML_FILE_READ";
+export const NAXML_FILE_IMPORT = "NAXML_FILE_IMPORT";
+export const NAXML_FILE_EXPORT = "NAXML_FILE_EXPORT";
+export const NAXML_WATCHER_READ = "NAXML_WATCHER_READ";
+export const NAXML_WATCHER_MANAGE = "NAXML_WATCHER_MANAGE";
+
 /**
  * All permission codes as a constant object
  * Useful for validation and iteration
@@ -217,6 +227,16 @@ export const PERMISSIONS = {
   POS_CONNECTION_MANAGE,
   POS_SYNC_TRIGGER,
   POS_SYNC_LOG_READ,
+
+  // POS Audit (Phase 0: Data Exchange Audit Infrastructure)
+  POS_AUDIT_READ,
+
+  // NAXML File Management (Phase 1: NAXML Core Infrastructure)
+  NAXML_FILE_READ,
+  NAXML_FILE_IMPORT,
+  NAXML_FILE_EXPORT,
+  NAXML_WATCHER_READ,
+  NAXML_WATCHER_MANAGE,
 } as const;
 
 /**
@@ -339,6 +359,16 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [POS_CONNECTION_MANAGE]: "Create, update, and delete POS connections",
   [POS_SYNC_TRIGGER]: "Trigger manual POS data synchronization",
   [POS_SYNC_LOG_READ]: "View POS synchronization history and logs",
+
+  // POS Audit (Phase 0: Data Exchange Audit Infrastructure)
+  [POS_AUDIT_READ]: "View POS data exchange audit records for compliance",
+
+  // NAXML File Management (Phase 1: NAXML Core Infrastructure)
+  [NAXML_FILE_READ]: "View NAXML file processing logs and status",
+  [NAXML_FILE_IMPORT]: "Import NAXML files for processing",
+  [NAXML_FILE_EXPORT]: "Export data to NAXML format",
+  [NAXML_WATCHER_READ]: "View file watcher configuration and status",
+  [NAXML_WATCHER_MANAGE]: "Configure and control file watcher service",
 };
 
 /**
@@ -460,6 +490,24 @@ export const PERMISSION_CATEGORIES = {
       POS_SYNC_LOG_READ,
     ],
   },
+  POS_AUDIT: {
+    name: "POS Audit",
+    description:
+      "Permissions for viewing POS data exchange audit records (compliance)",
+    permissions: [POS_AUDIT_READ],
+  },
+  NAXML: {
+    name: "NAXML File Management",
+    description:
+      "Permissions for managing NAXML file processing and file watcher service",
+    permissions: [
+      NAXML_FILE_READ,
+      NAXML_FILE_IMPORT,
+      NAXML_FILE_EXPORT,
+      NAXML_WATCHER_READ,
+      NAXML_WATCHER_MANAGE,
+    ],
+  },
 } as const;
 
 /**
@@ -556,6 +604,16 @@ export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
   POS_CONNECTION_MANAGE,
   POS_SYNC_TRIGGER,
   POS_SYNC_LOG_READ,
+
+  // POS Audit - Viewing store POS data exchange audit records
+  POS_AUDIT_READ,
+
+  // NAXML File Management - Managing NAXML file processing
+  NAXML_FILE_READ,
+  NAXML_FILE_IMPORT,
+  NAXML_FILE_EXPORT,
+  NAXML_WATCHER_READ,
+  NAXML_WATCHER_MANAGE,
 ];
 
 /**

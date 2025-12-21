@@ -29,10 +29,15 @@ import { createStore, createCashier } from "../support/factories";
  * Creates a test store, cashier, and open shift for transaction testing.
  * Uses proper test marker prefix for cleanup.
  *
+ * IMPORTANT: Transaction.cashier_id is a FK to User.user_id, NOT Cashier.cashier_id.
+ * The Shift model requires a Cashier, but Transaction stores the User who rang up
+ * the sale. When creating transactions, either omit cashier_id (worker uses
+ * authenticated user) or explicitly pass a User.user_id.
+ *
  * @param prismaClient - Prisma client
  * @param companyId - Company ID
- * @param createdByUserId - User ID for shift opener and cashier creator
- * @returns Store, cashier, and shift objects
+ * @param createdByUserId - User ID for shift opener, cashier creator, and transaction cashier
+ * @returns Store, cashier, shift objects
  */
 async function createTestStoreAndShift(
   prismaClient: any,
@@ -49,6 +54,7 @@ async function createTestStoreAndShift(
     }),
   });
 
+  // Cashier is required for Shift, but Transaction.cashier_id references User.user_id
   const cashier = await prismaClient.cashier.create({
     data: await createCashier({
       store_id: store.store_id,
@@ -132,7 +138,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       prismaClient,
     }) => {
       // Setup - create store and shift for corporate admin's company
-      const { store, cashier, shift } = await createTestStoreAndShift(
+      const { store, shift } = await createTestStoreAndShift(
         prismaClient,
         corporateAdminUser.company_id,
         corporateAdminUser.user_id,
@@ -154,10 +160,11 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const tax = 4.0;
       const total = subtotal + tax;
 
+      // NOTE: Omit cashier_id - worker will use authenticated user's ID
+      // Transaction.cashier_id is a FK to User.user_id, not Cashier.cashier_id
       const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.cashier_id,
         subtotal,
         tax,
         discount: 0,
@@ -202,7 +209,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       prismaClient,
     }) => {
       // Setup
-      const { store, cashier, shift } = await createTestStoreAndShift(
+      const { store, shift } = await createTestStoreAndShift(
         prismaClient,
         corporateAdminUser.company_id,
         corporateAdminUser.user_id,
@@ -223,10 +230,10 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const tax = 6.0;
       const total = subtotal + tax;
 
+      // NOTE: Omit cashier_id - worker will use authenticated user's ID
       const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.cashier_id,
         subtotal,
         tax,
         discount: 0,
@@ -273,7 +280,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       corporateAdminUser,
       prismaClient,
     }) => {
-      const { store, cashier, shift } = await createTestStoreAndShift(
+      const { store, shift } = await createTestStoreAndShift(
         prismaClient,
         corporateAdminUser.company_id,
         corporateAdminUser.user_id,
@@ -284,10 +291,10 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const tax = 2.0;
       const total = subtotal + tax;
 
+      // NOTE: Omit cashier_id - worker will use authenticated user's ID
       const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.cashier_id,
         subtotal,
         tax,
         discount: 0,
@@ -334,7 +341,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       prismaClient,
     }) => {
       // Setup
-      const { store, cashier, shift } = await createTestStoreAndShift(
+      const { store, shift } = await createTestStoreAndShift(
         prismaClient,
         corporateAdminUser.company_id,
         corporateAdminUser.user_id,
@@ -358,10 +365,10 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       }
 
       // Create transaction with department_code
+      // NOTE: Omit cashier_id - worker will use authenticated user's ID
       const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.cashier_id,
         subtotal: 10.0,
         tax: 0.8,
         discount: 0,
@@ -407,7 +414,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       corporateAdminUser,
       prismaClient,
     }) => {
-      const { store, cashier, shift } = await createTestStoreAndShift(
+      const { store, shift } = await createTestStoreAndShift(
         prismaClient,
         corporateAdminUser.company_id,
         corporateAdminUser.user_id,
@@ -418,10 +425,10 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const tax = 2.4;
       const total = subtotal + tax;
 
+      // NOTE: Omit cashier_id - worker will use authenticated user's ID
       const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.cashier_id,
         subtotal,
         tax,
         discount: 0,
@@ -468,7 +475,7 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       prismaClient,
     }) => {
       // Setup
-      const { store, cashier, shift } = await createTestStoreAndShift(
+      const { store, shift } = await createTestStoreAndShift(
         prismaClient,
         corporateAdminUser.company_id,
         corporateAdminUser.user_id,
@@ -479,10 +486,10 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       const tax = 3.2;
       const total = subtotal + tax;
 
+      // NOTE: Omit cashier_id - worker will use authenticated user's ID
       const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.cashier_id,
         subtotal,
         tax,
         discount: 0,
@@ -535,17 +542,17 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       prismaClient,
     }) => {
       // Setup
-      const { store, cashier, shift } = await createTestStoreAndShift(
+      const { store, shift } = await createTestStoreAndShift(
         prismaClient,
         corporateAdminUser.company_id,
         corporateAdminUser.user_id,
       );
 
       // Create transaction with line items (no department_code specified)
+      // NOTE: Omit cashier_id - worker will use authenticated user's ID
       const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.cashier_id,
         subtotal: 10.0,
         tax: 0.8,
         discount: 0,
@@ -601,17 +608,17 @@ test.describe("Phase 1.5: Transaction FK Resolution", () => {
       corporateAdminUser,
       prismaClient,
     }) => {
-      const { store, cashier, shift } = await createTestStoreAndShift(
+      const { store, shift } = await createTestStoreAndShift(
         prismaClient,
         corporateAdminUser.company_id,
         corporateAdminUser.user_id,
       );
 
       // Create transaction with specific tax amounts per line item
+      // NOTE: Omit cashier_id - worker will use authenticated user's ID
       const payload = {
         store_id: store.store_id,
         shift_id: shift.shift_id,
-        cashier_id: cashier.cashier_id,
         subtotal: 25.0,
         tax: 2.0,
         discount: 0,

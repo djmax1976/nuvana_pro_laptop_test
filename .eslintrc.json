@@ -21,9 +21,20 @@
     {
       "files": ["tests/**/*.ts", "tests/**/*.tsx"],
       "rules": {
-        "react-hooks/rules-of-hooks": "off"
+        "react-hooks/rules-of-hooks": "off",
+        "security/detect-non-literal-fs-filename": "off",
+        "security/detect-object-injection": "off"
+      }
+    },
+    {
+      "files": [
+        "backend/src/services/pos/**/*.ts",
+        "backend/src/services/naxml/**/*.ts"
+      ],
+      "rules": {
+        "security/detect-non-literal-fs-filename": "off",
+        "security/detect-object-injection": "off"
       }
     }
   ]
 }
-

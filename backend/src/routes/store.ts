@@ -691,13 +691,16 @@ export async function storeRoutes(fastify: FastifyInstance) {
         // Create store, manager, and terminals in a single transaction
         const result = await prisma.$transaction(async (tx) => {
           // 1. Create store using service (which handles validation)
-          const store = await storeService.createStore({
-            company_id: params.companyId,
-            name: body.name,
-            location_json: body.location_json,
-            timezone: body.timezone,
-            status: body.status,
-          });
+          const store = await storeService.createStore(
+            {
+              company_id: params.companyId,
+              name: body.name,
+              location_json: body.location_json,
+              timezone: body.timezone,
+              status: body.status,
+            },
+            tx,
+          );
 
           let createdManager = null;
           let createdTerminals: Array<{
