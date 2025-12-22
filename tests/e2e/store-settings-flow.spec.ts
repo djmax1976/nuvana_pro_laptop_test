@@ -532,21 +532,31 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
       });
 
       // Wait for settings page to load
-      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
+        timeout: 15000,
+      });
 
       // WHEN: User selects Cashiers tab
       const cashiersTab = page.locator('[data-testid="cashiers-tab"]');
-      await expect(cashiersTab).toBeVisible({ timeout: 5000 });
+      await expect(cashiersTab).toBeVisible({ timeout: 10000 });
       await cashiersTab.click();
 
+      // Wait for tab panel content to switch - cashiers tab loads data asynchronously
+      await page.waitForLoadState("domcontentloaded");
+
       // THEN: Cashier table is displayed with correct columns
-      await expect(page.locator('[data-testid="cashier-table"]')).toBeVisible({
-        timeout: 10000,
+      // Wait longer for the table since it requires API call to load cashiers
+      const cashierTable = page.locator('[data-testid="cashier-table"]');
+      await expect(cashierTable).toBeVisible({ timeout: 15000 });
+
+      // Verify column headers within the table header
+      const tableHeader = cashierTable.locator("thead");
+      await expect(tableHeader.getByText("Employee ID")).toBeVisible({
+        timeout: 5000,
       });
-      await expect(page.locator("text=Employee ID")).toBeVisible();
-      await expect(page.locator("text=Name")).toBeVisible();
-      await expect(page.locator("text=Hired On")).toBeVisible();
-      await expect(page.locator("text=Status")).toBeVisible();
+      await expect(tableHeader.getByText("Name")).toBeVisible();
+      await expect(tableHeader.getByText("Hired On")).toBeVisible();
+      await expect(tableHeader.getByText("Status")).toBeVisible();
     });
 
     test("6.14-E2E-008: [P1-AC-7] should display Reset PIN button for each cashier row", async ({

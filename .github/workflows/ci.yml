@@ -1106,7 +1106,7 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
       - name: Upload Trivy scan results to GitHub Security
         uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f  # v3.28.18
-        if: always()
+        if: always() && hashFiles('trivy-bundle-results.sarif') != ''
         with:
           sarif_file: 'trivy-bundle-results.sarif'
       - name: Upload Trivy results artifact

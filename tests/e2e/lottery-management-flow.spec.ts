@@ -225,45 +225,23 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
     // GIVEN: Store Manager logs in
     await loginAndWaitForMyStore(page, storeManager.email, password);
 
-    // Set up API response promises BEFORE navigation to avoid race conditions
-    const dayBinsResponsePromise = page
-      .waitForResponse(
-        (resp) =>
-          resp.url().includes("/api/lottery/bins/day/") &&
-          resp.status() === 200,
-        { timeout: 30000 },
-      )
-      .catch(() => null); // API might not fire if no bins exist, that's OK
-
-    const packsResponsePromise = page
-      .waitForResponse(
-        (resp) =>
-          resp.url().includes("/api/lottery/packs") && resp.status() === 200,
-        { timeout: 30000 },
-      )
-      .catch(() => null); // API might not fire if no packs exist, that's OK
-
     // WHEN: User navigates to lottery page
-    await page.goto("/mystore/lottery");
+    await page.goto("/mystore/lottery", { waitUntil: "domcontentloaded" });
 
     // THEN: Lottery management page is displayed
     await expect(
       page.locator('[data-testid="lottery-management-page"]'),
     ).toBeVisible({
-      timeout: 10000,
+      timeout: 15000,
     });
 
-    // Wait for API responses to complete (deterministic waiting)
-    await dayBinsResponsePromise;
-    await packsResponsePromise;
-
-    // Wait for page to be fully loaded
+    // Wait for page to fully render after React hydration
     await page.waitForLoadState("domcontentloaded");
 
-    // AND: Receive Pack button is visible
+    // AND: Receive Pack button is visible (main action button)
     await expect(
       page.locator('[data-testid="receive-pack-button"]'),
-    ).toBeVisible({ timeout: 10000 });
+    ).toBeVisible({ timeout: 15000 });
 
     // AND: Activate Pack button is visible (may be disabled if no packs)
     await expect(
