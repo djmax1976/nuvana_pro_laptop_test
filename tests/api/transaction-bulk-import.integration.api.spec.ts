@@ -121,6 +121,29 @@ function escapeCsvField(value: string | number | null | undefined): string {
 }
 
 /**
+ * Creates a multipart form data object for file uploads (Playwright format)
+ * @param fileContent - Content of the file as string
+ * @param fileName - Name of the file
+ * @param mimeType - MIME type of the file
+ * @returns Object in Playwright multipart format
+ */
+function createMultipartFile(
+  fileContent: string,
+  fileName: string,
+  mimeType: string,
+) {
+  return {
+    multipart: {
+      file: {
+        name: fileName,
+        mimeType,
+        buffer: Buffer.from(fileContent),
+      },
+    },
+  };
+}
+
+/**
  * Creates a CSV file content with transaction data
  */
 function createCSVContent(transactions: any[]): string {
@@ -238,24 +261,28 @@ async function waitForJobCompletion(
 /**
  * Upload file with rate limit handling
  * Retries if rate limited (429), respecting retry-after message with exponential backoff
+ * @param apiRequest - The API request object from fixture
+ * @param fileContent - File content as string
+ * @param fileName - Name of the file (e.g., "transactions.csv")
+ * @param mimeType - MIME type (e.g., "text/csv")
+ * @param maxRetries - Maximum number of retries for transient errors
  */
 async function uploadBulkImportFile(
   apiRequest: any,
-  formData: FormData,
+  fileContent: string,
+  fileName: string,
+  mimeType: string,
   maxRetries: number = 3,
 ): Promise<{ response: any; body: any; jobId: string }> {
   let lastResponse: any = null;
   let lastBody: any = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Use Playwright's multipart format instead of FormData
+    const multipartData = createMultipartFile(fileContent, fileName, mimeType);
     lastResponse = await apiRequest.post(
       "/api/transactions/bulk-import",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
+      multipartData,
     );
 
     const status = lastResponse.status();
@@ -381,17 +408,17 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     );
     const csvContent = createCSVContent(transactions);
 
-    // WHEN: Uploading file
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "transactions.csv");
-
-    // Upload with rate limit handling
+    // WHEN: Uploading file (using Playwright multipart format)
     const {
       response: uploadResponse,
       body: uploadBody,
       jobId,
-    } = await uploadBulkImportFile(superadminApiRequest, formData);
+    } = await uploadBulkImportFile(
+      superadminApiRequest,
+      csvContent,
+      "transactions.csv",
+      "text/csv",
+    );
 
     // THEN: Should return 202 with job_id
     expect(
@@ -483,15 +510,12 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     );
     const csvContent = createCSVContent(transactions);
 
-    // WHEN: Uploading file
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "transactions.csv");
-
-    // Upload with rate limit handling
+    // WHEN: Uploading file (using Playwright multipart format)
     const { body: uploadBody, jobId } = await uploadBulkImportFile(
       superadminApiRequest,
-      formData,
+      csvContent,
+      "transactions.csv",
+      "text/csv",
     );
 
     expect(jobId, "Should have job_id").toBeTruthy();
@@ -581,15 +605,12 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
 
     const csvContent = createCSVContent([validTransaction, invalidTransaction]);
 
-    // WHEN: Uploading file
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "mixed-transactions.csv");
-
-    // Upload with rate limit handling
+    // WHEN: Uploading file (using Playwright multipart format)
     const { body: uploadBody, jobId } = await uploadBulkImportFile(
       superadminApiRequest,
-      formData,
+      csvContent,
+      "mixed-transactions.csv",
+      "text/csv",
     );
 
     // Wait for validation to complete
@@ -693,17 +714,17 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     });
     const csvContent = createCSVContent([transaction]);
 
-    // WHEN: Uploading file
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "transactions.csv");
-
-    // Upload with rate limit handling
+    // WHEN: Uploading file (using Playwright multipart format)
     const {
       response: uploadResponse,
       body: uploadBody,
       jobId,
-    } = await uploadBulkImportFile(superadminApiRequest, formData);
+    } = await uploadBulkImportFile(
+      superadminApiRequest,
+      csvContent,
+      "transactions.csv",
+      "text/csv",
+    );
 
     expect(
       uploadResponse.status(),
@@ -838,15 +859,12 @@ test.describe("Bulk Import Integration - End-to-End Flow", () => {
     );
     const csvContent = createCSVContent(transactions);
 
-    // WHEN: Uploading file
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "transactions.csv");
-
-    // Upload with rate limit handling
+    // WHEN: Uploading file (using Playwright multipart format)
     const { body: uploadBody, jobId } = await uploadBulkImportFile(
       superadminApiRequest,
-      formData,
+      csvContent,
+      "transactions.csv",
+      "text/csv",
     );
 
     expect(jobId, "Should have job_id").toBeTruthy();
