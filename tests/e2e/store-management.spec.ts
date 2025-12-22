@@ -220,10 +220,13 @@ test.describe("Store Management E2E", () => {
     await submitButton.click();
 
     // Wait for success message or navigation instead of hard wait
+    // Use first() to avoid strict mode violation when toast renders in multiple elements
     await Promise.any([
-      expect(page.getByText(/store updated|successfully/i)).toBeVisible({
-        timeout: 10000,
-      }),
+      expect(page.getByText(/store updated|successfully/i).first()).toBeVisible(
+        {
+          timeout: 10000,
+        },
+      ),
       expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
     ]);
 
@@ -254,8 +257,9 @@ test.describe("Store Management E2E", () => {
     await submitButton.click();
 
     // Wait for success message or navigation instead of hard wait
+    // Use first() to avoid strict mode violation when toast renders in multiple elements
     const result = await Promise.race([
-      expect(page.getByText(/store updated|successfully/i))
+      expect(page.getByText(/store updated|successfully/i).first())
         .toBeVisible({ timeout: 10000 })
         .then(() => true),
       expect(page)
@@ -292,10 +296,13 @@ test.describe("Store Management E2E", () => {
     await submitButton.click();
 
     // Wait for success message or navigation instead of hard wait
+    // Use first() to avoid strict mode violation when toast renders in multiple elements
     await Promise.any([
-      expect(page.getByText(/store updated|successfully/i)).toBeVisible({
-        timeout: 10000,
-      }),
+      expect(page.getByText(/store updated|successfully/i).first()).toBeVisible(
+        {
+          timeout: 10000,
+        },
+      ),
       expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
     ]);
 

@@ -132,7 +132,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Seed test database
-        run: npx tsx backend/src/db/seeds/rbac.seed.ts
+        run: cd backend && npx prisma db seed
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Bootstrap admin user
@@ -341,7 +341,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Seed test database
-        run: npx tsx backend/src/db/seeds/rbac.seed.ts
+        run: cd backend && npx prisma db seed
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/nuvana_test
       - name: Bootstrap admin user
