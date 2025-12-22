@@ -30,7 +30,7 @@
 import { test as base, expect, Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { withBypassClient } from "../support/prisma-bypass";
-import { createUser, createClientUser } from "../support/factories";
+import { createUser } from "../support/factories";
 import bcrypt from "bcryptjs";
 
 /**
@@ -82,10 +82,19 @@ async function performRealLogin(
   isClientUser: boolean = false,
 ): Promise<void> {
   // Navigate to login page
+  // Note: /client-login redirects to /login, but we use it for clarity in tests
+  // The unified login page handles both admin and client users
   const loginPath = isClientUser ? "/client-login" : "/login";
   await page.goto(`${frontendUrl}${loginPath}`, {
     waitUntil: "networkidle",
   });
+
+  // If we navigated to /client-login, it redirects to /login, so wait for that
+  if (isClientUser) {
+    await page.waitForURL((url) => url.pathname === "/login", {
+      timeout: 5000,
+    });
+  }
 
   // Wait for page to be fully loaded
   await page.waitForLoadState("domcontentloaded");
@@ -401,11 +410,17 @@ test.describe
       const password = "TestClientOwner123!";
       const passwordHash = await bcrypt.hash(password, 10);
       const testId = shortId();
-      const userData = createClientUser({
+      const userData = createUser({
         email: `test-co1-${testId}@test.nuvana.local`,
         password_hash: passwordHash,
+        auth_provider_id: null, // Local auth user (not OAuth)
+        is_client_user: true, // Mark as client user
       });
-      const user = await prismaClient.user.create({ data: userData });
+      const user = await prismaClient.user.create({
+        data: userData as Parameters<
+          typeof prismaClient.user.create
+        >[0]["data"],
+      });
 
       const company = await prismaClient.company.create({
         data: {
@@ -440,6 +455,12 @@ test.describe
         // THEN: Should land on client dashboard
         await expect(page).toHaveURL(/\/client-dashboard/, { timeout: 15000 });
 
+        // THEN: Client dashboard should load without errors
+        // Check for the welcome heading that appears on client dashboard
+        await expect(
+          page.getByRole("heading", { name: /welcome back/i }),
+        ).toBeVisible({ timeout: 10000 });
+
         // Wait for API requests to complete
         await page.waitForLoadState("networkidle");
 
@@ -462,11 +483,17 @@ test.describe
       const password = "TestClientOwner123!";
       const passwordHash = await bcrypt.hash(password, 10);
       const testId = shortId();
-      const userData = createClientUser({
+      const userData = createUser({
         email: `test-co2-${testId}@test.nuvana.local`,
         password_hash: passwordHash,
+        auth_provider_id: null, // Local auth user (not OAuth)
+        is_client_user: true, // Mark as client user
       });
-      const user = await prismaClient.user.create({ data: userData });
+      const user = await prismaClient.user.create({
+        data: userData as Parameters<
+          typeof prismaClient.user.create
+        >[0]["data"],
+      });
 
       const company = await prismaClient.company.create({
         data: {

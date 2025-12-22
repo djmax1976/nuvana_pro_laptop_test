@@ -371,24 +371,30 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
     // THEN: Success notification is displayed
     // Toast message: "Email updated" (title) with description "Employee email has been updated successfully."
     // Use .first() to handle case where toast content appears in multiple elements
+    // Wait for toast to appear - it may take a moment to render in the portal
     await expect(
       page.getByText("Email updated", { exact: true }).first(),
     ).toBeVisible({
-      timeout: 5000,
+      timeout: 10000,
     });
 
     // Wait for modal to close (modal closes after successful save)
+    // The modal closes after successful mutation, verify the email input is no longer visible
     await expect(page.locator('[data-testid="email-input"]')).not.toBeVisible({
-      timeout: 3000,
+      timeout: 5000,
     });
 
     // AND: Employee email is updated in the table
     // Wait for query invalidation and table refresh after mutation
     // The mutation invalidates the employee list query, so we wait for the table to update
+    // Use a more specific wait to ensure the table has refreshed with the new data
     await expect(page.locator('[data-testid="employee-email-0"]')).toHaveText(
       newEmail,
-      { timeout: 10000 },
+      { timeout: 15000 },
     );
+
+    // Verify the table still shows the employee (ensures the update didn't break the list)
+    await expect(page.locator('[data-testid="employee-table"]')).toBeVisible();
   });
 
   // ============================================================================

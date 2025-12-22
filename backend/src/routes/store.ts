@@ -399,6 +399,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             properties: {
               store_id: { type: "string", format: "uuid" },
               company_id: { type: "string", format: "uuid" },
+              public_id: { type: "string" },
               name: { type: "string" },
               location_json: {
                 type: "object",
@@ -428,6 +429,13 @@ export async function storeRoutes(fastify: FastifyInstance) {
                     connection_type: { type: "string" },
                     vendor_type: { type: "string" },
                   },
+                },
+              },
+              request_metadata: {
+                type: "object",
+                properties: {
+                  timestamp: { type: "string", format: "date-time" },
+                  request_id: { type: "string" },
                 },
               },
             },

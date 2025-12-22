@@ -22,6 +22,7 @@ export type UserData = {
   password_hash?: string | null;
   auth_provider_id?: string | null;
   status: "ACTIVE" | "INACTIVE" | "SUSPENDED";
+  is_client_user?: boolean;
 };
 
 export type CompanyData = {

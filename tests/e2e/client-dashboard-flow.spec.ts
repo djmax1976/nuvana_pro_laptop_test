@@ -35,11 +35,9 @@ async function loginAndWaitForDashboard(
 ): Promise<void> {
   // Network-first pattern: Intercept API calls BEFORE navigation
   // This prevents race conditions where requests fire before waits are registered
+  // NOTE: Uses unified /api/auth/login endpoint (not /api/client/auth/login)
   const loginResponsePromise = page.waitForResponse(
-    (resp) =>
-      (resp.url().includes("/api/auth/login") ||
-        resp.url().includes("/api/client/auth/login")) &&
-      resp.status() === 200,
+    (resp) => resp.url().includes("/api/auth/login") && resp.status() === 200,
     { timeout: 30000 },
   );
 
@@ -91,6 +89,12 @@ async function loginAndWaitForDashboard(
   const loginResponse = await loginResponsePromise;
   expect(loginResponse.status()).toBe(200);
 
+  // Verify login response contains user data (additional validation)
+  const loginData = await loginResponse.json().catch(() => null);
+  if (loginData) {
+    expect(loginData.user || loginData.data?.user).toBeDefined();
+  }
+
   // Wait for navigation to complete
   await navigationPromise;
 
@@ -128,16 +132,25 @@ async function waitForDashboardDataLoaded(page: Page): Promise<void> {
   });
 
   // Additional wait to ensure content is rendered (not just visible)
-  // Wait for at least one company or store card, or the empty state message
+  // Wait for at least one company card (with company name) or the empty state message
+  // Company names are in elements with .font-medium class within the companies section
   await Promise.race([
+    // Wait for a company name to appear (indicates data loaded)
     page
-      .locator('[data-testid="companies-section"] .font-medium')
+      .locator('[data-testid="companies-section"]')
+      .locator(".font-medium")
       .first()
       .waitFor({ state: "visible", timeout: 10000 })
       .catch(() => null),
+    // OR wait for empty state message (if no companies)
     page
       .locator('[data-testid="companies-section"]')
       .getByText(/no companies found/i)
+      .waitFor({ state: "visible", timeout: 10000 })
+      .catch(() => null),
+    // OR wait for stores section to be visible (alternative indicator)
+    page
+      .locator('[data-testid="stores-section"]')
       .waitFor({ state: "visible", timeout: 10000 })
       .catch(() => null),
   ]);
@@ -255,7 +268,12 @@ test.describe("2.9-E2E: Client Dashboard User Journey", () => {
     ).toBeVisible({ timeout: 10000 });
 
     // AND: Dashboard shows welcome message (case-insensitive match)
-    await expect(page.getByText(/welcome back/i)).toBeVisible({
+    // The welcome message appears in the h1 heading
+    await expect(
+      page
+        .locator('[data-testid="client-dashboard-page"]')
+        .getByText(/welcome back/i),
+    ).toBeVisible({
       timeout: 10000,
     });
   });
@@ -270,10 +288,11 @@ test.describe("2.9-E2E: Client Dashboard User Journey", () => {
     await waitForDashboardDataLoaded(page);
 
     // THEN: Dashboard shows the client's company in the companies section
+    // Company name appears in a .font-medium element within the companies section
     await expect(
       page
         .locator('[data-testid="companies-section"]')
-        .getByText("E2E Test Company"),
+        .getByText("E2E Test Company", { exact: true }),
     ).toBeVisible({
       timeout: 10000,
     });
@@ -294,10 +313,11 @@ test.describe("2.9-E2E: Client Dashboard User Journey", () => {
     });
 
     // AND: Dashboard shows the client's store within the stores section
+    // Store name appears in a .font-medium element within the stores section
     await expect(
       page
         .locator('[data-testid="stores-section"]')
-        .getByText("E2E Test Store"),
+        .getByText("E2E Test Store", { exact: true }),
     ).toBeVisible({ timeout: 10000 });
   });
 
@@ -345,24 +365,37 @@ test.describe("2.9-E2E: Client Dashboard User Journey", () => {
     });
 
     // WHEN: CLIENT_OWNER enters wrong password
-    await page.fill(
-      'input[name="email"], input[type="email"]',
-      clientOwner.email,
-    );
-    await page.fill(
-      'input[name="password"], input[type="password"]',
-      "WrongPassword123!",
-    );
+    // Wait for form inputs to be ready
+    const emailInput = page.locator('input[type="email"]');
+    const passwordInput = page.locator('input[type="password"]');
+
+    await emailInput.waitFor({ state: "visible", timeout: 10000 });
+    await expect(emailInput).toBeEditable({ timeout: 5000 });
+
+    await emailInput.fill(clientOwner.email);
+    await passwordInput.fill("WrongPassword123!");
 
     // Set up navigation promise to ensure we don't navigate on error
+    // Also set up error response promise to catch login failure
     const navigationPromise = page
       .waitForURL(/.*client-dashboard.*/, {
         timeout: 5000,
       })
       .catch(() => null);
 
+    const errorResponsePromise = page
+      .waitForResponse(
+        (resp) =>
+          resp.url().includes("/api/auth/login") && resp.status() === 401,
+        { timeout: 10000 },
+      )
+      .catch(() => null);
+
     // Click submit
     await page.click('button[type="submit"]');
+
+    // Wait for either error response or navigation (navigation should not happen)
+    await Promise.race([errorResponsePromise, navigationPromise]);
 
     // Wait for either error to appear OR navigation (which should not happen)
     // Use Promise.race to wait for the first event
@@ -423,11 +456,22 @@ test.describe("2.9-E2E: Client Dashboard User Journey", () => {
     await waitForDashboardDataLoaded(page);
 
     // THEN: Quick stats cards are visible
-    // Looking for stats like "Active Stores", "Companies", etc.
+    // Verify all key stat cards are present for comprehensive dashboard validation
     await expect(
       page.locator('[data-testid="stat-active-stores"]'),
     ).toBeVisible({
       timeout: 10000,
+    });
+
+    // Verify additional stat cards exist (comprehensive validation)
+    await expect(page.locator('[data-testid="stat-companies"]')).toBeVisible({
+      timeout: 5000,
+    });
+
+    await expect(
+      page.locator('[data-testid="stat-total-employees"]'),
+    ).toBeVisible({
+      timeout: 5000,
     });
   });
 });
@@ -662,14 +706,20 @@ test.describe("2.9-E2E: Client Dashboard Data Isolation", () => {
     // Wait for dashboard data to fully load
     await waitForDashboardDataLoaded(page);
 
-    // THEN: CLIENT_OWNER 1 sees their own company
-    await expect(page.getByText("Client One Company")).toBeVisible({
+    // THEN: CLIENT_OWNER 1 sees their own company in the companies section
+    await expect(
+      page
+        .locator('[data-testid="companies-section"]')
+        .getByText("Client One Company", { exact: true }),
+    ).toBeVisible({
       timeout: 10000,
     });
 
     // AND: CLIENT_OWNER 1 does NOT see CLIENT_OWNER 2's company
-    // Use waitFor with hidden state to ensure it's truly not visible
-    await expect(page.getByText("Client Two Company")).not.toBeVisible({
+    // Verify data isolation - other client's company should not be visible anywhere on the page
+    await expect(
+      page.getByText("Client Two Company", { exact: true }),
+    ).not.toBeVisible({
       timeout: 5000,
     });
   });
@@ -795,7 +845,13 @@ test.describe("2.9-E2E: Session Persistence", () => {
 
     // Wait for dashboard to load again after refresh
     await waitForDashboardDataLoaded(page);
-    await expect(page.getByText(/welcome back/i)).toBeVisible({
+
+    // Verify welcome message is still visible after refresh
+    await expect(
+      page
+        .locator('[data-testid="client-dashboard-page"]')
+        .getByText(/welcome back/i),
+    ).toBeVisible({
       timeout: 10000,
     });
   });

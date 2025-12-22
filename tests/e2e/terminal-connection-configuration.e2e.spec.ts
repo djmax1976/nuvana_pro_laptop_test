@@ -14,7 +14,10 @@
  * - Store Manager creates terminal with API connection configuration
  * - Store Manager edits terminal to change connection type to NETWORK
  *
- * Note: These tests are in RED phase - they will fail until implementation is complete.
+ * Implementation Notes:
+ * - UI uses StoreForm component at /stores/:storeId/edit
+ * - TerminalManagementSection handles terminal CRUD operations
+ * - Connection type fields are dynamically rendered based on selection
  */
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
@@ -104,8 +107,7 @@ test.describe("Terminal Connection Configuration E2E", () => {
    * RISK: High - affects terminal operations
    * VALIDATES: Full user flow from UI to API to database
    */
-  // SKIPPED: RED phase test - UI not yet implemented (Story 4.82)
-  test.skip("[P0] Store Manager can create terminal with API connection configuration", async ({
+  test("[P0] Store Manager can create terminal with API connection configuration", async ({
     superadminPage,
     prismaClient,
   }) => {
@@ -121,20 +123,13 @@ test.describe("Terminal Connection Configuration E2E", () => {
       name: "Test Store",
     });
 
-    // CRITICAL: Intercept routes BEFORE navigation (network-first pattern)
-    await page.route("**/api/stores/*/terminals", (route) => {
-      if (route.request().method() === "GET") {
-        route.fulfill({
-          status: 200,
-          body: JSON.stringify([]),
-        });
-      } else {
-        route.continue();
-      }
-    });
-
     // Navigate to store management
     await page.goto(`/stores/${store.store_id}/edit`);
+
+    // Wait for page to load
+    await expect(
+      page.getByRole("heading", { name: /Edit Store/i }),
+    ).toBeVisible();
 
     // WHEN: Store Manager opens terminal creation dialog
     await page.getByRole("button", { name: /Add Terminal/i }).click();
@@ -144,36 +139,39 @@ test.describe("Terminal Connection Configuration E2E", () => {
       page.getByRole("heading", { name: /Add Terminal/i }),
     ).toBeVisible();
 
-    // WHEN: Store Manager fills terminal name
-    await page.getByLabel(/Terminal Name/i).fill("API Terminal");
+    // WHEN: Store Manager fills terminal name using the input id
+    await page.locator("#terminal-name").fill("API Terminal");
 
     // WHEN: Store Manager selects API connection type
-    await page.getByLabel(/Connection Type/i).click();
-    await page.getByRole("option", { name: /API/i }).click();
+    // Click the connection type select trigger
+    await page.locator("#connection-type").click();
+    await page.getByRole("option", { name: /^API$/i }).click();
 
-    // THEN: API connection config fields are displayed
-    await expect(page.getByLabel(/Base URL/i)).toBeVisible();
-    await expect(page.getByLabel(/API Key/i)).toBeVisible();
+    // THEN: API connection config fields are displayed (check for the inputs)
+    // The API connection type shows Base URL and API Key fields
+    await expect(page.locator("#api-base-url")).toBeVisible();
+    await expect(page.locator("#api-key")).toBeVisible();
 
     // WHEN: Store Manager fills API connection config
-    await page.getByLabel(/Base URL/i).fill("https://api.example.com");
-    await page.getByLabel(/API Key/i).fill("secret-api-key-123");
+    await page.locator("#api-base-url").fill("https://api.example.com");
+    await page.locator("#api-key").fill("secret-api-key-123");
 
     // WHEN: Store Manager selects POS Vendor
-    await page.getByLabel(/POS Vendor/i).click();
+    await page.locator("#vendor-type").click();
     await page.getByRole("option", { name: /Square/i }).click();
 
     // WHEN: Store Manager submits form
     await page.getByRole("button", { name: /Create Terminal/i }).click();
 
     // THEN: Success message is displayed (toast notification)
-    // Note: Toast may appear briefly, check for success text
     await expect(
       page.getByText(/Terminal created successfully|Success/i).first(),
-    ).toBeVisible({ timeout: 5000 });
+    ).toBeVisible({ timeout: 10000 });
 
     // THEN: Terminal list updates to show new terminal with API connection
     await expect(page.getByText("API Terminal")).toBeVisible({ timeout: 5000 });
+    // Verify the API badge is shown
+    await expect(page.getByText("API", { exact: true })).toBeVisible();
   });
 
   /**
@@ -183,8 +181,7 @@ test.describe("Terminal Connection Configuration E2E", () => {
    * RISK: High - affects terminal operations
    * VALIDATES: Full user flow for editing connection config
    */
-  // SKIPPED: RED phase test - UI not yet implemented (Story 4.82)
-  test.skip("[P0] Store Manager can edit terminal connection configuration", async ({
+  test("[P0] Store Manager can edit terminal connection configuration", async ({
     superadminPage,
     prismaClient,
     superadminApiRequest,
@@ -217,27 +214,23 @@ test.describe("Terminal Connection Configuration E2E", () => {
       },
     );
 
-    const createdTerminal = await createResponse.json();
-
-    // CRITICAL: Intercept routes BEFORE navigation (network-first pattern)
-    await page.route(`**/api/stores/${store.store_id}/terminals`, (route) => {
-      if (route.request().method() === "GET") {
-        route.fulfill({
-          status: 200,
-          body: JSON.stringify([createdTerminal]),
-        });
-      } else {
-        route.continue();
-      }
-    });
+    expect(createResponse.status()).toBe(201);
 
     // Navigate to store management
     await page.goto(`/stores/${store.store_id}/edit`);
 
+    // Wait for page to load
+    await expect(
+      page.getByRole("heading", { name: /Edit Store/i }),
+    ).toBeVisible();
+
+    // Wait for terminals to load
+    await expect(page.getByText("Existing Terminal")).toBeVisible({
+      timeout: 10000,
+    });
+
     // WHEN: Store Manager clicks edit button on terminal
-    // Find edit button by aria-label or by text content near terminal name
-    const terminalCard = page.locator("text=Existing Terminal").locator("..");
-    await terminalCard.getByRole("button", { name: /Edit/i }).first().click();
+    await page.getByRole("button", { name: /Edit Existing Terminal/i }).click();
 
     // THEN: Terminal edit form is displayed
     await expect(
@@ -245,18 +238,18 @@ test.describe("Terminal Connection Configuration E2E", () => {
     ).toBeVisible();
 
     // WHEN: Store Manager changes connection type to NETWORK
-    await page.getByLabel(/Connection Type/i).click();
+    await page.locator("#edit-connection-type").click();
     await page.getByRole("option", { name: /Network/i }).click();
 
     // THEN: NETWORK connection config fields are displayed
-    await expect(page.getByLabel(/Host/i)).toBeVisible();
-    await expect(page.getByLabel(/Port/i)).toBeVisible();
-    await expect(page.getByLabel(/Protocol/i)).toBeVisible();
+    await expect(page.locator("#network-host")).toBeVisible();
+    await expect(page.locator("#network-port")).toBeVisible();
+    await expect(page.locator("#network-protocol")).toBeVisible();
 
     // WHEN: Store Manager fills NETWORK connection config
-    await page.getByLabel(/Host/i).fill("192.168.1.100");
-    await page.getByLabel(/Port/i).fill("9000");
-    await page.getByLabel(/Protocol/i).click();
+    await page.locator("#network-host").fill("192.168.1.100");
+    await page.locator("#network-port").fill("9000");
+    await page.locator("#network-protocol").click();
     await page.getByRole("option", { name: /HTTP/i }).click();
 
     // WHEN: Store Manager submits form
@@ -265,10 +258,16 @@ test.describe("Terminal Connection Configuration E2E", () => {
     // THEN: Success message is displayed
     await expect(
       page.getByText(/Terminal updated successfully|Success/i).first(),
-    ).toBeVisible({ timeout: 5000 });
+    ).toBeVisible({ timeout: 10000 });
 
-    // THEN: Terminal list updates to show NETWORK connection
-    await expect(page.getByText("Network")).toBeVisible({ timeout: 5000 });
+    // THEN: Terminal list updates to show NETWORK connection badge
+    // Use the badge locator to avoid strict mode violation (connection type badge vs select option)
+    const terminalCard = page
+      .locator(".border.rounded-lg")
+      .filter({ hasText: "Existing Terminal" });
+    await expect(terminalCard.getByText("Network")).toBeVisible({
+      timeout: 5000,
+    });
   });
 
   /**
@@ -278,8 +277,7 @@ test.describe("Terminal Connection Configuration E2E", () => {
    * RISK: Medium - affects user experience
    * VALIDATES: Dynamic form field rendering
    */
-  // SKIPPED: RED phase test - UI not yet implemented (Story 4.82)
-  test.skip("[P1] Connection config fields appear/disappear based on connection type selection", async ({
+  test("[P1] Connection config fields appear/disappear based on connection type selection", async ({
     superadminPage,
     prismaClient,
   }) => {
@@ -295,18 +293,13 @@ test.describe("Terminal Connection Configuration E2E", () => {
       name: "Test Store",
     });
 
-    await page.route("**/api/stores/*/terminals", (route) => {
-      if (route.request().method() === "GET") {
-        route.fulfill({
-          status: 200,
-          body: JSON.stringify([]),
-        });
-      } else {
-        route.continue();
-      }
-    });
-
     await page.goto(`/stores/${store.store_id}/edit`);
+
+    // Wait for page to load
+    await expect(
+      page.getByRole("heading", { name: /Edit Store/i }),
+    ).toBeVisible();
+
     await page.getByRole("button", { name: /Add Terminal/i }).click();
 
     await expect(
@@ -314,43 +307,43 @@ test.describe("Terminal Connection Configuration E2E", () => {
     ).toBeVisible();
 
     // WHEN: Store Manager selects NETWORK connection type
-    await page.getByLabel(/Connection Type/i).click();
+    await page.locator("#connection-type").click();
     await page.getByRole("option", { name: /Network/i }).click();
 
     // THEN: NETWORK fields are visible, other fields are not
-    await expect(page.getByLabel(/Host/i)).toBeVisible();
-    await expect(page.getByLabel(/Port/i)).toBeVisible();
-    await expect(page.getByLabel(/Protocol/i)).toBeVisible();
-    await expect(page.getByLabel(/Base URL/i)).not.toBeVisible();
-    await expect(page.getByLabel(/Import Path/i)).not.toBeVisible();
+    await expect(page.locator("#network-host")).toBeVisible();
+    await expect(page.locator("#network-port")).toBeVisible();
+    await expect(page.locator("#network-protocol")).toBeVisible();
+    await expect(page.locator("#api-base-url")).not.toBeVisible();
+    await expect(page.locator("#file-import-path")).not.toBeVisible();
 
     // WHEN: Store Manager changes to API connection type
-    await page.getByLabel(/Connection Type/i).click();
-    await page.getByRole("option", { name: /API/i }).click();
+    await page.locator("#connection-type").click();
+    await page.getByRole("option", { name: /^API$/i }).click();
 
     // THEN: API fields are visible, NETWORK fields are hidden
-    await expect(page.getByLabel(/Base URL/i)).toBeVisible();
-    await expect(page.getByLabel(/API Key/i)).toBeVisible();
-    await expect(page.getByLabel(/Host/i)).not.toBeVisible();
-    await expect(page.getByLabel(/Port/i)).not.toBeVisible();
+    await expect(page.locator("#api-base-url")).toBeVisible();
+    await expect(page.locator("#api-key")).toBeVisible();
+    await expect(page.locator("#network-host")).not.toBeVisible();
+    await expect(page.locator("#network-port")).not.toBeVisible();
 
     // WHEN: Store Manager changes to FILE connection type
-    await page.getByLabel(/Connection Type/i).click();
+    await page.locator("#connection-type").click();
     await page.getByRole("option", { name: /File/i }).click();
 
     // THEN: FILE fields are visible, API fields are hidden
-    await expect(page.getByLabel(/Import Path/i)).toBeVisible();
-    await expect(page.getByLabel(/Base URL/i)).not.toBeVisible();
-    await expect(page.getByLabel(/API Key/i)).not.toBeVisible();
+    await expect(page.locator("#file-import-path")).toBeVisible();
+    await expect(page.locator("#api-base-url")).not.toBeVisible();
+    await expect(page.locator("#api-key")).not.toBeVisible();
 
     // WHEN: Store Manager changes to MANUAL connection type
-    await page.getByLabel(/Connection Type/i).click();
+    await page.locator("#connection-type").click();
     await page.getByRole("option", { name: /Manual/i }).click();
 
     // THEN: No connection config fields are visible
-    await expect(page.getByLabel(/Host/i)).not.toBeVisible();
-    await expect(page.getByLabel(/Base URL/i)).not.toBeVisible();
-    await expect(page.getByLabel(/Import Path/i)).not.toBeVisible();
+    await expect(page.locator("#network-host")).not.toBeVisible();
+    await expect(page.locator("#api-base-url")).not.toBeVisible();
+    await expect(page.locator("#file-import-path")).not.toBeVisible();
   });
 
   /**
@@ -360,8 +353,7 @@ test.describe("Terminal Connection Configuration E2E", () => {
    * RISK: Medium - prevents invalid data from reaching backend
    * VALIDATES: Client-side validation for connection config
    */
-  // SKIPPED: RED phase test - UI not yet implemented (Story 4.82)
-  test.skip("[P1] Form validation rejects invalid connection config structures", async ({
+  test("[P1] Form validation rejects invalid connection config structures", async ({
     superadminPage,
     prismaClient,
   }) => {
@@ -377,18 +369,13 @@ test.describe("Terminal Connection Configuration E2E", () => {
       name: "Test Store",
     });
 
-    await page.route("**/api/stores/*/terminals", (route) => {
-      if (route.request().method() === "GET") {
-        route.fulfill({
-          status: 200,
-          body: JSON.stringify([]),
-        });
-      } else {
-        route.continue();
-      }
-    });
-
     await page.goto(`/stores/${store.store_id}/edit`);
+
+    // Wait for page to load
+    await expect(
+      page.getByRole("heading", { name: /Edit Store/i }),
+    ).toBeVisible();
+
     await page.getByRole("button", { name: /Add Terminal/i }).click();
 
     await expect(
@@ -396,40 +383,25 @@ test.describe("Terminal Connection Configuration E2E", () => {
     ).toBeVisible();
 
     // WHEN: Store Manager fills terminal name
-    await page.getByLabel(/Terminal Name/i).fill("Invalid Terminal");
+    await page.locator("#terminal-name").fill("Invalid Terminal");
 
     // WHEN: Store Manager selects API connection type
-    await page.getByLabel(/Connection Type/i).click();
-    await page.getByRole("option", { name: /API/i }).click();
+    await page.locator("#connection-type").click();
+    await page.getByRole("option", { name: /^API$/i }).click();
 
-    await expect(page.getByLabel(/Base URL/i)).toBeVisible();
+    await expect(page.locator("#api-base-url")).toBeVisible();
 
     // WHEN: Store Manager enters invalid URL format
-    await page.getByLabel(/Base URL/i).fill("not-a-valid-url");
-    await page.getByLabel(/API Key/i).fill("test-key");
+    await page.locator("#api-base-url").fill("not-a-valid-url");
+    // Trigger blur to show validation error
+    await page.locator("#api-key").fill("test-key");
+    await page.locator("#api-base-url").blur();
 
-    // WHEN: Store Manager tries to submit
-    await page.getByRole("button", { name: /Create Terminal/i }).click();
-
-    // THEN: Validation error should be displayed or form should not submit
-    // Note: Browser native validation or custom validation may show error
-    // Check for either validation message or that form didn't submit (no success toast)
-    const urlInput = page.getByLabel(/Base URL/i);
-    const validationMessage = await urlInput.evaluate(
-      (el: HTMLInputElement) => el.validationMessage,
-    );
-
-    // Browser validation should catch invalid URL format
-    // OR if custom validation, check for error message
-    if (validationMessage) {
-      expect(validationMessage.length).toBeGreaterThan(0);
-    } else {
-      // If no browser validation, check that success toast didn't appear immediately
-      // (form validation should prevent submission)
-      // Wait for form to remain in error state (no success message)
-      const successText = page.getByText(/Terminal created successfully/i);
-      await expect(successText).not.toBeVisible({ timeout: 5000 });
-    }
+    // THEN: Validation error should be displayed
+    // The ConnectionConfigForm shows an error message for invalid URLs
+    await expect(page.getByText(/baseUrl must be a valid URL/i)).toBeVisible({
+      timeout: 5000,
+    });
   });
 
   /**
@@ -481,8 +453,7 @@ test.describe("Terminal Connection Configuration E2E", () => {
   /**
    * Security: Input Validation - XSS Prevention
    */
-  // SKIPPED: RED phase test - UI not yet implemented (Story 4.82)
-  test.skip("[P0] Should prevent XSS in terminal name field", async ({
+  test("[P0] Should prevent XSS in terminal name field", async ({
     superadminPage,
     prismaClient,
   }) => {
@@ -498,18 +469,13 @@ test.describe("Terminal Connection Configuration E2E", () => {
       name: "Test Store",
     });
 
-    await page.route("**/api/stores/*/terminals", (route) => {
-      if (route.request().method() === "GET") {
-        route.fulfill({
-          status: 200,
-          body: JSON.stringify([]),
-        });
-      } else {
-        route.continue();
-      }
-    });
-
     await page.goto(`/stores/${store.store_id}/edit`);
+
+    // Wait for page to load
+    await expect(
+      page.getByRole("heading", { name: /Edit Store/i }),
+    ).toBeVisible();
+
     await page.getByRole("button", { name: /Add Terminal/i }).click();
 
     await expect(
@@ -517,31 +483,29 @@ test.describe("Terminal Connection Configuration E2E", () => {
     ).toBeVisible();
 
     // WHEN: Store Manager enters XSS attempt in terminal name
-    await page
-      .getByLabel(/Terminal Name/i)
-      .fill("<script>alert('XSS')</script>");
+    const xssPayload = "<script>alert('XSS')</script>";
+    await page.locator("#terminal-name").fill(xssPayload);
 
     // THEN: XSS should be prevented (either validation error or sanitized)
     // Check that script tags are not executed or are sanitized
-    const nameInput = page.getByLabel(/Terminal Name/i);
+    const nameInput = page.locator("#terminal-name");
     const value = await nameInput.inputValue();
 
-    // Value should either be sanitized or validation should prevent submission
-    // If validation passes, the value should be sanitized before being sent to API
-    expect(value).toBeDefined();
+    // Value should be stored as literal text (React escapes by default)
+    expect(value).toBe(xssPayload);
 
     // Try to submit and verify XSS is not executed
     await page.getByRole("button", { name: /Create Terminal/i }).click();
 
-    // Wait for form submission to complete (either success or validation error)
-    await Promise.race([
-      expect(page.getByText(/terminal created|successfully/i))
-        .toBeVisible({ timeout: 5000 })
-        .catch(() => null),
-      expect(page.getByText(/validation|error/i))
-        .toBeVisible({ timeout: 5000 })
-        .catch(() => null),
-    ]);
+    // THEN: Terminal should be created with the literal string
+    // React/Prisma handle XSS prevention by not executing script tags
+    await expect(
+      page.getByText(/Terminal created successfully|Success/i).first(),
+    ).toBeVisible({ timeout: 10000 });
+
+    // Verify the terminal is displayed with escaped content (no script execution)
+    // The terminal name should be displayed as text, not executed
+    await expect(page.getByText(/script/i)).toBeVisible();
 
     // No alert should have appeared (XSS prevented)
     // This is verified by the fact that the test continues without alert interruption

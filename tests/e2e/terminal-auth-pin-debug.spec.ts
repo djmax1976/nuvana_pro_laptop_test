@@ -325,10 +325,12 @@ test.describe("4.9-E2E: Terminal Authentication PIN Input Tests", () => {
     // AND: User attempts to submit
     await page.getByTestId("terminal-auth-submit-button").click();
 
-    // THEN: Validation error should be displayed
+    // THEN: Validation error should be displayed with exact message
     const pinError = page.getByTestId("pin-number-error");
     await expect(pinError).toBeVisible({ timeout: 5000 });
-    await expect(pinError).toContainText(/4.*digit/i);
+    await expect(pinError).toContainText(
+      /PIN must be exactly 4 numeric digits/i,
+    );
   });
 
   test("[P1] 4.9-PIN-005: Form should show validation error for empty PIN", async ({
@@ -365,7 +367,10 @@ test.describe("4.9-E2E: Terminal Authentication PIN Input Tests", () => {
     // THEN: Validation error for PIN should be displayed
     const pinError = page.getByTestId("pin-number-error");
     await expect(pinError).toBeVisible({ timeout: 5000 });
-    await expect(pinError).toContainText(/required|4.*digit/i);
+    // PIN number is required OR PIN must be exactly 4 numeric digits
+    await expect(pinError).toContainText(
+      /PIN number is required|PIN must be exactly 4 numeric digits/i,
+    );
   });
 
   test("[P0] 4.9-PIN-006: Cancel button should close modal and clear form", async ({
@@ -444,7 +449,10 @@ test.describe("4.9-E2E: Terminal Authentication PIN Input Tests", () => {
     // THEN: Validation error should be shown for non-numeric PIN
     const pinError = page.getByTestId("pin-number-error");
     await expect(pinError).toBeVisible({ timeout: 5000 });
-    await expect(pinError).toContainText(/4.*numeric.*digit/i);
+    // Exact validation message from implementation
+    await expect(pinError).toContainText(
+      /PIN must be exactly 4 numeric digits/i,
+    );
   });
 
   test("[P0] 4.9-PIN-008: Modal should display correct form fields in new shift mode", async ({
@@ -510,7 +518,7 @@ test.describe("4.9-E2E: Terminal Authentication PIN Input Tests", () => {
     });
   });
 
-  test("[P1] 4.9-PIN-010: PIN input should be focused when opening modal in new shift mode", async ({
+  test("[P1] 4.9-PIN-010: Cashier select should be accessible when opening modal in new shift mode", async ({
     page,
   }) => {
     // GIVEN: User is logged in
@@ -528,13 +536,18 @@ test.describe("4.9-E2E: Terminal Authentication PIN Input Tests", () => {
       timeout: 10000,
     });
 
-    // Wait for modal to fully load and form to be ready
-    await page.waitForTimeout(500);
-
-    // THEN: In new shift mode, the cashier select should be accessible
-    // (PIN is auto-focused only in resume mode per implementation)
+    // Wait for cashier select to be ready (better than arbitrary timeout)
     const cashierSelect = page.getByTestId("cashier-name-select");
     await expect(cashierSelect).toBeVisible({ timeout: 5000 });
+
+    // THEN: In new shift mode, the cashier select should be accessible
+    // Note: PIN input has autoFocus={isResumeMode}, so it's only auto-focused in resume mode
+    // In new shift mode, cashier select should be the first interactive element
     await expect(cashierSelect).toBeEnabled();
+
+    // AND: PIN input should also be visible and enabled (but not auto-focused)
+    const pinInput = page.getByTestId("pin-number-input");
+    await expect(pinInput).toBeVisible();
+    await expect(pinInput).toBeEnabled();
   });
 });

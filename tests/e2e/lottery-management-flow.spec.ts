@@ -194,6 +194,24 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
     // GIVEN: Store Manager logs in
     await loginAndWaitForMyStore(page, storeManager.email, password);
 
+    // Set up API response promises BEFORE navigation to avoid race conditions
+    const dayBinsResponsePromise = page
+      .waitForResponse(
+        (resp) =>
+          resp.url().includes("/api/lottery/bins/day/") &&
+          resp.status() === 200,
+        { timeout: 30000 },
+      )
+      .catch(() => null); // API might not fire if no bins exist, that's OK
+
+    const packsResponsePromise = page
+      .waitForResponse(
+        (resp) =>
+          resp.url().includes("/api/lottery/packs") && resp.status() === 200,
+        { timeout: 30000 },
+      )
+      .catch(() => null); // API might not fire if no packs exist, that's OK
+
     // WHEN: User navigates to lottery page
     await page.goto("/mystore/lottery");
 
@@ -204,15 +222,22 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
       timeout: 10000,
     });
 
+    // Wait for API responses to complete (deterministic waiting)
+    await dayBinsResponsePromise;
+    await packsResponsePromise;
+
+    // Wait for page to be fully loaded
+    await page.waitForLoadState("domcontentloaded");
+
     // AND: Receive Pack button is visible
     await expect(
       page.locator('[data-testid="receive-pack-button"]'),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 10000 });
 
     // AND: Activate Pack button is visible (may be disabled if no packs)
     await expect(
       page.locator('[data-testid="activate-pack-button"]'),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 10000 });
   });
 
   test("6.10-E2E-002: [P0] user can open pack reception form (AC #2)", async ({
@@ -274,6 +299,15 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
     try {
       // WHEN: Store Manager navigates to lottery page
       await loginAndWaitForMyStore(page, storeManager.email, password);
+
+      // Set up API response promise BEFORE navigation
+      const dayBinsResponsePromise = page.waitForResponse(
+        (resp) =>
+          resp.url().includes(`/api/lottery/bins/day/${store.store_id}`) &&
+          resp.status() === 200,
+        { timeout: 30000 },
+      );
+
       await page.goto("/mystore/lottery");
       await expect(
         page.locator('[data-testid="lottery-management-page"]'),
@@ -281,15 +315,33 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
         timeout: 10000,
       });
 
+      // Wait for day bins API response to complete (deterministic waiting)
+      await dayBinsResponsePromise;
+
+      // Wait for loading state to disappear if present
+      await page
+        .locator('[data-testid="day-bins-table"]')
+        .waitFor({ state: "visible", timeout: 15000 })
+        .catch(() => {
+          // Table might already be visible, continue
+        });
+
       // THEN: Day bins table is displayed (not empty state)
       await expect(page.locator('[data-testid="day-bins-table"]')).toBeVisible({
         timeout: 10000,
       });
 
       // AND: The bin row shows the pack number
-      await expect(
-        page.locator('[data-testid="day-bins-table"]'),
-      ).toContainText(pack.pack_number);
+      // Use a more specific selector to find the pack number in the table
+      const table = page.locator('[data-testid="day-bins-table"]');
+      await expect(table).toContainText(pack.pack_number, { timeout: 10000 });
+
+      // Additional verification: Check that the pack number appears in a table cell
+      // The pack number should be in a TableCell with font-mono class
+      const packNumberCell = table.locator(
+        `.font-mono:has-text("${pack.pack_number}")`,
+      );
+      await expect(packNumberCell).toBeVisible({ timeout: 5000 });
     } finally {
       // Cleanup - delete pack first (references bin), then bin
       await prisma.lotteryPack
@@ -317,6 +369,22 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
     try {
       // WHEN: Store Manager navigates to lottery page
       await loginAndWaitForMyStore(page, storeManager.email, password);
+
+      // Set up API response promise BEFORE navigation to avoid race conditions
+      // The packs API uses query parameters: /api/lottery/packs?store_id=...
+      const packsResponsePromise = page.waitForResponse(
+        (resp) => {
+          const url = resp.url();
+          return (
+            url.includes("/api/lottery/packs") &&
+            (url.includes(store.store_id) ||
+              url.includes(encodeURIComponent(store.store_id))) &&
+            resp.status() === 200
+          );
+        },
+        { timeout: 30000 },
+      );
+
       await page.goto("/mystore/lottery");
       await expect(
         page.locator('[data-testid="lottery-management-page"]'),
@@ -324,18 +392,18 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
         timeout: 10000,
       });
 
+      // Wait for packs API response to complete (deterministic waiting)
+      await packsResponsePromise;
+
       // Wait for the activate button to be visible
       const activateButton = page.locator(
         '[data-testid="activate-pack-button"]',
       );
       await expect(activateButton).toBeVisible({ timeout: 10000 });
 
-      // Wait for data to load - button should become enabled when packs are loaded
-      // The button is disabled when receivedPacks.length === 0
-      await page.waitForTimeout(2000); // Allow time for API call to complete
-
       // THEN: Activate Pack button should be enabled (we have a RECEIVED pack)
-      await expect(activateButton).toBeEnabled({ timeout: 10000 });
+      // Wait for button to become enabled - this happens after packs data loads
+      await expect(activateButton).toBeEnabled({ timeout: 15000 });
 
       // WHEN: User clicks Activate Pack button
       await activateButton.click();
@@ -348,12 +416,25 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
       // AND: Submit button is visible
       await expect(
         page.locator('[data-testid="submit-pack-activation"]'),
-      ).toBeVisible();
+      ).toBeVisible({ timeout: 5000 });
 
       // AND: The pack select dropdown should contain our RECEIVED pack
       // Open the select dropdown to verify pack is listed
-      await page.click('[data-testid="pack-select"]');
-      await expect(page.getByText(pack.pack_number)).toBeVisible({
+      const packSelect = page.locator('[data-testid="pack-select"]');
+      await packSelect.click();
+
+      // Wait for the dropdown content to be visible (SelectContent appears after trigger click)
+      // Use a more reliable approach: wait for the pack option to appear
+      const packOption = page.locator(
+        `[data-testid="pack-option-${pack.pack_id}"]`,
+      );
+      await expect(packOption).toBeVisible({ timeout: 5000 });
+
+      // Verify the pack number appears in the dropdown options
+      // The pack number is displayed as "pack_number - game_name (serial_start - serial_end)"
+      await expect(
+        page.getByText(pack.pack_number, { exact: false }),
+      ).toBeVisible({
         timeout: 5000,
       });
     } finally {

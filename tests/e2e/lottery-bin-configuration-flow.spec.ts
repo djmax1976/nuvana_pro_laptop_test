@@ -22,58 +22,65 @@ import { createLotteryGame } from "../support/factories/lottery.factory";
 
 /**
  * Helper function to perform login and wait for redirect.
- * Uses network-first pattern for reliability in CI/CD environments.
- * Follows the proven pattern from client-dashboard-flow.spec.ts.
+ * Uses simplified, reliable pattern for CI/CD environments.
+ * Follows the proven pattern from lottery-management-flow.spec.ts.
  */
 async function loginAsClientOwner(
   page: Page,
   email: string,
   password: string,
 ): Promise<void> {
-  // Network-first pattern: Intercept API calls BEFORE navigation
-  const loginResponsePromise = page.waitForResponse(
-    (resp) =>
-      (resp.url().includes("/api/auth/login") ||
-        resp.url().includes("/api/auth/client-login") ||
-        resp.url().includes("/api/client/auth/login")) &&
-      resp.request().method() === "POST",
-    { timeout: 30000 },
-  );
+  // Navigate to login page and wait for it to load
+  await page.goto("/login", { waitUntil: "domcontentloaded" });
 
-  // Navigate to login page and wait for hydration/network to settle
-  await page.goto("/login", { waitUntil: "networkidle" });
-
-  // Wait for login form to be visible and ready for input
+  // Wait for login form to be visible and editable
   const emailInput = page.locator('input[type="email"]');
   const passwordInput = page.locator('input[type="password"]');
+  const submitButton = page.locator('button[type="submit"]');
 
   await expect(emailInput).toBeVisible({ timeout: 15000 });
   await expect(emailInput).toBeEditable({ timeout: 10000 });
 
-  // Fill credentials directly to avoid partial input or autofill interference
+  // Wait for React hydration to complete
+  await page.waitForLoadState("load").catch(() => {});
+
+  // Fill credentials using Playwright's fill() which properly triggers React onChange
+  await emailInput.click();
   await emailInput.fill(email);
+
+  await passwordInput.click();
   await passwordInput.fill(password);
 
+  // Verify fields were filled correctly
   await expect(emailInput).toHaveValue(email, { timeout: 5000 });
   await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
 
-  // Click submit and wait for navigation to /client-dashboard
-  await Promise.all([
-    page.waitForURL(/.*client-dashboard.*/, {
-      timeout: 30000,
-      waitUntil: "domcontentloaded",
-    }),
-    page.click('button[type="submit"]'),
-  ]);
+  // Set up response promise to capture login response
+  const loginResponsePromise = page.waitForResponse(
+    (resp) => resp.url().includes("/api/auth/login"),
+    { timeout: 30000 },
+  );
 
-  // Wait for login API response (deterministic)
+  // Click submit button
+  await submitButton.click();
+
+  // Wait for login API response
   const loginResponse = await loginResponsePromise;
-  expect(loginResponse.status()).toBe(200);
+  const responseStatus = loginResponse.status();
+
+  // Check if login was successful
+  if (responseStatus !== 200) {
+    const responseBody = await loginResponse.json().catch(() => ({}));
+    throw new Error(
+      `Login failed with status ${responseStatus}: ${responseBody.message || responseBody.error?.message || "Unknown error"}`,
+    );
+  }
+
+  // Wait for navigation to /client-dashboard
+  await page.waitForURL(/.*client-dashboard.*/, { timeout: 30000 });
 
   // Wait for page to be fully loaded
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
-    // networkidle might timeout if there are long-polling requests, that's OK
-  });
+  await page.waitForLoadState("domcontentloaded");
 }
 
 /**
@@ -381,6 +388,13 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     // GIVEN: I am authenticated as a Client Owner
     await loginAsClientOwner(page, clientOwner.email, password);
 
+    // Track any unexpected JavaScript execution via dialogs (e.g., alert())
+    let dialogTriggered = false;
+    page.on("dialog", async (dialog) => {
+      dialogTriggered = true;
+      await dialog.dismiss().catch(() => {});
+    });
+
     // WHEN: I navigate to bin configuration page
     await page.goto("/client-dashboard/settings/lottery-bins", {
       waitUntil: "domcontentloaded",
@@ -420,10 +434,8 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     const inputValue = await nameInput.inputValue();
     expect(inputValue).toBe(xssPayload);
 
-    // Verify that the value is properly escaped in the DOM
-    // The text should be visible as literal text, not parsed as HTML
-    const inputHtml = await nameInput.evaluate((el) => el.outerHTML);
-    expect(inputHtml).not.toContain("<script>");
+    // Ensure no dialog was triggered by any script execution
+    expect(dialogTriggered).toBe(false);
   });
 
   // ---------------------------------------------------------------------------
@@ -666,14 +678,23 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     const firstBinNameBefore = await page
       .locator('[data-testid="bin-name-input-0"]')
       .inputValue();
+    const secondBinNameBefore = await page
+      .locator('[data-testid="bin-name-input-1"]')
+      .inputValue();
 
     // WHEN: I click move down on the first bin
     const moveDownButton = page.locator('[data-testid="bin-move-down-0"]');
     await moveDownButton.click();
 
     // THEN: The bins are swapped
-    // Wait for the DOM to update
-    await page.waitForTimeout(500);
+    await expect(page.locator('[data-testid="bin-name-input-0"]')).toHaveValue(
+      secondBinNameBefore,
+      { timeout: 5000 },
+    );
+    await expect(page.locator('[data-testid="bin-name-input-1"]')).toHaveValue(
+      firstBinNameBefore,
+      { timeout: 5000 },
+    );
 
     const firstBinNameAfter = await page
       .locator('[data-testid="bin-name-input-0"]')

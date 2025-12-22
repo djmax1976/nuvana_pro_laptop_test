@@ -351,28 +351,26 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
           .waitFor({ state: "visible", timeout: 15000 }),
       ]);
 
-      // Check if table is visible
-      const tableVisible = await page
-        .locator('[data-testid="lottery-table"]')
-        .isVisible();
+      // Wait for table to be visible (we created packs, so table should show)
+      await expect(page.locator('[data-testid="lottery-table"]')).toBeVisible({
+        timeout: 15000,
+      });
 
-      if (tableVisible) {
-        // THEN: Table displays game summaries (grouped by game_id)
-        await expect(
-          page.locator(`[data-testid="lottery-table-row-${game.game_id}"]`),
-        ).toBeVisible({ timeout: 10000 });
+      // THEN: Table displays game summaries (grouped by game_id)
+      await expect(
+        page.locator(`[data-testid="lottery-table-row-${game.game_id}"]`),
+      ).toBeVisible({ timeout: 10000 });
 
-        // AND: Table shows correct columns (new column structure)
-        const tableHeader = page.locator("table thead");
-        await expect(tableHeader.getByText("Game Name")).toBeVisible();
-        await expect(tableHeader.getByText("Game Number")).toBeVisible();
-        await expect(tableHeader.getByText("Dollar Value")).toBeVisible();
-        await expect(tableHeader.getByText("Pack Count")).toBeVisible();
-        await expect(tableHeader.getByText("Status")).toBeVisible();
+      // AND: Table shows correct columns (new column structure)
+      const tableHeader = page.locator("table thead");
+      await expect(tableHeader.getByText("Game Name")).toBeVisible();
+      await expect(tableHeader.getByText("Game Number")).toBeVisible();
+      await expect(tableHeader.getByText("Dollar Value")).toBeVisible();
+      await expect(tableHeader.getByText("Pack Count")).toBeVisible();
+      await expect(tableHeader.getByText("Status")).toBeVisible();
 
-        // Verify the game name is displayed
-        await expect(page.getByText("Integration Test Game")).toBeVisible();
-      }
+      // Verify the game name is displayed
+      await expect(page.getByText("Integration Test Game")).toBeVisible();
     } finally {
       // Cleanup
       await prisma.lotteryPack
@@ -407,9 +405,11 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     );
     if (await store2Tab.isVisible()) {
       await store2Tab.click();
+      // Wait for store selection to take effect
+      await page.waitForTimeout(500);
     }
 
-    // Wait for empty state or table
+    // Wait for empty state or table (store 2 has no packs, so should show empty state)
     await Promise.race([
       page
         .locator('[data-testid="lottery-table-empty"]')
@@ -421,10 +421,10 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
     // THEN: Empty state message is displayed (for store with no packs)
     const emptyState = page.locator('[data-testid="lottery-table-empty"]');
-    if (await emptyState.isVisible()) {
-      // The empty state message mentions "lottery inventory"
-      await expect(emptyState).toContainText(/No lottery inventory/i);
-    }
+    // Store 2 has no packs, so empty state should be visible
+    await expect(emptyState).toBeVisible({ timeout: 10000 });
+    // The empty state message mentions "lottery inventory"
+    await expect(emptyState).toContainText(/No lottery inventory/i);
 
     // AND: Add button is still available
     await expect(
@@ -547,6 +547,23 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     );
     // Loading spinner should not be visible after page loads
     await expect(loadingSpinner).not.toBeVisible({ timeout: 5000 });
+
+    // AND: Verify that some content is actually displayed (not stuck in loading)
+    const hasContent = await Promise.race([
+      page
+        .locator('[data-testid="lottery-table"]')
+        .isVisible()
+        .then((v) => v),
+      page
+        .locator('[data-testid="lottery-table-empty"]')
+        .isVisible()
+        .then((v) => v),
+      page
+        .locator('[data-testid="lottery-table-error"]')
+        .isVisible()
+        .then((v) => v),
+    ]);
+    expect(hasContent).toBe(true);
   });
 
   test("6.10.1-UI-007: [P1] RLS enforcement - user only sees their stores (AC #7)", async ({
@@ -777,14 +794,23 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     const store1Tab = page.locator(
       `[data-testid="store-tab-${store1.store_id}"]`,
     );
+    await store1Tab.waitFor({ state: "visible", timeout: 10000 });
     await store1Tab.focus();
+
+    // Verify first tab is focused
+    await expect(store1Tab).toBeFocused({ timeout: 2000 });
 
     // WHEN: Pressing ArrowRight key
     await page.keyboard.press("ArrowRight");
 
-    // THEN: Focus moves to next tab (store 2)
-    await expect(
-      page.locator(`[data-testid="store-tab-${store2.store_id}"]`),
-    ).toBeFocused({ timeout: 3000 });
+    // THEN: Focus moves to next tab (store 2) and it becomes selected
+    const store2Tab = page.locator(
+      `[data-testid="store-tab-${store2.store_id}"]`,
+    );
+    await expect(store2Tab).toBeFocused({ timeout: 3000 });
+    // Verify the tab is also selected (aria-selected should be true)
+    await expect(store2Tab).toHaveAttribute("aria-selected", "true", {
+      timeout: 2000,
+    });
   });
 });

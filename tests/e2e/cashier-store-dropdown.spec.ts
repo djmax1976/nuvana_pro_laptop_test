@@ -163,12 +163,14 @@ async function navigateToCashiersAndOpenDialog(page: Page): Promise<void> {
  * The form shows a loading spinner while isLoadingStores is true
  * @param page - Playwright page object
  * @param expectedStoreId - Expected store ID to be auto-selected
+ * @param expectedStoreName - Expected store name to be displayed
  */
 async function waitForStoresLoaded(
   page: Page,
   expectedStoreId?: string,
+  expectedStoreName?: string,
 ): Promise<void> {
-  // Wait for the store dropdown to be visible
+  // Wait for the store dropdown to be visible (form has loaded)
   await page
     .locator('[data-testid="cashier-store"]')
     .waitFor({ state: "visible", timeout: 15000 });
@@ -178,33 +180,37 @@ async function waitForStoresLoaded(
     // networkidle might timeout, continue with selector-based waiting
   });
 
-  // Wait for the form to initialize (hidden select should have a value)
-  // The Select component creates a hidden native select for form submission
+  // Wait for the form to initialize and store to be auto-selected
+  // We check both the visible text (store name) and the hidden select value
   await page.waitForFunction(
-    (storeId) => {
-      // Find the store field container and look for the hidden select within it
+    ({ storeId, storeName }) => {
+      // Find the store field container
       const storeField = document.querySelector(
         '[data-testid="cashier-store"]',
       );
       if (!storeField) return false;
 
-      // The hidden select is a sibling element inside the Select component
-      const selectContainer = storeField.closest("[data-radix-select-trigger]");
-      if (!selectContainer) {
-        // Fallback: look for any hidden select with a value
-        const hiddenSelect = document.querySelector(
-          'select[aria-hidden="true"]',
-        ) as HTMLSelectElement | null;
-        if (hiddenSelect && hiddenSelect.value) {
-          return storeId ? hiddenSelect.value === storeId : true;
-        }
-      }
-
-      // Check if the trigger shows a value (not placeholder)
+      // Check if the trigger shows the store name (not placeholder)
       const triggerText = storeField.textContent || "";
-      return !triggerText.includes("Select a store") && triggerText.length > 0;
+      const hasStoreName =
+        storeName && triggerText.includes(storeName) && triggerText.length > 0;
+      const hasNoPlaceholder = !triggerText.includes("Select a store");
+
+      // Also verify the hidden select has the correct value
+      // Radix UI Select creates a hidden native select for form submission
+      const hiddenSelect = document.querySelector(
+        'select[aria-hidden="true"]',
+      ) as HTMLSelectElement | null;
+
+      const hasCorrectValue =
+        !storeId || (hiddenSelect?.value === storeId && hiddenSelect.value);
+
+      // Both conditions must be true: visible text shows store name AND hidden select has value
+      return (
+        (hasStoreName || hasNoPlaceholder) && (hasCorrectValue || !hiddenSelect) // hidden select might not exist yet
+      );
     },
-    expectedStoreId,
+    { storeId: expectedStoreId, storeName: expectedStoreName },
     { timeout: 10000 },
   );
 }
@@ -346,7 +352,7 @@ test.describe("Cashier Store Dropdown", () => {
     await navigateToCashiersAndOpenDialog(page);
 
     // Step 3: Wait for stores to load in the form
-    await waitForStoresLoaded(page, testStore.store_id);
+    await waitForStoresLoaded(page, testStore.store_id, testStore.name);
 
     // Step 4: Verify store dropdown behavior
     const storeDropdown = page.locator('[data-testid="cashier-store"]');
@@ -362,6 +368,7 @@ test.describe("Cashier Store Dropdown", () => {
     await expect(storeDropdown).not.toContainText("Select a store");
 
     // Verify the underlying form has the correct store_id value
+    // Radix UI Select creates a hidden native select for form submission
     const hiddenSelectValue = await page.evaluate(() => {
       const hiddenSelect = document.querySelector(
         'select[aria-hidden="true"]',
@@ -381,7 +388,7 @@ test.describe("Cashier Store Dropdown", () => {
     await navigateToCashiersAndOpenDialog(page);
 
     // Step 3: Wait for stores to load in the form
-    await waitForStoresLoaded(page, testStore.store_id);
+    await waitForStoresLoaded(page, testStore.store_id, testStore.name);
 
     // Step 4: Verify store is auto-selected before filling other fields
     const storeDropdown = page.locator('[data-testid="cashier-store"]');
@@ -411,23 +418,55 @@ test.describe("Cashier Store Dropdown", () => {
     });
     expect(hiddenSelectValue).toBe(testStore.store_id);
 
-    // Step 6: Submit the form
-    const createButton = page.locator('[data-testid="submit-cashier"]');
-    await createButton.waitFor({ state: "visible", timeout: 10000 });
-
-    // Set up promise to wait for dialog closure BEFORE clicking (order matters)
+    // Step 6: Set up promises to wait for success indicators BEFORE clicking
     // The form calls onSuccess() which closes the dialog after successful creation
     const dialogClosePromise = page
       .locator('[data-testid="cashier-name"]')
       .waitFor({ state: "hidden", timeout: 20000 });
 
+    // Wait for toast notification (title "Cashier created")
+    const toastPromise = page
+      .waitForSelector("text=Cashier created", {
+        state: "visible",
+        timeout: 10000,
+      })
+      .catch(() => null); // Toast might disappear quickly, don't fail if not found
+
+    // Wait for the API response to verify creation was successful
+    const createResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/stores/${testStore.store_id}/cashiers`) &&
+        response.request().method() === "POST" &&
+        response.status() === 201,
+      { timeout: 15000 },
+    );
+
+    // Step 7: Submit the form
+    const createButton = page.locator('[data-testid="submit-cashier"]');
+    await createButton.waitFor({ state: "visible", timeout: 10000 });
     await createButton.click();
 
-    // Step 7: Wait for success indicators
-    // Primary: Dialog closes (onSuccess() is called after API success)
-    // Secondary: Toast notification appears
+    // Step 8: Wait for success indicators
+    // Primary: API response with 201 status
+    const createResponse = await createResponsePromise;
+    const responseBody = await createResponse.json();
+    expect(responseBody.success).toBe(true);
+    expect(responseBody.data).toHaveProperty("cashier_id");
+    expect(responseBody.data.name).toBe(cashierName);
+    expect(responseBody.data.store_id).toBe(testStore.store_id);
+
+    // Track the created cashier ID for cleanup
+    if (responseBody.data.cashier_id) {
+      createdCashierIds.push(responseBody.data.cashier_id);
+    }
+
+    // Secondary: Dialog closes (onSuccess() is called after API success)
     await dialogClosePromise;
 
+    // Tertiary: Toast notification (may have already disappeared)
+    await toastPromise;
+
+    // Step 9: Verify success state
     // Verify dialog is closed (primary success indicator)
     await expect(page.locator('[data-testid="cashier-name"]')).toBeHidden();
 
@@ -440,9 +479,21 @@ test.describe("Cashier Store Dropdown", () => {
     // Verify the page header is visible (indicates page is in valid state)
     await expect(page.locator("text=Cashiers").first()).toBeVisible();
 
-    // Track the created cashier for cleanup
-    // Note: We can't easily get the ID without querying the database,
-    // so we rely on the afterAll cleanup to delete all cashiers in the test store
+    // Step 10: Verify cashier was actually created in the database
+    const createdCashier = await prisma.cashier.findUnique({
+      where: { cashier_id: responseBody.data.cashier_id },
+      select: {
+        cashier_id: true,
+        name: true,
+        store_id: true,
+        employee_id: true,
+        is_active: true,
+      },
+    });
+    expect(createdCashier).not.toBeNull();
+    expect(createdCashier?.name).toBe(cashierName);
+    expect(createdCashier?.store_id).toBe(testStore.store_id);
+    expect(createdCashier?.is_active).toBe(true);
   });
 
   test("should not show store validation error when store is auto-selected", async ({
@@ -458,7 +509,7 @@ test.describe("Cashier Store Dropdown", () => {
     await navigateToCashiersAndOpenDialog(page);
 
     // Step 3: Wait for stores to load
-    await waitForStoresLoaded(page, testStore.store_id);
+    await waitForStoresLoaded(page, testStore.store_id, testStore.name);
 
     // Step 4: Fill only required fields (name and pin)
     const nameInput = page.locator('[data-testid="cashier-name"]');
