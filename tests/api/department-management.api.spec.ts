@@ -716,4 +716,366 @@ test.describe("Phase1.2-API: Department Management - CRUD Operations", () => {
     const body = await response.json();
     expect(body.success).toBe(true);
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HIERARCHY & PARENT-CHILD TESTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  test("1.2-API-070: [P1] POST /api/config/departments - should create child department with parent_id", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: I create a parent department first
+    const parentResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "PARENT_DEPT",
+        display_name: "Parent Department",
+        is_taxable: true,
+      },
+    );
+    expect(parentResponse.status()).toBe(201);
+    const parent = await parentResponse.json();
+    const parentId = parent.data.department_id;
+
+    // WHEN: Creating a child department
+    const childResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "CHILD_DEPT",
+        display_name: "Child Department",
+        is_taxable: true,
+        parent_id: parentId,
+      },
+    );
+
+    // THEN: Child is created with correct level
+    expect(childResponse.status()).toBe(201);
+    const child = await childResponse.json();
+    expect(child.data.parent_id).toBe(parentId);
+    expect(child.data.level, "Child should have level 2").toBe(2);
+  });
+
+  test("1.2-API-071: [P1] PATCH /api/config/departments/:id - should prevent circular hierarchy", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: I create a parent and child department
+    const parentResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "CIRCULAR_PARENT",
+        display_name: "Circular Parent",
+        is_taxable: true,
+      },
+    );
+    expect(parentResponse.status()).toBe(201);
+    const parent = await parentResponse.json();
+    const parentId = parent.data.department_id;
+
+    const childResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "CIRCULAR_CHILD",
+        display_name: "Circular Child",
+        is_taxable: true,
+        parent_id: parentId,
+      },
+    );
+    expect(childResponse.status()).toBe(201);
+    const child = await childResponse.json();
+    const childId = child.data.department_id;
+
+    // WHEN: Attempting to set parent's parent_id to child (creating a cycle)
+    const response = await clientUserApiRequest.patch(
+      `/api/config/departments/${parentId}`,
+      {
+        parent_id: childId,
+      },
+    );
+
+    // THEN: Returns 400 with circular hierarchy error
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("CIRCULAR_HIERARCHY");
+  });
+
+  test("1.2-API-072: [P1] PATCH /api/config/departments/:id - should prevent self-referencing parent", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: I create a department
+    const createResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "SELF_REF_DEPT",
+        display_name: "Self Reference Test",
+        is_taxable: true,
+      },
+    );
+    expect(createResponse.status()).toBe(201);
+    const created = await createResponse.json();
+    const deptId = created.data.department_id;
+
+    // WHEN: Attempting to set parent_id to itself
+    const response = await clientUserApiRequest.patch(
+      `/api/config/departments/${deptId}`,
+      {
+        parent_id: deptId,
+      },
+    );
+
+    // THEN: Returns 400 with circular hierarchy error
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("CIRCULAR_HIERARCHY");
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // QUERY PARAMETER TESTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  test("1.2-API-080: [P2] GET /api/config/departments - should filter by include_system=false", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: I create a client-specific department
+    const createResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "CLIENT_ONLY_DEPT",
+        display_name: "Client Only",
+        is_taxable: true,
+      },
+    );
+    expect(createResponse.status()).toBe(201);
+    const created = await createResponse.json();
+
+    // WHEN: Fetching with include_system=false
+    const response = await clientUserApiRequest.get(
+      "/api/config/departments?include_system=false",
+    );
+
+    // THEN: Only client-specific departments are returned
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+
+    // All returned departments should not be system departments
+    for (const dept of body.data) {
+      expect(dept.is_system, `${dept.code} should not be system`).toBe(false);
+    }
+
+    // Our created department should be in the list
+    const found = body.data.find(
+      (d: { department_id: string }) =>
+        d.department_id === created.data.department_id,
+    );
+    expect(found, "Client department should be in list").toBeDefined();
+  });
+
+  test("1.2-API-081: [P2] GET /api/config/departments - should include children when include_children=true", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: A parent department with children exists (or we create one)
+    const parentResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "INCLUDE_PARENT",
+        display_name: "Include Parent",
+        is_taxable: true,
+      },
+    );
+    expect(parentResponse.status()).toBe(201);
+    const parent = await parentResponse.json();
+    const parentId = parent.data.department_id;
+
+    // Create a child
+    const childResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "INCLUDE_CHILD",
+        display_name: "Include Child",
+        is_taxable: true,
+        parent_id: parentId,
+      },
+    );
+    expect(childResponse.status()).toBe(201);
+
+    // WHEN: Fetching with include_children=true
+    const response = await clientUserApiRequest.get(
+      "/api/config/departments?include_children=true",
+    );
+
+    // THEN: Parent departments include children array
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+
+    const parentDept = body.data.find(
+      (d: { department_id: string }) => d.department_id === parentId,
+    );
+    expect(parentDept, "Parent should be in list").toBeDefined();
+    expect(
+      Array.isArray(parentDept.children),
+      "Parent should have children array",
+    ).toBe(true);
+    expect(
+      parentDept.children.length,
+      "Parent should have at least one child",
+    ).toBeGreaterThan(0);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EDGE CASE & VALIDATION TESTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  test("1.2-API-090: [P2] POST /api/config/departments - should normalize code to uppercase", async ({
+    clientUserApiRequest,
+  }) => {
+    // Note: The schema requires uppercase, so we test that valid uppercase works
+    // GIVEN: Department with uppercase code
+    const deptData = {
+      code: "UPPERCASE_TEST",
+      display_name: "Uppercase Test",
+      is_taxable: true,
+    };
+
+    // WHEN: Creating department
+    const response = await clientUserApiRequest.post(
+      "/api/config/departments",
+      deptData,
+    );
+
+    // THEN: Created successfully with uppercase code
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.data.code).toBe("UPPERCASE_TEST");
+  });
+
+  test("1.2-API-091: [P2] POST /api/config/departments - should reject code that starts with number", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: Code starting with a number
+    const invalidData = {
+      code: "1INVALID",
+      display_name: "Invalid Start",
+      is_taxable: true,
+    };
+
+    // WHEN: Creating with invalid code
+    const response = await clientUserApiRequest.post(
+      "/api/config/departments",
+      invalidData,
+    );
+
+    // THEN: Returns 400 validation error
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  test("1.2-API-092: [P2] POST /api/config/departments - should accept valid optional fields", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: Department with all optional fields
+    const deptData = {
+      code: "FULL_DEPT",
+      display_name: "Full Department",
+      description: "A department with all fields",
+      is_taxable: false,
+      minimum_age: 18,
+      requires_id_scan: true,
+      is_lottery: false,
+      sort_order: 50,
+      icon_name: "shopping-cart",
+      color_code: "#FF5733",
+    };
+
+    // WHEN: Creating department
+    const response = await clientUserApiRequest.post(
+      "/api/config/departments",
+      deptData,
+    );
+
+    // THEN: All fields are saved correctly
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.data.description).toBe("A department with all fields");
+    expect(body.data.is_taxable).toBe(false);
+    expect(body.data.minimum_age).toBe(18);
+    expect(body.data.requires_id_scan).toBe(true);
+    expect(body.data.is_lottery).toBe(false);
+    expect(body.data.sort_order).toBe(50);
+    expect(body.data.icon_name).toBe("shopping-cart");
+    expect(body.data.color_code).toBe("#FF5733");
+  });
+
+  test("1.2-API-093: [P2] PATCH /api/config/departments/:id - should clear nullable fields with null", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: I create a department with description
+    const createResponse = await clientUserApiRequest.post(
+      "/api/config/departments",
+      {
+        code: "CLEAR_FIELDS_DEPT",
+        display_name: "Clear Fields Test",
+        description: "Initial description",
+        is_taxable: true,
+        minimum_age: 21,
+      },
+    );
+    expect(createResponse.status()).toBe(201);
+    const created = await createResponse.json();
+    const deptId = created.data.department_id;
+
+    // WHEN: Updating with null to clear fields
+    const updateResponse = await clientUserApiRequest.patch(
+      `/api/config/departments/${deptId}`,
+      {
+        description: null,
+        minimum_age: null,
+      },
+    );
+
+    // THEN: Fields are cleared
+    expect(updateResponse.status()).toBe(200);
+    const body = await updateResponse.json();
+    expect(body.data.description).toBeNull();
+    expect(body.data.minimum_age).toBeNull();
+  });
+
+  test("1.2-API-094: [P2] DELETE /api/config/departments/:id - should return 400 for invalid UUID", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: An invalid UUID format
+    const invalidId = "invalid-uuid-format";
+
+    // WHEN: Attempting to delete with invalid ID
+    const response = await clientUserApiRequest.delete(
+      `/api/config/departments/${invalidId}`,
+    );
+
+    // THEN: Returns 400 validation error
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  test("1.2-API-095: [P2] PATCH /api/config/departments/:id - should return 400 for invalid UUID", async ({
+    clientUserApiRequest,
+  }) => {
+    // GIVEN: An invalid UUID format
+    const invalidId = "invalid-uuid-format";
+
+    // WHEN: Attempting to update with invalid ID
+    const response = await clientUserApiRequest.patch(
+      `/api/config/departments/${invalidId}`,
+      { display_name: "Test" },
+    );
+
+    // THEN: Returns 400 validation error
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
 });

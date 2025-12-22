@@ -476,7 +476,7 @@ test.describe("Phase2-API: Scheduled Exports - Get", () => {
     expect(body.error.code).toBe("NOT_FOUND");
   });
 
-  test("SCHED-API-022: [P0] GET /api/stores/:storeId/naxml/schedules/:scheduleId - should return 403 for schedule from different store", async ({
+  test("SCHED-API-022: [P0] GET /api/stores/:storeId/naxml/schedules/:scheduleId - should return 404 for schedule from different store", async ({
     clientUserApiRequest,
     storeManagerApiRequest,
     clientUser,
@@ -500,8 +500,8 @@ test.describe("Phase2-API: Scheduled Exports - Get", () => {
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
     );
 
-    // THEN: Returns 403 (forbidden - schedule belongs to different store)
-    expect(response.status()).toBe(403);
+    // THEN: Returns 404 (not found - schedule belongs to different store)
+    expect(response.status()).toBe(404);
     const body = await response.json();
     expect(body.success).toBe(false);
   });
@@ -583,7 +583,7 @@ test.describe("Phase2-API: Scheduled Exports - Update", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
-  test("SCHED-API-032: [P0] PATCH /api/stores/:storeId/naxml/schedules/:scheduleId - should return 403 for schedule from different store", async ({
+  test("SCHED-API-032: [P0] PATCH /api/stores/:storeId/naxml/schedules/:scheduleId - should return 404 for schedule from different store", async ({
     clientUserApiRequest,
     storeManagerApiRequest,
     clientUser,
@@ -610,8 +610,8 @@ test.describe("Phase2-API: Scheduled Exports - Update", () => {
       },
     );
 
-    // THEN: Returns 403 (forbidden - schedule belongs to different store)
-    expect(response.status()).toBe(403);
+    // THEN: Returns 404 (not found - schedule belongs to different store)
+    expect(response.status()).toBe(404);
     const body = await response.json();
     expect(body.success).toBe(false);
   });
@@ -706,7 +706,7 @@ test.describe("Phase2-API: Scheduled Exports - Delete", () => {
     expect(response.status()).toBe(404);
   });
 
-  test("SCHED-API-042: [P0] DELETE /api/stores/:storeId/naxml/schedules/:scheduleId - should return 403 for schedule from different store", async ({
+  test("SCHED-API-042: [P0] DELETE /api/stores/:storeId/naxml/schedules/:scheduleId - should return 404 for schedule from different store", async ({
     clientUserApiRequest,
     storeManagerApiRequest,
     clientUser,
@@ -730,8 +730,8 @@ test.describe("Phase2-API: Scheduled Exports - Delete", () => {
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
     );
 
-    // THEN: Returns 403 (forbidden - schedule belongs to different store)
-    expect(response.status()).toBe(403);
+    // THEN: Returns 404 (not found - schedule belongs to different store)
+    expect(response.status()).toBe(404);
 
     // Verify original schedule still exists
     const getResponse = await clientUserApiRequest.get(
@@ -981,54 +981,54 @@ test.describe("Phase2-API: Scheduled Exports - Security", () => {
     const created = await createResponse.json();
     createdScheduleIds.push(created.data.scheduleId);
 
-    // WHEN/THEN: All operations from other store should fail with 403 (forbidden)
-    // Note: 403 is more secure than 404 as it prevents schedule enumeration attacks
+    // WHEN/THEN: All operations from other store should fail with 404 (not found)
+    // Note: 404 avoids schedule enumeration across stores
 
     // GET
     const getResponse = await storeManagerApiRequest.get(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
     );
-    expect(getResponse.status(), "GET should return 403").toBe(403);
+    expect(getResponse.status(), "GET should return 404").toBe(404);
 
     // PATCH
     const patchResponse = await storeManagerApiRequest.patch(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
       { export_name: "Hacked" },
     );
-    expect(patchResponse.status(), "PATCH should return 403").toBe(403);
+    expect(patchResponse.status(), "PATCH should return 404").toBe(404);
 
     // DELETE
     const deleteResponse = await storeManagerApiRequest.delete(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
     );
-    expect(deleteResponse.status(), "DELETE should return 403").toBe(403);
+    expect(deleteResponse.status(), "DELETE should return 404").toBe(404);
 
     // EXECUTE
     const executeResponse = await storeManagerApiRequest.post(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}/execute`,
       {},
     );
-    expect(executeResponse.status(), "EXECUTE should return 403").toBe(403);
+    expect(executeResponse.status(), "EXECUTE should return 404").toBe(404);
 
     // PAUSE
     const pauseResponse = await storeManagerApiRequest.post(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}/pause`,
       {},
     );
-    expect(pauseResponse.status(), "PAUSE should return 403").toBe(403);
+    expect(pauseResponse.status(), "PAUSE should return 404").toBe(404);
 
     // RESUME
     const resumeResponse = await storeManagerApiRequest.post(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}/resume`,
       {},
     );
-    expect(resumeResponse.status(), "RESUME should return 403").toBe(403);
+    expect(resumeResponse.status(), "RESUME should return 404").toBe(404);
 
     // HISTORY
     const historyResponse = await storeManagerApiRequest.get(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}/history`,
     );
-    expect(historyResponse.status(), "HISTORY should return 403").toBe(403);
+    expect(historyResponse.status(), "HISTORY should return 404").toBe(404);
   });
 
   test("SCHED-SEC-003: [P0] Unauthenticated access should be blocked for all operations", async ({
