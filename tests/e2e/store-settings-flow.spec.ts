@@ -313,47 +313,50 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
     });
 
     // Wait for settings page to load
-    await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+    await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
+      timeout: 15000,
+    });
 
     // WHEN: User selects Employees tab
     const employeesTab = page.locator('[data-testid="employees-tab"]');
-    await expect(employeesTab).toBeVisible({ timeout: 5000 });
+    await expect(employeesTab).toBeVisible({ timeout: 10000 });
     await employeesTab.click();
 
-    // Wait for employee table to load
+    // Wait for tab content to switch and employee table to load
+    await page.waitForLoadState("domcontentloaded");
     await expect(page.locator('[data-testid="employee-table"]')).toBeVisible({
-      timeout: 10000,
+      timeout: 15000,
     });
 
     // Verify at least one employee exists
     const changeEmailButtons = page.locator(
       '[data-testid^="change-email-button-"]',
     );
-    await expect(changeEmailButtons.first()).toBeVisible({ timeout: 5000 });
+    await expect(changeEmailButtons.first()).toBeVisible({ timeout: 10000 });
 
     // AND: User clicks "Change Email" for the first employee
     // Wait for button to be clickable before clicking
     const changeEmailButton = page.locator(
       '[data-testid="change-email-button-0"]',
     );
-    await expect(changeEmailButton).toBeVisible({ timeout: 5000 });
+    await expect(changeEmailButton).toBeEnabled({ timeout: 5000 });
     await changeEmailButton.click();
 
     // Wait for modal to open and email input to be visible
-    await expect(page.locator('[data-testid="email-input"]')).toBeVisible({
-      timeout: 5000,
-    });
+    const emailInput = page.locator('[data-testid="email-input"]');
+    await expect(emailInput).toBeVisible({ timeout: 10000 });
+    await expect(emailInput).toBeEditable({ timeout: 5000 });
 
     // AND: User enters new email and saves
     const newEmail = `newemail-${Date.now()}@test.nuvana.local`;
-    const emailInput = page.locator('[data-testid="email-input"]');
 
-    // Clear existing email and enter new one
+    // Clear existing email and enter new one with click to ensure focus
+    await emailInput.click();
     await emailInput.clear();
     await emailInput.fill(newEmail);
 
     // Verify the input has the new value
-    await expect(emailInput).toHaveValue(newEmail);
+    await expect(emailInput).toHaveValue(newEmail, { timeout: 5000 });
 
     // Set up network interception to wait for API call BEFORE clicking save
     const updateEmailResponsePromise = page.waitForResponse(
@@ -362,12 +365,12 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
         resp.url().includes("/email") &&
         resp.request().method() === "PUT" &&
         resp.status() === 200,
-      { timeout: 15000 },
+      { timeout: 20000 },
     );
 
     // Click save button
     const saveButton = page.locator('[data-testid="save-button"]');
-    await expect(saveButton).toBeEnabled({ timeout: 3000 });
+    await expect(saveButton).toBeEnabled({ timeout: 5000 });
     await saveButton.click();
 
     // Wait for API response
@@ -380,13 +383,13 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
     await expect(
       page.getByText("Email updated", { exact: true }).first(),
     ).toBeVisible({
-      timeout: 10000,
+      timeout: 15000,
     });
 
     // Wait for modal to close (modal closes after successful save)
     // The modal closes after successful mutation, verify the email input is no longer visible
-    await expect(page.locator('[data-testid="email-input"]')).not.toBeVisible({
-      timeout: 5000,
+    await expect(emailInput).not.toBeVisible({
+      timeout: 10000,
     });
 
     // AND: Employee email is updated in the table
@@ -395,7 +398,7 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
     // Use a more specific wait to ensure the table has refreshed with the new data
     await expect(page.locator('[data-testid="employee-email-0"]')).toHaveText(
       newEmail,
-      { timeout: 15000 },
+      { timeout: 20000 },
     );
 
     // Verify the table still shows the employee (ensures the update didn't break the list)

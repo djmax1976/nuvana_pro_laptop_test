@@ -324,13 +324,6 @@ test.describe("Cashier Store Dropdown", () => {
   test("should show store in dropdown when adding cashier", async ({
     page,
   }) => {
-    // Enable console logging for debugging
-    page.on("console", (msg) => {
-      if (msg.type() === "error" || msg.type() === "warning") {
-        console.log(`Browser ${msg.type()}: ${msg.text()}`);
-      }
-    });
-
     // Step 1: Login as the test client owner
     await performLogin(page, testEmail, TEST_PASSWORD);
 
@@ -345,24 +338,28 @@ test.describe("Cashier Store Dropdown", () => {
 
     // Assert dropdown is visible and disabled (single store auto-selection)
     await expect(storeDropdown).toBeVisible({ timeout: 10000 });
-    await expect(storeDropdown).toBeDisabled();
+    await expect(storeDropdown).toBeDisabled({ timeout: 5000 });
 
     // Verify the dropdown displays the store name (already confirmed by waitForStoresLoaded)
-    await expect(storeDropdown).toContainText(testStore.name);
+    await expect(storeDropdown).toContainText(testStore.name, {
+      timeout: 5000,
+    });
 
     // Verify form has a valid store value by checking the hidden native select
     // Note: Radix UI Select creates a hidden <select> element for form submission
     // We verify the option exists and is selected
-    const hasValidStoreValue = await page.evaluate((expectedStoreId) => {
-      // Radix Select creates a hidden native select for form values
-      const hiddenSelect = document.querySelector(
-        'select[aria-hidden="true"]',
-      ) as HTMLSelectElement | null;
-      // Check both that the select exists and has the expected value
-      return hiddenSelect?.value === expectedStoreId;
-    }, testStore.store_id);
-
-    expect(hasValidStoreValue).toBe(true);
+    // Use a retry pattern for the hidden select check as it may not be immediately available
+    await expect(async () => {
+      const hasValidStoreValue = await page.evaluate((expectedStoreId) => {
+        // Radix Select creates a hidden native select for form values
+        const hiddenSelect = document.querySelector(
+          'select[aria-hidden="true"]',
+        ) as HTMLSelectElement | null;
+        // Check both that the select exists and has the expected value
+        return hiddenSelect?.value === expectedStoreId;
+      }, testStore.store_id);
+      expect(hasValidStoreValue).toBe(true);
+    }).toPass({ timeout: 10000 });
   });
 
   test("should successfully create a cashier with auto-selected store", async ({

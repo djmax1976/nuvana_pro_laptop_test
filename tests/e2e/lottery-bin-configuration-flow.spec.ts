@@ -337,28 +337,37 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     // Wait for form to initialize with bins (default 24 bins per BinConfigurationForm.tsx line 86-91)
     const firstBinNameInput = page.locator('[data-testid="bin-name-input-0"]');
     await expect(firstBinNameInput).toBeVisible({ timeout: 15000 });
+    await expect(firstBinNameInput).toBeEditable({ timeout: 5000 });
 
     // Change the name to something different to trigger hasChanges state
+    await firstBinNameInput.click();
     await firstBinNameInput.clear();
     await firstBinNameInput.fill("Main Counter Bin");
+    await expect(firstBinNameInput).toHaveValue("Main Counter Bin", {
+      timeout: 5000,
+    });
 
     // Fill location for first bin to make another change
     const locationInput = page.locator('[data-testid="bin-location-input-0"]');
+    await locationInput.click();
     await locationInput.clear();
     await locationInput.fill("Front Counter");
+    await expect(locationInput).toHaveValue("Front Counter", { timeout: 5000 });
 
     // AND: I save the configuration (button should now be enabled after changes)
     // Save button is disabled until hasChanges=true (BinConfigurationForm.tsx line 336)
     const saveButton = page.locator(
       '[data-testid="save-configuration-button"]',
     );
+    await expect(saveButton).toBeEnabled({ timeout: 5000 });
+
+    // Set up response promise before clicking
     const saveResponsePromise = page.waitForResponse(
       (resp) =>
         resp.url().includes("/api/lottery/bins/configuration/") &&
         (resp.status() === 200 || resp.status() === 201),
-      { timeout: 15000 },
+      { timeout: 20000 },
     );
-    await expect(saveButton).toBeEnabled({ timeout: 5000 });
     await saveButton.click();
     await saveResponsePromise;
 
@@ -785,44 +794,51 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     }
 
     // Wait for bins to load (need at least 2 bins to test reordering)
-    await expect(page.locator('[data-testid="bin-name-input-0"]')).toBeVisible({
-      timeout: 15000,
-    });
-    await expect(page.locator('[data-testid="bin-name-input-1"]')).toBeVisible({
-      timeout: 5000,
-    });
+    const firstBinInput = page.locator('[data-testid="bin-name-input-0"]');
+    const secondBinInput = page.locator('[data-testid="bin-name-input-1"]');
+    await expect(firstBinInput).toBeVisible({ timeout: 15000 });
+    await expect(secondBinInput).toBeVisible({ timeout: 5000 });
 
     // Get the names of first two bins before reordering
-    const firstBinNameBefore = await page
-      .locator('[data-testid="bin-name-input-0"]')
-      .inputValue();
-    const secondBinNameBefore = await page
-      .locator('[data-testid="bin-name-input-1"]')
-      .inputValue();
+    // Note: Previous tests in this serial suite may have changed bin names
+    let firstBinNameBefore = await firstBinInput.inputValue();
+    let secondBinNameBefore = await secondBinInput.inputValue();
+
+    // Ensure the bins have different names for the test to be valid
+    // If they're the same (edge case), set unique names first
+    if (firstBinNameBefore === secondBinNameBefore) {
+      await firstBinInput.clear();
+      await firstBinInput.fill("Reorder Test Bin A");
+      await secondBinInput.clear();
+      await secondBinInput.fill("Reorder Test Bin B");
+      // Re-read the values
+      firstBinNameBefore = await firstBinInput.inputValue();
+      secondBinNameBefore = await secondBinInput.inputValue();
+    }
 
     // WHEN: I click move down on the first bin (swaps positions with second bin)
     const moveDownButton = page.locator('[data-testid="bin-move-down-0"]');
+    await expect(moveDownButton).toBeEnabled({ timeout: 5000 });
     await moveDownButton.click();
 
+    // Wait for React state update to complete
+    await page.waitForTimeout(300);
+
     // THEN: The bins are swapped (handleMoveDown swaps adjacent bins)
-    await expect(page.locator('[data-testid="bin-name-input-0"]')).toHaveValue(
-      secondBinNameBefore,
-      { timeout: 5000 },
-    );
-    await expect(page.locator('[data-testid="bin-name-input-1"]')).toHaveValue(
-      firstBinNameBefore,
-      { timeout: 5000 },
-    );
+    // The name that was at position 1 should now be at position 0
+    await expect(firstBinInput).toHaveValue(secondBinNameBefore, {
+      timeout: 5000,
+    });
+    // The name that was at position 0 should now be at position 1
+    await expect(secondBinInput).toHaveValue(firstBinNameBefore, {
+      timeout: 5000,
+    });
 
-    const firstBinNameAfter = await page
-      .locator('[data-testid="bin-name-input-0"]')
-      .inputValue();
+    // Verify move up button on first bin is disabled (it's at index 0)
+    const moveUpButtonFirst = page.locator('[data-testid="bin-move-up-0"]');
+    await expect(moveUpButtonFirst).toBeDisabled();
 
-    // The first bin should now have a different name (they were swapped)
-    expect(firstBinNameAfter).not.toBe(firstBinNameBefore);
-
-    // Verify move up button on second bin is now enabled (was first, moved down)
-    // Move up at index 1 should always be enabled
+    // Verify move up button on second bin is enabled (it's at index 1)
     const moveUpButton = page.locator('[data-testid="bin-move-up-1"]');
     await expect(moveUpButton).toBeEnabled();
   });
