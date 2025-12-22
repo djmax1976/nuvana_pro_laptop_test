@@ -68,7 +68,7 @@ async function createPOSIntegration(storeId: string): Promise<string> {
     const integration = await prisma.pOSIntegration.create({
       data: {
         store_id: storeId,
-        pos_type: "GILBARCO_NAXML",
+        pos_type: "GILBARCO_PASSPORT", // Use existing enum value (GILBARCO_NAXML not yet migrated)
         is_active: true,
         connection_mode: "FILE_EXCHANGE",
         naxml_version: "3.4",
