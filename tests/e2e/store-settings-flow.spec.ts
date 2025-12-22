@@ -8,7 +8,7 @@
  * E2E Tests: Store Settings Flow
  *
  * Tests critical end-to-end user journey:
- * - Client Owner navigates to settings → views store info → manages employee credentials
+ * - Client Owner navigates to settings -> views store info -> manages employee credentials
  *
  * @test-level E2E
  * @justification Tests critical multi-page user journey requiring full system integration
@@ -392,7 +392,7 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
   });
 
   // ============================================================================
-  // 🔒 SECURITY TESTS (Mandatory - Applied Automatically)
+  // SECURITY TESTS (Mandatory - Applied Automatically)
   // ============================================================================
 
   test.describe("Security: Authentication Bypass", () => {
@@ -411,7 +411,7 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
   });
 
   // ============================================================================
-  // ✅ ADDITIONAL ASSERTIONS (Best Practices - Applied Automatically)
+  // ADDITIONAL ASSERTIONS (Best Practices - Applied Automatically)
   // ============================================================================
 
   test.describe("Response Structure Assertions", () => {

@@ -210,6 +210,7 @@ test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     prismaClient,
   }) => {
     // GIVEN: A shift exists in the client user's store
+    const terminal = await createPOSTerminal(prismaClient, clientUser.store_id);
     const cashier = await createTestCashier(
       prismaClient,
       clientUser.store_id,
@@ -225,6 +226,7 @@ test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
         store_id: clientUser.store_id,
         cashier_id: cashier.cashier_id,
         opened_by: cashierUser.user_id,
+        pos_terminal_id: terminal.pos_terminal_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
@@ -259,6 +261,7 @@ test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     prismaClient,
   }) => {
     // GIVEN: An OPEN shift exists in the client user's store
+    const terminal = await createPOSTerminal(prismaClient, clientUser.store_id);
     const cashier = await createTestCashier(
       prismaClient,
       clientUser.store_id,
@@ -274,6 +277,7 @@ test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
         store_id: clientUser.store_id,
         cashier_id: cashier.cashier_id,
         opened_by: cashierUser.user_id,
+        pos_terminal_id: terminal.pos_terminal_id,
         status: "OPEN",
         opening_cash: 150.0,
       },
@@ -500,6 +504,7 @@ test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     prismaClient,
   }) => {
     // GIVEN: A shift exists
+    const terminal = await createPOSTerminal(prismaClient, clientUser.store_id);
     const cashier = await createTestCashier(
       prismaClient,
       clientUser.store_id,
@@ -515,6 +520,7 @@ test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
         store_id: clientUser.store_id,
         cashier_id: cashier.cashier_id,
         opened_by: cashierUser.user_id,
+        pos_terminal_id: terminal.pos_terminal_id,
         status: "OPEN",
         opening_cash: 100.0,
       },
@@ -637,6 +643,7 @@ test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     prismaClient,
   }) => {
     // GIVEN: A shift exists
+    const terminal = await createPOSTerminal(prismaClient, clientUser.store_id);
     const cashier = await createTestCashier(
       prismaClient,
       clientUser.store_id,
@@ -652,6 +659,7 @@ test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
         store_id: clientUser.store_id,
         cashier_id: cashier.cashier_id,
         opened_by: cashierUser.user_id,
+        pos_terminal_id: terminal.pos_terminal_id,
         status: "OPEN",
         opening_cash: 100.0,
       },

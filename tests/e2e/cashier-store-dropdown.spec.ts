@@ -85,26 +85,36 @@ async function performLogin(
   await expect(emailInput).toHaveValue(email, { timeout: 5000 });
   await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
 
-  // Set up response and navigation promises BEFORE clicking submit
+  // Set up response promise that captures any login response (success or failure)
   const loginResponsePromise = page.waitForResponse(
-    (resp) => resp.url().includes("/api/auth/login") && resp.status() === 200,
+    (resp) => resp.url().includes("/api/auth/login"),
     { timeout: 30000 },
   );
-
-  const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {
-    timeout: 30000,
-    waitUntil: "domcontentloaded",
-  });
 
   // Click submit button (triggers login API request)
   await page.click('button[type="submit"]');
 
-  // Wait for login API response (deterministic - waits for actual response)
+  // Wait for login API response
   const loginResponse = await loginResponsePromise;
-  expect(loginResponse.status()).toBe(200);
+  const responseStatus = loginResponse.status();
 
-  // Wait for navigation to complete
-  await navigationPromise;
+  // If login failed, provide detailed error message
+  if (responseStatus !== 200) {
+    const responseBody = await loginResponse.json().catch(() => ({}));
+    const errorMessage =
+      responseBody?.error?.message || responseBody?.message || "Unknown error";
+    throw new Error(
+      `Login failed with status ${responseStatus}: ${errorMessage}. ` +
+        `This may indicate the backend is connected to a different database than the test. ` +
+        `Ensure both test and backend use DATABASE_URL=nuvana_test.`,
+    );
+  }
+
+  // Wait for navigation to client-dashboard
+  await page.waitForURL(/.*client-dashboard.*/, {
+    timeout: 30000,
+    waitUntil: "domcontentloaded",
+  });
 
   // Wait for page to be fully loaded (including auth context validation)
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
@@ -271,6 +281,21 @@ test.describe("Cashier Store Dropdown", () => {
         },
       });
     }
+
+    // Verify the user can be found in the database (sanity check)
+    const verifyUser = await prisma.user.findUnique({
+      where: { email: testEmail },
+      select: { email: true, status: true, is_client_user: true },
+    });
+    if (!verifyUser) {
+      throw new Error(
+        `Test setup failed: User ${testEmail} was not found in database after creation. ` +
+          `DATABASE_URL: ${process.env.DATABASE_URL}`,
+      );
+    }
+    console.log(
+      `[Setup] Created test user: ${testEmail} (status: ${verifyUser.status})`,
+    );
   });
 
   test.afterAll(async () => {

@@ -455,44 +455,83 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     await expect(closedShiftRow).not.toBeVisible();
   });
 
-  test.skip("4.7-E2E-005: [P0] Should close and reconcile a shift", async ({
-    clientOwnerPage,
+  test("4.7-E2E-005: [P0] Should close and reconcile a shift via API", async ({
+    clientUserApiRequest,
+    clientUser,
     prismaClient,
   }) => {
-    // TODO: Implement close/reconcile workflow once UI is finalized
-    // GIVEN: A store exists with an OPEN shift
-    const { owner, company, store } =
-      await createCompanyWithStore(prismaClient);
+    // GIVEN: Using clientUser's own store with an OPEN shift
+    // This tests the complete close/reconcile workflow via the API
+    // Story 4.3: Cash Reconciliation API
+    const store_id = clientUser.store_id;
+
     const cashierUser = await prismaClient.user.create({
       data: createClientUser(),
     });
 
     const cashier = await createTestCashier(
       prismaClient,
-      store.store_id,
-      owner.user_id,
+      store_id,
+      clientUser.user_id,
     );
 
+    const openingCash = 100.0;
     const shift = await createShiftHelper(
       {
-        store_id: store.store_id,
+        store_id: store_id,
         cashier_id: cashier.cashier_id,
         opened_by: cashierUser.user_id,
         status: "OPEN",
-        opening_cash: 100.0,
+        opening_cash: openingCash,
       },
       prismaClient,
     );
 
-    // WHEN: Navigating to shifts page and closing the shift
-    await navigateToShiftsPage(clientOwnerPage);
+    // WHEN: Closing the shift via the direct close API
+    // POST /api/shifts/:shiftId/close - simplified single-step flow
+    const closingCash = 150.0; // More than opening (from sales)
+    const closeResponse = await clientUserApiRequest.post(
+      `/api/shifts/${shift.shift_id}/close`,
+      { closing_cash: closingCash },
+    );
 
-    // Click shift row to view details or close
-    // Note: Actual UI interaction would depend on implementation
-    // This test verifies the flow can be initiated
+    // THEN: Shift should be closed successfully
+    expect(closeResponse.status()).toBe(200);
 
-    // THEN: Shift closing form should be accessible
-    // Note: Full reconciliation flow would require additional setup
+    const closeBody = await closeResponse.json();
+    expect(closeBody.success).toBe(true);
+    expect(closeBody.data).toBeDefined();
+    expect(closeBody.data.shift_id).toBe(shift.shift_id);
+    expect(closeBody.data.status).toBe("CLOSED");
+    expect(closeBody.data.closing_cash).toBe(closingCash);
+    expect(closeBody.data.closed_at).toBeDefined();
+    expect(closeBody.data.closed_by).toBeDefined();
+
+    // Verify the shift is now CLOSED in the database
+    const closedShift = await prismaClient.shift.findUnique({
+      where: { shift_id: shift.shift_id },
+    });
+    expect(closedShift).not.toBeNull();
+    expect(closedShift!.status).toBe("CLOSED");
+    expect(Number(closedShift!.closing_cash)).toBe(closingCash);
+    expect(closedShift!.closed_at).not.toBeNull();
+
+    // Verify the shift appears as CLOSED in the shift list API
+    const listResponse = await clientUserApiRequest.get(
+      `/api/shifts?status=CLOSED`,
+    );
+    expect(listResponse.status()).toBe(200);
+
+    const listBody = await listResponse.json();
+    expect(listBody.success).toBe(true);
+    expect(listBody.data.shifts).toBeDefined();
+
+    // Find our closed shift in the list
+    const closedShiftInList = listBody.data.shifts.find(
+      (s: { shift_id: string }) => s.shift_id === shift.shift_id,
+    );
+    expect(closedShiftInList).toBeDefined();
+    expect(closedShiftInList.status).toBe("CLOSED");
   });
 
   // ============================================================================

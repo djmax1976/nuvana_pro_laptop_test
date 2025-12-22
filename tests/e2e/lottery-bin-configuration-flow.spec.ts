@@ -2,7 +2,7 @@
  * E2E Tests: Lottery Bin Configuration Flow
  *
  * Tests critical end-to-end user journey:
- * - Client Owner configures bins → views bin display (critical workflow)
+ * - Client Owner configures bins and views bin display (critical workflow)
  *
  * @test-level E2E
  * @justification Tests critical multi-page user journey that requires full system integration
@@ -44,19 +44,20 @@ async function loginAsClientOwner(
   await page.goto("/login", { waitUntil: "domcontentloaded" });
 
   // Wait for login form to be visible and ready for input
-  await page.waitForSelector('input[type="email"]', {
-    state: "visible",
-    timeout: 15000,
-  });
+  const emailInput = page.locator("#email");
+  const passwordInput = page.locator("#password");
 
-  // Wait for input to be editable (ensures React hydration is complete)
-  await expect(page.locator('input[type="email"]')).toBeEditable({
-    timeout: 10000,
-  });
+  await expect(emailInput).toBeVisible({ timeout: 15000 });
+  await expect(emailInput).toBeEditable({ timeout: 10000 });
 
-  // Fill credentials
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', password);
+  // Type credentials character by character to trigger React onChange events
+  await emailInput.click();
+  await page.waitForTimeout(100);
+  await page.keyboard.type(email, { delay: 10 });
+
+  await passwordInput.click();
+  await page.waitForTimeout(100);
+  await page.keyboard.type(password, { delay: 10 });
 
   // Set up navigation promise BEFORE clicking submit
   const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {
@@ -131,7 +132,7 @@ async function waitForLotteryPageLoaded(page: Page): Promise<void> {
     .catch(() => {});
 }
 
-test.describe("6.13-E2E: Lottery Bin Configuration Flow", () => {
+test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
   let prisma: PrismaClient;
   let clientOwner: any;
   let company: any;
@@ -225,25 +226,25 @@ test.describe("6.13-E2E: Lottery Bin Configuration Flow", () => {
         .deleteMany({ where: { user_id: clientOwner?.user_id } })
         .catch(() => {});
       // Delete lottery game
-      if (game?.game_id) {
+      if (game) {
         await prisma.lotteryGame
           .delete({ where: { game_id: game.game_id } })
           .catch(() => {});
       }
       // Delete store
-      if (store?.store_id) {
+      if (store) {
         await prisma.store
           .delete({ where: { store_id: store.store_id } })
           .catch(() => {});
       }
       // Delete company
-      if (company?.company_id) {
+      if (company) {
         await prisma.company
           .delete({ where: { company_id: company.company_id } })
           .catch(() => {});
       }
       // Delete user
-      if (clientOwner?.user_id) {
+      if (clientOwner) {
         await prisma.user
           .delete({ where: { user_id: clientOwner.user_id } })
           .catch(() => {});
@@ -308,15 +309,28 @@ test.describe("6.13-E2E: Lottery Bin Configuration Flow", () => {
     const saveButton = page.locator(
       '[data-testid="save-configuration-button"]',
     );
+    const saveResponsePromise = page.waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/lottery/bins/configuration/") &&
+        (resp.status() === 200 || resp.status() === 201),
+      { timeout: 15000 },
+    );
     await expect(saveButton).toBeEnabled({ timeout: 5000 });
     await saveButton.click();
+    await saveResponsePromise;
 
     // THEN: Success message is displayed (toast notification)
     await expect(page.getByText("Configuration saved").first()).toBeVisible({
       timeout: 15000,
     });
 
-    // WHEN: I navigate to lottery page to see inventory
+    // AND: Saved values persist on reload
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await waitForBinConfigurationPageLoaded(page);
+    await expect(firstBinNameInput).toHaveValue("Main Counter Bin");
+    await expect(locationInput).toHaveValue("Front Counter");
+
+    // WHEN: I navigate to lottery page to view the bin display
     await page.goto("/client-dashboard/lottery", {
       waitUntil: "domcontentloaded",
     });
@@ -329,42 +343,42 @@ test.describe("6.13-E2E: Lottery Bin Configuration Flow", () => {
       page.locator('[data-testid="client-dashboard-lottery-page"]'),
     ).toBeVisible({ timeout: 15000 });
 
-    // Click on the Inventory tab to ensure it's active
-    const inventoryTab = page.locator(
-      'button[role="tab"]:has-text("Inventory")',
+    // Click on the Configuration tab to view bin display
+    const configurationTab = page.locator(
+      'button[role="tab"]:has-text("Configuration")',
     );
-    await inventoryTab.click();
+    await configurationTab.click();
 
     // Wait for either table or empty state message to appear
     await Promise.race([
       page
-        .locator('[data-testid="lottery-table"]')
+        .locator('[data-testid="bin-list-table"]')
         .waitFor({ state: "visible", timeout: 10000 }),
       page
-        .locator('[data-testid="lottery-table-empty"]')
+        .locator('[data-testid="bin-list-empty"]')
         .waitFor({ state: "visible", timeout: 10000 }),
       page
-        .locator('[data-testid="lottery-table-loading"]')
+        .locator('[data-testid="bin-list-loading"]')
         .waitFor({ state: "hidden", timeout: 10000 }),
     ]).catch(() => {});
 
     // Verify page structure is correct - either table or empty state
-    const hasTable = await page
-      .locator('[data-testid="lottery-table"]')
+    const hasBinTable = await page
+      .locator('[data-testid="bin-list-table"]')
       .isVisible()
       .catch(() => false);
-    const hasEmptyState = await page
-      .locator('[data-testid="lottery-table-empty"]')
+    const hasBinEmptyState = await page
+      .locator('[data-testid="bin-list-empty"]')
       .isVisible()
       .catch(() => false);
 
-    // Either state is valid - inventory table or empty state
-    expect(hasTable || hasEmptyState).toBe(true);
+    // Either state is valid - bin table or empty state
+    expect(hasBinTable || hasBinEmptyState).toBe(true);
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ---------------------------------------------------------------------------
   // SECURITY TESTS - XSS Prevention
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ---------------------------------------------------------------------------
 
   test("6.13-E2E-SEC-001: [P0] Should prevent XSS in bin name field", async ({
     page,
@@ -417,9 +431,9 @@ test.describe("6.13-E2E: Lottery Bin Configuration Flow", () => {
     expect(inputHtml).not.toContain("<script>");
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ---------------------------------------------------------------------------
   // EDGE CASE TESTS
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ---------------------------------------------------------------------------
 
   test("6.13-E2E-EDGE-001: [P1] Should handle validation errors gracefully", async ({
     page,
@@ -533,9 +547,9 @@ test.describe("6.13-E2E: Lottery Bin Configuration Flow", () => {
     expect(hasErrorMessage).toBe(true);
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ---------------------------------------------------------------------------
   // ADDITIONAL BIN MANAGEMENT TESTS
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ---------------------------------------------------------------------------
 
   test("6.13-E2E-002: [P1] Client Owner can add and remove bins", async ({
     page,

@@ -27,24 +27,47 @@ import {
 
 /**
  * Helper function to perform login and wait for /mystore redirect.
+ * Uses simplified, reliable pattern for CI/CD environments.
  */
 async function loginAndWaitForMyStore(
   page: Page,
   email: string,
   password: string,
 ): Promise<void> {
-  await page.goto("/login");
-  await page.fill('input[name="email"], input[type="email"]', email);
-  await page.fill('input[name="password"], input[type="password"]', password);
+  // Navigate to login page and wait for it to load
+  await page.goto("/login", { waitUntil: "domcontentloaded" });
 
-  // Wait for navigation to /mystore after form submission
+  // Wait for login form to be visible and editable
+  const emailInput = page.locator("#email");
+  const passwordInput = page.locator("#password");
+  const submitButton = page.locator('button[type="submit"]');
+
+  await expect(emailInput).toBeVisible({ timeout: 15000 });
+  await expect(emailInput).toBeEditable({ timeout: 10000 });
+
+  // Type credentials character by character to trigger React onChange events
+  // Add small delay after click to ensure input is focused and ready
+  await emailInput.click();
+  await page.waitForTimeout(100);
+  await page.keyboard.type(email, { delay: 10 });
+
+  await passwordInput.click();
+  await page.waitForTimeout(100);
+  await page.keyboard.type(password, { delay: 10 });
+
+  // Click submit and wait for navigation to /mystore
   await Promise.all([
-    page.waitForURL(/.*mystore.*/, { timeout: 15000 }),
-    page.click('button[type="submit"]'),
+    page.waitForURL(/.*mystore.*/, { timeout: 30000 }),
+    submitButton.click(),
   ]);
+
+  // Wait for page to be fully loaded
+  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+    // networkidle might timeout if there are long-polling requests, that's OK
+  });
 }
 
-test.describe("6.10-E2E: Lottery Management Flow", () => {
+test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
   let prisma: PrismaClient;
   let storeManager: any;
   let company: any;
