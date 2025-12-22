@@ -14,7 +14,7 @@
  */
 
 import { test, expect, Page } from "@playwright/test";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { PrismaClient } from "@prisma/client";
 import {
@@ -55,19 +55,28 @@ async function loginAndWaitForDashboard(
   await page.goto("/login", { waitUntil: "domcontentloaded" });
 
   // Wait for login form to be visible and ready for input
-  await page.waitForSelector('input[type="email"]', {
-    state: "visible",
-    timeout: 15000,
-  });
+  const emailInput = page.locator('input[type="email"]');
+  const passwordInput = page.locator('input[type="password"]');
+
+  await emailInput.waitFor({ state: "visible", timeout: 15000 });
 
   // Wait for input to be editable (ensures React hydration is complete)
-  // This is deterministic - waits for actual condition, not arbitrary time
-  await expect(page.locator('input[type="email"]')).toBeEditable({
-    timeout: 10000,
-  });
+  await expect(emailInput).toBeEditable({ timeout: 10000 });
 
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', password);
+  // Clear any existing values and type character by character
+  // This is more reliable than fill() for React forms with hydration
+  await emailInput.click();
+  await emailInput.fill(""); // Clear using fill first
+  await emailInput.focus();
+  // Small delay to ensure field is ready
+  await page.waitForTimeout(100);
+  await emailInput.pressSequentially(email, { delay: 20 });
+
+  await passwordInput.click();
+  await passwordInput.fill(""); // Clear using fill first
+  await passwordInput.focus();
+  await page.waitForTimeout(100);
+  await passwordInput.pressSequentially(password, { delay: 20 });
 
   // Set up navigation promise BEFORE clicking submit (order matters for reliability)
   const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {
@@ -133,6 +142,9 @@ async function waitForDashboardDataLoaded(page: Page): Promise<void> {
       .catch(() => null),
   ]);
 }
+
+// Configure all test suites in this file to run serially to avoid login contention
+test.describe.configure({ mode: "serial" });
 
 test.describe("2.9-E2E: Client Dashboard User Journey", () => {
   let prisma: PrismaClient;

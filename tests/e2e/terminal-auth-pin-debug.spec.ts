@@ -15,7 +15,7 @@
  */
 
 import { test, expect, Page } from "@playwright/test";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { PrismaClient } from "@prisma/client";
 import {

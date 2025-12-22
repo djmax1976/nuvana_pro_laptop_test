@@ -11,7 +11,7 @@
  */
 
 import { test, expect, Page } from "@playwright/test";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { PrismaClient } from "@prisma/client";
 import {
@@ -31,49 +31,44 @@ async function loginAsClientOwner(
   password: string,
 ): Promise<void> {
   // Network-first pattern: Intercept API calls BEFORE navigation
-  // This prevents race conditions where requests fire before waits are registered
   const loginResponsePromise = page.waitForResponse(
     (resp) =>
       (resp.url().includes("/api/auth/login") ||
+        resp.url().includes("/api/auth/client-login") ||
         resp.url().includes("/api/client/auth/login")) &&
-      resp.status() === 200,
+      resp.request().method() === "POST",
     { timeout: 30000 },
   );
 
-  // Navigate to login page
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
+  // Navigate to login page and wait for hydration/network to settle
+  await page.goto("/login", { waitUntil: "networkidle" });
 
   // Wait for login form to be visible and ready for input
-  const emailInput = page.locator("#email");
-  const passwordInput = page.locator("#password");
+  const emailInput = page.locator('input[type="email"]');
+  const passwordInput = page.locator('input[type="password"]');
 
   await expect(emailInput).toBeVisible({ timeout: 15000 });
   await expect(emailInput).toBeEditable({ timeout: 10000 });
 
-  // Type credentials character by character to trigger React onChange events
-  await emailInput.click();
-  await page.waitForTimeout(100);
-  await page.keyboard.type(email, { delay: 10 });
+  // Fill credentials directly to avoid partial input or autofill interference
+  await emailInput.fill(email);
+  await passwordInput.fill(password);
 
-  await passwordInput.click();
-  await page.waitForTimeout(100);
-  await page.keyboard.type(password, { delay: 10 });
+  await expect(emailInput).toHaveValue(email, { timeout: 5000 });
+  await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
 
-  // Set up navigation promise BEFORE clicking submit
-  const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {
-    timeout: 30000,
-    waitUntil: "domcontentloaded",
-  });
-
-  // Click submit button
-  await page.click('button[type="submit"]');
+  // Click submit and wait for navigation to /client-dashboard
+  await Promise.all([
+    page.waitForURL(/.*client-dashboard.*/, {
+      timeout: 30000,
+      waitUntil: "domcontentloaded",
+    }),
+    page.click('button[type="submit"]'),
+  ]);
 
   // Wait for login API response (deterministic)
   const loginResponse = await loginResponsePromise;
   expect(loginResponse.status()).toBe(200);
-
-  // Wait for navigation to complete
-  await navigationPromise;
 
   // Wait for page to be fully loaded
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
@@ -509,6 +504,27 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     await page.goto("/client-dashboard/settings/lottery-bins", {
       waitUntil: "domcontentloaded",
     });
+
+    // If auth session was cleared during navigation, re-authenticate once
+    const navigatedToLogin = await Promise.race([
+      page
+        .locator('[data-testid="lottery-bins-settings-page"]')
+        .waitFor({ state: "visible", timeout: 5000 })
+        .then(() => false)
+        .catch(() => false),
+      page
+        .getByRole("heading", { name: "Welcome back" })
+        .waitFor({ state: "visible", timeout: 5000 })
+        .then(() => true)
+        .catch(() => false),
+    ]);
+
+    if (navigatedToLogin) {
+      await loginAsClientOwner(page, clientOwner.email, password);
+      await page.goto("/client-dashboard/settings/lottery-bins", {
+        waitUntil: "domcontentloaded",
+      });
+    }
 
     // Wait for the settings page container to load
     await page

@@ -26,7 +26,7 @@
  */
 
 import { test, expect, Page } from "@playwright/test";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 import { v4 as uuidv4 } from "uuid";
 import { createCashier } from "../support/helpers/database-helpers";

@@ -12,7 +12,7 @@
  */
 
 import { test, expect, Page } from "@playwright/test";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { PrismaClient, LotteryPackStatus, ShiftStatus } from "@prisma/client";
 import {
@@ -38,33 +38,53 @@ async function loginAndWaitForMyStore(
   await page.goto("/login", { waitUntil: "domcontentloaded" });
 
   // Wait for login form to be visible and editable
-  const emailInput = page.locator("#email");
-  const passwordInput = page.locator("#password");
+  const emailInput = page.locator('input[type="email"]');
+  const passwordInput = page.locator('input[type="password"]');
   const submitButton = page.locator('button[type="submit"]');
 
   await expect(emailInput).toBeVisible({ timeout: 15000 });
   await expect(emailInput).toBeEditable({ timeout: 10000 });
 
-  // Type credentials character by character to trigger React onChange events
-  // Add small delay after click to ensure input is focused and ready
+  // Wait for React hydration to complete
+  await page.waitForLoadState("load").catch(() => {});
+
+  // Fill credentials using Playwright's fill() which properly triggers React onChange
   await emailInput.click();
-  await page.waitForTimeout(100);
-  await page.keyboard.type(email, { delay: 10 });
+  await emailInput.fill(email);
 
   await passwordInput.click();
-  await page.waitForTimeout(100);
-  await page.keyboard.type(password, { delay: 10 });
+  await passwordInput.fill(password);
 
-  // Click submit and wait for navigation to /mystore
-  await Promise.all([
-    page.waitForURL(/.*mystore.*/, { timeout: 30000 }),
-    submitButton.click(),
-  ]);
+  // Verify fields were filled correctly
+  await expect(emailInput).toHaveValue(email, { timeout: 5000 });
+  await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
+
+  // Set up response promise to capture login response
+  const loginResponsePromise = page.waitForResponse(
+    (resp) => resp.url().includes("/api/auth/login"),
+    { timeout: 30000 },
+  );
+
+  // Click submit button
+  await submitButton.click();
+
+  // Wait for login API response
+  const loginResponse = await loginResponsePromise;
+  const responseStatus = loginResponse.status();
+
+  // Check if login was successful
+  if (responseStatus !== 200) {
+    const responseBody = await loginResponse.json();
+    throw new Error(
+      `Login failed with status ${responseStatus}: ${responseBody.message || responseBody.error?.message || "Unknown error"}`,
+    );
+  }
+
+  // Wait for navigation to /mystore
+  await page.waitForURL(/.*mystore.*/, { timeout: 30000 });
 
   // Wait for page to be fully loaded
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
-    // networkidle might timeout if there are long-polling requests, that's OK
-  });
+  await page.waitForLoadState("domcontentloaded");
 }
 
 test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
@@ -215,10 +235,20 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
     await expect(page.locator('[data-testid="serial-input"]')).toBeVisible({
       timeout: 5000,
     });
-    // Submit button should be visible (disabled until packs are added)
-    await expect(
-      page.locator('[data-testid="submit-batch-reception"]'),
-    ).toBeVisible();
+
+    // AND: Serial input should be editable and have correct placeholder
+    const serialInput = page.locator('[data-testid="serial-input"]');
+    await expect(serialInput).toBeEditable();
+    await expect(serialInput).toHaveAttribute(
+      "placeholder",
+      "000000000000000000000000",
+    );
+    await expect(serialInput).toHaveAttribute("maxlength", "24");
+
+    // AND: Submit button should be visible but disabled (no packs added yet)
+    const submitButton = page.locator('[data-testid="submit-batch-reception"]');
+    await expect(submitButton).toBeVisible();
+    await expect(submitButton).toBeDisabled();
   });
 
   test("6.10-E2E-003: [P1] user can view bins with packs in day bins table (AC #1)", async ({
@@ -294,41 +324,38 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
         timeout: 10000,
       });
 
-      // Wait for packs to load (wait for actual pack element or empty state, not arbitrary time)
-      await Promise.race([
-        page
-          .locator('[data-testid="activate-pack-button"]')
-          .waitFor({ state: "visible", timeout: 10000 })
-          .catch(() => null),
-        page
-          .getByText(/no packs found|no lottery packs/i)
-          .waitFor({ state: "visible", timeout: 10000 })
-          .catch(() => null),
-      ]);
-
-      // WHEN: User clicks Activate Pack button
+      // Wait for the activate button to be visible
       const activateButton = page.locator(
         '[data-testid="activate-pack-button"]',
       );
+      await expect(activateButton).toBeVisible({ timeout: 10000 });
 
-      // Check if button is enabled (has received packs)
-      const isDisabled = await activateButton.isDisabled();
-      if (!isDisabled) {
-        await activateButton.click();
+      // Wait for data to load - button should become enabled when packs are loaded
+      // The button is disabled when receivedPacks.length === 0
+      await page.waitForTimeout(2000); // Allow time for API call to complete
 
-        // THEN: Pack activation dialog opens with pack select
-        await expect(page.locator('[data-testid="pack-select"]')).toBeVisible({
-          timeout: 5000,
-        });
-        await expect(
-          page.locator('[data-testid="submit-pack-activation"]'),
-        ).toBeVisible();
-      } else {
-        // If disabled, the test passes - no received packs available
-        console.log(
-          "Activate button disabled - no received packs found in API response",
-        );
-      }
+      // THEN: Activate Pack button should be enabled (we have a RECEIVED pack)
+      await expect(activateButton).toBeEnabled({ timeout: 10000 });
+
+      // WHEN: User clicks Activate Pack button
+      await activateButton.click();
+
+      // THEN: Pack activation dialog opens with pack select
+      await expect(page.locator('[data-testid="pack-select"]')).toBeVisible({
+        timeout: 5000,
+      });
+
+      // AND: Submit button is visible
+      await expect(
+        page.locator('[data-testid="submit-pack-activation"]'),
+      ).toBeVisible();
+
+      // AND: The pack select dropdown should contain our RECEIVED pack
+      // Open the select dropdown to verify pack is listed
+      await page.click('[data-testid="pack-select"]');
+      await expect(page.getByText(pack.pack_number)).toBeVisible({
+        timeout: 5000,
+      });
     } finally {
       // Cleanup
       await prisma.lotteryPack

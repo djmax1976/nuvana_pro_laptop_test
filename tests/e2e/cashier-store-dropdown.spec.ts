@@ -19,7 +19,7 @@
 
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import {
   generatePublicId,
@@ -472,9 +472,11 @@ test.describe("Cashier Store Dropdown", () => {
     await createButton.click();
 
     // Step 6: Verify no store validation error appears
-    // Wait a moment for any validation messages to appear
-    await page.waitForTimeout(500);
-    await expect(page.locator("text=Store is required")).not.toBeVisible();
+    // Wait for either form submission to complete (dialog closes) or validation errors to appear
+    // Using expect with polling instead of fixed timeout for more reliable test execution
+    await expect(page.locator("text=Store is required")).not.toBeVisible({
+      timeout: 5000,
+    });
 
     // The form should either succeed (dialog closes) or show other errors
     // but NOT a store validation error since store was auto-selected

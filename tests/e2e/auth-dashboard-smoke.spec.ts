@@ -22,13 +22,16 @@
  * - Proper cleanup with error handling
  * - API error monitoring for 403 detection
  * - Deterministic test behavior
+ * - Serial execution to prevent database conflicts
+ *
+ * IMPORTANT: Uses bcryptjs (not bcrypt) for password hashing to match backend
  */
 
 import { test as base, expect, Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { withBypassClient } from "../support/prisma-bypass";
 import { createUser, createClientUser } from "../support/factories";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 /**
  * Generate a short unique ID for test data (max 30 chars for public_id columns)
@@ -178,8 +181,9 @@ async function cleanupTestUser(
   }
 }
 
-test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
-  test.describe("AUTH-E2E-SA: Superadmin Dashboard Access", () => {
+test.describe
+  .serial("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
+  test.describe.serial("AUTH-E2E-SA: Superadmin Dashboard Access", () => {
     test("AUTH-E2E-SA-001: [P0] superadmin can login and access dashboard without 403 errors", async ({
       page,
       frontendUrl,
@@ -267,8 +271,8 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
           page.getByRole("heading", { name: /companies/i }),
         ).toBeVisible({ timeout: 10000 });
 
-        // Wait for data to load
-        await page.waitForTimeout(2000);
+        // Wait for API requests to complete
+        await page.waitForLoadState("networkidle");
 
         // THEN: No 403 errors should occur
         expect(
@@ -320,7 +324,8 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
           page.getByRole("heading", { name: /user/i }).first(),
         ).toBeVisible({ timeout: 10000 });
 
-        await page.waitForTimeout(2000);
+        // Wait for API requests to complete
+        await page.waitForLoadState("networkidle");
 
         // THEN: No 403 errors should occur
         expect(
@@ -372,7 +377,8 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
           { timeout: 10000 },
         );
 
-        await page.waitForTimeout(2000);
+        // Wait for API requests to complete
+        await page.waitForLoadState("networkidle");
 
         // THEN: No 403 errors should occur
         expect(
@@ -385,7 +391,7 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
     });
   });
 
-  test.describe("AUTH-E2E-CO: Client Owner Dashboard Access", () => {
+  test.describe.serial("AUTH-E2E-CO: Client Owner Dashboard Access", () => {
     test("AUTH-E2E-CO-001: [P0] client owner can login and access client dashboard without 403 errors", async ({
       page,
       frontendUrl,
@@ -434,8 +440,8 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
         // THEN: Should land on client dashboard
         await expect(page).toHaveURL(/\/client-dashboard/, { timeout: 15000 });
 
-        await page.waitForLoadState("load");
-        await page.waitForTimeout(2000);
+        // Wait for API requests to complete
+        await page.waitForLoadState("networkidle");
 
         // THEN: No 403 errors should occur
         expect(
@@ -534,7 +540,7 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
     });
   });
 
-  test.describe("AUTH-E2E-NR: User Without Roles", () => {
+  test.describe.serial("AUTH-E2E-NR: User Without Roles", () => {
     test("AUTH-E2E-NR-001: [P0] user with no roles should be denied access to protected pages", async ({
       page,
       frontendUrl,
@@ -560,7 +566,8 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
           waitUntil: "domcontentloaded",
         });
 
-        await page.waitForTimeout(3000);
+        // Wait for API requests to complete
+        await page.waitForLoadState("networkidle");
 
         // THEN: Should either get 403 from API OR be redirected to login
         // (Frontend may redirect unauthorized users instead of showing 403)
@@ -579,7 +586,7 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
   });
 });
 
-test.describe("AUTH-E2E-SEED: Seeded User Login Verification", () => {
+test.describe.serial("AUTH-E2E-SEED: Seeded User Login Verification", () => {
   // These tests verify that the actual seeded users can log in and access their dashboards
   // This catches issues where seed data is incorrect or roles weren't properly assigned
 
@@ -599,7 +606,9 @@ test.describe("AUTH-E2E-SEED: Seeded User Login Verification", () => {
     await page.goto(`${frontendUrl}/companies`, {
       waitUntil: "domcontentloaded",
     });
-    await page.waitForTimeout(2000);
+
+    // Wait for API requests to complete
+    await page.waitForLoadState("networkidle");
 
     // THEN: No 403 errors should occur
     expect(
@@ -625,7 +634,9 @@ test.describe("AUTH-E2E-SEED: Seeded User Login Verification", () => {
     );
 
     await expect(page).toHaveURL(/\/client-dashboard/, { timeout: 15000 });
-    await page.waitForTimeout(2000);
+
+    // Wait for API requests to complete
+    await page.waitForLoadState("networkidle");
 
     expect(
       apiErrors,
