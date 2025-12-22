@@ -147,6 +147,32 @@ async function globalSetup() {
     console.log(`   Found ${companyIds.length} test companies to clean`);
     console.log(`   Found ${storeIds.length} test stores to clean`);
 
+    // Always clean NAXML file logs with test UUID patterns (these use fake store IDs)
+    // These are created by file-exchange-integration tests and don't reference real stores
+    // Test store IDs: 10000000-0000-0000-0000-000000000001 through ...000000000012
+    const testStoreIdPattern = [
+      "10000000-0000-0000-0000-000000000001",
+      "10000000-0000-0000-0000-000000000002",
+      "10000000-0000-0000-0000-000000000003",
+      "10000000-0000-0000-0000-000000000004",
+      "10000000-0000-0000-0000-000000000005",
+      "10000000-0000-0000-0000-000000000006",
+      "10000000-0000-0000-0000-000000000007",
+      "10000000-0000-0000-0000-000000000008",
+      "10000000-0000-0000-0000-000000000009",
+      "10000000-0000-0000-0000-000000000010",
+      "10000000-0000-0000-0000-000000000011",
+      "10000000-0000-0000-0000-000000000012",
+    ];
+    const naxmlFileLogResult = await prisma.nAXMLFileLog.deleteMany({
+      where: {
+        store_id: { in: testStoreIdPattern },
+      },
+    });
+    if (naxmlFileLogResult.count > 0) {
+      console.log(`   Deleted ${naxmlFileLogResult.count} NAXML file logs`);
+    }
+
     if (
       userIds.length === 0 &&
       companyIds.length === 0 &&

@@ -93,8 +93,8 @@ function createSecureXMLParser(options: NAXMLParserOptions): XMLParser {
     attributeNamePrefix: "@_",
     textNodeName: "#text",
     cdataPropName: "#cdata",
-    // Parsing options
-    parseAttributeValue: true,
+    // Parsing options - keep attributes as strings to preserve leading zeros in codes (e.g., Code="001")
+    parseAttributeValue: false,
     // Keep tag values as strings to preserve leading zeros in codes (e.g., "001")
     parseTagValue: false,
     trimValues: options.trimWhitespace,

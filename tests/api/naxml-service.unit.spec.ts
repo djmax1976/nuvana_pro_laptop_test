@@ -595,7 +595,8 @@ test.describe("Phase1-Unit: NAXML Service - Validator Tests", () => {
     // GIVEN: A department document with duplicate codes
     const { createNAXMLService, createNAXMLValidator } =
       await import("../../backend/dist/services/naxml/naxml.service");
-    const service = createNAXMLService();
+    // Disable validation during parsing so we can test validation separately
+    const service = createNAXMLService({ validateOnParse: false });
     const validator = createNAXMLValidator({ checkDuplicates: true });
 
     const duplicateDeptXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -687,7 +688,8 @@ test.describe("Phase1-Unit: NAXML Service - Validator Tests", () => {
     // GIVEN: A department document with missing required fields
     const { createNAXMLService } =
       await import("../../backend/dist/services/naxml/naxml.service");
-    const service = createNAXMLService();
+    // Disable validation during parsing so we can test validation separately
+    const service = createNAXMLService({ validateOnParse: false });
 
     const missingFieldsXml = `<?xml version="1.0" encoding="UTF-8"?>
 <NAXMLDepartmentMaintenance version="3.4">

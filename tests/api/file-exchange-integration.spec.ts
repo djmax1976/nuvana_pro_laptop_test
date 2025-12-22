@@ -60,6 +60,23 @@ let boOutboxPath: string;
 let processedPath: string;
 let errorPath: string;
 
+// Use valid UUIDs for test store IDs (required by database schema)
+// Each test should use unique IDs to avoid cross-test interference from duplicate hash detection
+const TEST_STORE_ID_1 = "10000000-0000-0000-0000-000000000001";
+const TEST_STORE_ID_2 = "10000000-0000-0000-0000-000000000002";
+const TEST_STORE_ID_3 = "10000000-0000-0000-0000-000000000003";
+const TEST_STORE_ID_4 = "10000000-0000-0000-0000-000000000004";
+const TEST_STORE_ID_5 = "10000000-0000-0000-0000-000000000005";
+const TEST_STORE_ID_6 = "10000000-0000-0000-0000-000000000006";
+const TEST_STORE_ID_7 = "10000000-0000-0000-0000-000000000007";
+const TEST_STORE_ID_8 = "10000000-0000-0000-0000-000000000008";
+const TEST_STORE_ID_9 = "10000000-0000-0000-0000-000000000009";
+const TEST_STORE_ID_10 = "10000000-0000-0000-0000-000000000010";
+const TEST_STORE_ID_11 = "10000000-0000-0000-0000-000000000011";
+const TEST_STORE_ID_12 = "10000000-0000-0000-0000-000000000012";
+const TEST_POS_ID = "20000000-0000-0000-0000-000000000001";
+const TEST_COMPANY_ID = "30000000-0000-0000-0000-000000000001";
+
 // Sample NAXML documents for testing
 const SAMPLE_TRANSACTION_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <NAXMLTransactionDocument version="3.4">
@@ -167,15 +184,12 @@ test.describe("Phase2-Integration: File Watcher and Adapter Integration", () => 
     // GIVEN: A file watcher configured for a directory
     const { createFileWatcherService } =
       await import("../../backend/dist/services/pos/file-watcher.service");
-    const { GilbarcoNAXMLAdapter } =
-      await import("../../backend/dist/services/pos/adapters/gilbarco-naxml.adapter");
 
     const watcher = createFileWatcherService();
-    const adapter = new GilbarcoNAXMLAdapter();
 
     const config = {
-      storeId: "test-store-001",
-      posIntegrationId: "test-pos-001",
+      storeId: TEST_STORE_ID_1,
+      posIntegrationId: TEST_POS_ID,
       watchPath: boOutboxPath,
       processedPath: processedPath,
       errorPath: errorPath,
@@ -185,9 +199,9 @@ test.describe("Phase2-Integration: File Watcher and Adapter Integration", () => 
     };
 
     const context = {
-      storeId: "test-store-001",
-      posIntegrationId: "test-pos-001",
-      companyId: "test-company-001",
+      storeId: TEST_STORE_ID_1,
+      posIntegrationId: TEST_POS_ID,
+      companyId: TEST_COMPANY_ID,
     };
 
     const processedFiles: string[] = [];
@@ -212,7 +226,8 @@ test.describe("Phase2-Integration: File Watcher and Adapter Integration", () => 
 
     // THEN: File should be detected and processed
     const status = watcher.getStatus(config.storeId);
-    expect(status).toBeUndefined(); // Watcher is stopped
+    // Status object is preserved after stopping with isRunning: false
+    expect(status?.isRunning).toBe(false);
     expect(processedFiles.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -223,23 +238,28 @@ test.describe("Phase2-Integration: File Watcher and Adapter Integration", () => 
 
     const watcher = createFileWatcherService();
 
-    // Create files with specific names to verify ordering
-    await fs.writeFile(
-      path.join(boOutboxPath, "TLog_001.xml"),
-      SAMPLE_TRANSACTION_XML,
+    // Use unique transaction IDs to avoid duplicate hash detection
+    const txnXml1 = SAMPLE_TRANSACTION_XML.replace(
+      "TXN-INT-001",
+      "TXN-ORDER-001",
     );
-    await fs.writeFile(
-      path.join(boOutboxPath, "TLog_002.xml"),
-      SAMPLE_TRANSACTION_XML,
+    const txnXml2 = SAMPLE_TRANSACTION_XML.replace(
+      "TXN-INT-001",
+      "TXN-ORDER-002",
     );
-    await fs.writeFile(
-      path.join(boOutboxPath, "TLog_003.xml"),
-      SAMPLE_TRANSACTION_XML,
+    const txnXml3 = SAMPLE_TRANSACTION_XML.replace(
+      "TXN-INT-001",
+      "TXN-ORDER-003",
     );
 
+    // Create files with specific names to verify ordering
+    await fs.writeFile(path.join(boOutboxPath, "TLog_001.xml"), txnXml1);
+    await fs.writeFile(path.join(boOutboxPath, "TLog_002.xml"), txnXml2);
+    await fs.writeFile(path.join(boOutboxPath, "TLog_003.xml"), txnXml3);
+
     const config = {
-      storeId: "test-store-order",
-      posIntegrationId: "test-pos-order",
+      storeId: TEST_STORE_ID_2,
+      posIntegrationId: TEST_POS_ID,
       watchPath: boOutboxPath,
       processedPath: processedPath,
       errorPath: errorPath,
@@ -249,9 +269,9 @@ test.describe("Phase2-Integration: File Watcher and Adapter Integration", () => 
     };
 
     const context = {
-      storeId: "test-store-order",
-      posIntegrationId: "test-pos-order",
-      companyId: "test-company-001",
+      storeId: TEST_STORE_ID_2,
+      posIntegrationId: TEST_POS_ID,
+      companyId: TEST_COMPANY_ID,
     };
 
     const processedOrder: string[] = [];
@@ -290,8 +310,8 @@ test.describe("Phase2-Integration: File Watcher and Adapter Integration", () => 
     await fs.mkdir(path.join(store2Dir, "BOOutbox"), { recursive: true });
 
     const config1 = {
-      storeId: "store-1",
-      posIntegrationId: "pos-1",
+      storeId: TEST_STORE_ID_3,
+      posIntegrationId: TEST_POS_ID,
       watchPath: path.join(store1Dir, "BOOutbox"),
       processedPath: path.join(store1Dir, "Processed"),
       errorPath: path.join(store1Dir, "Error"),
@@ -301,8 +321,8 @@ test.describe("Phase2-Integration: File Watcher and Adapter Integration", () => 
     };
 
     const config2 = {
-      storeId: "store-2",
-      posIntegrationId: "pos-2",
+      storeId: TEST_STORE_ID_4,
+      posIntegrationId: TEST_POS_ID,
       watchPath: path.join(store2Dir, "BOOutbox"),
       processedPath: path.join(store2Dir, "Processed"),
       errorPath: path.join(store2Dir, "Error"),
@@ -312,36 +332,44 @@ test.describe("Phase2-Integration: File Watcher and Adapter Integration", () => 
     };
 
     const context1 = {
-      storeId: "store-1",
-      posIntegrationId: "pos-1",
-      companyId: "company-1",
+      storeId: TEST_STORE_ID_3,
+      posIntegrationId: TEST_POS_ID,
+      companyId: TEST_COMPANY_ID,
     };
     const context2 = {
-      storeId: "store-2",
-      posIntegrationId: "pos-2",
-      companyId: "company-2",
+      storeId: TEST_STORE_ID_4,
+      posIntegrationId: TEST_POS_ID,
+      companyId: TEST_COMPANY_ID,
     };
 
     const store1Files: string[] = [];
     const store2Files: string[] = [];
 
     watcher.on("fileProcessed", (result, storeId) => {
-      if (storeId === "store-1") store1Files.push(result.fileName);
-      if (storeId === "store-2") store2Files.push(result.fileName);
+      if (storeId === TEST_STORE_ID_3) store1Files.push(result.fileName);
+      if (storeId === TEST_STORE_ID_4) store2Files.push(result.fileName);
     });
 
     // WHEN: Starting both watchers and adding files
     await watcher.startWatching(config1, context1);
     await watcher.startWatching(config2, context2);
 
-    // Add files to each store
+    // Add files to each store (with unique content to avoid duplicate hash detection)
+    const store1Xml = SAMPLE_TRANSACTION_XML.replace(
+      "TXN-INT-001",
+      "TXN-STORE1-001",
+    );
+    const store2Xml = SAMPLE_TRANSACTION_XML.replace(
+      "TXN-INT-001",
+      "TXN-STORE2-001",
+    );
     await fs.writeFile(
       path.join(store1Dir, "BOOutbox", "TLog_Store1.xml"),
-      SAMPLE_TRANSACTION_XML,
+      store1Xml,
     );
     await fs.writeFile(
       path.join(store2Dir, "BOOutbox", "TLog_Store2.xml"),
-      SAMPLE_TRANSACTION_XML,
+      store2Xml,
     );
 
     await new Promise((resolve) => setTimeout(resolve, 2500));
@@ -363,35 +391,51 @@ test.describe("Phase2-Integration: File Watcher and Adapter Integration", () => 
 
     const watcher = createFileWatcherService();
 
-    // Create valid and invalid files
-    await fs.writeFile(
-      path.join(boOutboxPath, "TLog_Valid.xml"),
-      SAMPLE_TRANSACTION_XML,
+    // Create a dedicated test directory to avoid interference from parallel tests
+    const recoveryDir = path.join(testDir, "recovery");
+    const recoveryProcessedDir = path.join(recoveryDir, "Processed");
+    const recoveryErrorDir = path.join(recoveryDir, "Error");
+    await fs.mkdir(recoveryDir, { recursive: true });
+    await fs.mkdir(recoveryProcessedDir, { recursive: true });
+    await fs.mkdir(recoveryErrorDir, { recursive: true });
+
+    // Create valid and invalid files with unique content (including timestamp to avoid hash collisions)
+    const uniqueSuffix = Date.now().toString();
+    const validXml1 = SAMPLE_TRANSACTION_XML.replace(
+      "TXN-INT-001",
+      `TXN-RECOVERY-VALID-001-${uniqueSuffix}`,
     );
-    await fs.writeFile(
-      path.join(boOutboxPath, "TLog_Invalid.xml"),
-      MALFORMED_XML,
+    const validXml2 = SAMPLE_TRANSACTION_XML.replace(
+      "TXN-INT-001",
+      `TXN-RECOVERY-VALID-002-${uniqueSuffix}`,
     );
+    // Use malformed XML with unique content to avoid hash collision
+    const malformedXml = `<?xml version="1.0" encoding="UTF-8"?>
+<BrokenXML>
+  <Unclosed timestamp="${uniqueSuffix}">
+`;
+    await fs.writeFile(path.join(recoveryDir, "TLog_Valid.xml"), validXml1);
     await fs.writeFile(
-      path.join(boOutboxPath, "TLog_Valid2.xml"),
-      SAMPLE_TRANSACTION_XML,
+      path.join(recoveryDir, "TLog_Invalid.xml"),
+      malformedXml,
     );
+    await fs.writeFile(path.join(recoveryDir, "TLog_Valid2.xml"), validXml2);
 
     const config = {
-      storeId: "test-store-recovery",
-      posIntegrationId: "test-pos-recovery",
-      watchPath: boOutboxPath,
-      processedPath: processedPath,
-      errorPath: errorPath,
+      storeId: TEST_STORE_ID_5,
+      posIntegrationId: TEST_POS_ID,
+      watchPath: recoveryDir,
+      processedPath: recoveryProcessedDir,
+      errorPath: recoveryErrorDir,
       pollIntervalSeconds: 1,
       filePatterns: ["TLog*.xml"],
       isActive: true,
     };
 
     const context = {
-      storeId: "test-store-recovery",
-      posIntegrationId: "test-pos-recovery",
-      companyId: "test-company-001",
+      storeId: TEST_STORE_ID_5,
+      posIntegrationId: TEST_POS_ID,
+      companyId: TEST_COMPANY_ID,
     };
 
     const successFiles: string[] = [];
@@ -430,14 +474,24 @@ test.describe("Phase2-Integration: Audit Trail Integration", () => {
 
     const adapter = new GilbarcoNAXMLAdapter();
 
-    // Create a transaction file
+    // Create dedicated directory for this test
+    const auditTestDir = path.join(testDir, "audit_test_005");
+    const auditOutboxDir = path.join(auditTestDir, "BOOutbox");
+    await fs.mkdir(auditOutboxDir, { recursive: true });
+
+    // Create a transaction file with unique content
+    const uniqueSuffix = Date.now().toString();
+    const uniqueTransactionXml = SAMPLE_TRANSACTION_XML.replace(
+      "TXN-INT-001",
+      `TXN-AUDIT-005-${uniqueSuffix}`,
+    );
     await fs.writeFile(
-      path.join(boOutboxPath, "TLog_Audit_001.xml"),
-      SAMPLE_TRANSACTION_XML,
+      path.join(auditOutboxDir, "TLog_Audit_001.xml"),
+      uniqueTransactionXml,
     );
 
     const config = {
-      xmlGatewayPath: testDir,
+      xmlGatewayPath: auditTestDir,
       naxmlVersion: "3.4" as const,
       generateAcknowledgments: false,
       storeLocationId: "STORE001",
@@ -467,13 +521,24 @@ test.describe("Phase2-Integration: Audit Trail Integration", () => {
 
     const adapter = new GilbarcoNAXMLAdapter();
 
+    // Create dedicated directory for this test
+    const auditTestDir = path.join(testDir, "audit_test_006");
+    const auditOutboxDir = path.join(auditTestDir, "BOOutbox");
+    await fs.mkdir(auditOutboxDir, { recursive: true });
+
+    // Create a transaction file with unique content
+    const uniqueSuffix = Date.now().toString();
+    const uniqueTransactionXml = SAMPLE_TRANSACTION_XML.replace(
+      "TXN-INT-001",
+      `TXN-AUDIT-006-${uniqueSuffix}`,
+    );
     await fs.writeFile(
-      path.join(boOutboxPath, "TLog_Success.xml"),
-      SAMPLE_TRANSACTION_XML,
+      path.join(auditOutboxDir, "TLog_Success.xml"),
+      uniqueTransactionXml,
     );
 
     const config = {
-      xmlGatewayPath: testDir,
+      xmlGatewayPath: auditTestDir,
       naxmlVersion: "3.4" as const,
       generateAcknowledgments: false,
       storeLocationId: "STORE001",
@@ -502,13 +567,24 @@ test.describe("Phase2-Integration: Audit Trail Integration", () => {
 
     const adapter = new GilbarcoNAXMLAdapter();
 
+    // Create dedicated directory for this test
+    const auditTestDir = path.join(testDir, "audit_test_007");
+    const auditOutboxDir = path.join(auditTestDir, "BOOutbox");
+    await fs.mkdir(auditOutboxDir, { recursive: true });
+
+    // Create a malformed file with unique content
+    const uniqueSuffix = Date.now().toString();
+    const uniqueMalformedXml = `<?xml version="1.0" encoding="UTF-8"?>
+<BrokenXML timestamp="${uniqueSuffix}">
+  <Unclosed>
+`;
     await fs.writeFile(
-      path.join(boOutboxPath, "TLog_Failure.xml"),
-      MALFORMED_XML,
+      path.join(auditOutboxDir, "TLog_Failure.xml"),
+      uniqueMalformedXml,
     );
 
     const config = {
-      xmlGatewayPath: testDir,
+      xmlGatewayPath: auditTestDir,
       naxmlVersion: "3.4" as const,
       generateAcknowledgments: false,
       storeLocationId: "STORE001",
@@ -591,24 +667,38 @@ test.describe("Phase2-Integration: File Archiving Integration", () => {
 
     const watcher = createFileWatcherService();
 
-    const invalidFile = path.join(boOutboxPath, "TLog_ToError.xml");
-    await fs.writeFile(invalidFile, INVALID_XML);
+    // Create dedicated directory to avoid interference from parallel tests
+    const errorTestDir = path.join(testDir, "error_test");
+    const errorTestProcessedDir = path.join(errorTestDir, "Processed");
+    const errorTestErrorDir = path.join(errorTestDir, "Error");
+    await fs.mkdir(errorTestDir, { recursive: true });
+    await fs.mkdir(errorTestProcessedDir, { recursive: true });
+    await fs.mkdir(errorTestErrorDir, { recursive: true });
+
+    // Use unique invalid XML to avoid hash collision with other tests
+    const uniqueSuffix = Date.now().toString();
+    const uniqueInvalidXml = `<?xml version="1.0" encoding="UTF-8"?>
+<NotAValidDocument timestamp="${uniqueSuffix}">
+  <RandomData>This is not valid NAXML</RandomData>
+</NotAValidDocument>`;
+    const invalidFile = path.join(errorTestDir, "TLog_ToError.xml");
+    await fs.writeFile(invalidFile, uniqueInvalidXml);
 
     const config = {
-      storeId: "test-store-error",
-      posIntegrationId: "test-pos-error",
-      watchPath: boOutboxPath,
-      processedPath: processedPath,
-      errorPath: errorPath,
+      storeId: TEST_STORE_ID_6,
+      posIntegrationId: TEST_POS_ID,
+      watchPath: errorTestDir,
+      processedPath: errorTestProcessedDir,
+      errorPath: errorTestErrorDir,
       pollIntervalSeconds: 1,
       filePatterns: ["TLog*.xml"],
       isActive: true,
     };
 
     const context = {
-      storeId: "test-store-error",
-      posIntegrationId: "test-pos-error",
-      companyId: "test-company-001",
+      storeId: TEST_STORE_ID_6,
+      posIntegrationId: TEST_POS_ID,
+      companyId: TEST_COMPANY_ID,
     };
 
     let processedResult: { movedTo?: string } | null = null;
@@ -645,8 +735,8 @@ test.describe("Phase2-Integration: File Archiving Integration", () => {
     const watcher = createFileWatcherService();
 
     const config = {
-      storeId: "test-store-dup",
-      posIntegrationId: "test-pos-dup",
+      storeId: TEST_STORE_ID_7,
+      posIntegrationId: TEST_POS_ID,
       watchPath: boOutboxPath,
       processedPath: processedPath,
       errorPath: errorPath,
@@ -656,9 +746,9 @@ test.describe("Phase2-Integration: File Archiving Integration", () => {
     };
 
     const context = {
-      storeId: "test-store-dup",
-      posIntegrationId: "test-pos-dup",
-      companyId: "test-company-001",
+      storeId: TEST_STORE_ID_7,
+      posIntegrationId: TEST_POS_ID,
+      companyId: TEST_COMPANY_ID,
     };
 
     const processedFiles: string[] = [];
@@ -841,14 +931,14 @@ test.describe("Phase2-Integration: Security Integration", () => {
 
   test("FE-INT-031: [P0] File watcher should validate directory access", async () => {
     // GIVEN: A file watcher with invalid path
-    const { createFileWatcherService, FileWatcherError } =
+    const { createFileWatcherService } =
       await import("../../backend/dist/services/pos/file-watcher.service");
 
     const watcher = createFileWatcherService();
 
     const config = {
-      storeId: "test-store-invalid",
-      posIntegrationId: "test-pos-invalid",
+      storeId: TEST_STORE_ID_8,
+      posIntegrationId: TEST_POS_ID,
       watchPath: "/nonexistent/path/that/should/not/exist",
       processedPath: "/another/nonexistent/path",
       errorPath: "/yet/another/nonexistent/path",
@@ -858,9 +948,9 @@ test.describe("Phase2-Integration: Security Integration", () => {
     };
 
     const context = {
-      storeId: "test-store-invalid",
-      posIntegrationId: "test-pos-invalid",
-      companyId: "test-company-001",
+      storeId: TEST_STORE_ID_8,
+      posIntegrationId: TEST_POS_ID,
+      companyId: TEST_COMPANY_ID,
     };
 
     // WHEN: Attempting to start the watcher
@@ -922,36 +1012,44 @@ test.describe("Phase2-Integration: Performance Integration", () => {
   });
 
   test("FE-INT-041: [P2] File watcher should handle batch of files", async () => {
-    // GIVEN: Multiple files to process
+    // GIVEN: Multiple files to process in a dedicated batch directory
     const { createFileWatcherService } =
       await import("../../backend/dist/services/pos/file-watcher.service");
 
     const watcher = createFileWatcherService();
 
-    // Create 10 files
+    // Create a dedicated batch directory to avoid interference from other tests
+    const batchDir = path.join(testDir, "batch");
+    const batchProcessedDir = path.join(batchDir, "Processed");
+    const batchErrorDir = path.join(batchDir, "Error");
+    await fs.mkdir(batchDir, { recursive: true });
+    await fs.mkdir(batchProcessedDir, { recursive: true });
+    await fs.mkdir(batchErrorDir, { recursive: true });
+
+    // Create 10 files with unique content
     for (let i = 1; i <= 10; i++) {
       const paddedNum = String(i).padStart(3, "0");
       await fs.writeFile(
-        path.join(boOutboxPath, `TLog_Batch_${paddedNum}.xml`),
+        path.join(batchDir, `TLog_Batch_${paddedNum}.xml`),
         SAMPLE_TRANSACTION_XML.replace("TXN-INT-001", `TXN-BATCH-${paddedNum}`),
       );
     }
 
     const config = {
-      storeId: "test-store-batch",
-      posIntegrationId: "test-pos-batch",
-      watchPath: boOutboxPath,
-      processedPath: processedPath,
-      errorPath: errorPath,
+      storeId: TEST_STORE_ID_9,
+      posIntegrationId: TEST_POS_ID,
+      watchPath: batchDir,
+      processedPath: batchProcessedDir,
+      errorPath: batchErrorDir,
       pollIntervalSeconds: 1,
       filePatterns: ["TLog*.xml"],
       isActive: true,
     };
 
     const context = {
-      storeId: "test-store-batch",
-      posIntegrationId: "test-pos-batch",
-      companyId: "test-company-001",
+      storeId: TEST_STORE_ID_9,
+      posIntegrationId: TEST_POS_ID,
+      companyId: TEST_COMPANY_ID,
     };
 
     const processedFiles: string[] = [];

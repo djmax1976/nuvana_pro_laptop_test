@@ -1090,6 +1090,27 @@ export const test = base.extend<RBACFixture>({
         where: { store_id: store.store_id },
       });
 
+      // 5.1. Delete NAXML scheduled export logs (FK: schedule_id)
+      const schedules = await bypassClient.nAXMLScheduledExport.findMany({
+        where: { store_id: store.store_id },
+        select: { schedule_id: true },
+      });
+      if (schedules.length > 0) {
+        await bypassClient.nAXMLScheduledExportLog.deleteMany({
+          where: { schedule_id: { in: schedules.map((s) => s.schedule_id) } },
+        });
+      }
+
+      // 5.2. Delete NAXML scheduled exports (FK: store_id, pos_integration_id)
+      await bypassClient.nAXMLScheduledExport.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 5.3. Delete POS integrations (FK: store_id)
+      await bypassClient.pOSIntegration.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
       // 5.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
       await bypassClient.cashier.deleteMany({
         where: {
@@ -1100,11 +1121,13 @@ export const test = base.extend<RBACFixture>({
       // 6. Delete the store manager user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
-      // 7. Delete store
-      await bypassClient.store.delete({ where: { store_id: store.store_id } });
+      // 7. Delete store (use deleteMany to avoid errors if already deleted)
+      await bypassClient.store.deleteMany({
+        where: { store_id: store.store_id },
+      });
 
-      // 8. Delete company
-      await bypassClient.company.delete({
+      // 8. Delete company (use deleteMany to avoid errors if already deleted)
+      await bypassClient.company.deleteMany({
         where: { company_id: company.company_id },
       });
 
@@ -2031,11 +2054,34 @@ export const test = base.extend<RBACFixture>({
         where: { store_id: store.store_id },
       });
 
-      // 7. Delete store
-      await bypassClient.store.delete({ where: { store_id: store.store_id } });
+      // 6.1. Delete NAXML scheduled export logs (FK: schedule_id)
+      const schedules = await bypassClient.nAXMLScheduledExport.findMany({
+        where: { store_id: store.store_id },
+        select: { schedule_id: true },
+      });
+      if (schedules.length > 0) {
+        await bypassClient.nAXMLScheduledExportLog.deleteMany({
+          where: { schedule_id: { in: schedules.map((s) => s.schedule_id) } },
+        });
+      }
 
-      // 8. Delete company
-      await bypassClient.company.delete({
+      // 6.2. Delete NAXML scheduled exports (FK: store_id, pos_integration_id)
+      await bypassClient.nAXMLScheduledExport.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 6.3. Delete POS integrations (FK: store_id)
+      await bypassClient.pOSIntegration.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 7. Delete store (use deleteMany to avoid errors if already deleted)
+      await bypassClient.store.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 8. Delete company (use deleteMany to avoid errors if already deleted)
+      await bypassClient.company.deleteMany({
         where: { company_id: company.company_id },
       });
 
@@ -2046,8 +2092,8 @@ export const test = base.extend<RBACFixture>({
         },
       });
 
-      // 9. Delete user
-      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      // 9. Delete user (use deleteMany to avoid errors if already deleted)
+      await bypassClient.user.deleteMany({ where: { user_id: user.user_id } });
     });
   },
 

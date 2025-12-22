@@ -1,4 +1,4 @@
-import { test, expect } from "../support/fixtures/rbac.fixture";
+﻿import { test, expect } from "../support/fixtures/rbac.fixture";
 import * as path from "path";
 import * as fs from "fs/promises";
 import * as os from "os";
@@ -125,6 +125,37 @@ const SAMPLE_TAX_RATE_XML = `<?xml version="1.0" encoding="UTF-8"?>
     </TaxRate>
   </TaxRates>
 </NAXMLTaxRateMaintenance>`;
+
+const SAMPLE_CASHIER_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<NAXMLEmployeeMaintenance version="3.4">
+  <MaintenanceHeader>
+    <StoreLocationID>COMMANDER001</StoreLocationID>
+    <MaintenanceDate>2025-12-19T10:00:00Z</MaintenanceDate>
+    <MaintenanceType>Full</MaintenanceType>
+  </MaintenanceHeader>
+  <Employees>
+    <Employee Code="CASHIER01" Action="AddUpdate">
+      <FirstName>John</FirstName>
+      <LastName>Doe</LastName>
+      <EmployeeID>EMP001</EmployeeID>
+      <PIN>1234</PIN>
+      <IsActive>Y</IsActive>
+      <CanLogin>Y</CanLogin>
+      <CanProcessTransactions>Y</CanProcessTransactions>
+      <SecurityLevel>1</SecurityLevel>
+    </Employee>
+    <Employee Code="CASHIER02" Action="AddUpdate">
+      <FirstName>Jane</FirstName>
+      <LastName>Smith</LastName>
+      <EmployeeID>EMP002</EmployeeID>
+      <PIN>5678</PIN>
+      <IsActive>Y</IsActive>
+      <CanLogin>Y</CanLogin>
+      <CanProcessTransactions>Y</CanProcessTransactions>
+      <SecurityLevel>2</SecurityLevel>
+    </Employee>
+  </Employees>
+</NAXMLEmployeeMaintenance>`;
 
 const SAMPLE_TRANSACTION_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <NAXMLTransactionDocument version="3.4">
@@ -356,6 +387,38 @@ test.describe("Phase3-Unit: Verifone Commander Adapter - Sync Tests", () => {
       expect(tenders[0].isCashEquivalent).toBe(true);
       expect(tenders[1].posCode).toBe("CREDIT");
       expect(tenders[1].isElectronic).toBe(true);
+    } finally {
+      await cleanupTestDirectories(dirs.basePath);
+    }
+  });
+
+  test("VCMD-012: [P0] Should sync cashiers from Export folder", async () => {
+    // GIVEN: Export folder with cashier/employee file
+    const dirs = await createTestDirectories();
+    await fs.writeFile(
+      path.join(dirs.exportPath, "EmpMaint_2025-12-19.xml"),
+      SAMPLE_CASHIER_XML,
+    );
+
+    try {
+      const { createVerifoneCommanderAdapter } =
+        await import("../../backend/dist/services/pos/adapters/verifone-commander.adapter");
+      const adapter = createVerifoneCommanderAdapter();
+      const config = createMockConfig(dirs.basePath);
+
+      // WHEN: Syncing cashiers
+      const cashiers = await adapter.syncCashiers(config);
+
+      // THEN: Cashiers should be imported
+      expect(cashiers.length).toBe(2);
+      expect(cashiers[0].posCode).toBe("EMP001");
+      expect(cashiers[0].firstName).toBe("John");
+      expect(cashiers[0].lastName).toBe("Doe");
+      expect(cashiers[0].employeeId).toBe("EMP001");
+      expect(cashiers[1].posCode).toBe("EMP002");
+      expect(cashiers[1].firstName).toBe("Jane");
+      expect(cashiers[1].lastName).toBe("Smith");
+      expect(cashiers[1].employeeId).toBe("EMP002");
     } finally {
       await cleanupTestDirectories(dirs.basePath);
     }

@@ -6858,8 +6858,20 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           .flatMap((bin) => bin.packs)
           .filter((pack) => pack !== null);
 
-        // Validate that all active packs are included in the closings array
+        // Validate that each pack_id appears only once in the request
         const closingPackIds = new Set(body.closings.map((c) => c.pack_id));
+        if (closingPackIds.size !== body.closings.length) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "DUPLICATE_PACKS",
+              message: "Duplicate pack_id values are not allowed in closings.",
+            },
+          };
+        }
+
+        // Validate that all active packs are included in the closings array
         const activePackIds = new Set(activePacks.map((p) => p.pack_id));
 
         const missingPackIds = Array.from(activePackIds).filter(
@@ -7054,9 +7066,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             entryMethod === "MANUAL" ? new Date() : null,
         }));
 
-        await prisma.lotteryShiftClosing.createMany({
-          data: closingsToCreate,
-        });
+        if (closingsToCreate.length > 0) {
+          await prisma.lotteryShiftClosing.createMany({
+            data: closingsToCreate,
+          });
+        }
 
         // Update LotteryBusinessDay and LotteryDayPack records
         // Find or create the LotteryBusinessDay record for today

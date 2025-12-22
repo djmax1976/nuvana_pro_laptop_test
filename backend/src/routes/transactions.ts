@@ -1550,7 +1550,8 @@ async function processBulkImport(
       const validTransactions: any[] = [];
 
       for (const [index, transaction] of parseResult.transactions.entries()) {
-        const rowNumber = index + 1;
+        // CSV files include a header row; JSON arrays do not.
+        const rowNumber = fileType === "CSV" ? index + 2 : index + 1;
 
         try {
           // Validate transaction payload
