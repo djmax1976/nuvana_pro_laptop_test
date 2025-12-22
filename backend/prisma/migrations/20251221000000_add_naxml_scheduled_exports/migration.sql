@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS "naxml_scheduled_export" (
 
   -- Output configuration
   "output_path" VARCHAR(500),
-  "file_prefix" VARCHAR(100),
+  "file_name_pattern" VARCHAR(255) NOT NULL DEFAULT '{type}_{date}_{time}.xml',
 
   -- Scheduling state
   "status" "ScheduledExportStatus" NOT NULL DEFAULT 'ACTIVE',
