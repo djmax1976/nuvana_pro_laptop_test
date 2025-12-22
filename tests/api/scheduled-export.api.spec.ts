@@ -62,10 +62,7 @@ let createdPosIntegrationIds: string[] = [];
 /**
  * Helper to create POS integration for a store (required for scheduled exports)
  */
-async function createPOSIntegration(
-  storeId: string,
-  companyId: string,
-): Promise<string> {
+async function createPOSIntegration(storeId: string): Promise<string> {
   let posIntegrationId: string = "";
   await withBypassClient(async (prisma) => {
     const integration = await prisma.pOSIntegration.create({
@@ -263,7 +260,7 @@ test.describe("Phase2-API: Scheduled Exports - Create", () => {
     clientUser,
   }) => {
     // GIVEN: I am authenticated and store has POS integration
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     // WHEN: Creating a scheduled export
     const response = await clientUserApiRequest.post(
@@ -318,7 +315,7 @@ test.describe("Phase2-API: Scheduled Exports - Create", () => {
     clientUser,
   }) => {
     // GIVEN: Missing required fields
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     // WHEN: Creating schedule without required fields
     const response = await clientUserApiRequest.post(
@@ -338,7 +335,7 @@ test.describe("Phase2-API: Scheduled Exports - Create", () => {
     clientUser,
   }) => {
     // GIVEN: Invalid cron expression
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     // WHEN: Creating schedule with invalid cron
     const response = await clientUserApiRequest.post(
@@ -385,7 +382,7 @@ test.describe("Phase2-API: Scheduled Exports - Create", () => {
     clientUser,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     const exportTypes = [
       "DEPARTMENTS",
@@ -430,7 +427,7 @@ test.describe("Phase2-API: Scheduled Exports - Get", () => {
     clientUser,
   }) => {
     // GIVEN: A scheduled export exists
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -476,14 +473,14 @@ test.describe("Phase2-API: Scheduled Exports - Get", () => {
     expect(body.error.code).toBe("NOT_FOUND");
   });
 
-  test("SCHED-API-022: [P0] GET /api/stores/:storeId/naxml/schedules/:scheduleId - should return 404 for schedule from different store", async ({
+  test("SCHED-API-022: [P0] GET /api/stores/:storeId/naxml/schedules/:scheduleId - should deny access for user without NAXML permission", async ({
     clientUserApiRequest,
     storeManagerApiRequest,
     clientUser,
     storeManagerUser,
   }) => {
     // GIVEN: A scheduled export exists for clientUser's store
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -495,13 +492,13 @@ test.describe("Phase2-API: Scheduled Exports - Get", () => {
     const created = await createResponse.json();
     createdScheduleIds.push(created.data.scheduleId);
 
-    // WHEN: Another user tries to access via their store
+    // WHEN: Store manager (without NAXML permissions) tries to access
     const response = await storeManagerApiRequest.get(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
     );
 
-    // THEN: Returns 404 (not found - schedule belongs to different store)
-    expect(response.status()).toBe(404);
+    // THEN: Returns 403 (permission denied - NAXML_FILE_EXPORT required)
+    expect(response.status()).toBe(403);
     const body = await response.json();
     expect(body.success).toBe(false);
   });
@@ -521,7 +518,7 @@ test.describe("Phase2-API: Scheduled Exports - Update", () => {
     clientUser,
   }) => {
     // GIVEN: A scheduled export exists
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -556,7 +553,7 @@ test.describe("Phase2-API: Scheduled Exports - Update", () => {
     clientUser,
   }) => {
     // GIVEN: A scheduled export exists
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -583,14 +580,14 @@ test.describe("Phase2-API: Scheduled Exports - Update", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
-  test("SCHED-API-032: [P0] PATCH /api/stores/:storeId/naxml/schedules/:scheduleId - should return 404 for schedule from different store", async ({
+  test("SCHED-API-032: [P0] PATCH /api/stores/:storeId/naxml/schedules/:scheduleId - should deny update for user without NAXML permission", async ({
     clientUserApiRequest,
     storeManagerApiRequest,
     clientUser,
     storeManagerUser,
   }) => {
     // GIVEN: A scheduled export exists for clientUser's store
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -602,7 +599,7 @@ test.describe("Phase2-API: Scheduled Exports - Update", () => {
     const created = await createResponse.json();
     createdScheduleIds.push(created.data.scheduleId);
 
-    // WHEN: Another user tries to update via their store
+    // WHEN: Store manager (without NAXML permissions) tries to update
     const response = await storeManagerApiRequest.patch(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
       {
@@ -610,8 +607,8 @@ test.describe("Phase2-API: Scheduled Exports - Update", () => {
       },
     );
 
-    // THEN: Returns 404 (not found - schedule belongs to different store)
-    expect(response.status()).toBe(404);
+    // THEN: Returns 403 (permission denied - NAXML_FILE_EXPORT required)
+    expect(response.status()).toBe(403);
     const body = await response.json();
     expect(body.success).toBe(false);
   });
@@ -621,7 +618,7 @@ test.describe("Phase2-API: Scheduled Exports - Update", () => {
     clientUser,
   }) => {
     // GIVEN: An active scheduled export
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -663,7 +660,7 @@ test.describe("Phase2-API: Scheduled Exports - Delete", () => {
     clientUser,
   }) => {
     // GIVEN: A scheduled export exists
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -706,14 +703,14 @@ test.describe("Phase2-API: Scheduled Exports - Delete", () => {
     expect(response.status()).toBe(404);
   });
 
-  test("SCHED-API-042: [P0] DELETE /api/stores/:storeId/naxml/schedules/:scheduleId - should return 404 for schedule from different store", async ({
+  test("SCHED-API-042: [P0] DELETE /api/stores/:storeId/naxml/schedules/:scheduleId - should deny delete for user without NAXML permission", async ({
     clientUserApiRequest,
     storeManagerApiRequest,
     clientUser,
     storeManagerUser,
   }) => {
     // GIVEN: A scheduled export exists for clientUser's store
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -725,13 +722,13 @@ test.describe("Phase2-API: Scheduled Exports - Delete", () => {
     const created = await createResponse.json();
     createdScheduleIds.push(created.data.scheduleId);
 
-    // WHEN: Another user tries to delete via their store
+    // WHEN: Store manager (without NAXML permissions) tries to delete
     const response = await storeManagerApiRequest.delete(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
     );
 
-    // THEN: Returns 404 (not found - schedule belongs to different store)
-    expect(response.status()).toBe(404);
+    // THEN: Returns 403 (permission denied - NAXML_FILE_EXPORT required)
+    expect(response.status()).toBe(403);
 
     // Verify original schedule still exists
     const getResponse = await clientUserApiRequest.get(
@@ -755,7 +752,7 @@ test.describe("Phase2-API: Scheduled Exports - Execute", () => {
     clientUser,
   }) => {
     // GIVEN: A scheduled export exists with data to export
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     await createTestDepartment(clientUser.company_id);
 
     const createResponse = await clientUserApiRequest.post(
@@ -819,7 +816,7 @@ test.describe("Phase2-API: Scheduled Exports - Pause/Resume", () => {
     clientUser,
   }) => {
     // GIVEN: An active scheduled export
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -850,7 +847,7 @@ test.describe("Phase2-API: Scheduled Exports - Pause/Resume", () => {
     clientUser,
   }) => {
     // GIVEN: A paused scheduled export
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -897,7 +894,7 @@ test.describe("Phase2-API: Scheduled Exports - History", () => {
     clientUser,
   }) => {
     // GIVEN: A newly created scheduled export (no executions yet)
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -927,7 +924,7 @@ test.describe("Phase2-API: Scheduled Exports - History", () => {
     clientUser,
   }) => {
     // GIVEN: A scheduled export
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -962,14 +959,14 @@ test.describe("Phase2-API: Scheduled Exports - Security", () => {
     await cleanupTestData();
   });
 
-  test("SCHED-SEC-001: [P0] Cross-store access should be blocked for all operations", async ({
+  test("SCHED-SEC-001: [P0] Users without NAXML permission should be blocked for all operations", async ({
     clientUserApiRequest,
     storeManagerApiRequest,
     clientUser,
     storeManagerUser,
   }) => {
     // GIVEN: A schedule exists for clientUser's store
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -981,54 +978,54 @@ test.describe("Phase2-API: Scheduled Exports - Security", () => {
     const created = await createResponse.json();
     createdScheduleIds.push(created.data.scheduleId);
 
-    // WHEN/THEN: All operations from other store should fail with 404 (not found)
-    // Note: 404 avoids schedule enumeration across stores
+    // WHEN/THEN: All operations from user without NAXML permissions should fail with 403
+    // Note: STORE_MANAGER role does not include NAXML_FILE_EXPORT permission
 
     // GET
     const getResponse = await storeManagerApiRequest.get(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
     );
-    expect(getResponse.status(), "GET should return 404").toBe(404);
+    expect(getResponse.status(), "GET should return 403").toBe(403);
 
     // PATCH
     const patchResponse = await storeManagerApiRequest.patch(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
       { export_name: "Hacked" },
     );
-    expect(patchResponse.status(), "PATCH should return 404").toBe(404);
+    expect(patchResponse.status(), "PATCH should return 403").toBe(403);
 
     // DELETE
     const deleteResponse = await storeManagerApiRequest.delete(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
     );
-    expect(deleteResponse.status(), "DELETE should return 404").toBe(404);
+    expect(deleteResponse.status(), "DELETE should return 403").toBe(403);
 
     // EXECUTE
     const executeResponse = await storeManagerApiRequest.post(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}/execute`,
       {},
     );
-    expect(executeResponse.status(), "EXECUTE should return 404").toBe(404);
+    expect(executeResponse.status(), "EXECUTE should return 403").toBe(403);
 
     // PAUSE
     const pauseResponse = await storeManagerApiRequest.post(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}/pause`,
       {},
     );
-    expect(pauseResponse.status(), "PAUSE should return 404").toBe(404);
+    expect(pauseResponse.status(), "PAUSE should return 403").toBe(403);
 
     // RESUME
     const resumeResponse = await storeManagerApiRequest.post(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}/resume`,
       {},
     );
-    expect(resumeResponse.status(), "RESUME should return 404").toBe(404);
+    expect(resumeResponse.status(), "RESUME should return 403").toBe(403);
 
     // HISTORY
     const historyResponse = await storeManagerApiRequest.get(
       `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}/history`,
     );
-    expect(historyResponse.status(), "HISTORY should return 404").toBe(404);
+    expect(historyResponse.status(), "HISTORY should return 403").toBe(403);
   });
 
   test("SCHED-SEC-003: [P0] Unauthenticated access should be blocked for all operations", async ({
@@ -1037,7 +1034,7 @@ test.describe("Phase2-API: Scheduled Exports - Security", () => {
     clientUser,
   }) => {
     // GIVEN: A schedule exists
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -1103,7 +1100,7 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
     clientUser,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     const validCronExpressions = [
       "0 0 * * *", // Midnight daily
@@ -1143,7 +1140,7 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
     clientUser,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     const invalidCronExpressions = [
       "invalid",
@@ -1177,7 +1174,7 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
     clientUser,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     // WHEN: Creating schedule with too many notification emails
     const response = await clientUserApiRequest.post(
@@ -1213,7 +1210,7 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
     clientUser,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     // WHEN: Creating schedule with valid timezone
     const validResponse = await clientUserApiRequest.post(
@@ -1238,7 +1235,7 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
     clientUser,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     // WHEN: Creating schedule with empty name
     const emptyNameResponse = await clientUserApiRequest.post(
@@ -1272,7 +1269,7 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
     clientUser,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     // WHEN: Creating schedule with custom file name pattern
     const response = await clientUserApiRequest.post(
@@ -1307,7 +1304,7 @@ test.describe("Phase2-API: Scheduled Exports - Business Logic", () => {
     clientUser,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     // WHEN: Creating a schedule
     const response = await clientUserApiRequest.post(
@@ -1332,7 +1329,7 @@ test.describe("Phase2-API: Scheduled Exports - Business Logic", () => {
     clientUser,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     // WHEN: Creating a schedule
     const response = await clientUserApiRequest.post(
@@ -1359,7 +1356,7 @@ test.describe("Phase2-API: Scheduled Exports - Business Logic", () => {
     clientUser,
   }) => {
     // GIVEN: A paused schedule
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
     const createResponse = await clientUserApiRequest.post(
       `/api/stores/${clientUser.store_id}/naxml/schedules`,
       {
@@ -1395,7 +1392,7 @@ test.describe("Phase2-API: Scheduled Exports - Business Logic", () => {
     clientUser,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id, clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id);
 
     // WHEN: Creating multiple schedules
     const scheduleConfigs = [
