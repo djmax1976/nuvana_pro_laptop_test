@@ -532,9 +532,13 @@ export const test = base.extend<RBACFixture>({
     // Handles both formats:
     // - postgres:postgres@... (local with password)
     // - postgres@... (CI without password)
-    const dbUrl =
-      process.env.DATABASE_URL ||
-      "postgresql://postgres@localhost:5432/nuvana_dev";
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) {
+      throw new Error(
+        "DATABASE_URL environment variable is required for RLS tests. " +
+          "Run tests via npm scripts (e.g., npm run test:api) which set DATABASE_URL.",
+      );
+    }
     let appUserUrl = dbUrl
       .replace("postgres:postgres@", "app_user:app_user_password@")
       .replace(

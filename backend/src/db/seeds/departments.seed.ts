@@ -6,8 +6,8 @@
  * Phase 1.2: Shift & Day Summary Implementation Plan
  */
 
-import dotenv from "dotenv";
-dotenv.config();
+// NOTE: Do NOT load dotenv here - DATABASE_URL comes from the environment
+// This seed is called from seed.ts which passes the prisma client
 
 import { PrismaClient, Prisma } from "@prisma/client";
 

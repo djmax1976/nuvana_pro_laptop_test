@@ -20,6 +20,11 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
 
 // =============================================================================
 // DATABASE PROTECTION - Validate we're connecting to a safe database
@@ -76,6 +81,62 @@ function purgeRabbitMQQueues(): void {
   } catch (error) {
     // Script handles its own error logging, just continue
     console.log("   ○ RabbitMQ purge completed (check output above)\n");
+  }
+}
+
+/**
+ * Ensure the admin user exists for seeded user tests
+ * This mirrors what bootstrap-admin.ts does in CI
+ */
+async function ensureAdminUser(prisma: PrismaClient): Promise<void> {
+  const ADMIN_EMAIL = "admin@nuvana.com";
+  const ADMIN_PASSWORD = "Admin123!";
+
+  console.log("   Checking for admin user...");
+
+  let adminUser = await prisma.user.findUnique({
+    where: { email: ADMIN_EMAIL },
+  });
+
+  if (!adminUser) {
+    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+    adminUser = await prisma.user.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        email: ADMIN_EMAIL,
+        name: "System Administrator",
+        password_hash: passwordHash,
+        status: "ACTIVE",
+      },
+    });
+    console.log("   ✓ Created admin user: admin@nuvana.com");
+  } else {
+    console.log("   ✓ Admin user already exists");
+  }
+
+  const superadminRole = await prisma.role.findUnique({
+    where: { code: "SUPERADMIN" },
+  });
+
+  if (superadminRole) {
+    const existingRole = await prisma.userRole.findFirst({
+      where: {
+        user_id: adminUser.user_id,
+        role_id: superadminRole.role_id,
+      },
+    });
+
+    if (!existingRole) {
+      await prisma.userRole.create({
+        data: {
+          user_id: adminUser.user_id,
+          role_id: superadminRole.role_id,
+        },
+      });
+      console.log("   ✓ Assigned SUPERADMIN role to admin user");
+    }
+  } else {
+    console.log("   ⚠️  SUPERADMIN role not found - run RBAC seed first");
   }
 }
 
@@ -179,6 +240,8 @@ async function globalSetup() {
       storeIds.length === 0
     ) {
       console.log("\n✅ Database already clean\n");
+      // Still need to ensure admin user exists
+      await ensureAdminUser(prisma);
       return;
     }
 
@@ -299,6 +362,9 @@ async function globalSetup() {
     });
 
     console.log("\n✅ Database cleanup complete\n");
+
+    // Ensure admin user exists for seeded user tests
+    await ensureAdminUser(prisma);
   } catch (error) {
     console.error("❌ Global setup error:", error);
     // Don't throw - let tests run even if cleanup fails

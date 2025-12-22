@@ -1,5 +1,6 @@
-import dotenv from "dotenv";
-dotenv.config();
+// NOTE: Do NOT load dotenv here - DATABASE_URL should come from the environment
+// The CI passes DATABASE_URL=nuvana_test and dotenv.config() would override it
+// with .env's nuvana_dev value, breaking CI tests.
 
 import { PrismaClient } from "@prisma/client";
 import {

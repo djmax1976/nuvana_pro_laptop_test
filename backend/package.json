@@ -51,5 +51,8 @@
     "prisma": "^6.19.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
+  },
+  "prisma": {
+    "seed": "npx tsx prisma/seed.ts"
   }
 }
