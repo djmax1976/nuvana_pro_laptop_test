@@ -265,11 +265,16 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
       '[data-testid="client-nav-link-settings"]',
     );
     await expect(settingsLink).toBeVisible({ timeout: 10000 });
-    await settingsLink.click();
+
+    // Use Promise.all to ensure we wait for navigation after click
+    await Promise.all([
+      page.waitForURL(/.*\/client-dashboard\/settings.*/, { timeout: 15000 }),
+      settingsLink.click(),
+    ]);
 
     // THEN: User is navigated to /client-dashboard/settings
     await expect(page).toHaveURL(/.*\/client-dashboard\/settings.*/, {
-      timeout: 10000,
+      timeout: 5000,
     });
 
     // AND: Settings page is displayed

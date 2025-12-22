@@ -119,6 +119,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
                   type: "object",
                   properties: {
                     store_id: { type: "string", format: "uuid" },
+                    public_id: { type: "string" },
                     company_id: { type: "string", format: "uuid" },
                     name: { type: "string" },
                     location_json: {
@@ -965,6 +966,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
                   type: "object",
                   properties: {
                     store_id: { type: "string", format: "uuid" },
+                    public_id: { type: "string" },
                     company_id: { type: "string", format: "uuid" },
                     name: { type: "string" },
                     location_json: {
@@ -1102,6 +1104,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               store_id: { type: "string", format: "uuid" },
+              public_id: { type: "string" },
               company_id: { type: "string", format: "uuid" },
               name: { type: "string" },
               location_json: {
@@ -1325,6 +1328,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               store_id: { type: "string", format: "uuid" },
+              public_id: { type: "string" },
               company_id: { type: "string", format: "uuid" },
               name: { type: "string" },
               location_json: {

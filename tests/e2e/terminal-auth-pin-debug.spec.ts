@@ -5,9 +5,15 @@
  *
  * Tests the PIN input functionality in the terminal authentication modal:
  * 1. PIN input accepts user input in new shift mode
- * 2. PIN input accepts user input in resume shift mode
- * 3. PIN validation (4-digit numeric requirement)
- * 4. Form submission with valid PIN
+ * 2. PIN input character-by-character keyboard entry
+ * 3. PIN input has correct security attributes (password type, autocomplete off)
+ * 4. PIN validation (4-digit numeric requirement)
+ * 5. Empty PIN validation
+ * 6. Cancel button closes modal and resets form
+ * 7. Non-numeric character rejection
+ * 8. Modal displays correct form fields in new shift mode
+ * 9. Escape key closes modal
+ * 10. Cashier select accessibility in new shift mode
  *
  * Priority: P0 (Critical - Regression protection for PIN authentication)
  *
@@ -27,21 +33,73 @@ import { createCashier } from "../support/factories/cashier.factory";
 
 /**
  * Helper function to perform login and wait for /mystore redirect.
+ * Uses character-by-character typing to work around React hydration issues.
+ * Includes retry logic for backend cold-start scenarios.
  */
 async function loginAndWaitForMyStore(
   page: Page,
   email: string,
   password: string,
+  maxRetries: number = 2,
 ): Promise<void> {
-  await page.goto("/login");
-  await page.fill('input[name="email"], input[type="email"]', email);
-  await page.fill('input[name="password"], input[type="password"]', password);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    await page.goto("/login");
 
-  // Wait for navigation to /mystore after form submission
-  await Promise.all([
-    page.waitForURL(/.*mystore.*/, { timeout: 15000 }),
-    page.click('button[type="submit"]'),
-  ]);
+    // Wait for the form to be fully loaded
+    await page.waitForLoadState("domcontentloaded");
+
+    // Fill email - use pressSequentially to ensure React hydration doesn't lose characters
+    const emailInput = page.locator('input[name="email"], input[type="email"]');
+    await expect(emailInput).toBeVisible({ timeout: 10000 });
+    await emailInput.click();
+    await emailInput.pressSequentially(email, { delay: 10 });
+
+    // Fill password
+    const passwordInput = page.locator(
+      'input[name="password"], input[type="password"]',
+    );
+    await expect(passwordInput).toBeVisible();
+    await passwordInput.click();
+    await passwordInput.pressSequentially(password, { delay: 10 });
+
+    // Click submit and wait for navigation
+    try {
+      await Promise.all([
+        page.waitForURL(/.*mystore.*/, { timeout: 15000 }),
+        page.click('button[type="submit"]'),
+      ]);
+      return; // Success!
+    } catch (error) {
+      // Check for specific error conditions
+      const errorAlert = page.locator(
+        '[role="alert"]:not([id="__next-route-announcer__"])',
+      );
+      const hasError =
+        (await errorAlert.count()) > 0 && (await errorAlert.isVisible());
+
+      if (hasError) {
+        const errorText = await errorAlert.textContent();
+        // Network errors are retriable on cold-start
+        if (errorText?.includes("Failed to fetch") && attempt < maxRetries) {
+          console.log(
+            `Login attempt ${attempt + 1} failed with network error, retrying...`,
+          );
+          await page.waitForTimeout(1000); // Wait 1s before retry
+          continue;
+        }
+        throw new Error(`Login failed with error: ${errorText}`);
+      }
+
+      // If we're on the last attempt, throw the original error
+      if (attempt >= maxRetries) {
+        throw error;
+      }
+
+      // Otherwise retry
+      console.log(`Login attempt ${attempt + 1} timed out, retrying...`);
+      await page.waitForTimeout(1000);
+    }
+  }
 }
 
 /**
@@ -126,12 +184,14 @@ test.describe("4.9-E2E: Terminal Authentication PIN Input Tests", () => {
     });
 
     // Create cashier with known PIN for testing authentication
+    // Note: Factory generates name as "Test Cashier <faker name>" but we override with exact name
     const cashierData = await createCashier({
       store_id: store.store_id,
       created_by: clientUser.user_id,
       pin: cashierPin,
-      name: "Test Cashier Jane",
     });
+    // Override the generated name with a predictable test name
+    cashierData.name = "Test Cashier Jane";
     cashier = await prisma.cashier.create({
       data: cashierData,
     });
@@ -390,7 +450,14 @@ test.describe("4.9-E2E: Terminal Authentication PIN Input Tests", () => {
       timeout: 10000,
     });
 
-    // GIVEN: User has entered some data
+    // GIVEN: User has selected a cashier and entered a PIN
+    const cashierSelect = page.getByTestId("cashier-name-select");
+    await expect(cashierSelect).toBeVisible({ timeout: 10000 });
+    await cashierSelect.click();
+    const cashierOption = page.getByRole("option", { name: cashier.name });
+    await expect(cashierOption).toBeVisible({ timeout: 5000 });
+    await cashierOption.click();
+
     const pinInput = page.getByTestId("pin-number-input");
     await pinInput.fill("1234");
 
@@ -411,6 +478,10 @@ test.describe("4.9-E2E: Terminal Authentication PIN Input Tests", () => {
     // THEN: Form should be reset (PIN should be empty)
     const newPinValue = await page.getByTestId("pin-number-input").inputValue();
     expect(newPinValue).toBe("");
+
+    // AND: Cashier select should show placeholder (not the previously selected cashier)
+    const selectTrigger = page.getByTestId("cashier-name-select");
+    await expect(selectTrigger).toContainText(/select cashier name/i);
   });
 
   test("[P1] 4.9-PIN-007: PIN input should not accept non-numeric characters", async ({

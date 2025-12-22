@@ -1,13 +1,22 @@
 /**
  * E2E Tests: Lottery Bin Configuration Flow
  *
- * Tests critical end-to-end user journey:
+ * Tests critical end-to-end user journeys for lottery bin management:
  * - Client Owner configures bins and views bin display (critical workflow)
+ * - Security: XSS prevention in user inputs
+ * - Edge cases: Validation errors and network failure handling
+ * - Bin management: Add, remove, and reorder bins
  *
  * @test-level E2E
- * @justification Tests critical multi-page user journey that requires full system integration
+ * @justification Tests critical multi-page user journeys that require full system integration
  * @story 6-13 - Lottery Database Enhancements & Bin Management
  * @priority P1 (High - Core User Journey)
+ *
+ * Implementation References:
+ * - Settings Page: src/app/(client-dashboard)/client-dashboard/settings/lottery-bins/page.tsx
+ * - BinConfigurationForm: src/components/lottery/BinConfigurationForm.tsx
+ * - BinListDisplay: src/components/lottery/BinListDisplay.tsx
+ * - API Routes: backend/src/routes/lottery.ts (lines 3795-4582)
  */
 
 import { test, expect, Page } from "@playwright/test";
@@ -21,9 +30,14 @@ import {
 import { createLotteryGame } from "../support/factories/lottery.factory";
 
 /**
- * Helper function to perform login and wait for redirect.
+ * Helper function to perform login and wait for redirect to client dashboard.
  * Uses simplified, reliable pattern for CI/CD environments.
  * Follows the proven pattern from lottery-management-flow.spec.ts.
+ *
+ * @param page - Playwright Page object
+ * @param email - User email for login
+ * @param password - User password for login
+ * @throws Error if login fails or redirect doesn't occur
  */
 async function loginAsClientOwner(
   page: Page,
@@ -85,9 +99,17 @@ async function loginAsClientOwner(
 
 /**
  * Helper function to wait for bin configuration page to fully load.
+ * Handles multiple possible states: form loaded, no stores, or error.
+ *
+ * Implementation details:
+ * - Settings page always has data-testid="lottery-bins-settings-page"
+ * - BinConfigurationForm has data-testid="bin-configuration-form" when visible
+ * - Default state shows 24 bins if no configuration exists (404 response)
+ *
+ * @param page - Playwright Page object
  */
 async function waitForBinConfigurationPageLoaded(page: Page): Promise<void> {
-  // Wait for the settings page container
+  // Wait for the settings page container (always present in all states)
   await page
     .locator('[data-testid="lottery-bins-settings-page"]')
     .waitFor({ state: "visible", timeout: 15000 });
@@ -115,6 +137,14 @@ async function waitForBinConfigurationPageLoaded(page: Page): Promise<void> {
 
 /**
  * Helper function to wait for lottery page to fully load.
+ * The lottery page has two tabs: Inventory and Configuration.
+ *
+ * Implementation details:
+ * - Page container: data-testid="client-dashboard-lottery-page"
+ * - Tabs: "Inventory" (default) and "Configuration" (bin display)
+ * - BinListDisplay shows bins on Configuration tab
+ *
+ * @param page - Playwright Page object
  */
 async function waitForLotteryPageLoaded(page: Page): Promise<void> {
   // Wait for the lottery page container
@@ -122,7 +152,7 @@ async function waitForLotteryPageLoaded(page: Page): Promise<void> {
     .locator('[data-testid="client-dashboard-lottery-page"]')
     .waitFor({ state: "visible", timeout: 15000 });
 
-  // Wait for tabs to be visible
+  // Wait for tabs to be visible (proves the page structure is loaded)
   await page.locator('button[role="tab"]:has-text("Inventory")').waitFor({
     state: "visible",
     timeout: 10000,
@@ -258,6 +288,19 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
   test("6.13-E2E-001: [P1] Client Owner can configure bins and view bin display (AC #1, #2)", async ({
     page,
   }) => {
+    /**
+     * Tests the complete bin configuration workflow:
+     * 1. Navigate to settings page
+     * 2. Modify bin configuration (name, location)
+     * 3. Save configuration via API
+     * 4. Verify persistence after reload
+     * 5. Navigate to lottery page and view Configuration tab
+     *
+     * API Endpoints:
+     * - GET/POST/PUT /api/lottery/bins/configuration/:storeId
+     * - GET /api/lottery/bins/:storeId (for BinListDisplay)
+     */
+
     // GIVEN: I am authenticated as a Client Owner
     await loginAsClientOwner(page, clientOwner.email, password);
 
@@ -289,16 +332,16 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
       .locator('[data-testid="bin-configuration-form"]')
       .waitFor({ state: "visible", timeout: 15000 });
 
-    // THEN: Add bin button should be visible
+    // THEN: Add bin button should be visible (BinConfigurationForm.tsx line 329)
     await expect(page.locator('[data-testid="add-bin-button"]')).toBeVisible({
       timeout: 10000,
     });
 
-    // Wait for form to initialize with bins (default 24 bins)
+    // Wait for form to initialize with bins (default 24 bins per BinConfigurationForm.tsx line 86-91)
     const firstBinNameInput = page.locator('[data-testid="bin-name-input-0"]');
     await expect(firstBinNameInput).toBeVisible({ timeout: 15000 });
 
-    // Change the name to something different to trigger hasChanges
+    // Change the name to something different to trigger hasChanges state
     await firstBinNameInput.clear();
     await firstBinNameInput.fill("Main Counter Bin");
 
@@ -308,6 +351,7 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     await locationInput.fill("Front Counter");
 
     // AND: I save the configuration (button should now be enabled after changes)
+    // Save button is disabled until hasChanges=true (BinConfigurationForm.tsx line 336)
     const saveButton = page.locator(
       '[data-testid="save-configuration-button"]',
     );
@@ -321,12 +365,12 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     await saveButton.click();
     await saveResponsePromise;
 
-    // THEN: Success message is displayed (toast notification)
+    // THEN: Success message is displayed (toast notification from BinConfigurationForm.tsx line 130-133)
     await expect(page.getByText("Configuration saved").first()).toBeVisible({
       timeout: 15000,
     });
 
-    // AND: Saved values persist on reload
+    // AND: Saved values persist on reload (validates API persistence)
     await page.reload({ waitUntil: "domcontentloaded" });
     await waitForBinConfigurationPageLoaded(page);
     await expect(firstBinNameInput).toHaveValue("Main Counter Bin");
@@ -345,13 +389,14 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
       page.locator('[data-testid="client-dashboard-lottery-page"]'),
     ).toBeVisible({ timeout: 15000 });
 
-    // Click on the Configuration tab to view bin display
+    // Click on the Configuration tab to view bin display (lottery/page.tsx line 140)
     const configurationTab = page.locator(
       'button[role="tab"]:has-text("Configuration")',
     );
     await configurationTab.click();
 
     // Wait for either table or empty state message to appear
+    // BinListDisplay shows: bin-list-table, bin-list-empty, or bin-list-loading
     await Promise.race([
       page
         .locator('[data-testid="bin-list-table"]')
@@ -365,6 +410,7 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     ]).catch(() => {});
 
     // Verify page structure is correct - either table or empty state
+    // Empty state is shown when no bins have packs assigned (BinListDisplay.tsx line 204-218)
     const hasBinTable = await page
       .locator('[data-testid="bin-list-table"]')
       .isVisible()
@@ -374,7 +420,7 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
       .isVisible()
       .catch(() => false);
 
-    // Either state is valid - bin table or empty state
+    // Either state is valid - bin table (bins exist) or empty state (no bins with packs)
     expect(hasBinTable || hasBinEmptyState).toBe(true);
   });
 
@@ -385,6 +431,18 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
   test("6.13-E2E-SEC-001: [P0] Should prevent XSS in bin name field", async ({
     page,
   }) => {
+    /**
+     * Security test: XSS Prevention in User Input Fields
+     *
+     * This test verifies that:
+     * 1. Script tags entered in input fields are NOT executed
+     * 2. Input values are properly escaped by React
+     * 3. No JavaScript dialogs are triggered (alert/confirm/prompt)
+     *
+     * React Security: React automatically escapes all values embedded in JSX,
+     * converting special characters to their HTML entities (BinConfigurationForm.tsx)
+     */
+
     // GIVEN: I am authenticated as a Client Owner
     await loginAsClientOwner(page, clientOwner.email, password);
 
@@ -445,6 +503,19 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
   test("6.13-E2E-EDGE-001: [P1] Should handle validation errors gracefully", async ({
     page,
   }) => {
+    /**
+     * Edge case test: Client-side Validation Error Handling
+     *
+     * Tests the validation logic in BinConfigurationForm.tsx (lines 145-173):
+     * - validateBins() checks: bin count (1-200), unique display orders, non-empty names
+     * - Error message: "All bins must have a name" (line 167)
+     *
+     * This test verifies:
+     * 1. Save button remains enabled when changes are made (hasChanges=true)
+     * 2. Client-side validation catches empty bin names before API call
+     * 3. Toast notification displays appropriate validation error
+     */
+
     // GIVEN: I am authenticated as a Client Owner
     await loginAsClientOwner(page, clientOwner.email, password);
 
@@ -487,7 +558,7 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     await saveButton.click();
 
     // THEN: Validation error is displayed (toast notification)
-    // The BinConfigurationForm shows "All bins must have a name" for empty names
+    // The BinConfigurationForm shows "All bins must have a name" for empty names (line 167)
     await expect(
       page.getByText("All bins must have a name").first(),
     ).toBeVisible({ timeout: 10000 });
@@ -496,11 +567,22 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
   test("6.13-E2E-EDGE-002: [P1] Should handle network errors gracefully", async ({
     page,
   }) => {
+    /**
+     * Edge case test: Network Error Handling
+     *
+     * Tests error handling in BinConfigurationForm.tsx (lines 302-310):
+     * - Error state shown when API returns non-404 error
+     * - Component shows "Failed to load bin configuration" message
+     *
+     * Uses Playwright route interception to simulate server 500 error
+     * Verifies graceful degradation with user-friendly error message
+     */
+
     // GIVEN: I am authenticated as a Client Owner
     await loginAsClientOwner(page, clientOwner.email, password);
 
     // Set up route interception to simulate network error
-    // Intercept the bin configuration API call
+    // Intercept the bin configuration API call (GET /api/lottery/bins/configuration/:storeId)
     await page.route("**/api/lottery/bins/configuration/*", (route) => {
       route.fulfill({
         status: 500,
@@ -549,7 +631,7 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
       .catch(() => {});
 
     // THEN: Error message is displayed
-    // The BinConfigurationForm shows error for non-404 errors
+    // The BinConfigurationForm shows error for non-404 errors (lines 302-310)
     // Check for the error message in the component
     const hasErrorMessage = await Promise.race([
       page
@@ -582,6 +664,19 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
   test("6.13-E2E-002: [P1] Client Owner can add and remove bins", async ({
     page,
   }) => {
+    /**
+     * Bin Management test: Add and Remove Bins
+     *
+     * Tests handlers in BinConfigurationForm.tsx:
+     * - handleAddBin() (lines 198-208): Creates new bin with default name "Bin {n+1}"
+     * - handleRemoveBin() (lines 210-228): Removes bin and reorders remaining bins
+     *
+     * Constraints:
+     * - Minimum 1 bin required (removal disabled when only 1 bin exists)
+     * - Maximum 200 bins allowed
+     * - New bins get sequential display_order
+     */
+
     // GIVEN: I am authenticated as a Client Owner
     await loginAsClientOwner(page, clientOwner.email, password);
 
@@ -609,12 +704,12 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
       timeout: 15000,
     });
 
-    // Count initial bins
+    // Count initial bins (default 24 bins)
     const initialBinCount = await page
       .locator('[data-testid^="bin-item-"]')
       .count();
 
-    // WHEN: I click the Add Bin button
+    // WHEN: I click the Add Bin button (data-testid="add-bin-button")
     const addButton = page.locator('[data-testid="add-bin-button"]');
     await addButton.click();
 
@@ -624,19 +719,19 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
       .count();
     expect(newBinCount).toBe(initialBinCount + 1);
 
-    // Verify the new bin has default name
+    // Verify the new bin has default name "Bin {n+1}"
     const newBinInput = page.locator(
       `[data-testid="bin-name-input-${initialBinCount}"]`,
     );
     await expect(newBinInput).toBeVisible();
 
-    // WHEN: I remove the newly added bin
+    // WHEN: I remove the newly added bin (data-testid="bin-remove-{index}")
     const removeButton = page.locator(
       `[data-testid="bin-remove-${initialBinCount}"]`,
     );
     await removeButton.click();
 
-    // THEN: The bin is removed
+    // THEN: The bin is removed and count returns to original
     const finalBinCount = await page
       .locator('[data-testid^="bin-item-"]')
       .count();
@@ -644,6 +739,22 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
   });
 
   test("6.13-E2E-003: [P2] Client Owner can reorder bins", async ({ page }) => {
+    /**
+     * Bin Management test: Reorder Bins
+     *
+     * Tests handlers in BinConfigurationForm.tsx:
+     * - handleMoveUp() (lines 230-246): Swaps bin with previous bin
+     * - handleMoveDown() (lines 248-266): Swaps bin with next bin
+     *
+     * UI Elements:
+     * - Move up button: data-testid="bin-move-up-{index}" (disabled at index 0)
+     * - Move down button: data-testid="bin-move-down-{index}" (disabled at last index)
+     *
+     * Behavior:
+     * - Swapping updates display_order for all affected bins
+     * - hasChanges becomes true after reordering
+     */
+
     // GIVEN: I am authenticated as a Client Owner
     await loginAsClientOwner(page, clientOwner.email, password);
 
@@ -666,7 +777,7 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
       return;
     }
 
-    // Wait for bins to load
+    // Wait for bins to load (need at least 2 bins to test reordering)
     await expect(page.locator('[data-testid="bin-name-input-0"]')).toBeVisible({
       timeout: 15000,
     });
@@ -682,11 +793,11 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
       .locator('[data-testid="bin-name-input-1"]')
       .inputValue();
 
-    // WHEN: I click move down on the first bin
+    // WHEN: I click move down on the first bin (swaps positions with second bin)
     const moveDownButton = page.locator('[data-testid="bin-move-down-0"]');
     await moveDownButton.click();
 
-    // THEN: The bins are swapped
+    // THEN: The bins are swapped (handleMoveDown swaps adjacent bins)
     await expect(page.locator('[data-testid="bin-name-input-0"]')).toHaveValue(
       secondBinNameBefore,
       { timeout: 5000 },
@@ -704,6 +815,7 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     expect(firstBinNameAfter).not.toBe(firstBinNameBefore);
 
     // Verify move up button on second bin is now enabled (was first, moved down)
+    // Move up at index 1 should always be enabled
     const moveUpButton = page.locator('[data-testid="bin-move-up-1"]');
     await expect(moveUpButton).toBeEnabled();
   });

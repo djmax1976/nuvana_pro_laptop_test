@@ -5,14 +5,13 @@
  */
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { createUser, createClientUser } from "../support/factories";
+import { createClientUser } from "../support/factories";
 import { createTransaction as createTransactionFactory } from "../support/factories/transaction.factory";
 import { PrismaClient, Prisma } from "@prisma/client";
 import {
   createShift as createShiftHelper,
   createCashier as createCashierHelper,
 } from "../support/helpers/database-helpers";
-import { withBypassClient } from "../support/prisma-bypass";
 
 /**
  * Creates a POS terminal for testing
@@ -147,7 +146,9 @@ async function createClosedShiftWithTransactions(
 }
 
 /**
- * Navigate to shifts page and wait for it to load
+ * Navigate to shifts page and wait for it to load.
+ * Handles all possible states: loading, table with data, empty, or error.
+ * Uses progressive wait strategy for reliability in CI environments.
  */
 async function navigateToShiftsPage(page: any) {
   await page.goto("/client-dashboard/shifts", {
@@ -173,6 +174,22 @@ async function navigateToShiftsPage(page: any) {
       .catch(() => null),
     page
       .waitForSelector('[data-testid="shift-list-empty"]', { timeout: 30000 })
+      .catch(() => null),
+  ]);
+
+  // Wait for actual content to be visible instead of just selector presence
+  await Promise.race([
+    page
+      .locator('[data-testid="shift-list-table"]')
+      .waitFor({ state: "visible", timeout: 10000 })
+      .catch(() => null),
+    page
+      .locator('[data-testid="shift-list-empty"]')
+      .waitFor({ state: "visible", timeout: 10000 })
+      .catch(() => null),
+    page
+      .locator('[data-testid="shift-list-error"]')
+      .waitFor({ state: "visible", timeout: 10000 })
       .catch(() => null),
   ]);
 }
@@ -203,7 +220,13 @@ async function navigateToShiftsPage(page: any) {
  * - AC #5: Back navigation functionality
  */
 
-test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
+/**
+ * Serial execution required for shift detail tests.
+ * These tests share the same user session (clientOwnerPage) and create shifts
+ * that could interfere with each other if run in parallel. Running serially
+ * ensures consistent test data isolation and prevents race conditions.
+ */
+test.describe.serial("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
   test("SHIFT-DETAIL-E2E-001: [P0] Should navigate to shift detail page when clicking shift row", async ({
     clientOwnerPage,
     clientUser,
@@ -349,27 +372,8 @@ test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
       clientOwnerPage.locator('[data-testid="cash-reconciliation-card"]'),
     ).toBeVisible();
 
-    // Cleanup
-    const transactions = await prismaClient.transaction.findMany({
-      where: { shift_id: shift.shift_id },
-      select: { transaction_id: true },
-    });
-    const transactionIds = transactions.map((t) => t.transaction_id);
-    if (transactionIds.length > 0) {
-      await prismaClient.transactionPayment.deleteMany({
-        where: { transaction_id: { in: transactionIds } },
-      });
-      await prismaClient.transaction.deleteMany({
-        where: { shift_id: shift.shift_id },
-      });
-    }
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
-    await prismaClient.cashier.delete({
-      where: { cashier_id: cashier.cashier_id },
-    });
-    await prismaClient.pOSTerminal.delete({
-      where: { pos_terminal_id: terminal.pos_terminal_id },
-    });
+    // Note: Test data cleanup is handled automatically by global teardown
+    // which cleans up test users, companies, stores, and related data
   });
 
   test("SHIFT-DETAIL-E2E-004: [P0] Should display payment methods breakdown for closed shift", async ({
@@ -410,28 +414,6 @@ test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
 
     // AND: Should show "Payment Methods" header
     await expect(clientOwnerPage.getByText("Payment Methods")).toBeVisible();
-
-    // Cleanup
-    const transactions = await prismaClient.transaction.findMany({
-      where: { shift_id: shift.shift_id },
-      select: { transaction_id: true },
-    });
-    const transactionIds = transactions.map((t) => t.transaction_id);
-    if (transactionIds.length > 0) {
-      await prismaClient.transactionPayment.deleteMany({
-        where: { transaction_id: { in: transactionIds } },
-      });
-      await prismaClient.transaction.deleteMany({
-        where: { shift_id: shift.shift_id },
-      });
-    }
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
-    await prismaClient.cashier.delete({
-      where: { cashier_id: cashier.cashier_id },
-    });
-    await prismaClient.pOSTerminal.delete({
-      where: { pos_terminal_id: terminal.pos_terminal_id },
-    });
   });
 
   test("SHIFT-DETAIL-E2E-005: [P0] Should display variance details when variance exists", async ({
@@ -474,28 +456,6 @@ test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
     await expect(
       clientOwnerPage.getByText("Customer returned cash payment"),
     ).toBeVisible();
-
-    // Cleanup
-    const transactions = await prismaClient.transaction.findMany({
-      where: { shift_id: shift.shift_id },
-      select: { transaction_id: true },
-    });
-    const transactionIds = transactions.map((t) => t.transaction_id);
-    if (transactionIds.length > 0) {
-      await prismaClient.transactionPayment.deleteMany({
-        where: { transaction_id: { in: transactionIds } },
-      });
-      await prismaClient.transaction.deleteMany({
-        where: { shift_id: shift.shift_id },
-      });
-    }
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
-    await prismaClient.cashier.delete({
-      where: { cashier_id: cashier.cashier_id },
-    });
-    await prismaClient.pOSTerminal.delete({
-      where: { pos_terminal_id: terminal.pos_terminal_id },
-    });
   });
 
   test("SHIFT-DETAIL-E2E-006: [P0] Should navigate back to shifts list when clicking back button", async ({
@@ -588,28 +548,6 @@ test.describe("CLIENT-OWNER-DASHBOARD-E2E: Shift Detail View", () => {
 
     // AND: Should show "Sales Summary" header
     await expect(clientOwnerPage.getByText("Sales Summary")).toBeVisible();
-
-    // Cleanup
-    const transactions = await prismaClient.transaction.findMany({
-      where: { shift_id: shift.shift_id },
-      select: { transaction_id: true },
-    });
-    const transactionIds = transactions.map((t) => t.transaction_id);
-    if (transactionIds.length > 0) {
-      await prismaClient.transactionPayment.deleteMany({
-        where: { transaction_id: { in: transactionIds } },
-      });
-      await prismaClient.transaction.deleteMany({
-        where: { shift_id: shift.shift_id },
-      });
-    }
-    await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
-    await prismaClient.cashier.delete({
-      where: { cashier_id: cashier.cashier_id },
-    });
-    await prismaClient.pOSTerminal.delete({
-      where: { pos_terminal_id: terminal.pos_terminal_id },
-    });
   });
 
   test("SHIFT-DETAIL-E2E-008: [P1] Should display error state for non-existent shift", async ({

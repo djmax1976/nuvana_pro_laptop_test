@@ -14,7 +14,7 @@
 import { test, expect, Page } from "@playwright/test";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { PrismaClient, LotteryPackStatus, ShiftStatus } from "@prisma/client";
+import { PrismaClient, LotteryPackStatus } from "@prisma/client";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
@@ -97,6 +97,8 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
 
   test.beforeAll(async () => {
     prisma = new PrismaClient();
+    await prisma.$connect();
+
     // Create test store manager with company and store
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = uuidv4();
@@ -162,30 +164,59 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
   });
 
   test.afterAll(async () => {
-    // Clean up test data
-    if (storeManager) {
-      await prisma.userRole
-        .deleteMany({ where: { user_id: storeManager.user_id } })
-        .catch(() => {});
-      await prisma.lotteryPack
-        .deleteMany({ where: { store_id: store?.store_id } })
-        .catch(() => {});
-      await prisma.store
-        .delete({ where: { store_id: store?.store_id } })
-        .catch(() => {});
-      await prisma.company
-        .delete({ where: { company_id: company?.company_id } })
-        .catch(() => {});
-      await prisma.user
-        .delete({ where: { user_id: storeManager.user_id } })
-        .catch(() => {});
+    // Clean up test data in reverse dependency order
+    if (prisma) {
+      // Delete lottery packs first (references bins and games)
+      if (store) {
+        await prisma.lotteryPack
+          .deleteMany({ where: { store_id: store.store_id } })
+          .catch(() => {});
+      }
+
+      // Delete lottery bins (references store)
+      if (store) {
+        await prisma.lotteryBin
+          .deleteMany({ where: { store_id: store.store_id } })
+          .catch(() => {});
+      }
+
+      // Delete user roles (references user, company, store)
+      if (storeManager) {
+        await prisma.userRole
+          .deleteMany({ where: { user_id: storeManager.user_id } })
+          .catch(() => {});
+      }
+
+      // Delete store (references company)
+      if (store) {
+        await prisma.store
+          .delete({ where: { store_id: store.store_id } })
+          .catch(() => {});
+      }
+
+      // Delete company (references user as owner)
+      if (company) {
+        await prisma.company
+          .delete({ where: { company_id: company.company_id } })
+          .catch(() => {});
+      }
+
+      // Delete user
+      if (storeManager) {
+        await prisma.user
+          .delete({ where: { user_id: storeManager.user_id } })
+          .catch(() => {});
+      }
+
+      // Delete lottery game (independent)
       if (game) {
         await prisma.lotteryGame
           .delete({ where: { game_id: game.game_id } })
           .catch(() => {});
       }
+
+      await prisma.$disconnect();
     }
-    await prisma.$disconnect();
   });
 
   test("6.10-E2E-001: [P0] user can view lottery management page (AC #1)", async ({

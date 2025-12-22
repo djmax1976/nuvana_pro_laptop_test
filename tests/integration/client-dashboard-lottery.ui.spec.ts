@@ -18,10 +18,19 @@
  * @justification Tests UI components with real API integration, authentication, and data flow
  * @story 6-10-1 - Client Dashboard Lottery Page
  * @priority P1 (High - Core User Journey, Security)
+ *
+ * IMPORTANT: Uses bcryptjs (not bcrypt) for password hashing to match backend
+ * Uses withBypassClient for role creation to avoid RLS restrictions
  */
 
+import { config } from "dotenv";
+// Load environment variables from .env.local as defaults
+// IMPORTANT: Do NOT use override: true - the test script's DATABASE_URL
+// (e.g., nuvana_test) must take precedence over .env.local's DATABASE_URL
+config({ path: ".env.local" });
+
 import { test, expect, Page } from "@playwright/test";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { PrismaClient } from "@prisma/client";
 import {
@@ -38,55 +47,88 @@ import { createCompany, createStore } from "../support/helpers";
 /**
  * Helper function to perform login and wait for client dashboard.
  * Uses network-first pattern for reliable test stability in CI/CD.
+ * Handles backend restarts by retrying on connection errors.
  */
 async function loginAndWaitForClientDashboard(
   page: Page,
   email: string,
   password: string,
+  retryCount = 0,
 ): Promise<void> {
-  // Navigate to login page
-  await page.goto("/login", { waitUntil: "networkidle" });
+  const MAX_RETRIES = 2;
 
-  // Wait for login form to be visible and ready for input
-  const emailInput = page.locator("#email");
-  await emailInput.waitFor({ state: "visible", timeout: 15000 });
+  try {
+    // Navigate to login page
+    await page.goto("/login", { waitUntil: "networkidle" });
 
-  // Wait for input to be editable (ensures React hydration is complete)
-  await expect(emailInput).toBeEditable({ timeout: 10000 });
+    // Wait for login form to be visible and ready for input
+    const emailInput = page.locator("#email");
+    await emailInput.waitFor({ state: "visible", timeout: 15000 });
 
-  // Fill credentials using locator and verify the values are entered
-  await emailInput.fill(email);
-  await page.locator("#password").fill(password);
+    // Wait for input to be editable (ensures React hydration is complete)
+    await expect(emailInput).toBeEditable({ timeout: 10000 });
 
-  // Verify the form is filled before submitting
-  await expect(emailInput).toHaveValue(email);
-  await expect(page.locator("#password")).toHaveValue(password);
+    // Fill credentials using locator and verify the values are entered
+    await emailInput.fill(email);
+    await page.locator("#password").fill(password);
 
-  // Set up response and navigation promises AFTER form is ready but BEFORE clicking
-  const loginResponsePromise = page.waitForResponse(
-    (resp) => resp.url().includes("/api/auth/login") && resp.status() === 200,
-    { timeout: 30000 },
-  );
+    // Verify the form is filled before submitting
+    await expect(emailInput).toHaveValue(email);
+    await expect(page.locator("#password")).toHaveValue(password);
 
-  const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {
-    timeout: 30000,
-    waitUntil: "domcontentloaded",
-  });
+    // Set up response promise - wait for any login response (success or error)
+    const loginResponsePromise = page.waitForResponse(
+      (resp) => resp.url().includes("/api/auth/login"),
+      { timeout: 30000 },
+    );
 
-  // Click submit button
-  await page.getByRole("button", { name: "Sign In" }).click();
+    // Click submit button
+    await page.getByRole("button", { name: "Sign In" }).click();
 
-  // Wait for login API response
-  const loginResponse = await loginResponsePromise;
-  expect(loginResponse.status()).toBe(200);
+    // Wait for login API response
+    const loginResponse = await loginResponsePromise;
 
-  // Wait for navigation to complete
-  await navigationPromise;
+    // Check for error response
+    if (loginResponse.status() === 401) {
+      const body = await loginResponse.json().catch(() => ({}));
+      throw new Error(`Login failed: ${body.message || "Invalid credentials"}`);
+    }
 
-  // Wait for page to be fully loaded
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
-    // networkidle might timeout if there are long-polling requests
-  });
+    if (loginResponse.status() !== 200) {
+      throw new Error(`Login failed with status ${loginResponse.status()}`);
+    }
+
+    // Wait for navigation to client dashboard
+    await page.waitForURL(/.*client-dashboard.*/, {
+      timeout: 30000,
+      waitUntil: "domcontentloaded",
+    });
+
+    // Wait for page to be fully loaded
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+      // networkidle might timeout if there are long-polling requests
+    });
+  } catch (error) {
+    // Retry on connection errors (backend restart)
+    if (
+      retryCount < MAX_RETRIES &&
+      error instanceof Error &&
+      (error.message.includes("ERR_CONNECTION_REFUSED") ||
+        error.message.includes("net::"))
+    ) {
+      console.log(
+        `Connection error, retrying login (attempt ${retryCount + 2}/${MAX_RETRIES + 1})...`,
+      );
+      await page.waitForTimeout(2000); // Wait for backend to restart
+      return loginAndWaitForClientDashboard(
+        page,
+        email,
+        password,
+        retryCount + 1,
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -549,20 +591,33 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     await expect(loadingSpinner).not.toBeVisible({ timeout: 5000 });
 
     // AND: Verify that some content is actually displayed (not stuck in loading)
-    const hasContent = await Promise.race([
+    // Wait for one of the content states to be visible
+    await Promise.race([
       page
         .locator('[data-testid="lottery-table"]')
-        .isVisible()
-        .then((v) => v),
+        .waitFor({ state: "visible", timeout: 10000 }),
       page
         .locator('[data-testid="lottery-table-empty"]')
-        .isVisible()
-        .then((v) => v),
+        .waitFor({ state: "visible", timeout: 10000 }),
       page
         .locator('[data-testid="lottery-table-error"]')
-        .isVisible()
-        .then((v) => v),
-    ]);
+        .waitFor({ state: "visible", timeout: 10000 }),
+    ]).catch(() => {
+      // If none became visible, that's what we're testing for
+    });
+
+    // Now check if any content is visible
+    const isTableVisible = await page
+      .locator('[data-testid="lottery-table"]')
+      .isVisible();
+    const isEmptyVisible = await page
+      .locator('[data-testid="lottery-table-empty"]')
+      .isVisible();
+    const isErrorVisible = await page
+      .locator('[data-testid="lottery-table-error"]')
+      .isVisible();
+
+    const hasContent = isTableVisible || isEmptyVisible || isErrorVisible;
     expect(hasContent).toBe(true);
   });
 

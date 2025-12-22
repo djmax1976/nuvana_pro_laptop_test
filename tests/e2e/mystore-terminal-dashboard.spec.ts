@@ -248,6 +248,9 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     const sidebar = page.getByTestId("mystore-sidebar");
     await expect(sidebar).toBeVisible();
 
+    // THEN: Dashboard link should be visible (exact match for "/mystore")
+    await expect(page.getByTestId("dashboard-link")).toBeVisible();
+
     // THEN: Clock In/Out link should be visible
     await expect(page.getByTestId("clock-in-out-link")).toBeVisible();
 
@@ -260,12 +263,14 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     ).toBeVisible();
 
     // THEN: CLIENT_USER role CAN see Lottery link in sidebar
-    // (CLIENT_USER has LOTTERY_REPORT permission per rbac.seed.ts)
+    // Menu visibility uses canAccessMenuByKey("lottery") which checks for ANY of:
+    // LOTTERY_PACK_RECEIVE, LOTTERY_SHIFT_RECONCILE, or LOTTERY_REPORT
+    // CLIENT_USER has LOTTERY_REPORT permission per rbac.seed.ts
     await expect(page.getByTestId("lottery-link")).toBeVisible();
 
     // THEN: Excluded navigation items should NOT be present in the sidebar
     // Note: We check within sidebar context to avoid matching text elsewhere
-    // MyStore sidebar only shows: Clock In/Out, Lottery (if permitted), and Terminal links
+    // MyStore sidebar only shows: Dashboard, Clock In/Out, Lottery (if permitted), and Terminal links
     await expect(sidebar.getByText(/shifts/i)).not.toBeVisible();
     await expect(sidebar.getByText(/inventory/i)).not.toBeVisible();
     await expect(sidebar.getByText(/employees/i)).not.toBeVisible();
@@ -312,7 +317,10 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
       .getByTestId(`terminal-link-${terminal1.pos_terminal_id}`)
       .click();
 
-    // THEN: Form fields should be visible
+    // Wait for modal to appear
+    await expect(page.getByTestId("terminal-auth-modal")).toBeVisible();
+
+    // THEN: Form fields should be visible (new shift mode shows cashier dropdown)
     await expect(page.getByTestId("cashier-name-select")).toBeVisible();
     await expect(page.getByLabel(/cashier name/i)).toBeVisible();
     await expect(page.getByTestId("pin-number-input")).toBeVisible();
@@ -321,6 +329,32 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     // THEN: Cancel and Submit buttons should be visible
     await expect(page.getByTestId("terminal-auth-cancel-button")).toBeVisible();
     await expect(page.getByTestId("terminal-auth-submit-button")).toBeVisible();
+
+    // THEN: Submit button should say "Start Shift" in new shift mode (no active shift)
+    await expect(page.getByTestId("terminal-auth-submit-button")).toHaveText(
+      "Start Shift",
+    );
+  });
+
+  test("[P1] 4.9-E2E-004a: TerminalAuthModal cancel button should close the modal", async ({
+    page,
+  }) => {
+    // GIVEN: User is logged in and on /mystore dashboard
+    await loginAndWaitForMyStore(page, clientUser.email, password);
+
+    // WHEN: User clicks on a terminal to open modal
+    await page
+      .getByTestId(`terminal-link-${terminal1.pos_terminal_id}`)
+      .click();
+
+    // Wait for modal to appear
+    await expect(page.getByTestId("terminal-auth-modal")).toBeVisible();
+
+    // WHEN: User clicks Cancel button
+    await page.getByTestId("terminal-auth-cancel-button").click();
+
+    // THEN: Modal should be closed
+    await expect(page.getByTestId("terminal-auth-modal")).not.toBeVisible();
   });
 
   test("[P1] 4.9-E2E-005: Clock In/Out page should display 'Coming Soon' message", async ({
@@ -343,6 +377,34 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
         /the clock in\/out feature is currently under development/i,
       ),
     ).toBeVisible();
+  });
+
+  test("[P1] 4.9-E2E-005a: Dashboard link should navigate back to /mystore", async ({
+    page,
+  }) => {
+    // GIVEN: User is logged in and on /mystore/clock-in-out page
+    await loginAndWaitForMyStore(page, clientUser.email, password);
+    await page.getByTestId("clock-in-out-link").click();
+    await expect(page).toHaveURL(/.*mystore\/clock-in-out.*/);
+
+    // WHEN: User clicks Dashboard link
+    await page.getByTestId("dashboard-link").click();
+
+    // THEN: Page should navigate back to /mystore (exact path)
+    await expect(page).toHaveURL(/.*\/mystore$/);
+  });
+
+  test("[P1] 4.9-E2E-005b: Lottery link should navigate to lottery page", async ({
+    page,
+  }) => {
+    // GIVEN: User is logged in and on /mystore dashboard
+    await loginAndWaitForMyStore(page, clientUser.email, password);
+
+    // WHEN: User clicks Lottery link
+    await page.getByTestId("lottery-link").click();
+
+    // THEN: Page should navigate to /mystore/lottery
+    await expect(page).toHaveURL(/.*mystore\/lottery.*/);
   });
 
   test("[P1] 4.9-E2E-006: Store Manager should be able to access /mystore dashboard", async ({
