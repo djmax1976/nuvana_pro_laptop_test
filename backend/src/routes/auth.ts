@@ -988,7 +988,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     email: z.string().email("Email must be a valid email address"),
     password: z.string().min(1, "Password is required"),
     permission: z.enum(["LOTTERY_MANUAL_ENTRY"], {
-      errorMap: () => ({ message: "Invalid permission requested" }),
+      message: "Invalid permission requested",
     }),
     storeId: z.string().uuid("storeId must be a valid UUID"),
   });
