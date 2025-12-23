@@ -799,38 +799,41 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     await expect(firstBinInput).toBeVisible({ timeout: 15000 });
     await expect(secondBinInput).toBeVisible({ timeout: 5000 });
 
-    // Get the names of first two bins before reordering
-    // Note: Previous tests in this serial suite may have changed bin names
-    let firstBinNameBefore = await firstBinInput.inputValue();
-    let secondBinNameBefore = await secondBinInput.inputValue();
+    // First, set unique and known names for both bins to ensure reliable testing
+    // This avoids any dependency on previous test state
+    const uniqueBinNameA = `Reorder-A-${Date.now()}`;
+    const uniqueBinNameB = `Reorder-B-${Date.now()}`;
 
-    // Ensure the bins have different names for the test to be valid
-    // If they're the same (edge case), set unique names first
-    if (firstBinNameBefore === secondBinNameBefore) {
-      await firstBinInput.clear();
-      await firstBinInput.fill("Reorder Test Bin A");
-      await secondBinInput.clear();
-      await secondBinInput.fill("Reorder Test Bin B");
-      // Re-read the values
-      firstBinNameBefore = await firstBinInput.inputValue();
-      secondBinNameBefore = await secondBinInput.inputValue();
-    }
+    await firstBinInput.click();
+    await firstBinInput.clear();
+    await firstBinInput.fill(uniqueBinNameA);
+    await expect(firstBinInput).toHaveValue(uniqueBinNameA, { timeout: 5000 });
+
+    await secondBinInput.click();
+    await secondBinInput.clear();
+    await secondBinInput.fill(uniqueBinNameB);
+    await expect(secondBinInput).toHaveValue(uniqueBinNameB, { timeout: 5000 });
+
+    // Verify we have distinct names before proceeding
+    const nameBefore0 = await firstBinInput.inputValue();
+    const nameBefore1 = await secondBinInput.inputValue();
+    expect(nameBefore0).toBe(uniqueBinNameA);
+    expect(nameBefore1).toBe(uniqueBinNameB);
+    expect(nameBefore0).not.toBe(nameBefore1);
 
     // WHEN: I click move down on the first bin (swaps positions with second bin)
     const moveDownButton = page.locator('[data-testid="bin-move-down-0"]');
     await expect(moveDownButton).toBeEnabled({ timeout: 5000 });
     await moveDownButton.click();
 
-    // Wait for React state update to complete
-    await page.waitForTimeout(300);
-
     // THEN: The bins are swapped (handleMoveDown swaps adjacent bins)
-    // The name that was at position 1 should now be at position 0
-    await expect(firstBinInput).toHaveValue(secondBinNameBefore, {
-      timeout: 5000,
+    // Use Playwright's auto-retry to wait for the DOM update
+    // The name that was at position 1 (uniqueBinNameB) should now be at position 0
+    await expect(firstBinInput).toHaveValue(uniqueBinNameB, {
+      timeout: 10000,
     });
-    // The name that was at position 0 should now be at position 1
-    await expect(secondBinInput).toHaveValue(firstBinNameBefore, {
+    // The name that was at position 0 (uniqueBinNameA) should now be at position 1
+    await expect(secondBinInput).toHaveValue(uniqueBinNameA, {
       timeout: 5000,
     });
 

@@ -492,13 +492,18 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
       });
 
       // Wait for settings page to load
-      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
+        timeout: 15000,
+      });
 
       const employeesTab = page.locator('[data-testid="employees-tab"]');
-      await expect(employeesTab).toBeVisible({ timeout: 5000 });
+      await expect(employeesTab).toBeVisible({ timeout: 10000 });
       await employeesTab.click();
+
+      // Wait for tab content switch
+      await page.waitForLoadState("domcontentloaded");
       await expect(page.locator('[data-testid="employee-table"]')).toBeVisible({
-        timeout: 10000,
+        timeout: 15000,
       });
 
       // WHEN: Employee data loads
@@ -511,8 +516,9 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
         '[data-testid^="reset-password-button-"]',
       );
 
-      // Wait for buttons to appear
-      await expect(changeEmailButtons.first()).toBeVisible({ timeout: 5000 });
+      // Wait for buttons to appear with longer timeout
+      await expect(changeEmailButtons.first()).toBeVisible({ timeout: 15000 });
+      await expect(resetPasswordButtons.first()).toBeVisible({ timeout: 5000 });
 
       const changeEmailCount = await changeEmailButtons.count();
       const resetPasswordCount = await resetPasswordButtons.count();

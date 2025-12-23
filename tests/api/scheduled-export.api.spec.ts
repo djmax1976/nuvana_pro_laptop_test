@@ -1,4 +1,4 @@
-import { test, expect } from "../support/fixtures/rbac.fixture";
+import { test as baseTest, expect } from "../support/fixtures/rbac.fixture";
 import { withBypassClient } from "../support/prisma-bypass";
 
 /**
@@ -55,78 +55,200 @@ import { withBypassClient } from "../support/prisma-bypass";
  * └─────────────────────────────────────────────────────────────────────────────┘
  */
 
-// Test data cleanup tracking
-let createdScheduleIds: string[] = [];
-let createdPosIntegrationIds: string[] = [];
+// =============================================================================
+// TEST CONTEXT TYPE - Test-scoped cleanup tracking
+// =============================================================================
 
 /**
- * Helper to create POS integration for a store (required for scheduled exports)
+ * Test context for tracking test-specific data that needs cleanup.
+ * Each test worker gets its own isolated context to prevent cross-test interference.
  */
-async function createPOSIntegration(storeId: string): Promise<string> {
+interface ScheduledExportTestContext {
+  /** Schedule IDs created during this specific test */
+  createdScheduleIds: string[];
+  /** POS Integration IDs created during this specific test */
+  createdPosIntegrationIds: string[];
+  /** Department IDs created during this specific test */
+  createdDepartmentIds: string[];
+}
+
+// =============================================================================
+// EXTENDED TEST FIXTURE
+// =============================================================================
+
+/**
+ * Extended test fixture that provides test-scoped cleanup context.
+ * This ensures each parallel test worker has its own isolated state.
+ */
+const test = baseTest.extend<{ testContext: ScheduledExportTestContext }>({
+  testContext: async ({}, use) => {
+    // Create isolated context for this specific test
+    const context: ScheduledExportTestContext = {
+      createdScheduleIds: [],
+      createdPosIntegrationIds: [],
+      createdDepartmentIds: [],
+    };
+
+    // Run the test with its isolated context
+    await use(context);
+
+    // Cleanup: Remove all test data created during this specific test
+    // This runs after each test, cleaning only data created by this test
+    await withBypassClient(async (prisma) => {
+      // Clean up in reverse order of dependencies
+      if (context.createdScheduleIds.length > 0) {
+        await prisma.nAXMLScheduledExportLog.deleteMany({
+          where: { schedule_id: { in: context.createdScheduleIds } },
+        });
+        await prisma.nAXMLScheduledExport.deleteMany({
+          where: { schedule_id: { in: context.createdScheduleIds } },
+        });
+      }
+      if (context.createdDepartmentIds.length > 0) {
+        await prisma.department.deleteMany({
+          where: { department_id: { in: context.createdDepartmentIds } },
+        });
+      }
+      if (context.createdPosIntegrationIds.length > 0) {
+        await prisma.pOSIntegration.deleteMany({
+          where: {
+            pos_integration_id: { in: context.createdPosIntegrationIds },
+          },
+        });
+      }
+    });
+  },
+});
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+/**
+ * Creates a POS integration for a store (required for scheduled exports).
+ * Tracks the created integration in the test context for cleanup.
+ *
+ * @param storeId - Store to create POS integration for
+ * @param context - Test context for tracking cleanup
+ * @returns POS integration ID
+ */
+async function createPOSIntegration(
+  storeId: string,
+  context: ScheduledExportTestContext,
+): Promise<string> {
   let posIntegrationId: string = "";
   await withBypassClient(async (prisma) => {
     const integration = await prisma.pOSIntegration.create({
       data: {
         store_id: storeId,
-        pos_type: "GILBARCO_PASSPORT", // Use existing enum value (GILBARCO_NAXML not yet migrated)
+        pos_type: "GILBARCO_PASSPORT", // Use existing enum value
         is_active: true,
         connection_mode: "FILE_EXCHANGE",
         naxml_version: "3.4",
         generate_acknowledgments: true,
-        host: "localhost", // Required field
+        host: "localhost",
         port: 8080,
         use_ssl: false,
         xml_gateway_path: "/tmp/test/XMLGateway",
       },
     });
     posIntegrationId = integration.pos_integration_id;
-    createdPosIntegrationIds.push(posIntegrationId);
+    context.createdPosIntegrationIds.push(posIntegrationId);
   });
   return posIntegrationId;
 }
 
 /**
- * Helper to create a test department for export testing
+ * Creates a test department for export testing.
+ * Tracks the created department in the test context for cleanup.
+ *
+ * @param companyId - Company to create department for
+ * @param context - Test context for tracking cleanup
+ * @returns Department ID
  */
-async function createTestDepartment(companyId: string): Promise<string> {
+async function createTestDepartment(
+  companyId: string,
+  context: ScheduledExportTestContext,
+): Promise<string> {
   let deptId: string = "";
   await withBypassClient(async (prisma) => {
     const dept = await prisma.department.create({
       data: {
         client_id: companyId,
-        code: `DEPT-${Date.now()}`,
+        code: `DEPT-${Date.now()}-${Math.random().toString(36).substring(7)}`,
         display_name: "Test Department",
         is_active: true,
         is_taxable: true,
       },
     });
     deptId = dept.department_id;
+    context.createdDepartmentIds.push(deptId);
   });
   return deptId;
 }
 
 /**
- * Cleanup helper for test isolation
+ * Helper to create a schedule and track it for cleanup.
+ * Validates the response and throws descriptive errors on failure.
+ *
+ * @param apiRequest - API request helper
+ * @param storeId - Store to create schedule for
+ * @param scheduleData - Schedule creation data
+ * @param context - Test context for tracking cleanup
+ * @returns Created schedule data
  */
-async function cleanupTestData() {
-  await withBypassClient(async (prisma) => {
-    // Clean up in reverse order of dependencies
-    if (createdScheduleIds.length > 0) {
-      await prisma.nAXMLScheduledExportLog.deleteMany({
-        where: { schedule_id: { in: createdScheduleIds } },
-      });
-      await prisma.nAXMLScheduledExport.deleteMany({
-        where: { schedule_id: { in: createdScheduleIds } },
-      });
-    }
-    if (createdPosIntegrationIds.length > 0) {
-      await prisma.pOSIntegration.deleteMany({
-        where: { pos_integration_id: { in: createdPosIntegrationIds } },
-      });
-    }
-  });
-  createdScheduleIds = [];
-  createdPosIntegrationIds = [];
+async function createScheduleWithTracking(
+  apiRequest: any,
+  storeId: string,
+  scheduleData: {
+    export_type: string;
+    export_name: string;
+    cron_expression: string;
+    timezone?: string;
+    maintenance_type?: string;
+    notify_on_failure?: boolean;
+    notify_on_success?: boolean;
+    file_name_pattern?: string;
+    notify_emails?: string[];
+  },
+  context: ScheduledExportTestContext,
+): Promise<{
+  scheduleId: string;
+  exportType: string;
+  exportName: string;
+  status: string;
+  nextRunAt: string;
+  cronExpression: string;
+  timezone?: string;
+  fileNamePattern?: string;
+  totalRuns?: number;
+  successfulRuns?: number;
+  failedRuns?: number;
+  lastRunAt?: string | null;
+}> {
+  const response = await apiRequest.post(
+    `/api/stores/${storeId}/naxml/schedules`,
+    scheduleData,
+  );
+
+  if (response.status() !== 201) {
+    const errorBody = await response.json();
+    throw new Error(
+      `Failed to create schedule: ${response.status()} - ${JSON.stringify(errorBody)}`,
+    );
+  }
+
+  const body = await response.json();
+  if (!body.success || !body.data?.scheduleId) {
+    throw new Error(
+      `Invalid schedule creation response: ${JSON.stringify(body)}`,
+    );
+  }
+
+  // Track for cleanup
+  context.createdScheduleIds.push(body.data.scheduleId);
+
+  return body.data;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -134,10 +256,6 @@ async function cleanupTestData() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe("Phase2-API: Scheduled Exports - List", () => {
-  test.afterEach(async () => {
-    await cleanupTestData();
-  });
-
   test("SCHED-API-001: [P0] GET /api/stores/:storeId/naxml/schedules - should return empty array when no schedules exist", async ({
     clientUserApiRequest,
     clientUser,
@@ -251,16 +369,13 @@ test.describe("Phase2-API: Scheduled Exports - List", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe("Phase2-API: Scheduled Exports - Create", () => {
-  test.afterEach(async () => {
-    await cleanupTestData();
-  });
-
   test("SCHED-API-010: [P0] POST /api/stores/:storeId/naxml/schedules - should create scheduled export successfully", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: I am authenticated and store has POS integration
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     // WHEN: Creating a scheduled export
     const response = await clientUserApiRequest.post(
@@ -287,7 +402,7 @@ test.describe("Phase2-API: Scheduled Exports - Create", () => {
     expect(body.data.nextRunAt).toBeDefined();
 
     // Track for cleanup
-    createdScheduleIds.push(body.data.scheduleId);
+    testContext.createdScheduleIds.push(body.data.scheduleId);
   });
 
   test("SCHED-API-011: [P0] POST /api/stores/:storeId/naxml/schedules - should reject unauthenticated request", async ({
@@ -313,9 +428,10 @@ test.describe("Phase2-API: Scheduled Exports - Create", () => {
   test("SCHED-API-012: [P1] POST /api/stores/:storeId/naxml/schedules - should validate required fields", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: Missing required fields
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     // WHEN: Creating schedule without required fields
     const response = await clientUserApiRequest.post(
@@ -333,9 +449,10 @@ test.describe("Phase2-API: Scheduled Exports - Create", () => {
   test("SCHED-API-013: [P1] POST /api/stores/:storeId/naxml/schedules - should reject invalid cron expression", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: Invalid cron expression
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     // WHEN: Creating schedule with invalid cron
     const response = await clientUserApiRequest.post(
@@ -380,9 +497,10 @@ test.describe("Phase2-API: Scheduled Exports - Create", () => {
   test("SCHED-API-015: [P1] POST /api/stores/:storeId/naxml/schedules - should accept all export types", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     const exportTypes = [
       "DEPARTMENTS",
@@ -408,7 +526,7 @@ test.describe("Phase2-API: Scheduled Exports - Create", () => {
       );
       const body = await response.json();
       expect(body.data.exportType).toBe(exportType);
-      createdScheduleIds.push(body.data.scheduleId);
+      testContext.createdScheduleIds.push(body.data.scheduleId);
     }
   });
 });
@@ -418,37 +536,34 @@ test.describe("Phase2-API: Scheduled Exports - Create", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe("Phase2-API: Scheduled Exports - Get", () => {
-  test.afterEach(async () => {
-    await cleanupTestData();
-  });
-
   test("SCHED-API-020: [P0] GET /api/stores/:storeId/naxml/schedules/:scheduleId - should return schedule details", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: A scheduled export exists
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Test Schedule",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // WHEN: Fetching the schedule by ID
     const response = await clientUserApiRequest.get(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}`,
     );
 
     // THEN: Returns schedule details
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data.scheduleId).toBe(created.data.scheduleId);
+    expect(body.data.scheduleId).toBe(created.scheduleId);
     expect(body.data.exportName).toBe("Test Schedule");
     expect(body.data.exportType).toBe("DEPARTMENTS");
     expect(body.data.cronExpression).toBe("0 2 * * *");
@@ -478,23 +593,24 @@ test.describe("Phase2-API: Scheduled Exports - Get", () => {
     storeManagerApiRequest,
     clientUser,
     storeManagerUser,
+    testContext,
   }) => {
     // GIVEN: A scheduled export exists for clientUser's store
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Private Schedule",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // WHEN: Store manager (without NAXML permissions) tries to access
     const response = await storeManagerApiRequest.get(
-      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.scheduleId}`,
     );
 
     // THEN: Returns 403 (permission denied - NAXML_FILE_EXPORT required)
@@ -509,30 +625,27 @@ test.describe("Phase2-API: Scheduled Exports - Get", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe("Phase2-API: Scheduled Exports - Update", () => {
-  test.afterEach(async () => {
-    await cleanupTestData();
-  });
-
   test("SCHED-API-030: [P0] PATCH /api/stores/:storeId/naxml/schedules/:scheduleId - should update schedule successfully", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: A scheduled export exists
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Original Name",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // WHEN: Updating the schedule
     const response = await clientUserApiRequest.patch(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}`,
       {
         export_name: "Updated Name",
         cron_expression: "0 3 * * *", // Changed to 3 AM
@@ -551,23 +664,24 @@ test.describe("Phase2-API: Scheduled Exports - Update", () => {
   test("SCHED-API-031: [P1] PATCH /api/stores/:storeId/naxml/schedules/:scheduleId - should reject invalid cron on update", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: A scheduled export exists
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Test Schedule",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // WHEN: Updating with invalid cron
     const response = await clientUserApiRequest.patch(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}`,
       {
         cron_expression: "not valid",
       },
@@ -585,23 +699,24 @@ test.describe("Phase2-API: Scheduled Exports - Update", () => {
     storeManagerApiRequest,
     clientUser,
     storeManagerUser,
+    testContext,
   }) => {
     // GIVEN: A scheduled export exists for clientUser's store
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Private Schedule",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // WHEN: Store manager (without NAXML permissions) tries to update
     const response = await storeManagerApiRequest.patch(
-      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.scheduleId}`,
       {
         export_name: "Hacked Name",
       },
@@ -616,24 +731,25 @@ test.describe("Phase2-API: Scheduled Exports - Update", () => {
   test("SCHED-API-033: [P1] PATCH /api/stores/:storeId/naxml/schedules/:scheduleId - should allow status change", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: An active scheduled export
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Test Schedule",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
-    expect(created.data.status).toBe("ACTIVE");
+    expect(created.status).toBe("ACTIVE");
 
     // WHEN: Changing status to DISABLED
     const response = await clientUserApiRequest.patch(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}`,
       {
         status: "DISABLED",
       },
@@ -651,30 +767,31 @@ test.describe("Phase2-API: Scheduled Exports - Update", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe("Phase2-API: Scheduled Exports - Delete", () => {
-  test.afterEach(async () => {
-    await cleanupTestData();
-  });
-
   test("SCHED-API-040: [P0] DELETE /api/stores/:storeId/naxml/schedules/:scheduleId - should delete schedule successfully", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: A scheduled export exists
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "To Be Deleted",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    // Don't track for cleanup since we're deleting it
+
+    // Remove from tracking since we're deleting it manually
+    const idx = testContext.createdScheduleIds.indexOf(created.scheduleId);
+    if (idx > -1) testContext.createdScheduleIds.splice(idx, 1);
 
     // WHEN: Deleting the schedule
     const response = await clientUserApiRequest.delete(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}`,
     );
 
     // THEN: Returns 204 No Content
@@ -682,7 +799,7 @@ test.describe("Phase2-API: Scheduled Exports - Delete", () => {
 
     // Verify it's actually deleted
     const getResponse = await clientUserApiRequest.get(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}`,
     );
     expect(getResponse.status()).toBe(404);
   });
@@ -708,23 +825,24 @@ test.describe("Phase2-API: Scheduled Exports - Delete", () => {
     storeManagerApiRequest,
     clientUser,
     storeManagerUser,
+    testContext,
   }) => {
     // GIVEN: A scheduled export exists for clientUser's store
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Private Schedule",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // WHEN: Store manager (without NAXML permissions) tries to delete
     const response = await storeManagerApiRequest.delete(
-      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.scheduleId}`,
     );
 
     // THEN: Returns 403 (permission denied - NAXML_FILE_EXPORT required)
@@ -732,7 +850,7 @@ test.describe("Phase2-API: Scheduled Exports - Delete", () => {
 
     // Verify original schedule still exists
     const getResponse = await clientUserApiRequest.get(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}`,
     );
     expect(getResponse.status()).toBe(200);
   });
@@ -743,32 +861,29 @@ test.describe("Phase2-API: Scheduled Exports - Delete", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe("Phase2-API: Scheduled Exports - Execute", () => {
-  test.afterEach(async () => {
-    await cleanupTestData();
-  });
-
   test("SCHED-API-050: [P0] POST /api/stores/:storeId/naxml/schedules/:scheduleId/execute - should execute schedule manually", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: A scheduled export exists with data to export
-    await createPOSIntegration(clientUser.store_id);
-    await createTestDepartment(clientUser.company_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
+    await createTestDepartment(clientUser.company_id, testContext);
 
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Manual Execute Test",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // WHEN: Executing the schedule manually
     const response = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}/execute`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}/execute`,
       {
         trigger_type: "MANUAL",
       },
@@ -780,7 +895,7 @@ test.describe("Phase2-API: Scheduled Exports - Execute", () => {
     const body = await response.json();
     if (response.status() === 200) {
       expect(body.success).toBe(true);
-      expect(body.data.schedule_id).toBe(created.data.scheduleId);
+      expect(body.data.schedule_id).toBe(created.scheduleId);
     }
   });
 
@@ -807,31 +922,28 @@ test.describe("Phase2-API: Scheduled Exports - Execute", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe("Phase2-API: Scheduled Exports - Pause/Resume", () => {
-  test.afterEach(async () => {
-    await cleanupTestData();
-  });
-
   test("SCHED-API-060: [P0] POST /api/stores/:storeId/naxml/schedules/:scheduleId/pause - should pause active schedule", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: An active scheduled export
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Pause Test",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
-    expect(created.data.status).toBe("ACTIVE");
+    expect(created.status).toBe("ACTIVE");
 
     // WHEN: Pausing the schedule
     const response = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}/pause`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}/pause`,
       {},
     );
 
@@ -845,29 +957,30 @@ test.describe("Phase2-API: Scheduled Exports - Pause/Resume", () => {
   test("SCHED-API-061: [P0] POST /api/stores/:storeId/naxml/schedules/:scheduleId/resume - should resume paused schedule", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: A paused scheduled export
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Resume Test",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // Pause it first
     await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}/pause`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}/pause`,
       {},
     );
 
     // WHEN: Resuming the schedule
     const response = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}/resume`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}/resume`,
       {},
     );
 
@@ -885,30 +998,27 @@ test.describe("Phase2-API: Scheduled Exports - Pause/Resume", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe("Phase2-API: Scheduled Exports - History", () => {
-  test.afterEach(async () => {
-    await cleanupTestData();
-  });
-
   test("SCHED-API-070: [P1] GET /api/stores/:storeId/naxml/schedules/:scheduleId/history - should return empty history for new schedule", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: A newly created scheduled export (no executions yet)
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "History Test",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // WHEN: Fetching execution history
     const response = await clientUserApiRequest.get(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}/history`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}/history`,
     );
 
     // THEN: Returns empty history
@@ -922,23 +1032,24 @@ test.describe("Phase2-API: Scheduled Exports - History", () => {
   test("SCHED-API-071: [P1] GET /api/stores/:storeId/naxml/schedules/:scheduleId/history - should support pagination", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: A scheduled export
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "History Pagination Test",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // WHEN: Fetching history with pagination
     const response = await clientUserApiRequest.get(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}/history?limit=10&offset=0`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}/history?limit=10&offset=0`,
     );
 
     // THEN: Returns with pagination info
@@ -955,75 +1066,72 @@ test.describe("Phase2-API: Scheduled Exports - History", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe("Phase2-API: Scheduled Exports - Security", () => {
-  test.afterEach(async () => {
-    await cleanupTestData();
-  });
-
   test("SCHED-SEC-001: [P0] Users without NAXML permission should be blocked for all operations", async ({
     clientUserApiRequest,
     storeManagerApiRequest,
     clientUser,
     storeManagerUser,
+    testContext,
   }) => {
     // GIVEN: A schedule exists for clientUser's store
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Security Test Schedule",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // WHEN/THEN: All operations from user without NAXML permissions should fail with 403
     // Note: STORE_MANAGER role does not include NAXML_FILE_EXPORT permission
 
     // GET
     const getResponse = await storeManagerApiRequest.get(
-      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.scheduleId}`,
     );
     expect(getResponse.status(), "GET should return 403").toBe(403);
 
     // PATCH
     const patchResponse = await storeManagerApiRequest.patch(
-      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.scheduleId}`,
       { export_name: "Hacked" },
     );
     expect(patchResponse.status(), "PATCH should return 403").toBe(403);
 
     // DELETE
     const deleteResponse = await storeManagerApiRequest.delete(
-      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.scheduleId}`,
     );
     expect(deleteResponse.status(), "DELETE should return 403").toBe(403);
 
     // EXECUTE
     const executeResponse = await storeManagerApiRequest.post(
-      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}/execute`,
+      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.scheduleId}/execute`,
       {},
     );
     expect(executeResponse.status(), "EXECUTE should return 403").toBe(403);
 
     // PAUSE
     const pauseResponse = await storeManagerApiRequest.post(
-      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}/pause`,
+      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.scheduleId}/pause`,
       {},
     );
     expect(pauseResponse.status(), "PAUSE should return 403").toBe(403);
 
     // RESUME
     const resumeResponse = await storeManagerApiRequest.post(
-      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}/resume`,
+      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.scheduleId}/resume`,
       {},
     );
     expect(resumeResponse.status(), "RESUME should return 403").toBe(403);
 
     // HISTORY
     const historyResponse = await storeManagerApiRequest.get(
-      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.data.scheduleId}/history`,
+      `/api/stores/${storeManagerUser.store_id}/naxml/schedules/${created.scheduleId}/history`,
     );
     expect(historyResponse.status(), "HISTORY should return 403").toBe(403);
   });
@@ -1032,19 +1140,20 @@ test.describe("Phase2-API: Scheduled Exports - Security", () => {
     apiRequest,
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: A schedule exists
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Auth Test Schedule",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // WHEN/THEN: All operations without auth should fail with 401
 
@@ -1067,20 +1176,20 @@ test.describe("Phase2-API: Scheduled Exports - Security", () => {
 
     // GET
     const getResponse = await apiRequest.get(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}`,
     );
     expect(getResponse.status()).toBe(401);
 
     // PATCH
     const patchResponse = await apiRequest.patch(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}`,
       { export_name: "Hacked" },
     );
     expect(patchResponse.status()).toBe(401);
 
     // DELETE
     const deleteResponse = await apiRequest.delete(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}`,
     );
     expect(deleteResponse.status()).toBe(401);
   });
@@ -1091,16 +1200,13 @@ test.describe("Phase2-API: Scheduled Exports - Security", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
-  test.afterEach(async () => {
-    await cleanupTestData();
-  });
-
   test("SCHED-EDGE-001: [P1] Should accept various valid cron expressions", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     const validCronExpressions = [
       "0 0 * * *", // Midnight daily
@@ -1131,16 +1237,17 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
       }
       expect(response.status(), `Should accept cron: ${cron}`).toBe(201);
       const body = await response.json();
-      createdScheduleIds.push(body.data.scheduleId);
+      testContext.createdScheduleIds.push(body.data.scheduleId);
     }
   });
 
   test("SCHED-EDGE-002: [P1] Should reject invalid cron expressions", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     const invalidCronExpressions = [
       "invalid",
@@ -1172,9 +1279,10 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
   test("SCHED-EDGE-003: [P1] Should validate notification email count limit", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     // WHEN: Creating schedule with too many notification emails
     const response = await clientUserApiRequest.post(
@@ -1208,9 +1316,10 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
   test("SCHED-EDGE-004: [P1] Should validate timezone format", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     // WHEN: Creating schedule with valid timezone
     const validResponse = await clientUserApiRequest.post(
@@ -1227,15 +1336,16 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
     expect(validResponse.status()).toBe(201);
     const body = await validResponse.json();
     expect(body.data.timezone).toBe("America/Los_Angeles");
-    createdScheduleIds.push(body.data.scheduleId);
+    testContext.createdScheduleIds.push(body.data.scheduleId);
   });
 
   test("SCHED-EDGE-005: [P1] Should validate export name length", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     // WHEN: Creating schedule with empty name
     const emptyNameResponse = await clientUserApiRequest.post(
@@ -1267,9 +1377,10 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
   test("SCHED-EDGE-006: [P1] Should validate file name pattern", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     // WHEN: Creating schedule with custom file name pattern
     const response = await clientUserApiRequest.post(
@@ -1286,7 +1397,7 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
     expect(response.status()).toBe(201);
     const body = await response.json();
     expect(body.data.fileNamePattern).toBe("export_{type}_{date}.xml");
-    createdScheduleIds.push(body.data.scheduleId);
+    testContext.createdScheduleIds.push(body.data.scheduleId);
   });
 });
 
@@ -1295,16 +1406,13 @@ test.describe("Phase2-API: Scheduled Exports - Edge Cases", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 test.describe("Phase2-API: Scheduled Exports - Business Logic", () => {
-  test.afterEach(async () => {
-    await cleanupTestData();
-  });
-
   test("SCHED-BIZ-001: [P1] Schedule should have nextRunAt calculated on creation", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     // WHEN: Creating a schedule
     const response = await clientUserApiRequest.post(
@@ -1321,15 +1429,16 @@ test.describe("Phase2-API: Scheduled Exports - Business Logic", () => {
     const body = await response.json();
     expect(body.data.nextRunAt).toBeDefined();
     expect(new Date(body.data.nextRunAt).getTime()).toBeGreaterThan(Date.now());
-    createdScheduleIds.push(body.data.scheduleId);
+    testContext.createdScheduleIds.push(body.data.scheduleId);
   });
 
   test("SCHED-BIZ-002: [P1] Schedule should start with zero execution counters", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     // WHEN: Creating a schedule
     const response = await clientUserApiRequest.post(
@@ -1348,35 +1457,36 @@ test.describe("Phase2-API: Scheduled Exports - Business Logic", () => {
     expect(body.data.successfulRuns).toBe(0);
     expect(body.data.failedRuns).toBe(0);
     expect(body.data.lastRunAt).toBeNull();
-    createdScheduleIds.push(body.data.scheduleId);
+    testContext.createdScheduleIds.push(body.data.scheduleId);
   });
 
   test("SCHED-BIZ-003: [P1] Resuming schedule should recalculate nextRunAt", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: A paused schedule
-    await createPOSIntegration(clientUser.store_id);
-    const createResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules`,
+    await createPOSIntegration(clientUser.store_id, testContext);
+    const created = await createScheduleWithTracking(
+      clientUserApiRequest,
+      clientUser.store_id,
       {
         export_type: "DEPARTMENTS",
         export_name: "Resume Next Run Test",
         cron_expression: "0 2 * * *",
       },
+      testContext,
     );
-    const created = await createResponse.json();
-    createdScheduleIds.push(created.data.scheduleId);
 
     // Pause the schedule
     await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}/pause`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}/pause`,
       {},
     );
 
     // WHEN: Resuming after some time
     const resumeResponse = await clientUserApiRequest.post(
-      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.data.scheduleId}/resume`,
+      `/api/stores/${clientUser.store_id}/naxml/schedules/${created.scheduleId}/resume`,
       {},
     );
 
@@ -1390,9 +1500,10 @@ test.describe("Phase2-API: Scheduled Exports - Business Logic", () => {
   test("SCHED-BIZ-004: [P1] Multiple schedules per store should be allowed", async ({
     clientUserApiRequest,
     clientUser,
+    testContext,
   }) => {
     // GIVEN: POS integration configured
-    await createPOSIntegration(clientUser.store_id);
+    await createPOSIntegration(clientUser.store_id, testContext);
 
     // WHEN: Creating multiple schedules
     const scheduleConfigs = [
@@ -1420,7 +1531,7 @@ test.describe("Phase2-API: Scheduled Exports - Business Logic", () => {
       );
       expect(response.status()).toBe(201);
       const body = await response.json();
-      createdScheduleIds.push(body.data.scheduleId);
+      testContext.createdScheduleIds.push(body.data.scheduleId);
     }
 
     // THEN: All schedules are listed
