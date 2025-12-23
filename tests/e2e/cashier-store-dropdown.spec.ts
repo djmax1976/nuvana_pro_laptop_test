@@ -140,29 +140,58 @@ async function navigateToCashiersAndOpenDialog(page: Page): Promise<void> {
   });
 
   // Wait for the page to load and dashboard API to complete
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
-    // Continue if networkidle times out
+  await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {
+    // Continue if networkidle times out - CI can be slow
   });
 
-  // Wait for the cashier list to be visible (ensures page is fully loaded)
-  await page.waitForSelector(
-    '[data-testid="create-cashier-btn"], [data-testid="cashier-search"]',
-    {
-      timeout: 15000,
-      state: "visible",
-    },
-  );
+  // The CashierList component shows a skeleton during loading, then either:
+  // 1. "No cashiers yet" state with create-cashier-btn
+  // 2. Full list with cashier-search and create-cashier-btn
+  // 3. Error state with "Failed to load cashiers"
+  //
+  // Wait for ANY of these states to appear (loading to complete)
+  // Increase timeout to 30s for CI environments
+  await Promise.race([
+    // Success state: either the Add Cashier button or search field
+    page
+      .locator('[data-testid="create-cashier-btn"]')
+      .first()
+      .waitFor({ state: "visible", timeout: 30000 }),
+    // Error state
+    page
+      .getByText("Failed to load cashiers")
+      .waitFor({ state: "visible", timeout: 30000 }),
+    // No stores state
+    page
+      .getByText("No stores available")
+      .waitFor({ state: "visible", timeout: 30000 }),
+  ]);
+
+  // Check for error states and fail early with meaningful message
+  const hasError = await page.getByText("Failed to load cashiers").isVisible();
+  if (hasError) {
+    throw new Error(
+      "CashierList failed to load - check backend connectivity and store data",
+    );
+  }
+
+  const hasNoStores = await page.getByText("No stores available").isVisible();
+  if (hasNoStores) {
+    throw new Error(
+      "No stores available - test setup may have failed to create store",
+    );
+  }
 
   // Open Add Cashier dialog
   const addButton = page.locator('[data-testid="create-cashier-btn"]').first();
-  await addButton.waitFor({ state: "visible", timeout: 15000 });
+  await addButton.waitFor({ state: "visible", timeout: 10000 });
   await addButton.click();
 
   // Wait for dialog to be visible - the dialog shows "Add New Cashier" or just the form
   // Wait for the name input which is always present in the dialog
   await page.waitForSelector('[data-testid="cashier-name"]', {
     state: "visible",
-    timeout: 10000,
+    timeout: 15000,
   });
 }
 

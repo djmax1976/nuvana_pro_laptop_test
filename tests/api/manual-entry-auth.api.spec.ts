@@ -846,19 +846,25 @@ test.describe("10-4-API-NEW: User Permission Verification (Email/Password)", () 
   // 🔒 SECURITY TESTS FOR NEW ENDPOINT
   // ============================================================================
 
-  test("10-4-API-NEW-SEC-001: should reject SQL injection in email", async ({
+  test("10-4-API-NEW-SEC-001: should reject SQL injection patterns that are invalid emails", async ({
     storeManagerApiRequest,
     storeManagerUser,
   }) => {
-    // GIVEN: SQL injection attempts in email
-    const sqlInjectionAttempts = [
-      "'; DROP TABLE users; --@test.com",
-      "admin'--@test.com",
-      "' OR '1'='1@test.com",
+    // GIVEN: SQL injection attempts in email field
+    // Note: Actual SQL injection protection comes from Prisma's parameterized queries.
+    // This test verifies that obviously malformed email patterns are rejected by validation.
+    // Some SQL injection patterns like "admin'--@test.com" are technically valid email
+    // formats (apostrophes are allowed in email local parts per RFC 5321), so they
+    // will pass email validation but are still safely handled by Prisma ORM.
+    const invalidEmailSqlInjectionAttempts = [
+      "'; DROP TABLE users; --@test.com", // Space in local part makes it invalid
+      "' OR '1'='1@test.com", // Leading apostrophe makes it invalid
+      "'@test.com", // Just apostrophe is invalid local part
+      "; DROP TABLE users;--", // No @ symbol at all
     ];
 
-    for (const maliciousInput of sqlInjectionAttempts) {
-      // WHEN: Attempting SQL injection in email
+    for (const maliciousInput of invalidEmailSqlInjectionAttempts) {
+      // WHEN: Attempting SQL injection with invalid email format
       const response = await storeManagerApiRequest.post(
         "/api/auth/verify-user-permission",
         {
@@ -870,10 +876,45 @@ test.describe("10-4-API-NEW: User Permission Verification (Email/Password)", () 
       );
 
       // THEN: Request is rejected (400 - invalid email format)
-      expect(response.status()).toBe(400);
+      expect(
+        response.status(),
+        `Expected 400 for invalid email: ${maliciousInput}`,
+      ).toBe(400);
       const body = await response.json();
       expect(body).toHaveProperty("error");
     }
+  });
+
+  test("10-4-API-NEW-SEC-002A: should safely handle SQL-like patterns in valid email format", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+  }) => {
+    // GIVEN: SQL injection-like pattern that is a valid email format
+    // The apostrophe before '--' is valid in email local parts per RFC 5321.
+    // The actual SQL injection protection comes from Prisma's parameterized queries,
+    // not from email validation. This should pass validation but return 401 (user not found).
+    const input = "admin'--@test.com"; // Looks like SQL comment injection but is valid email
+
+    // WHEN: Using SQL-like pattern that is a valid email format
+    const response = await storeManagerApiRequest.post(
+      "/api/auth/verify-user-permission",
+      {
+        email: input,
+        password: "test123",
+        permission: "LOTTERY_MANUAL_ENTRY",
+        storeId: storeManagerUser.store_id,
+      },
+    );
+
+    // THEN: Request passes validation but returns 401 (user not found)
+    // This proves Prisma safely handles the input via parameterized queries
+    expect(
+      response.status(),
+      `Expected 401 for valid email format: ${input}`,
+    ).toBe(401);
+    const body = await response.json();
+    expect(body.valid).toBe(false);
+    expect(body.error).toBe("Invalid email or password");
   });
 
   test("10-4-API-NEW-SEC-002: should reject SQL injection in storeId", async ({
