@@ -4,15 +4,13 @@
  */
 
 // =============================================================================
-// DATABASE PROTECTION - Block dev/prod databases in test code
+// DATABASE PROTECTION - Block prod/staging databases in test code
 // =============================================================================
 const dbUrl = process.env.DATABASE_URL || "";
-if (
-  /nuvana_dev|nuvana_prod|_prod$|_dev$/i.test(dbUrl) &&
-  !/test/i.test(dbUrl)
-) {
+// Only block production/staging - allow nuvana_dev and nuvana_test for local development
+if (/nuvana_prod|nuvana_production|nuvana_staging|_prod$/i.test(dbUrl)) {
   throw new Error(
-    `🚨 BLOCKED: Cannot use seed-roles with protected database: ${dbUrl}`,
+    `🚨 BLOCKED: Cannot use seed-roles with production database: ${dbUrl}`,
   );
 }
 

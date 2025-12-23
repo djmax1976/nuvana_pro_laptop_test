@@ -1,3 +1,7 @@
+// NOTE: Do NOT load dotenv here - DATABASE_URL should come from the environment
+// The CI passes DATABASE_URL=nuvana_test and dotenv.config() would override it
+// with .env's nuvana_dev value, breaking CI tests.
+
 import { PrismaClient } from "@prisma/client";
 import {
   ALL_PERMISSIONS,
@@ -215,6 +219,15 @@ export async function seedRBAC() {
       PERMISSIONS.REPORT_ANALYTICS,
       PERMISSIONS.REPORT_EXPORT,
       PERMISSIONS.ADMIN_AUDIT_VIEW,
+      // Configuration Management (Phase 1: Shift & Day Summary)
+      PERMISSIONS.TENDER_TYPE_READ,
+      PERMISSIONS.TENDER_TYPE_MANAGE,
+      PERMISSIONS.DEPARTMENT_READ,
+      PERMISSIONS.DEPARTMENT_MANAGE,
+      PERMISSIONS.TAX_RATE_READ,
+      PERMISSIONS.TAX_RATE_MANAGE,
+      PERMISSIONS.CONFIG_READ,
+      PERMISSIONS.CONFIG_MANAGE,
     ];
 
     for (const permissionCode of corporateAdminPermissions) {
@@ -280,6 +293,11 @@ export async function seedRBAC() {
       PERMISSIONS.CASHIER_READ,
       PERMISSIONS.CASHIER_UPDATE,
       PERMISSIONS.CASHIER_DELETE,
+      // Configuration Management (Phase 1: Shift & Day Summary) - Read access for store managers
+      PERMISSIONS.TENDER_TYPE_READ,
+      PERMISSIONS.DEPARTMENT_READ,
+      PERMISSIONS.TAX_RATE_READ,
+      PERMISSIONS.CONFIG_READ,
     ];
 
     for (const permissionCode of storeManagerPermissions) {
@@ -422,6 +440,21 @@ export async function seedRBAC() {
 
       // Client Role Management (owner can manage roles for their stores)
       PERMISSIONS.CLIENT_ROLE_MANAGE,
+
+      // Configuration Management (Phase 1: Shift & Day Summary) - Full access for client owner
+      PERMISSIONS.TENDER_TYPE_READ,
+      PERMISSIONS.TENDER_TYPE_MANAGE,
+      PERMISSIONS.DEPARTMENT_READ,
+      PERMISSIONS.DEPARTMENT_MANAGE,
+      PERMISSIONS.TAX_RATE_READ,
+      PERMISSIONS.TAX_RATE_MANAGE,
+      PERMISSIONS.CONFIG_READ,
+
+      // POS Integration (Phase 1.6) - Full access for client owner
+      PERMISSIONS.POS_CONNECTION_READ,
+      PERMISSIONS.POS_CONNECTION_MANAGE,
+      PERMISSIONS.POS_SYNC_TRIGGER,
+      PERMISSIONS.POS_SYNC_LOG_READ,
     ];
 
     for (const permissionCode of clientOwnerPermissions) {
@@ -444,14 +477,19 @@ export async function seedRBAC() {
     }
     console.log("✅ CLIENT_OWNER: Permissions mapped");
 
-    // CLIENT_USER: Access to client dashboard, read access to owned companies/stores, and employee management
+    // CLIENT_USER: Access to client dashboard, read access to owned companies/stores, employee management, and shift operations
     const clientUserPermissions = [
       PERMISSIONS.CLIENT_DASHBOARD_ACCESS,
       PERMISSIONS.COMPANY_READ,
       PERMISSIONS.STORE_READ,
+      // Shift Operations - CLIENT_USER can open and close shifts from dashboard
+      PERMISSIONS.SHIFT_OPEN,
+      PERMISSIONS.SHIFT_CLOSE,
       PERMISSIONS.SHIFT_READ,
       PERMISSIONS.TRANSACTION_READ,
       PERMISSIONS.INVENTORY_READ,
+      // Lottery Operations - CLIENT_USER can close lottery from dashboard
+      PERMISSIONS.LOTTERY_SHIFT_CLOSE,
       PERMISSIONS.LOTTERY_REPORT,
       PERMISSIONS.REPORT_SHIFT,
       PERMISSIONS.REPORT_DAILY,
@@ -462,6 +500,11 @@ export async function seedRBAC() {
       PERMISSIONS.CLIENT_EMPLOYEE_DELETE,
       // Cashier Management (read-only for client users to view cashiers at terminals)
       PERMISSIONS.CASHIER_READ,
+      // Configuration Management (Phase 1: Shift & Day Summary) - Read-only access
+      PERMISSIONS.TENDER_TYPE_READ,
+      PERMISSIONS.DEPARTMENT_READ,
+      PERMISSIONS.TAX_RATE_READ,
+      PERMISSIONS.CONFIG_READ,
     ];
 
     for (const permissionCode of clientUserPermissions) {

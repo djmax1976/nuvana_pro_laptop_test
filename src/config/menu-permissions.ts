@@ -90,6 +90,16 @@ export const PERMISSION_CODES = {
 
   // Client Dashboard
   CLIENT_DASHBOARD_ACCESS: "CLIENT_DASHBOARD_ACCESS",
+
+  // Configuration & Lookup Tables
+  CONFIG_READ: "CONFIG_READ",
+  CONFIG_MANAGE: "CONFIG_MANAGE",
+  TENDER_TYPE_READ: "TENDER_TYPE_READ",
+  TENDER_TYPE_MANAGE: "TENDER_TYPE_MANAGE",
+  DEPARTMENT_READ: "DEPARTMENT_READ",
+  DEPARTMENT_MANAGE: "DEPARTMENT_MANAGE",
+  TAX_RATE_READ: "TAX_RATE_READ",
+  TAX_RATE_MANAGE: "TAX_RATE_MANAGE",
 } as const;
 
 export type PermissionCode =
@@ -207,6 +217,23 @@ export const CLIENT_MENU_PERMISSIONS: MenuPermissionConfig[] = [
       PERMISSION_CODES.REPORT_EXPORT,
     ],
     mode: "ANY",
+  },
+
+  // Configuration - Requires config or lookup table permissions
+  {
+    menuKey: "config",
+    menuTitle: "Configuration",
+    requiredPermissions: [
+      PERMISSION_CODES.CONFIG_READ,
+      PERMISSION_CODES.CONFIG_MANAGE,
+      PERMISSION_CODES.TENDER_TYPE_READ,
+      PERMISSION_CODES.TENDER_TYPE_MANAGE,
+      PERMISSION_CODES.DEPARTMENT_READ,
+      PERMISSION_CODES.DEPARTMENT_MANAGE,
+      PERMISSION_CODES.TAX_RATE_READ,
+      PERMISSION_CODES.TAX_RATE_MANAGE,
+    ],
+    mode: "ANY", // Show if user can read or manage any config
   },
 
   // AI Assistant - Always visible (feature toggle, not permission-based)

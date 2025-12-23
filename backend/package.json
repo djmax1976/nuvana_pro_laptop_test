@@ -4,8 +4,8 @@
   "description": "",
   "main": "dist/app.js",
   "scripts": {
-    "dev": "tsx watch src/app.ts",
-    "dev:test": "cross-env NODE_ENV=test DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nuvana_test tsx watch src/app.ts",
+    "dev": "tsx watch --require dotenv/config src/app.ts",
+    "dev:test": "cross-env NODE_ENV=test DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nuvana_test tsx watch --require dotenv/config src/app.ts",
     "build": "tsc",
     "start": "node dist/app.js",
     "start:test": "cross-env NODE_ENV=test node dist/app.js",
@@ -32,6 +32,7 @@
     "csv-parse": "^6.1.0",
     "date-fns-tz": "^3.2.0",
     "dotenv": "^16.4.5",
+    "fast-xml-parser": "^5.3.3",
     "fastify": "^5.2.0",
     "jsonwebtoken": "^9.0.2",
     "pdfkit": "^0.17.2",
@@ -50,5 +51,8 @@
     "prisma": "^6.19.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
+  },
+  "prisma": {
+    "seed": "npx tsx prisma/seed.ts"
   }
 }

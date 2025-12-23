@@ -289,6 +289,37 @@ export async function getAllStores(params?: ListStoresParams): Promise<{
 }
 
 /**
+ * Get stores accessible to the current client user
+ * Uses RBAC to filter stores based on user's scope (company or store level)
+ * @param params - Query parameters for pagination
+ * @returns List of accessible stores with company info
+ */
+export async function getClientStores(params?: ListStoresParams): Promise<{
+  success: boolean;
+  data: StoreWithCompany[];
+  meta: { total: number; limit: number; offset: number };
+}> {
+  const queryParams = new URLSearchParams();
+  if (params?.limit) {
+    queryParams.append("limit", params.limit.toString());
+  }
+  if (params?.offset) {
+    queryParams.append("offset", params.offset.toString());
+  }
+
+  const queryString = queryParams.toString();
+  const endpoint = `/api/client/stores${queryString ? `?${queryString}` : ""}`;
+
+  return apiRequest<{
+    success: boolean;
+    data: StoreWithCompany[];
+    meta: { total: number; limit: number; offset: number };
+  }>(endpoint, {
+    method: "GET",
+  });
+}
+
+/**
  * Get stores by company ID (Corporate Admin, filtered by company_id)
  * @param companyId - Company UUID
  * @param params - Query parameters for pagination
@@ -457,6 +488,42 @@ export function useAllStores(
     enabled: options?.enabled !== false,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+  });
+}
+
+/**
+ * Hook to fetch user-accessible stores
+ *
+ * Uses the client-specific endpoint that returns stores based on
+ * the authenticated user's RBAC permissions (company or store scope).
+ *
+ * Enterprise Standards Applied:
+ * - API-001: Type-safe response with proper TypeScript types
+ * - API-003: Consistent error handling via TanStack Query
+ * - FE-001: Uses httpOnly cookies for authentication (via credentials: include)
+ * - RBAC: Uses /api/client/stores which filters by user's scope
+ *
+ * @param params - Query parameters for pagination
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with stores data
+ *
+ * @example
+ * ```tsx
+ * const { data: storesData, isLoading } = useStores();
+ * const stores = storesData?.data || [];
+ * ```
+ */
+export function useStores(
+  params?: ListStoresParams,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: [...storeKeys.lists(), "client", params] as const,
+    queryFn: () => getClientStores(params),
+    enabled: options?.enabled !== false,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 30000, // Consider data fresh for 30 seconds
   });
 }
 

@@ -6858,8 +6858,20 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           .flatMap((bin) => bin.packs)
           .filter((pack) => pack !== null);
 
-        // Validate that all active packs are included in the closings array
+        // Validate that each pack_id appears only once in the request
         const closingPackIds = new Set(body.closings.map((c) => c.pack_id));
+        if (closingPackIds.size !== body.closings.length) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "DUPLICATE_PACKS",
+              message: "Duplicate pack_id values are not allowed in closings.",
+            },
+          };
+        }
+
+        // Validate that all active packs are included in the closings array
         const activePackIds = new Set(activePacks.map((p) => p.pack_id));
 
         const missingPackIds = Array.from(activePackIds).filter(
@@ -7054,9 +7066,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             entryMethod === "MANUAL" ? new Date() : null,
         }));
 
-        await prisma.lotteryShiftClosing.createMany({
-          data: closingsToCreate,
-        });
+        if (closingsToCreate.length > 0) {
+          await prisma.lotteryShiftClosing.createMany({
+            data: closingsToCreate,
+          });
+        }
 
         // Update LotteryBusinessDay and LotteryDayPack records
         // Find or create the LotteryBusinessDay record for today
@@ -7169,18 +7183,47 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           },
         });
 
-        // Build response with bin information
+        // Build response with bin information and sales data
+        // We need to get the starting serials that were determined during the closing process
+        // Re-fetch the LotteryDayPack records we just created/updated to get accurate starting serials
+        const dayPackRecords = await prisma.lotteryDayPack.findMany({
+          where: {
+            day_id: lotteryBusinessDay.day_id,
+            pack_id: { in: body.closings.map((c) => c.pack_id) },
+          },
+        });
+        const dayPackMap = new Map(
+          dayPackRecords.map((dp) => [dp.pack_id, dp]),
+        );
+
+        let lotteryTotal = 0;
+
         const binsClosed = body.closings.map((closing) => {
           const pack = packMap.get(closing.pack_id)!;
           const bin = activeBins.find((b) =>
             b.packs.some((p) => p.pack_id === closing.pack_id),
           );
+          const dayPack = dayPackMap.get(closing.pack_id);
+
+          // Calculate tickets sold and sales amount
+          const startingSerial = dayPack?.starting_serial || pack.serial_start;
+          const closingSerialNum = parseInt(closing.closing_serial, 10);
+          const startingSerialNum = parseInt(startingSerial, 10);
+          const ticketsSold = Math.max(0, closingSerialNum - startingSerialNum);
+          const gamePrice = Number(pack.game.price);
+          const salesAmount = ticketsSold * gamePrice;
+
+          lotteryTotal += salesAmount;
 
           return {
             bin_number: bin ? bin.display_order + 1 : 0,
             pack_number: pack.pack_number,
             game_name: pack.game.name,
             closing_serial: closing.closing_serial,
+            starting_serial: startingSerial,
+            game_price: gamePrice,
+            tickets_sold: ticketsSold,
+            sales_amount: salesAmount,
           };
         });
 
@@ -7191,6 +7234,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             business_day: businessDayStr,
             day_closed: true,
             bins_closed: binsClosed,
+            lottery_total: lotteryTotal,
           },
         };
       } catch (error: any) {

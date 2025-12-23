@@ -62,6 +62,29 @@ interface TestStoreAndShift {
 }
 
 /**
+ * Creates a multipart form data object for file uploads (Playwright format)
+ * @param fileContent - Content of the file as string
+ * @param fileName - Name of the file
+ * @param mimeType - MIME type of the file
+ * @returns Object in Playwright multipart format
+ */
+function createMultipartFile(
+  fileContent: string,
+  fileName: string,
+  mimeType: string,
+) {
+  return {
+    multipart: {
+      file: {
+        name: fileName,
+        mimeType,
+        buffer: Buffer.from(fileContent),
+      },
+    },
+  };
+}
+
+/**
  * Creates a store and open shift for testing transactions
  */
 async function createTestStoreAndShift(
@@ -276,16 +299,16 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const csvContent = createCSVContent([transaction]);
 
     // WHEN: Uploading valid CSV file
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "transactions.csv");
-
+    // Playwright multipart format
     const response = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
-      formData,
       {
-        headers: {
-          "Content-Type": "multipart/form-data",
+        multipart: {
+          file: {
+            name: "transactions.csv",
+            mimeType: "text/csv",
+            buffer: Buffer.from(csvContent),
+          },
         },
       },
     );
@@ -322,18 +345,9 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const jsonContent = createJSONContent([transaction]);
 
     // WHEN: Uploading valid JSON file
-    const formData = new FormData();
-    const blob = new Blob([jsonContent], { type: "application/json" });
-    formData.append("file", blob, "transactions.json");
-
     const response = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
+      createMultipartFile(jsonContent, "transactions.json", "application/json"),
     );
 
     // THEN: Should return 202 with job_id
@@ -350,17 +364,16 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
   }) => {
     // GIVEN: I am authenticated as System Admin
     // WHEN: Uploading invalid file type (e.g., PDF)
-    const formData = new FormData();
-    const blob = new Blob(["invalid content"], { type: "application/pdf" });
-    formData.append("file", blob, "transactions.pdf");
-
     // Retry on 429 to get actual validation response
     const response = await retryOnRateLimit(() =>
-      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }),
+      superadminApiRequest.post(
+        "/api/transactions/bulk-import",
+        createMultipartFile(
+          "invalid content",
+          "transactions.pdf",
+          "application/pdf",
+        ),
+      ),
     );
 
     // THEN: Should return 400 with clear error message
@@ -380,20 +393,12 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
   }) => {
     // GIVEN: I am authenticated as System Admin
     // WHEN: Uploading file exceeding size limit (default: 10MB)
-    const formData = new FormData();
     // Create a file larger than the 10MB default limit (11MB)
     const largeContent = "x".repeat(11 * 1024 * 1024);
-    const blob = new Blob([largeContent], { type: "text/csv" });
-    formData.append("file", blob, "large-transactions.csv");
 
     const response = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
+      createMultipartFile(largeContent, "large-transactions.csv", "text/csv"),
     );
 
     // THEN: Should return 400 (file size validation) or 413 (multipart limit)
@@ -443,17 +448,12 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const csvContent = createCSVContent([invalidTransaction]);
 
     // WHEN: Uploading file with invalid transaction
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "invalid-transactions.csv");
-
     // Retry on 429 to ensure job is created
     const response = await retryOnRateLimit(() =>
-      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }),
+      superadminApiRequest.post(
+        "/api/transactions/bulk-import",
+        createMultipartFile(csvContent, "invalid-transactions.csv", "text/csv"),
+      ),
     );
 
     // THEN: Should return 202 with job_id (validation happens async)
@@ -510,12 +510,14 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     });
 
     // WHEN: Uploading file without required permission
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "transactions.csv");
-
     const response = await request.post("/api/transactions/bulk-import", {
-      multipart: formData,
+      multipart: {
+        file: {
+          name: "transactions.csv",
+          mimeType: "text/csv",
+          buffer: Buffer.from(csvContent),
+        },
+      },
       headers: {
         Cookie: `access_token=${token}`,
       },
@@ -553,18 +555,9 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const csvContent = createCSVContent([transaction]);
 
     // WHEN: Uploading file
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "transactions.csv");
-
     const response = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
+      createMultipartFile(csvContent, "transactions.csv", "text/csv"),
     );
 
     // THEN: Response should be successful
@@ -619,18 +612,9 @@ test.describe("Bulk Transaction Import API - File Upload (AC-1)", () => {
     const csvContent = createCSVContent(transactions);
 
     // WHEN: Uploading file
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "transactions.csv");
-
     const response = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
+      createMultipartFile(csvContent, "transactions.csv", "text/csv"),
     );
 
     const body = await response.json();
@@ -707,17 +691,12 @@ test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
     });
     const csvContent = createCSVContent([transaction]);
 
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "transactions.csv");
-
     // Retry on 429 to ensure job is created
     const uploadResponse = await retryOnRateLimit(() =>
-      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }),
+      superadminApiRequest.post(
+        "/api/transactions/bulk-import",
+        createMultipartFile(csvContent, "transactions.csv", "text/csv"),
+      ),
     );
 
     const uploadBody = await uploadResponse.json();
@@ -776,18 +755,9 @@ test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
     };
     const csvContent = createCSVContent([invalidTransaction]);
 
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "invalid-transactions.csv");
-
     const uploadResponse = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
+      createMultipartFile(csvContent, "invalid-transactions.csv", "text/csv"),
     );
 
     const uploadBody = await uploadResponse.json();
@@ -837,10 +807,6 @@ test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
     });
     const csvContent = createCSVContent([transaction]);
 
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "transactions.csv");
-
     const superadminToken = createJWTAccessToken({
       user_id: superadminUser.user_id,
       email: superadminUser.email,
@@ -851,7 +817,13 @@ test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
     // Retry on 429 to ensure job is created
     const uploadResponse = await retryOnRateLimit(() =>
       request.post("/api/transactions/bulk-import", {
-        multipart: formData,
+        multipart: {
+          file: {
+            name: "transactions.csv",
+            mimeType: "text/csv",
+            buffer: Buffer.from(csvContent),
+          },
+        },
         headers: {
           Cookie: `access_token=${superadminToken}`,
         },
@@ -905,18 +877,9 @@ test.describe("Bulk Transaction Import API - Status Checking (AC-2)", () => {
     });
     const csvContent = createCSVContent([transaction]);
 
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "transactions.csv");
-
     const uploadResponse = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
+      createMultipartFile(csvContent, "transactions.csv", "text/csv"),
     );
 
     const uploadBody = await uploadResponse.json();
@@ -982,17 +945,12 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
     };
     const csvContent = createCSVContent([invalidTransaction]);
 
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "invalid-transactions.csv");
-
     // Retry on 429 to ensure job is created
     const uploadResponse = await retryOnRateLimit(() =>
-      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }),
+      superadminApiRequest.post(
+        "/api/transactions/bulk-import",
+        createMultipartFile(csvContent, "invalid-transactions.csv", "text/csv"),
+      ),
     );
 
     const uploadBody = await uploadResponse.json();
@@ -1046,17 +1004,12 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
     };
     const csvContent = createCSVContent([invalidTransaction]);
 
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "invalid-transactions.csv");
-
     // Retry on 429 to ensure job is created
     const uploadResponse = await retryOnRateLimit(() =>
-      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }),
+      superadminApiRequest.post(
+        "/api/transactions/bulk-import",
+        createMultipartFile(csvContent, "invalid-transactions.csv", "text/csv"),
+      ),
     );
 
     const uploadBody = await uploadResponse.json();
@@ -1115,18 +1068,9 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
     });
     const csvContent = createCSVContent([transaction]);
 
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "transactions.csv");
-
     const uploadResponse = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
+      createMultipartFile(csvContent, "transactions.csv", "text/csv"),
     );
 
     const uploadBody = await uploadResponse.json();
@@ -1156,20 +1100,13 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
     prismaClient,
   }) => {
     // GIVEN: A bulk import job with critical errors (malformed file)
-    const formData = new FormData();
-    const blob = new Blob(["invalid,csv,content\nbroken,row"], {
-      type: "text/csv",
-    });
-    formData.append("file", blob, "malformed.csv");
-
     const uploadResponse = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
+      createMultipartFile(
+        "invalid,csv,content\nbroken,row",
+        "malformed.csv",
+        "text/csv",
+      ),
     );
 
     const uploadBody = await uploadResponse.json();
@@ -1228,25 +1165,15 @@ test.describe("Bulk Transaction Import API - Results Summary (AC-3)", () => {
     const csvContent2 = createCSVContent([transaction2]);
 
     // WHEN: Uploading two files concurrently
-    const formData1 = new FormData();
-    const blob1 = new Blob([csvContent1], { type: "text/csv" });
-    formData1.append("file", blob1, "transactions1.csv");
-
-    const formData2 = new FormData();
-    const blob2 = new Blob([csvContent2], { type: "text/csv" });
-    formData2.append("file", blob2, "transactions2.csv");
-
     const [response1, response2] = await Promise.all([
-      superadminApiRequest.post("/api/transactions/bulk-import", formData1, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }),
-      superadminApiRequest.post("/api/transactions/bulk-import", formData2, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }),
+      superadminApiRequest.post(
+        "/api/transactions/bulk-import",
+        createMultipartFile(csvContent1, "transactions1.csv", "text/csv"),
+      ),
+      superadminApiRequest.post(
+        "/api/transactions/bulk-import",
+        createMultipartFile(csvContent2, "transactions2.csv", "text/csv"),
+      ),
     ]);
 
     // THEN: Both should return 202 with different job_ids
@@ -1305,16 +1232,15 @@ test.describe("Bulk Import API - Authentication Security", () => {
   }) => {
     // GIVEN: No authentication token
     // WHEN: Attempting to upload file without token
-    const formData = new FormData();
-    const blob = new Blob(["test"], { type: "text/csv" });
-    formData.append("file", blob, "test.csv");
-
     const response = await request.post(
       `${process.env.API_URL || "http://localhost:3001"}/api/transactions/bulk-import`,
       {
-        data: formData,
-        headers: {
-          "Content-Type": "multipart/form-data",
+        multipart: {
+          file: {
+            name: "test.csv",
+            mimeType: "text/csv",
+            buffer: Buffer.from("test"),
+          },
         },
       },
     );
@@ -1333,17 +1259,18 @@ test.describe("Bulk Import API - Authentication Security", () => {
   }) => {
     // GIVEN: Invalid token format
     // WHEN: Attempting to upload file with invalid token
-    const formData = new FormData();
-    const blob = new Blob(["test"], { type: "text/csv" });
-    formData.append("file", blob, "test.csv");
-
     const response = await request.post(
       `${process.env.API_URL || "http://localhost:3001"}/api/transactions/bulk-import`,
       {
-        data: formData,
+        multipart: {
+          file: {
+            name: "test.csv",
+            mimeType: "text/csv",
+            buffer: Buffer.from("test"),
+          },
+        },
         headers: {
           Authorization: "Bearer invalid-token",
-          "Content-Type": "multipart/form-data",
         },
       },
     );
@@ -1380,18 +1307,9 @@ test.describe("Bulk Import API - File Upload Security", () => {
   }) => {
     // GIVEN: Empty file
     // WHEN: Uploading empty file
-    const formData = new FormData();
-    const blob = new Blob([], { type: "text/csv" });
-    formData.append("file", blob, "empty.csv");
-
     const response = await superadminApiRequest.post(
       "/api/transactions/bulk-import",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
+      createMultipartFile("", "empty.csv", "text/csv"),
     );
 
     // THEN: Request should return 400 Bad Request
@@ -1422,17 +1340,12 @@ test.describe("Bulk Import API - File Upload Security", () => {
     const csvContent = createCSVContent([transaction]);
 
     // WHEN: Uploading file with path traversal in name
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "../../../etc/passwd.csv");
-
     // Retry on 429 with exponential backoff to ensure we get the actual security response
     const response = await retryOnRateLimit(() =>
-      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }),
+      superadminApiRequest.post(
+        "/api/transactions/bulk-import",
+        createMultipartFile(csvContent, "../../../etc/passwd.csv", "text/csv"),
+      ),
     );
 
     // THEN: Request should either succeed (filename sanitized) or fail safely
@@ -1467,17 +1380,12 @@ test.describe("Bulk Import API - File Upload Security", () => {
     const csvContent = createCSVContent([transaction]);
 
     // WHEN: Uploading file with null bytes in name
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "test\x00.csv");
-
     // Retry on 429 with exponential backoff to ensure we get the actual security response
     const response = await retryOnRateLimit(() =>
-      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }),
+      superadminApiRequest.post(
+        "/api/transactions/bulk-import",
+        createMultipartFile(csvContent, "test\x00.csv", "text/csv"),
+      ),
     );
 
     // THEN: Request should either succeed (filename sanitized) or fail safely
@@ -1527,17 +1435,12 @@ test.describe("Bulk Import API - XSS Prevention", () => {
     const csvContent = createCSVContent([maliciousTransaction]);
 
     // WHEN: Uploading file with XSS payload
-    const formData = new FormData();
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    formData.append("file", blob, "xss-test.csv");
-
     // Retry on 429 with exponential backoff to ensure we get the actual security response
     const response = await retryOnRateLimit(() =>
-      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }),
+      superadminApiRequest.post(
+        "/api/transactions/bulk-import",
+        createMultipartFile(csvContent, "xss-test.csv", "text/csv"),
+      ),
     );
 
     // THEN: File should be accepted (validation happens async)
@@ -1628,17 +1531,12 @@ test.describe("Bulk Import API - Input Validation Edge Cases", () => {
     const malformedCsv = "value1,value2,value3\nvalue4,value5,value6";
 
     // WHEN: Uploading malformed CSV
-    const formData = new FormData();
-    const blob = new Blob([malformedCsv], { type: "text/csv" });
-    formData.append("file", blob, "malformed.csv");
-
     // Retry on 429 with exponential backoff to ensure we get the actual validation response
     const response = await retryOnRateLimit(() =>
-      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }),
+      superadminApiRequest.post(
+        "/api/transactions/bulk-import",
+        createMultipartFile(malformedCsv, "malformed.csv", "text/csv"),
+      ),
     );
 
     // THEN: File should be accepted (parsing errors tracked in job)
@@ -1668,17 +1566,12 @@ test.describe("Bulk Import API - Input Validation Edge Cases", () => {
     const invalidJson = JSON.stringify({ transactions: [] });
 
     // WHEN: Uploading invalid JSON
-    const formData = new FormData();
-    const blob = new Blob([invalidJson], { type: "application/json" });
-    formData.append("file", blob, "invalid.json");
-
     // Retry on 429 with exponential backoff to ensure we get the actual validation response
     const response = await retryOnRateLimit(() =>
-      superadminApiRequest.post("/api/transactions/bulk-import", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }),
+      superadminApiRequest.post(
+        "/api/transactions/bulk-import",
+        createMultipartFile(invalidJson, "invalid.json", "application/json"),
+      ),
     );
 
     // THEN: File should be accepted but errors tracked in job

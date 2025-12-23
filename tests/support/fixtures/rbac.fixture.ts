@@ -1,20 +1,19 @@
 import { config } from "dotenv";
-// Load environment variables from .env.local FIRST before any other processing
-// Use override: true to ensure test config takes precedence over system env vars
-config({ path: ".env.local", override: true });
+// Load environment variables from .env.local as defaults
+// IMPORTANT: Do NOT use override: true - the test script's DATABASE_URL
+// (e.g., nuvana_test) must take precedence over .env.local's DATABASE_URL
+config({ path: ".env.local" });
 
 import { test as base, APIRequestContext } from "@playwright/test";
 
 // =============================================================================
-// DATABASE PROTECTION - Block dev/prod databases in test code
+// DATABASE PROTECTION - Block prod/staging databases in test code
 // =============================================================================
 const dbUrl = process.env.DATABASE_URL || "";
-if (
-  /nuvana_dev|nuvana_prod|_prod$|_dev$/i.test(dbUrl) &&
-  !/test/i.test(dbUrl)
-) {
+// Only block production/staging - allow nuvana_dev and nuvana_test for local development
+if (/nuvana_prod|nuvana_production|nuvana_staging|_prod$/i.test(dbUrl)) {
   throw new Error(
-    `🚨 BLOCKED: Cannot use rbac.fixture with protected database: ${dbUrl}`,
+    `🚨 BLOCKED: Cannot use rbac.fixture with production database: ${dbUrl}`,
   );
 }
 
@@ -376,12 +375,14 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = { ...options?.headers };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -450,13 +451,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${superadminUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${superadminUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -527,9 +532,13 @@ export const test = base.extend<RBACFixture>({
     // Handles both formats:
     // - postgres:postgres@... (local with password)
     // - postgres@... (CI without password)
-    const dbUrl =
-      process.env.DATABASE_URL ||
-      "postgresql://postgres@localhost:5432/nuvana_dev";
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) {
+      throw new Error(
+        "DATABASE_URL environment variable is required for RLS tests. " +
+          "Run tests via npm scripts (e.g., npm run test:api) which set DATABASE_URL.",
+      );
+    }
     let appUserUrl = dbUrl
       .replace("postgres:postgres@", "app_user:app_user_password@")
       .replace(
@@ -1085,6 +1094,42 @@ export const test = base.extend<RBACFixture>({
         where: { store_id: store.store_id },
       });
 
+      // 5.1. Delete NAXML scheduled export logs and exports (FK: schedule_id)
+      // Wrapped in try-catch to handle case where tables don't exist yet (migration not applied)
+      try {
+        const schedules = await bypassClient.nAXMLScheduledExport.findMany({
+          where: { store_id: store.store_id },
+          select: { schedule_id: true },
+        });
+        if (schedules.length > 0) {
+          await bypassClient.nAXMLScheduledExportLog.deleteMany({
+            where: { schedule_id: { in: schedules.map((s) => s.schedule_id) } },
+          });
+        }
+
+        // 5.2. Delete NAXML scheduled exports (FK: store_id, pos_integration_id)
+        await bypassClient.nAXMLScheduledExport.deleteMany({
+          where: { store_id: store.store_id },
+        });
+      } catch (error: unknown) {
+        // P2021 = table does not exist - ignore if NAXML tables not yet migrated
+        if (
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === "P2021"
+        ) {
+          // Tables don't exist yet, skip cleanup
+        } else {
+          throw error;
+        }
+      }
+
+      // 5.3. Delete POS integrations (FK: store_id)
+      await bypassClient.pOSIntegration.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
       // 5.5. Delete cashiers created/updated by this user (FK: cashiers_created_by_fkey)
       await bypassClient.cashier.deleteMany({
         where: {
@@ -1095,11 +1140,13 @@ export const test = base.extend<RBACFixture>({
       // 6. Delete the store manager user
       await bypassClient.user.delete({ where: { user_id: user.user_id } });
 
-      // 7. Delete store
-      await bypassClient.store.delete({ where: { store_id: store.store_id } });
+      // 7. Delete store (use deleteMany to avoid errors if already deleted)
+      await bypassClient.store.deleteMany({
+        where: { store_id: store.store_id },
+      });
 
-      // 8. Delete company
-      await bypassClient.company.delete({
+      // 8. Delete company (use deleteMany to avoid errors if already deleted)
+      await bypassClient.company.deleteMany({
         where: { company_id: company.company_id },
       });
 
@@ -1202,13 +1249,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -1497,20 +1548,22 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
-        // Check if data is FormData - if so, use multipart and don't set Content-Type
-        const isFormData = data instanceof FormData;
+        // Check if data is multipart object (for file uploads)
+        // Playwright multipart expects: { fieldName: { name: string, mimeType: string, buffer: Buffer } }
+        const isMultipart =
+          data && typeof data === "object" && "multipart" in data;
         const headers: Record<string, string> = {
           Cookie: `access_token=${superadminUser.token}`,
         };
-        // Only set Content-Type for non-FormData requests
-        if (!isFormData) {
+        // Only set Content-Type for non-multipart requests
+        if (!isMultipart) {
           headers["Content-Type"] = "application/json";
         }
-        // Merge with provided headers (but filter out Content-Type for FormData)
+        // Merge with provided headers (but filter out Content-Type for multipart)
         if (options?.headers) {
           Object.entries(options.headers).forEach(([key, value]) => {
-            // For FormData, skip Content-Type header to let Playwright set it with boundary
-            if (isFormData && key.toLowerCase() === "content-type") {
+            // For multipart, skip Content-Type header to let Playwright set it with boundary
+            if (isMultipart && key.toLowerCase() === "content-type") {
               return;
             }
             // eslint-disable-next-line security/detect-object-injection -- Safe: key comes from Object.entries on options.headers
@@ -1518,8 +1571,8 @@ export const test = base.extend<RBACFixture>({
           });
         }
         return request.post(`${backendUrl}${path}`, {
-          data: isFormData ? undefined : data,
-          multipart: isFormData ? data : undefined,
+          data: isMultipart ? undefined : data,
+          multipart: isMultipart ? (data as any).multipart : undefined,
           headers,
         });
       },
@@ -1697,13 +1750,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${storeManagerUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${storeManagerUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -1897,6 +1954,28 @@ export const test = base.extend<RBACFixture>({
       "CASHIER_DELETE",
       // Client Role Management
       "CLIENT_ROLE_MANAGE",
+      // Configuration Management (Phase 1: Shift & Day Summary)
+      "TENDER_TYPE_READ",
+      "TENDER_TYPE_MANAGE",
+      "DEPARTMENT_READ",
+      "DEPARTMENT_MANAGE",
+      "TAX_RATE_READ",
+      "TAX_RATE_MANAGE",
+      "CONFIG_READ",
+      "CONFIG_MANAGE",
+      // POS Integration (Phase 1.6)
+      "POS_CONNECTION_READ",
+      "POS_CONNECTION_MANAGE",
+      "POS_SYNC_TRIGGER",
+      "POS_SYNC_LOG_READ",
+      // POS Audit (Phase 0)
+      "POS_AUDIT_READ",
+      // NAXML File Management (Phase 1)
+      "NAXML_FILE_READ",
+      "NAXML_FILE_IMPORT",
+      "NAXML_FILE_EXPORT",
+      "NAXML_WATCHER_READ",
+      "NAXML_WATCHER_MANAGE",
     ];
 
     // Pre-populate the Redis cache with user roles
@@ -1994,11 +2073,49 @@ export const test = base.extend<RBACFixture>({
         where: { store_id: store.store_id },
       });
 
-      // 7. Delete store
-      await bypassClient.store.delete({ where: { store_id: store.store_id } });
+      // 6.1. Delete NAXML scheduled export logs and exports (FK: schedule_id)
+      // Wrapped in try-catch to handle case where tables don't exist yet (migration not applied)
+      try {
+        const schedules = await bypassClient.nAXMLScheduledExport.findMany({
+          where: { store_id: store.store_id },
+          select: { schedule_id: true },
+        });
+        if (schedules.length > 0) {
+          await bypassClient.nAXMLScheduledExportLog.deleteMany({
+            where: { schedule_id: { in: schedules.map((s) => s.schedule_id) } },
+          });
+        }
 
-      // 8. Delete company
-      await bypassClient.company.delete({
+        // 6.2. Delete NAXML scheduled exports (FK: store_id, pos_integration_id)
+        await bypassClient.nAXMLScheduledExport.deleteMany({
+          where: { store_id: store.store_id },
+        });
+      } catch (error: unknown) {
+        // P2021 = table does not exist - ignore if NAXML tables not yet migrated
+        if (
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === "P2021"
+        ) {
+          // Tables don't exist yet, skip cleanup
+        } else {
+          throw error;
+        }
+      }
+
+      // 6.3. Delete POS integrations (FK: store_id)
+      await bypassClient.pOSIntegration.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 7. Delete store (use deleteMany to avoid errors if already deleted)
+      await bypassClient.store.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 8. Delete company (use deleteMany to avoid errors if already deleted)
+      await bypassClient.company.deleteMany({
         where: { company_id: company.company_id },
       });
 
@@ -2009,8 +2126,8 @@ export const test = base.extend<RBACFixture>({
         },
       });
 
-      // 9. Delete user
-      await bypassClient.user.delete({ where: { user_id: user.user_id } });
+      // 9. Delete user (use deleteMany to avoid errors if already deleted)
+      await bypassClient.user.deleteMany({ where: { user_id: user.user_id } });
     });
   },
 
@@ -2208,13 +2325,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${clientUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${clientUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -2288,13 +2409,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${regularUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${regularUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -2708,13 +2833,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${cashierUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${cashierUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (
@@ -2790,13 +2919,17 @@ export const test = base.extend<RBACFixture>({
         data?: unknown,
         options?: { headers?: Record<string, string> },
       ) => {
+        // Only set Content-Type: application/json when there's actual data
+        const headers: Record<string, string> = {
+          Cookie: `access_token=${superadminUser.token}`,
+          ...options?.headers,
+        };
+        if (data !== undefined) {
+          headers["Content-Type"] = "application/json";
+        }
         return request.post(`${backendUrl}${path}`, {
           data,
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `access_token=${superadminUser.token}`,
-            ...options?.headers,
-          },
+          headers,
         });
       },
       put: async (

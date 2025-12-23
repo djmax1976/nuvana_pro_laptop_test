@@ -86,13 +86,14 @@ test.describe("Store System Admin Workflow - E2E (API-based)", () => {
     );
 
     // THEN: Store is created successfully
-    if (createResponse.status() !== 201) {
-      const errorBody = await createResponse.json();
-      console.error("Store creation failed:", errorBody);
-    }
-    expect(createResponse.status()).toBe(201);
+    expect(
+      createResponse.status(),
+      "Store creation should return 201 Created",
+    ).toBe(201);
 
     const createdStoreFromApi = await createResponse.json();
+
+    // Verify core store fields
     expect(createdStoreFromApi).toMatchObject({
       name: storeName,
       company_id: testCompany.company_id,
@@ -103,28 +104,77 @@ test.describe("Store System Admin Workflow - E2E (API-based)", () => {
       },
     });
 
+    // Verify store_id is a valid UUID
+    expect(createdStoreFromApi.store_id).toBeDefined();
+    expect(createdStoreFromApi.store_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+
+    // Verify public_id is present in API response (required per schema)
+    expect(createdStoreFromApi.public_id).toBeDefined();
+    expect(typeof createdStoreFromApi.public_id).toBe("string");
+    expect(createdStoreFromApi.public_id.length).toBeGreaterThan(0);
+
+    // Verify timestamps are present
+    expect(createdStoreFromApi.created_at).toBeDefined();
+    expect(createdStoreFromApi.updated_at).toBeDefined();
+    expect(new Date(createdStoreFromApi.created_at).getTime()).not.toBeNaN();
+    expect(new Date(createdStoreFromApi.updated_at).getTime()).not.toBeNaN();
+
+    // Verify optional fields when not provided (manager and terminals should be null/empty)
+    // Per backend implementation: manager is null when not provided, terminals is empty array
+    expect(createdStoreFromApi.manager).toBeNull();
+    expect(createdStoreFromApi.terminals).toBeDefined();
+    expect(Array.isArray(createdStoreFromApi.terminals)).toBe(true);
+    expect(createdStoreFromApi.terminals.length).toBe(0);
+
+    // Verify request_metadata is present (added by backend)
+    expect(createdStoreFromApi.request_metadata).toBeDefined();
+    expect(createdStoreFromApi.request_metadata.timestamp).toBeDefined();
+
     // STEP 2: System admin fetches ALL stores (system-wide view)
     const storesResponse = await superadminApiRequest.get("/api/stores");
-    expect(storesResponse.status()).toBe(200);
+    expect(
+      storesResponse.status(),
+      "GET /api/stores should return 200 OK",
+    ).toBe(200);
 
     const storesData = await storesResponse.json();
 
+    // Verify response structure
+    expect(storesData).toHaveProperty("data");
+    expect(storesData).toHaveProperty("meta");
+    expect(Array.isArray(storesData.data)).toBe(true);
+    expect(storesData.meta).toMatchObject({
+      total: expect.any(Number),
+      limit: expect.any(Number),
+      offset: expect.any(Number),
+    });
+
     // THEN: Created store appears in the list
-    expect(storesData.data).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          store_id: createdStoreFromApi.store_id,
-          name: storeName,
-          company_id: testCompany.company_id,
-          timezone: "America/New_York",
-          status: "ACTIVE",
-          // Company name is included (JOIN relationship)
-          company: expect.objectContaining({
-            name: testCompany.name,
-          }),
-        }),
-      ]),
+    const foundStore = storesData.data.find(
+      (store: any) => store.store_id === createdStoreFromApi.store_id,
     );
+    expect(
+      foundStore,
+      "Created store should appear in the stores list",
+    ).toBeDefined();
+
+    expect(foundStore).toMatchObject({
+      store_id: createdStoreFromApi.store_id,
+      name: storeName,
+      company_id: testCompany.company_id,
+      timezone: "America/New_York",
+      status: "ACTIVE",
+      // Company name is included (JOIN relationship)
+      company: expect.objectContaining({
+        name: testCompany.name,
+      }),
+    });
+
+    // Verify public_id is present in list response
+    expect(foundStore.public_id).toBeDefined();
+    expect(foundStore.public_id).toBe(createdStoreFromApi.public_id);
 
     // STEP 3: Verify store exists in database with correct data
     const createdStore = await prismaClient.store.findUnique({
@@ -133,12 +183,16 @@ test.describe("Store System Admin Workflow - E2E (API-based)", () => {
         company: {
           select: {
             name: true,
+            company_id: true,
           },
         },
       },
     });
 
-    expect(createdStore).not.toBeNull();
+    expect(
+      createdStore,
+      "Store should exist in database after creation",
+    ).not.toBeNull();
     expect(createdStore?.name).toBe(storeName);
     expect(createdStore?.timezone).toBe("America/New_York");
     expect(createdStore?.status).toBe("ACTIVE");
@@ -146,18 +200,35 @@ test.describe("Store System Admin Workflow - E2E (API-based)", () => {
       address: "123 E2E Test Street, New York, NY 10001",
     });
     expect(createdStore?.company.name).toBe(testCompany.name);
+    expect(createdStore?.company.company_id).toBe(testCompany.company_id);
 
     // STEP 4: Verify public_id was generated and is valid
     // Public ID is required per schema and should always be present
     expect(createdStore?.public_id).toBeDefined();
     expect(typeof createdStore?.public_id).toBe("string");
+    expect(createdStore?.public_id.length).toBeGreaterThan(0);
+    // Verify public_id matches between API response and database
+    expect(createdStore?.public_id).toBe(createdStoreFromApi.public_id);
+
+    // Verify store_id matches
+    expect(createdStore?.store_id).toBe(createdStoreFromApi.store_id);
+
+    // Verify timestamps are set
+    expect(createdStore?.created_at).toBeInstanceOf(Date);
+    expect(createdStore?.updated_at).toBeInstanceOf(Date);
+    expect(createdStore?.created_at.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(createdStore?.updated_at.getTime()).toBeLessThanOrEqual(Date.now());
 
     // SUCCESS: Complete E2E workflow validated
-    // - ✅ Store created via API
-    // - ✅ Store appears in system-wide stores list
-    // - ✅ Store saved to database correctly
-    // - ✅ Company relationship works
-    // - ✅ Public ID generated and valid
-    // - ✅ End-to-end integration tested
+    // - ✅ Store created via API with correct status (201)
+    // - ✅ Store response includes all required fields (store_id, public_id, timestamps)
+    // - ✅ Optional fields handled correctly (manager: null, terminals: [])
+    // - ✅ Store appears in system-wide stores list immediately
+    // - ✅ Store saved to database correctly with all fields
+    // - ✅ Company relationship verified in both API and database
+    // - ✅ Public ID generated, valid, and consistent across API/DB
+    // - ✅ UUID format validated for store_id
+    // - ✅ Timestamps validated (created_at, updated_at)
+    // - ✅ End-to-end integration tested (API → Service → Database)
   });
 });

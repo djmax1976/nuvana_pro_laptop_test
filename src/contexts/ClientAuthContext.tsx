@@ -485,17 +485,42 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
       throw new Error("This account does not have client portal access");
     }
 
+    // Determine user_role for routing (same logic as initial validation)
+    const roles = data.user?.roles || [];
+    let userRole: string | undefined;
+    if (roles.includes("CLIENT_OWNER")) {
+      userRole = "CLIENT_OWNER";
+    } else if (roles.includes("CLIENT_USER")) {
+      userRole = "CLIENT_USER";
+    } else if (roles.includes("STORE_MANAGER")) {
+      userRole = "STORE_MANAGER";
+    } else if (roles.includes("SHIFT_MANAGER")) {
+      userRole = "SHIFT_MANAGER";
+    } else if (roles.includes("CASHIER")) {
+      userRole = "CASHIER";
+    }
+
+    // Determine if this is a store-level user (for /mystore routing)
+    const isStoreUser =
+      roles.includes("CLIENT_USER") ||
+      roles.includes("STORE_MANAGER") ||
+      roles.includes("SHIFT_MANAGER") ||
+      roles.includes("CASHIER");
+
     const userData: ClientUser = {
       id: data.user.id,
       email: data.user.email,
       name: data.user.name || data.user.email,
       is_client_user: true,
+      user_role: userRole,
+      roles: roles,
     };
 
     // Store permissions from login response
     setPermissions(data.user.permissions || []);
 
     // Store user info - clear legacy key to prevent conflicts
+    // Include userRole and isStoreUser for LoginForm routing
     try {
       localStorage.removeItem("client_auth_session");
       localStorage.setItem(
@@ -504,6 +529,8 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
           user: userData,
           authenticated: true,
           isClientUser: true,
+          isStoreUser: isStoreUser,
+          userRole: userRole,
         }),
       );
     } catch (storageError) {

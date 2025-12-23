@@ -119,6 +119,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
                   type: "object",
                   properties: {
                     store_id: { type: "string", format: "uuid" },
+                    public_id: { type: "string" },
                     company_id: { type: "string", format: "uuid" },
                     name: { type: "string" },
                     location_json: {
@@ -399,6 +400,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             properties: {
               store_id: { type: "string", format: "uuid" },
               company_id: { type: "string", format: "uuid" },
+              public_id: { type: "string" },
               name: { type: "string" },
               location_json: {
                 type: "object",
@@ -428,6 +430,13 @@ export async function storeRoutes(fastify: FastifyInstance) {
                     connection_type: { type: "string" },
                     vendor_type: { type: "string" },
                   },
+                },
+              },
+              request_metadata: {
+                type: "object",
+                properties: {
+                  timestamp: { type: "string", format: "date-time" },
+                  request_id: { type: "string" },
                 },
               },
             },
@@ -691,13 +700,16 @@ export async function storeRoutes(fastify: FastifyInstance) {
         // Create store, manager, and terminals in a single transaction
         const result = await prisma.$transaction(async (tx) => {
           // 1. Create store using service (which handles validation)
-          const store = await storeService.createStore({
-            company_id: params.companyId,
-            name: body.name,
-            location_json: body.location_json,
-            timezone: body.timezone,
-            status: body.status,
-          });
+          const store = await storeService.createStore(
+            {
+              company_id: params.companyId,
+              name: body.name,
+              location_json: body.location_json,
+              timezone: body.timezone,
+              status: body.status,
+            },
+            tx,
+          );
 
           let createdManager = null;
           let createdTerminals: Array<{
@@ -954,6 +966,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
                   type: "object",
                   properties: {
                     store_id: { type: "string", format: "uuid" },
+                    public_id: { type: "string" },
                     company_id: { type: "string", format: "uuid" },
                     name: { type: "string" },
                     location_json: {
@@ -1091,6 +1104,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               store_id: { type: "string", format: "uuid" },
+              public_id: { type: "string" },
               company_id: { type: "string", format: "uuid" },
               name: { type: "string" },
               location_json: {
@@ -1314,6 +1328,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               store_id: { type: "string", format: "uuid" },
+              public_id: { type: "string" },
               company_id: { type: "string", format: "uuid" },
               name: { type: "string" },
               location_json: {

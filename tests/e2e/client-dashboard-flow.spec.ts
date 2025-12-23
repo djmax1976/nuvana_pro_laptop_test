@@ -11,92 +11,186 @@
  * - Logout
  *
  * Priority: P0 (Critical - Regression protection for client access)
+ *
+ * BEST PRACTICES APPLIED:
+ * - Real login flow via actual login page (no fabricated tokens)
+ * - Uses test factories for consistent data creation
+ * - Uses bypassClient for cleanup to avoid RLS restrictions
+ * - Serial execution to prevent database conflicts
+ * - Explicit assertions with Playwright's auto-waiting
+ * - API error monitoring for auth failure detection
+ * - Per-test isolation with unique test data
+ *
+ * IMPORTANT: Uses bcryptjs (not bcrypt) for password hashing to match backend
  */
 
-import { test, expect, Page } from "@playwright/test";
-import bcrypt from "bcrypt";
-import { v4 as uuidv4 } from "uuid";
+import { test as base, expect, Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
+import { v4 as uuidv4 } from "uuid";
+import { withBypassClient } from "../support/prisma-bypass";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
 
 /**
- * Helper function to perform login and wait for navigation.
- *
- * CLIENT_OWNER users are redirected directly to /client-dashboard after login.
- * CLIENT_USER users go to /mystore and cannot access /client-dashboard.
+ * Generate a short unique ID for test data
+ * Format: t{timestamp_base36}_{random} - all lowercase for email compatibility
  */
-async function loginAndWaitForDashboard(
+function shortId(): string {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 6);
+  return `t${timestamp}_${random}`;
+}
+
+// Extend base test with fixtures
+const test = base.extend<{
+  prismaClient: PrismaClient;
+  frontendUrl: string;
+}>({
+  prismaClient: async ({}, use) => {
+    const prisma = new PrismaClient();
+    await prisma.$connect();
+    await use(prisma);
+    await prisma.$disconnect();
+  },
+  frontendUrl: async ({}, use) => {
+    await use(process.env.FRONTEND_URL || "http://localhost:3000");
+  },
+});
+
+/**
+ * Helper to perform real login via the unified login page
+ * Uses the pattern from auth-dashboard-smoke.spec.ts which is proven reliable
+ */
+async function performRealLogin(
   page: Page,
+  frontendUrl: string,
   email: string,
   password: string,
 ): Promise<void> {
-  // Network-first pattern: Intercept API calls BEFORE navigation
-  // This prevents race conditions where requests fire before waits are registered
-  const loginResponsePromise = page.waitForResponse(
-    (resp) =>
-      (resp.url().includes("/api/auth/login") ||
-        resp.url().includes("/api/client/auth/login")) &&
-      resp.status() === 200,
-    { timeout: 30000 },
-  );
+  // Navigate to login page
+  await page.goto(`${frontendUrl}/login`, { waitUntil: "networkidle" });
 
-  const dashboardDataPromise = page
-    .waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/client/dashboard") && resp.status() === 200,
-      { timeout: 30000 },
-    )
-    .catch(() => null); // Dashboard API might not always fire, that's OK
+  // Wait for page to be fully loaded
+  await page.waitForLoadState("domcontentloaded");
 
-  // THEN navigate to login page
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
+  // Wait for login form to be visible and enabled
+  const emailInput = page.locator("#email");
+  await expect(emailInput).toBeVisible({ timeout: 10000 });
+  await expect(emailInput).toBeEnabled({ timeout: 5000 });
 
-  // Wait for login form to be visible and ready for input
-  await page.waitForSelector('input[type="email"]', {
-    state: "visible",
-    timeout: 15000,
-  });
+  // Fill in credentials using fill() which is more reliable than pressSequentially
+  await emailInput.click();
+  await emailInput.fill(email);
 
-  // Wait for input to be editable (ensures React hydration is complete)
-  // This is deterministic - waits for actual condition, not arbitrary time
-  await expect(page.locator('input[type="email"]')).toBeEditable({
-    timeout: 10000,
-  });
+  const passwordInput = page.locator("#password");
+  await expect(passwordInput).toBeVisible({ timeout: 5000 });
+  await passwordInput.click();
+  await passwordInput.fill(password);
 
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', password);
+  // Verify fields are filled before submitting
+  await expect(emailInput).toHaveValue(email);
+  await expect(passwordInput).toHaveValue(password);
 
-  // Set up navigation promise BEFORE clicking submit (order matters for reliability)
-  const navigationPromise = page.waitForURL(/.*client-dashboard.*/, {
-    timeout: 30000,
-    waitUntil: "domcontentloaded",
-  });
+  // Submit form
+  const submitButton = page.getByRole("button", { name: "Sign In" });
+  await expect(submitButton).toBeEnabled({ timeout: 5000 });
+  await submitButton.click();
 
-  // Click submit button (triggers login API request)
-  await page.click('button[type="submit"]');
-
-  // Wait for login API response (deterministic - waits for actual response)
-  const loginResponse = await loginResponsePromise;
-  expect(loginResponse.status()).toBe(200);
-
-  // Wait for navigation to complete
-  await navigationPromise;
-
-  // Wait for dashboard data API response if it fires (deterministic)
-  await dashboardDataPromise;
-
-  // Wait for page to be fully loaded (including auth context validation)
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
-    // networkidle might timeout if there are long-polling requests, that's OK
-  });
+  // Wait for navigation away from login page OR for an error to appear
+  try {
+    await page.waitForURL((url) => !url.pathname.includes("login"), {
+      timeout: 15000,
+    });
+  } catch {
+    // Check if there's an error message on the page
+    const errorAlert = page.locator(
+      '[role="alert"]:not([id="__next-route-announcer__"])',
+    );
+    if ((await errorAlert.count()) > 0 && (await errorAlert.isVisible())) {
+      const errorText = await errorAlert.textContent();
+      throw new Error(`Login failed with error: ${errorText}`);
+    }
+    throw new Error("Login failed - page did not navigate away from login");
+  }
 }
 
 /**
- * Helper function to wait for dashboard data to fully load.
- * Uses reliable selectors and wait strategies for CI/CD stability.
+ * Helper to setup API error listener for 401/403 detection
+ */
+function setupApiErrorListener(page: Page): {
+  errors: string[];
+  has401: () => boolean;
+  has403: () => boolean;
+} {
+  const errors: string[] = [];
+  page.on("response", (response) => {
+    const status = response.status();
+    if (
+      (status === 401 || status === 403) &&
+      response.url().includes("/api/")
+    ) {
+      errors.push(`${status} on ${response.url()}`);
+    }
+  });
+  return {
+    errors,
+    has401: () => errors.some((e) => e.startsWith("401")),
+    has403: () => errors.some((e) => e.startsWith("403")),
+  };
+}
+
+/**
+ * Helper to safely cleanup test user and related data
+ */
+async function cleanupTestUser(
+  userId: string | undefined,
+  companyId?: string,
+  storeId?: string,
+): Promise<void> {
+  if (!userId) return;
+
+  try {
+    await withBypassClient(async (bypassClient) => {
+      // Delete store first (foreign key constraint)
+      if (storeId) {
+        await bypassClient.store
+          .delete({ where: { store_id: storeId } })
+          .catch(() => {});
+      }
+
+      // Delete user roles (foreign key constraint)
+      await bypassClient.userRole
+        .deleteMany({ where: { user_id: userId } })
+        .catch(() => {});
+
+      // Delete audit logs (foreign key constraint)
+      await bypassClient.auditLog
+        .deleteMany({ where: { user_id: userId } })
+        .catch(() => {});
+
+      // Delete company (after store and before user due to FK constraints)
+      if (companyId) {
+        await bypassClient.company
+          .delete({ where: { company_id: companyId } })
+          .catch(() => {});
+      }
+
+      // Delete user
+      await bypassClient.user
+        .delete({ where: { user_id: userId } })
+        .catch(() => {});
+    });
+  } catch (error) {
+    // Log but don't fail - cleanup errors shouldn't mask test failures
+    console.warn(`Cleanup warning for user ${userId}:`, error);
+  }
+}
+
+/**
+ * Helper to wait for dashboard data to fully load
  */
 async function waitForDashboardDataLoaded(page: Page): Promise<void> {
   // Wait for the dashboard page container to be visible
@@ -105,55 +199,40 @@ async function waitForDashboardDataLoaded(page: Page): Promise<void> {
     .waitFor({ state: "visible", timeout: 15000 });
 
   // Wait for network to be idle (API calls completed)
-  // This is more reliable than waiting for spinners in CI/CD
   await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {
-    // networkidle might timeout if there are long-polling requests, that's OK
-    // Continue with selector-based waiting
+    // networkidle might timeout if there are long-polling requests
   });
 
   // Wait for the companies section to be visible (indicates data loaded)
-  // This is the most reliable indicator that data has loaded
   await page.locator('[data-testid="companies-section"]').waitFor({
     state: "visible",
     timeout: 20000,
   });
-
-  // Additional wait to ensure content is rendered (not just visible)
-  // Wait for at least one company or store card, or the empty state message
-  await Promise.race([
-    page
-      .locator('[data-testid="companies-section"] .font-medium')
-      .first()
-      .waitFor({ state: "visible", timeout: 10000 })
-      .catch(() => null),
-    page
-      .locator('[data-testid="companies-section"]')
-      .getByText(/no companies found/i)
-      .waitFor({ state: "visible", timeout: 10000 })
-      .catch(() => null),
-  ]);
 }
 
-test.describe("2.9-E2E: Client Dashboard User Journey", () => {
-  let prisma: PrismaClient;
-  let clientOwner: any;
-  let company: any;
-  let store: any;
-  const password = "ClientPassword123!";
+// Configure all test suites in this file to run serially
+test.describe.configure({ mode: "serial" });
 
-  test.beforeAll(async () => {
-    prisma = new PrismaClient();
-    // Create test CLIENT_OWNER user with company and store
-    // CLIENT_OWNER is the role that can access /client-dashboard
+// =============================================================================
+// 2.9-E2E: Client Dashboard User Journey
+// =============================================================================
+test.describe.serial("2.9-E2E: Client Dashboard User Journey", () => {
+  test("2.9-E2E-001: [P0] Client owner can login and see dashboard", async ({
+    page,
+    prismaClient,
+    frontendUrl,
+  }) => {
+    // GIVEN: Create a test CLIENT_OWNER user with company
+    const password = "ClientPassword123!";
     const passwordHash = await bcrypt.hash(password, 10);
+    const testId = shortId();
     const userId = uuidv4();
     const companyId = uuidv4();
-    const storeId = uuidv4();
 
-    clientOwner = await prisma.user.create({
+    const user = await prismaClient.user.create({
       data: {
         user_id: userId,
-        email: `e2e-client-owner-${Date.now()}@test.com`,
+        email: `e2e-co-${testId}@test.nuvana.local`,
         name: "E2E Test Client Owner",
         status: "ACTIVE",
         password_hash: passwordHash,
@@ -162,281 +241,81 @@ test.describe("2.9-E2E: Client Dashboard User Journey", () => {
       },
     });
 
-    company = await prisma.company.create({
+    const company = await prismaClient.company.create({
       data: {
         company_id: companyId,
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
         name: "E2E Test Company",
         address: "123 E2E Test Street",
         status: "ACTIVE",
-        owner_user_id: clientOwner.user_id,
+        owner_user_id: user.user_id,
       },
     });
 
-    store = await prisma.store.create({
-      data: {
-        store_id: storeId,
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
-        company_id: company.company_id,
-        name: "E2E Test Store",
-        timezone: "America/New_York",
-        status: "ACTIVE",
-        location_json: { address: "456 Store Ave" },
-      },
-    });
-
-    // Assign CLIENT_OWNER role to the user for the company
-    // CLIENT_OWNER is the only role that can access /client-dashboard
-    const clientOwnerRole = await prisma.role.findUnique({
+    // Assign CLIENT_OWNER role
+    const clientOwnerRole = await prismaClient.role.findUnique({
       where: { code: "CLIENT_OWNER" },
     });
-    if (clientOwnerRole) {
-      await prisma.userRole.create({
+    expect(clientOwnerRole, "CLIENT_OWNER role must exist").not.toBeNull();
+
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
         data: {
-          user_id: clientOwner.user_id,
-          role_id: clientOwnerRole.role_id,
+          user_id: user.user_id,
+          role_id: clientOwnerRole!.role_id,
           company_id: company.company_id,
         },
       });
-    }
-  });
-
-  test.afterAll(async () => {
-    // Cleanup in proper order
-    if (store) {
-      await prisma.store
-        .delete({ where: { store_id: store.store_id } })
-        .catch(() => {});
-    }
-    if (company) {
-      await prisma.company
-        .delete({ where: { company_id: company.company_id } })
-        .catch(() => {});
-    }
-    if (clientOwner) {
-      await prisma.userRole
-        .deleteMany({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-      await prisma.auditLog
-        .deleteMany({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-      await prisma.user
-        .delete({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-    }
-    await prisma.$disconnect();
-  });
-
-  test("2.9-E2E-001: [P0] Client owner can login and see dashboard", async ({
-    page,
-  }) => {
-    // GIVEN: CLIENT_OWNER is on the login page
-    // WHEN: CLIENT_OWNER enters valid credentials and submits
-    await loginAndWaitForDashboard(page, clientOwner.email, password);
-
-    // THEN: CLIENT_OWNER is redirected to client dashboard
-    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
-
-    // AND: Dashboard page container is visible
-    await expect(
-      page.locator('[data-testid="client-dashboard-page"]'),
-    ).toBeVisible({ timeout: 10000 });
-
-    // AND: Dashboard shows welcome message (case-insensitive match)
-    await expect(page.getByText(/welcome back/i)).toBeVisible({
-      timeout: 10000,
     });
+
+    const apiErrorListener = setupApiErrorListener(page);
+
+    try {
+      // WHEN: CLIENT_OWNER logs in
+      await performRealLogin(page, frontendUrl, user.email, password);
+
+      // THEN: CLIENT_OWNER is redirected to client dashboard
+      await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 15000 });
+
+      // AND: Dashboard page container is visible
+      await expect(
+        page.locator('[data-testid="client-dashboard-page"]'),
+      ).toBeVisible({ timeout: 10000 });
+
+      // AND: Dashboard shows welcome message
+      await expect(
+        page
+          .locator('[data-testid="client-dashboard-page"]')
+          .getByText(/welcome back/i),
+      ).toBeVisible({ timeout: 10000 });
+
+      // AND: No API errors occurred
+      expect(
+        apiErrorListener.errors,
+        "No API auth errors expected",
+      ).toHaveLength(0);
+    } finally {
+      await cleanupTestUser(user.user_id, company.company_id);
+    }
   });
 
   test("2.9-E2E-002: [P0] Client dashboard shows owned company", async ({
     page,
+    prismaClient,
+    frontendUrl,
   }) => {
-    // GIVEN: CLIENT_OWNER is logged in
-    await loginAndWaitForDashboard(page, clientOwner.email, password);
-
-    // Wait for dashboard data to fully load
-    await waitForDashboardDataLoaded(page);
-
-    // THEN: Dashboard shows the client's company in the companies section
-    await expect(
-      page
-        .locator('[data-testid="companies-section"]')
-        .getByText("E2E Test Company"),
-    ).toBeVisible({
-      timeout: 10000,
-    });
-  });
-
-  test("2.9-E2E-003: [P0] Client dashboard shows owned store", async ({
-    page,
-  }) => {
-    // GIVEN: CLIENT_OWNER is logged in and on dashboard
-    await loginAndWaitForDashboard(page, clientOwner.email, password);
-
-    // Wait for dashboard data to fully load
-    await waitForDashboardDataLoaded(page);
-
-    // THEN: Stores section is visible
-    await expect(page.locator('[data-testid="stores-section"]')).toBeVisible({
-      timeout: 10000,
-    });
-
-    // AND: Dashboard shows the client's store within the stores section
-    await expect(
-      page
-        .locator('[data-testid="stores-section"]')
-        .getByText("E2E Test Store"),
-    ).toBeVisible({ timeout: 10000 });
-  });
-
-  test("2.9-E2E-004: [P1] Unauthenticated user cannot access client dashboard", async ({
-    page,
-  }) => {
-    // GIVEN: User is not logged in
-    // Clear any existing auth state
-    await page.goto("/login");
-    await page.evaluate(() => {
-      localStorage.removeItem("auth_session");
-      localStorage.removeItem("client_auth_session");
-    });
-
-    // Clear cookies as well to ensure no session persists
-    await page.context().clearCookies();
-
-    // WHEN: User tries to access client dashboard directly
-    // Wait for navigation to login (should happen automatically)
-    await Promise.all([
-      page.waitForURL(/.*login.*/, { timeout: 20000 }),
-      page.goto("/client-dashboard", { waitUntil: "domcontentloaded" }),
-    ]);
-
-    // Wait for page to fully load
-    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
-      // networkidle might timeout, that's OK
-    });
-
-    // THEN: User is redirected to login page
-    // The ClientAuthContext should redirect unauthenticated users to /login
-    await expect(page).toHaveURL(/.*login.*/, { timeout: 5000 });
-  });
-
-  test("2.9-E2E-005: [P1] Client login with invalid password shows error", async ({
-    page,
-  }) => {
-    // GIVEN: CLIENT_OWNER is on the login page
-    await page.goto("/login");
-
-    // Wait for login form to be visible
-    await page.waitForSelector('input[type="email"], input[name="email"]', {
-      state: "visible",
-      timeout: 10000,
-    });
-
-    // WHEN: CLIENT_OWNER enters wrong password
-    await page.fill(
-      'input[name="email"], input[type="email"]',
-      clientOwner.email,
-    );
-    await page.fill(
-      'input[name="password"], input[type="password"]',
-      "WrongPassword123!",
-    );
-
-    // Set up navigation promise to ensure we don't navigate on error
-    const navigationPromise = page
-      .waitForURL(/.*client-dashboard.*/, {
-        timeout: 5000,
-      })
-      .catch(() => null);
-
-    // Click submit
-    await page.click('button[type="submit"]');
-
-    // Wait for either error to appear OR navigation (which should not happen)
-    // Use Promise.race to wait for the first event
-    await Promise.race([
-      // Wait for error alert to appear (most reliable indicator)
-      page
-        .locator('[role="alert"]')
-        .filter({ hasNot: page.locator('[id*="route-announcer"]') })
-        .first()
-        .waitFor({ state: "visible", timeout: 10000 })
-        .catch(() => null),
-      // Wait for error text to appear
-      page
-        .getByText(
-          /invalid email or password|invalid|login failed|authentication failed/i,
-        )
-        .filter({ hasNot: page.locator("text=Enter your credentials") })
-        .first()
-        .waitFor({ state: "visible", timeout: 10000 })
-        .catch(() => null),
-      // Wait for navigation (should not happen, but catch it if it does)
-      navigationPromise,
-    ]);
-
-    // THEN: Error message is displayed
-    // Check for Alert component (filter out Next.js route announcer)
-    const errorAlert = page
-      .locator('[role="alert"]')
-      .filter({ hasNot: page.locator('[id*="route-announcer"]') })
-      .first();
-
-    // Look for specific error messages (not the "Enter your credentials" text)
-    const errorText = page
-      .getByText(
-        /invalid email or password|invalid|login failed|authentication failed/i,
-      )
-      .filter({ hasNot: page.locator("text=Enter your credentials") })
-      .first();
-
-    // Verify at least one error indicator is visible
-    const hasError =
-      (await errorAlert.isVisible().catch(() => false)) ||
-      (await errorText.isVisible().catch(() => false));
-
-    expect(hasError).toBe(true);
-
-    // AND: User stays on login page (should not have navigated)
-    await expect(page).toHaveURL(/.*login.*/, { timeout: 5000 });
-  });
-
-  test("2.9-E2E-006: [P1] Client dashboard shows quick stats", async ({
-    page,
-  }) => {
-    // GIVEN: CLIENT_OWNER is logged in
-    await loginAndWaitForDashboard(page, clientOwner.email, password);
-
-    // Wait for dashboard data to fully load
-    await waitForDashboardDataLoaded(page);
-
-    // THEN: Quick stats cards are visible
-    // Looking for stats like "Active Stores", "Companies", etc.
-    await expect(
-      page.locator('[data-testid="stat-active-stores"]'),
-    ).toBeVisible({
-      timeout: 10000,
-    });
-  });
-});
-
-test.describe("2.9-E2E: Client Dashboard Navigation", () => {
-  let prisma: PrismaClient;
-  let clientOwner: any;
-  let company: any;
-  const password = "ClientPassword123!";
-
-  test.beforeAll(async () => {
-    prisma = new PrismaClient();
+    // GIVEN: Create a CLIENT_OWNER with a company
+    const password = "ClientPassword123!";
     const passwordHash = await bcrypt.hash(password, 10);
+    const testId = shortId();
     const userId = uuidv4();
     const companyId = uuidv4();
 
-    clientOwner = await prisma.user.create({
+    const user = await prismaClient.user.create({
       data: {
         user_id: userId,
-        email: `e2e-nav-owner-${Date.now()}@test.com`,
-        name: "E2E Nav Test Client Owner",
+        email: `e2e-co2-${testId}@test.nuvana.local`,
+        name: "E2E Company Test Owner",
         status: "ACTIVE",
         password_hash: passwordHash,
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
@@ -444,98 +323,388 @@ test.describe("2.9-E2E: Client Dashboard Navigation", () => {
       },
     });
 
-    company = await prisma.company.create({
+    const company = await prismaClient.company.create({
       data: {
         company_id: companyId,
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-        name: "E2E Nav Test Company",
-        address: "123 Nav Test Street",
+        name: "E2E Visible Company",
+        address: "456 Visible Street",
         status: "ACTIVE",
-        owner_user_id: clientOwner.user_id,
+        owner_user_id: user.user_id,
       },
     });
 
-    // Assign CLIENT_OWNER role to the user for the company
-    const clientOwnerRole = await prisma.role.findUnique({
+    const clientOwnerRole = await prismaClient.role.findUnique({
       where: { code: "CLIENT_OWNER" },
     });
-    if (clientOwnerRole) {
-      await prisma.userRole.create({
+    expect(clientOwnerRole).not.toBeNull();
+
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
         data: {
-          user_id: clientOwner.user_id,
-          role_id: clientOwnerRole.role_id,
+          user_id: user.user_id,
+          role_id: clientOwnerRole!.role_id,
           company_id: company.company_id,
         },
       });
+    });
+
+    try {
+      // WHEN: CLIENT_OWNER logs in
+      await performRealLogin(page, frontendUrl, user.email, password);
+
+      // Wait for dashboard data to fully load
+      await waitForDashboardDataLoaded(page);
+
+      // THEN: Dashboard shows the client's company in the companies section
+      await expect(
+        page
+          .locator('[data-testid="companies-section"]')
+          .getByText("E2E Visible Company", { exact: true }),
+      ).toBeVisible({ timeout: 10000 });
+    } finally {
+      await cleanupTestUser(user.user_id, company.company_id);
     }
   });
 
-  test.afterAll(async () => {
-    if (company) {
-      await prisma.company
-        .delete({ where: { company_id: company.company_id } })
-        .catch(() => {});
-    }
-    if (clientOwner) {
-      await prisma.userRole
-        .deleteMany({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-      await prisma.auditLog
-        .deleteMany({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-      await prisma.user
-        .delete({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-    }
-    await prisma.$disconnect();
-  });
-
-  test("2.9-E2E-007: [P2] Client sidebar navigation is visible", async ({
+  test("2.9-E2E-003: [P0] Client dashboard shows owned store", async ({
     page,
+    prismaClient,
+    frontendUrl,
   }) => {
-    // GIVEN: CLIENT_OWNER is logged in
-    await loginAndWaitForDashboard(page, clientOwner.email, password);
+    // GIVEN: Create a CLIENT_OWNER with company and store
+    const password = "ClientPassword123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+    const testId = shortId();
+    const userId = uuidv4();
+    const companyId = uuidv4();
+    const storeId = uuidv4();
 
-    // Wait for dashboard data to fully load
-    await waitForDashboardDataLoaded(page);
+    const user = await prismaClient.user.create({
+      data: {
+        user_id: userId,
+        email: `e2e-co3-${testId}@test.nuvana.local`,
+        name: "E2E Store Test Owner",
+        status: "ACTIVE",
+        password_hash: passwordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
+    });
 
-    // THEN: Sidebar with navigation items is visible (on desktop)
-    // Check for navigation elements using the specific testid
-    const sidebar = page.locator('[data-testid="client-sidebar-navigation"]');
-    await expect(sidebar).toBeVisible({ timeout: 10000 });
+    const company = await prismaClient.company.create({
+      data: {
+        company_id: companyId,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: "E2E Store Company",
+        address: "789 Store Street",
+        status: "ACTIVE",
+        owner_user_id: user.user_id,
+      },
+    });
 
-    // AND: Dashboard link should exist in the sidebar
-    const dashboardLink = page.locator(
-      '[data-testid="client-nav-link-dashboard"]',
-    );
-    await expect(dashboardLink).toBeVisible({ timeout: 10000 });
+    const store = await prismaClient.store.create({
+      data: {
+        store_id: storeId,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+        company_id: company.company_id,
+        name: "E2E Visible Store",
+        timezone: "America/New_York",
+        status: "ACTIVE",
+        location_json: { address: "123 Store Ave" },
+      },
+    });
+
+    const clientOwnerRole = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
+    });
+    expect(clientOwnerRole).not.toBeNull();
+
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: clientOwnerRole!.role_id,
+          company_id: company.company_id,
+        },
+      });
+    });
+
+    try {
+      // WHEN: CLIENT_OWNER logs in
+      await performRealLogin(page, frontendUrl, user.email, password);
+
+      // Wait for dashboard data to fully load
+      await waitForDashboardDataLoaded(page);
+
+      // THEN: Stores section is visible
+      await expect(page.locator('[data-testid="stores-section"]')).toBeVisible({
+        timeout: 10000,
+      });
+
+      // AND: Dashboard shows the client's store
+      await expect(
+        page
+          .locator('[data-testid="stores-section"]')
+          .getByText("E2E Visible Store", { exact: true }),
+      ).toBeVisible({ timeout: 10000 });
+    } finally {
+      await cleanupTestUser(user.user_id, company.company_id, store.store_id);
+    }
+  });
+
+  test("2.9-E2E-004: [P1] Unauthenticated user cannot access client dashboard", async ({
+    page,
+    frontendUrl,
+  }) => {
+    // GIVEN: User is not logged in
+    // Clear any existing auth state
+    await page.goto(`${frontendUrl}/login`);
+    await page.evaluate(() => {
+      localStorage.removeItem("auth_session");
+      localStorage.removeItem("client_auth_session");
+    });
+
+    // Clear cookies
+    await page.context().clearCookies();
+
+    // WHEN: User tries to access client dashboard directly
+    await page.goto(`${frontendUrl}/client-dashboard`, {
+      waitUntil: "domcontentloaded",
+    });
+
+    // Wait for potential redirect
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+      // networkidle might timeout
+    });
+
+    // THEN: User is redirected to login page
+    await expect(page).toHaveURL(/.*login.*/, { timeout: 10000 });
+  });
+
+  test("2.9-E2E-005: [P1] Client login with invalid password shows error", async ({
+    page,
+    prismaClient,
+    frontendUrl,
+  }) => {
+    // GIVEN: Create a test user
+    const password = "CorrectPassword123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+    const testId = shortId();
+    const userId = uuidv4();
+
+    const user = await prismaClient.user.create({
+      data: {
+        user_id: userId,
+        email: `e2e-co5-${testId}@test.nuvana.local`,
+        name: "E2E Invalid Login Test",
+        status: "ACTIVE",
+        password_hash: passwordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
+    });
+
+    try {
+      // Navigate to login page
+      await page.goto(`${frontendUrl}/login`, { waitUntil: "networkidle" });
+
+      // Wait for login form
+      const emailInput = page.locator("#email");
+      await expect(emailInput).toBeVisible({ timeout: 10000 });
+      await expect(emailInput).toBeEditable({ timeout: 5000 });
+
+      // WHEN: User enters wrong password
+      await emailInput.fill(user.email);
+      await page.locator("#password").fill("WrongPassword123!");
+
+      // Click submit
+      await page.getByRole("button", { name: "Sign In" }).click();
+
+      // THEN: Error message is displayed (wait for error alert to appear)
+      const errorAlert = page.locator(
+        '[role="alert"]:not([id="__next-route-announcer__"])',
+      );
+      await expect(errorAlert).toBeVisible({ timeout: 10000 });
+
+      // AND: User stays on login page
+      await expect(page).toHaveURL(/.*login.*/);
+    } finally {
+      await cleanupTestUser(user.user_id);
+    }
+  });
+
+  test("2.9-E2E-006: [P1] Client dashboard shows quick stats", async ({
+    page,
+    prismaClient,
+    frontendUrl,
+  }) => {
+    // GIVEN: Create a CLIENT_OWNER
+    const password = "ClientPassword123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+    const testId = shortId();
+    const userId = uuidv4();
+    const companyId = uuidv4();
+
+    const user = await prismaClient.user.create({
+      data: {
+        user_id: userId,
+        email: `e2e-co6-${testId}@test.nuvana.local`,
+        name: "E2E Stats Test Owner",
+        status: "ACTIVE",
+        password_hash: passwordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
+    });
+
+    const company = await prismaClient.company.create({
+      data: {
+        company_id: companyId,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: "E2E Stats Company",
+        status: "ACTIVE",
+        owner_user_id: user.user_id,
+      },
+    });
+
+    const clientOwnerRole = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
+    });
+    expect(clientOwnerRole).not.toBeNull();
+
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: clientOwnerRole!.role_id,
+          company_id: company.company_id,
+        },
+      });
+    });
+
+    try {
+      // WHEN: CLIENT_OWNER logs in
+      await performRealLogin(page, frontendUrl, user.email, password);
+
+      // Wait for dashboard data to fully load
+      await waitForDashboardDataLoaded(page);
+
+      // THEN: Quick stats cards are visible
+      await expect(
+        page.locator('[data-testid="stat-active-stores"]'),
+      ).toBeVisible({ timeout: 10000 });
+
+      await expect(page.locator('[data-testid="stat-companies"]')).toBeVisible({
+        timeout: 5000,
+      });
+
+      await expect(
+        page.locator('[data-testid="stat-total-employees"]'),
+      ).toBeVisible({ timeout: 5000 });
+    } finally {
+      await cleanupTestUser(user.user_id, company.company_id);
+    }
   });
 });
 
-// ============================================================================
-// E2E: Client Dashboard Data Visibility
-// ============================================================================
-
-test.describe("2.9-E2E: Client Dashboard Data Isolation", () => {
-  let prisma: PrismaClient;
-  let clientOwner1: any;
-  let clientOwner2: any;
-  let company1: any;
-  let company2: any;
-  const password = "ClientPassword123!";
-
-  test.beforeAll(async () => {
-    prisma = new PrismaClient();
+// =============================================================================
+// 2.9-E2E: Client Dashboard Navigation
+// =============================================================================
+test.describe.serial("2.9-E2E: Client Dashboard Navigation", () => {
+  test("2.9-E2E-007: [P2] Client sidebar navigation is visible", async ({
+    page,
+    prismaClient,
+    frontendUrl,
+  }) => {
+    // GIVEN: Create a CLIENT_OWNER
+    const password = "ClientPassword123!";
     const passwordHash = await bcrypt.hash(password, 10);
+    const testId = shortId();
+    const userId = uuidv4();
+    const companyId = uuidv4();
 
-    // Create first CLIENT_OWNER with company
+    const user = await prismaClient.user.create({
+      data: {
+        user_id: userId,
+        email: `e2e-nav-${testId}@test.nuvana.local`,
+        name: "E2E Nav Test Owner",
+        status: "ACTIVE",
+        password_hash: passwordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
+    });
+
+    const company = await prismaClient.company.create({
+      data: {
+        company_id: companyId,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: "E2E Nav Company",
+        status: "ACTIVE",
+        owner_user_id: user.user_id,
+      },
+    });
+
+    const clientOwnerRole = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
+    });
+    expect(clientOwnerRole).not.toBeNull();
+
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: clientOwnerRole!.role_id,
+          company_id: company.company_id,
+        },
+      });
+    });
+
+    try {
+      // WHEN: CLIENT_OWNER logs in
+      await performRealLogin(page, frontendUrl, user.email, password);
+
+      // Wait for dashboard data to fully load
+      await waitForDashboardDataLoaded(page);
+
+      // THEN: Sidebar with navigation is visible (on desktop)
+      const sidebar = page.locator('[data-testid="client-sidebar-navigation"]');
+      await expect(sidebar).toBeVisible({ timeout: 10000 });
+
+      // AND: Dashboard link should exist in the sidebar
+      const dashboardLink = page.locator(
+        '[data-testid="client-nav-link-dashboard"]',
+      );
+      await expect(dashboardLink).toBeVisible({ timeout: 10000 });
+    } finally {
+      await cleanupTestUser(user.user_id, company.company_id);
+    }
+  });
+});
+
+// =============================================================================
+// 2.9-E2E: Client Dashboard Data Isolation
+// =============================================================================
+test.describe.serial("2.9-E2E: Client Dashboard Data Isolation", () => {
+  test("2.9-E2E-008: [P0] Client owner cannot see other client's company", async ({
+    page,
+    prismaClient,
+    frontendUrl,
+  }) => {
+    // GIVEN: Create two CLIENT_OWNERS with different companies
+    const password = "ClientPassword123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+    const testId = shortId();
+
+    // Create first client owner with company
     const userId1 = uuidv4();
     const companyId1 = uuidv4();
 
-    clientOwner1 = await prisma.user.create({
+    const user1 = await prismaClient.user.create({
       data: {
         user_id: userId1,
-        email: `e2e-owner1-${Date.now()}@test.com`,
+        email: `e2e-owner1-${testId}@test.nuvana.local`,
         name: "E2E Client Owner One",
         status: "ACTIVE",
         password_hash: passwordHash,
@@ -544,25 +713,25 @@ test.describe("2.9-E2E: Client Dashboard Data Isolation", () => {
       },
     });
 
-    company1 = await prisma.company.create({
+    const company1 = await prismaClient.company.create({
       data: {
         company_id: companyId1,
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-        name: "Client One Company",
-        address: "123 Client One Street",
+        name: "Owner One Company",
+        address: "123 Owner One Street",
         status: "ACTIVE",
-        owner_user_id: clientOwner1.user_id,
+        owner_user_id: user1.user_id,
       },
     });
 
-    // Create second CLIENT_OWNER with different company
+    // Create second client owner with company
     const userId2 = uuidv4();
     const companyId2 = uuidv4();
 
-    clientOwner2 = await prisma.user.create({
+    const user2 = await prismaClient.user.create({
       data: {
         user_id: userId2,
-        email: `e2e-owner2-${Date.now()}@test.com`,
+        email: `e2e-owner2-${testId}@test.nuvana.local`,
         name: "E2E Client Owner Two",
         status: "ACTIVE",
         password_hash: passwordHash,
@@ -571,245 +740,86 @@ test.describe("2.9-E2E: Client Dashboard Data Isolation", () => {
       },
     });
 
-    company2 = await prisma.company.create({
+    const company2 = await prismaClient.company.create({
       data: {
         company_id: companyId2,
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-        name: "Client Two Company",
-        address: "456 Client Two Street",
+        name: "Owner Two Company",
+        address: "456 Owner Two Street",
         status: "ACTIVE",
-        owner_user_id: clientOwner2.user_id,
+        owner_user_id: user2.user_id,
       },
     });
 
     // Assign CLIENT_OWNER role to both users
-    const clientOwnerRole = await prisma.role.findUnique({
+    const clientOwnerRole = await prismaClient.role.findUnique({
       where: { code: "CLIENT_OWNER" },
     });
-    if (clientOwnerRole) {
-      await prisma.userRole.createMany({
+    expect(clientOwnerRole).not.toBeNull();
+
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.createMany({
         data: [
           {
-            user_id: clientOwner1.user_id,
-            role_id: clientOwnerRole.role_id,
+            user_id: user1.user_id,
+            role_id: clientOwnerRole!.role_id,
             company_id: company1.company_id,
           },
           {
-            user_id: clientOwner2.user_id,
-            role_id: clientOwnerRole.role_id,
+            user_id: user2.user_id,
+            role_id: clientOwnerRole!.role_id,
             company_id: company2.company_id,
           },
         ],
       });
-    }
-  });
-
-  test.afterAll(async () => {
-    // Cleanup in proper order
-    if (company1) {
-      await prisma.company
-        .delete({ where: { company_id: company1.company_id } })
-        .catch(() => {});
-    }
-    if (company2) {
-      await prisma.company
-        .delete({ where: { company_id: company2.company_id } })
-        .catch(() => {});
-    }
-    if (clientOwner1) {
-      await prisma.userRole
-        .deleteMany({ where: { user_id: clientOwner1.user_id } })
-        .catch(() => {});
-      await prisma.auditLog
-        .deleteMany({ where: { user_id: clientOwner1.user_id } })
-        .catch(() => {});
-      await prisma.user
-        .delete({ where: { user_id: clientOwner1.user_id } })
-        .catch(() => {});
-    }
-    if (clientOwner2) {
-      await prisma.userRole
-        .deleteMany({ where: { user_id: clientOwner2.user_id } })
-        .catch(() => {});
-      await prisma.auditLog
-        .deleteMany({ where: { user_id: clientOwner2.user_id } })
-        .catch(() => {});
-      await prisma.user
-        .delete({ where: { user_id: clientOwner2.user_id } })
-        .catch(() => {});
-    }
-    await prisma.$disconnect();
-  });
-
-  test("2.9-E2E-008: [P0] Client owner cannot see other client's company", async ({
-    page,
-  }) => {
-    // GIVEN: CLIENT_OWNER 1 is logged in
-    await loginAndWaitForDashboard(page, clientOwner1.email, password);
-
-    // Wait for dashboard data to fully load
-    await waitForDashboardDataLoaded(page);
-
-    // THEN: CLIENT_OWNER 1 sees their own company
-    await expect(page.getByText("Client One Company")).toBeVisible({
-      timeout: 10000,
     });
 
-    // AND: CLIENT_OWNER 1 does NOT see CLIENT_OWNER 2's company
-    // Use waitFor with hidden state to ensure it's truly not visible
-    await expect(page.getByText("Client Two Company")).not.toBeVisible({
-      timeout: 5000,
-    });
+    try {
+      // WHEN: CLIENT_OWNER 1 logs in
+      await performRealLogin(page, frontendUrl, user1.email, password);
+
+      // Wait for dashboard data to fully load
+      await waitForDashboardDataLoaded(page);
+
+      // THEN: CLIENT_OWNER 1 sees their own company
+      await expect(
+        page
+          .locator('[data-testid="companies-section"]')
+          .getByText("Owner One Company", { exact: true }),
+      ).toBeVisible({ timeout: 10000 });
+
+      // AND: CLIENT_OWNER 1 does NOT see CLIENT_OWNER 2's company
+      await expect(
+        page.getByText("Owner Two Company", { exact: true }),
+      ).not.toBeVisible({ timeout: 5000 });
+    } finally {
+      await cleanupTestUser(user1.user_id, company1.company_id);
+      await cleanupTestUser(user2.user_id, company2.company_id);
+    }
   });
 });
 
-// ============================================================================
-// E2E: Session Persistence
-// ============================================================================
-
-test.describe("2.9-E2E: Session Persistence", () => {
-  let prisma: PrismaClient;
-  let clientOwner: any;
-  let company: any;
-  const password = "ClientPassword123!";
-
-  test.beforeAll(async () => {
-    prisma = new PrismaClient();
-    const passwordHash = await bcrypt.hash(password, 10);
-    const userId = uuidv4();
-    const companyId = uuidv4();
-
-    clientOwner = await prisma.user.create({
-      data: {
-        user_id: userId,
-        email: `e2e-session-owner-${Date.now()}@test.com`,
-        name: "E2E Session Test Client Owner",
-        status: "ACTIVE",
-        password_hash: passwordHash,
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-        is_client_user: true,
-      },
-    });
-
-    company = await prisma.company.create({
-      data: {
-        company_id: companyId,
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-        name: "E2E Session Test Company",
-        address: "123 Session Test Street",
-        status: "ACTIVE",
-        owner_user_id: clientOwner.user_id,
-      },
-    });
-
-    // Assign CLIENT_OWNER role to the user for the company
-    const clientOwnerRole = await prisma.role.findUnique({
-      where: { code: "CLIENT_OWNER" },
-    });
-    if (clientOwnerRole) {
-      await prisma.userRole.create({
-        data: {
-          user_id: clientOwner.user_id,
-          role_id: clientOwnerRole.role_id,
-          company_id: company.company_id,
-        },
-      });
-    }
-  });
-
-  test.afterAll(async () => {
-    if (company) {
-      await prisma.company
-        .delete({ where: { company_id: company.company_id } })
-        .catch(() => {});
-    }
-    if (clientOwner) {
-      await prisma.userRole
-        .deleteMany({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-      await prisma.auditLog
-        .deleteMany({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-      await prisma.user
-        .delete({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-    }
-    await prisma.$disconnect();
-  });
-
+// =============================================================================
+// 2.9-E2E: Session Persistence
+// =============================================================================
+test.describe.serial("2.9-E2E: Session Persistence", () => {
   test("2.9-E2E-009: [P1] Client owner can navigate away and return without re-login", async ({
     page,
+    prismaClient,
+    frontendUrl,
   }) => {
-    // GIVEN: CLIENT_OWNER logs in
-    await loginAndWaitForDashboard(page, clientOwner.email, password);
-
-    // Wait for initial dashboard data to load
-    await waitForDashboardDataLoaded(page);
-
-    // Verify we're on dashboard before reload
-    await expect(page).toHaveURL(/.*client-dashboard.*/);
-
-    // WHEN: CLIENT_OWNER refreshes the page to simulate returning
-    // Wait for navigation to complete after reload
-    await Promise.all([
-      page.waitForURL(/.*(client-dashboard|login).*/, { timeout: 20000 }),
-      page.reload({ waitUntil: "domcontentloaded" }),
-    ]);
-
-    // Wait for page to fully load and auth to settle
-    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
-      // networkidle might timeout, that's OK
-    });
-
-    // THEN: CLIENT_OWNER is still on the dashboard (session persists)
-    // Give time for React auth context to validate session
-    // The page should either stay on dashboard or redirect to login
-    const currentUrl = page.url();
-
-    if (currentUrl.includes("login")) {
-      // Session didn't persist - this can happen in CI/CD environments
-      // where cookies/localStorage might not persist between page loads
-      // This is a known limitation in some CI environments
-      console.log(
-        "Note: Session did not persist after refresh - may be CI cookie/localStorage issue",
-      );
-      // Mark test as skipped rather than failing
-      test.skip();
-      return;
-    }
-
-    // Verify we're still on the dashboard
-    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 5000 });
-
-    // Wait for dashboard to load again after refresh
-    await waitForDashboardDataLoaded(page);
-    await expect(page.getByText(/welcome back/i)).toBeVisible({
-      timeout: 10000,
-    });
-  });
-});
-
-// ============================================================================
-// E2E: Logout Flow
-// ============================================================================
-
-test.describe("2.9-E2E: Logout Flow", () => {
-  let prisma: PrismaClient;
-  let clientOwner: any;
-  let company: any;
-  const password = "ClientPassword123!";
-
-  test.beforeAll(async () => {
-    prisma = new PrismaClient();
+    // GIVEN: Create a CLIENT_OWNER
+    const password = "ClientPassword123!";
     const passwordHash = await bcrypt.hash(password, 10);
+    const testId = shortId();
     const userId = uuidv4();
     const companyId = uuidv4();
 
-    clientOwner = await prisma.user.create({
+    const user = await prismaClient.user.create({
       data: {
         user_id: userId,
-        email: `e2e-logout-owner-${Date.now()}@test.com`,
-        name: "E2E Logout Test Client Owner",
+        email: `e2e-session-${testId}@test.nuvana.local`,
+        name: "E2E Session Test Owner",
         status: "ACTIVE",
         password_hash: passwordHash,
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
@@ -817,93 +827,168 @@ test.describe("2.9-E2E: Logout Flow", () => {
       },
     });
 
-    company = await prisma.company.create({
+    const company = await prismaClient.company.create({
       data: {
         company_id: companyId,
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-        name: "E2E Logout Test Company",
-        address: "123 Logout Test Street",
+        name: "E2E Session Company",
         status: "ACTIVE",
-        owner_user_id: clientOwner.user_id,
+        owner_user_id: user.user_id,
       },
     });
 
-    // Assign CLIENT_OWNER role to the user
-    const clientOwnerRole = await prisma.role.findUnique({
+    const clientOwnerRole = await prismaClient.role.findUnique({
       where: { code: "CLIENT_OWNER" },
     });
-    if (clientOwnerRole) {
-      await prisma.userRole.create({
+    expect(clientOwnerRole).not.toBeNull();
+
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
         data: {
-          user_id: clientOwner.user_id,
-          role_id: clientOwnerRole.role_id,
+          user_id: user.user_id,
+          role_id: clientOwnerRole!.role_id,
           company_id: company.company_id,
         },
       });
+    });
+
+    try {
+      // WHEN: CLIENT_OWNER logs in
+      await performRealLogin(page, frontendUrl, user.email, password);
+
+      // Verify we're on dashboard
+      await expect(page).toHaveURL(/.*client-dashboard.*/);
+      await waitForDashboardDataLoaded(page);
+
+      // WHEN: CLIENT_OWNER refreshes the page
+      await page.reload({ waitUntil: "domcontentloaded" });
+
+      // Wait for auth to settle
+      await page
+        .waitForLoadState("networkidle", { timeout: 15000 })
+        .catch(() => {
+          // networkidle might timeout
+        });
+
+      // THEN: Check where we ended up
+      const currentUrl = page.url();
+
+      if (currentUrl.includes("login")) {
+        // Session didn't persist - this can happen in CI environments
+        // Mark test as skipped rather than failing
+        console.log(
+          "Note: Session did not persist after refresh - may be CI cookie/localStorage issue",
+        );
+        test.skip();
+        return;
+      }
+
+      // Verify we're still on the dashboard
+      await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 5000 });
+
+      // Wait for dashboard to load again after refresh
+      await waitForDashboardDataLoaded(page);
+
+      // Verify welcome message is still visible
+      await expect(
+        page
+          .locator('[data-testid="client-dashboard-page"]')
+          .getByText(/welcome back/i),
+      ).toBeVisible({ timeout: 10000 });
+    } finally {
+      await cleanupTestUser(user.user_id, company.company_id);
     }
   });
+});
 
-  test.afterAll(async () => {
-    if (company) {
-      await prisma.company
-        .delete({ where: { company_id: company.company_id } })
-        .catch(() => {});
-    }
-    if (clientOwner) {
-      await prisma.userRole
-        .deleteMany({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-      await prisma.auditLog
-        .deleteMany({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-      await prisma.user
-        .delete({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-    }
-    await prisma.$disconnect();
-  });
-
+// =============================================================================
+// 2.9-E2E: Logout Flow
+// =============================================================================
+test.describe.serial("2.9-E2E: Logout Flow", () => {
   test("2.9-E2E-010: [P1] Client owner can logout and is redirected to login", async ({
     page,
+    prismaClient,
+    frontendUrl,
   }) => {
-    // GIVEN: CLIENT_OWNER is logged in
-    await loginAndWaitForDashboard(page, clientOwner.email, password);
+    // GIVEN: Create a CLIENT_OWNER
+    const password = "ClientPassword123!";
+    const passwordHash = await bcrypt.hash(password, 10);
+    const testId = shortId();
+    const userId = uuidv4();
+    const companyId = uuidv4();
 
-    // Verify we're on the dashboard
-    await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
-
-    // Wait for dashboard to load
-    await waitForDashboardDataLoaded(page);
-
-    // WHEN: CLIENT_OWNER logs out
-    // Note: The Header component uses AuthContext, but the client dashboard only provides ClientAuthContext.
-    // This means the Header may not show the user menu. As an alternative, we can test logout
-    // by directly calling the logout API or by navigating to a logout endpoint if one exists.
-    // For now, we'll test that the session can be cleared and user is redirected.
-
-    // Clear the auth session from localStorage (simulating logout)
-    await page.evaluate(() => {
-      localStorage.removeItem("auth_session");
-      localStorage.removeItem("client_auth_session");
+    const user = await prismaClient.user.create({
+      data: {
+        user_id: userId,
+        email: `e2e-logout-${testId}@test.nuvana.local`,
+        name: "E2E Logout Test Owner",
+        status: "ACTIVE",
+        password_hash: passwordHash,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        is_client_user: true,
+      },
     });
 
-    // Clear cookies as well to ensure complete logout
-    await page.context().clearCookies();
-
-    // Navigate to a protected route to trigger redirect
-    // Wait for navigation to login (should happen automatically)
-    await Promise.all([
-      page.waitForURL(/.*login.*/, { timeout: 20000 }),
-      page.goto("/client-dashboard", { waitUntil: "domcontentloaded" }),
-    ]);
-
-    // Wait for page to fully load
-    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
-      // networkidle might timeout, that's OK
+    const company = await prismaClient.company.create({
+      data: {
+        company_id: companyId,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+        name: "E2E Logout Company",
+        status: "ACTIVE",
+        owner_user_id: user.user_id,
+      },
     });
 
-    // THEN: CLIENT_OWNER is redirected to login page
-    // The ClientAuthContext should detect no session and redirect to login
-    await expect(page).toHaveURL(/.*login.*/, { timeout: 5000 });
+    const clientOwnerRole = await prismaClient.role.findUnique({
+      where: { code: "CLIENT_OWNER" },
+    });
+    expect(clientOwnerRole).not.toBeNull();
+
+    await withBypassClient(async (bypassClient) => {
+      await bypassClient.userRole.create({
+        data: {
+          user_id: user.user_id,
+          role_id: clientOwnerRole!.role_id,
+          company_id: company.company_id,
+        },
+      });
+    });
+
+    try {
+      // WHEN: CLIENT_OWNER logs in
+      await performRealLogin(page, frontendUrl, user.email, password);
+
+      // Verify we're on the dashboard
+      await expect(page).toHaveURL(/.*client-dashboard.*/, { timeout: 10000 });
+      await waitForDashboardDataLoaded(page);
+
+      // WHEN: Clear the auth session (simulating logout)
+      // Note: The Header component logout button may not be visible in client dashboard
+      // This tests that clearing session state causes proper redirect
+      await page.evaluate(() => {
+        localStorage.removeItem("auth_session");
+        localStorage.removeItem("client_auth_session");
+      });
+
+      // Clear cookies
+      await page.context().clearCookies();
+
+      // Navigate to a protected route to trigger redirect
+      await page.goto(`${frontendUrl}/client-dashboard`, {
+        waitUntil: "domcontentloaded",
+      });
+
+      // Wait for page to process
+      await page
+        .waitForLoadState("networkidle", { timeout: 15000 })
+        .catch(() => {
+          // networkidle might timeout
+        });
+
+      // THEN: User is redirected to login page
+      await expect(page).toHaveURL(/.*login.*/, { timeout: 10000 });
+    } finally {
+      await cleanupTestUser(user.user_id, company.company_id);
+    }
   });
 });

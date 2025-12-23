@@ -108,7 +108,8 @@ export class StoreService {
    * @returns Created store record
    * @throws Error if validation fails or database error occurs
    */
-  async createStore(data: CreateStoreInput) {
+  async createStore(data: CreateStoreInput, tx?: Prisma.TransactionClient) {
+    const client: Prisma.TransactionClient | typeof prisma = tx ?? prisma;
     // Validate input
     if (!data.name || data.name.trim().length === 0) {
       throw new Error(
@@ -132,7 +133,7 @@ export class StoreService {
     }
 
     // Verify company exists
-    const company = await prisma.company.findUnique({
+    const company = await client.company.findUnique({
       where: { company_id: data.company_id },
     });
     if (!company) {
@@ -165,7 +166,7 @@ export class StoreService {
     }
 
     try {
-      const store = await prisma.store.create({
+      const store = await client.store.create({
         data: {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
           company_id: data.company_id,

@@ -21,6 +21,7 @@ export const PaymentMethodEnum = z.enum([
 /**
  * Transaction Line Item Schema
  * Validates individual line items in a transaction
+ * Phase 1.5: Added department FK fields and tax_amount
  */
 export const TransactionLineItemSchema = z.object({
   product_id: z.string().uuid().optional(),
@@ -29,16 +30,34 @@ export const TransactionLineItemSchema = z.object({
   quantity: z.number().int().positive("Quantity must be a positive integer"),
   unit_price: z.number().nonnegative("Unit price must be non-negative"),
   discount: z.number().nonnegative("Discount must be non-negative").default(0),
+  // Phase 1.5: Per-item tax amount
+  tax_amount: z
+    .number()
+    .nonnegative("Tax amount must be non-negative")
+    .default(0),
+  // Phase 1.5: Department reference (optional - resolved from code if provided)
+  department_code: z.string().max(50).optional(),
+  department_id: z
+    .string()
+    .uuid("department_id must be a valid UUID")
+    .optional(),
 });
 
 /**
  * Transaction Payment Schema
  * Validates payment information in a transaction
+ * Phase 1.5: Added tender type FK fields
  */
 export const TransactionPaymentSchema = z.object({
-  method: PaymentMethodEnum,
+  method: PaymentMethodEnum, // Keep for backward compatibility
   amount: z.number().positive("Payment amount must be positive"),
   reference: z.string().optional(),
+  // Phase 1.5: Tender type reference (optional - resolved from method if not provided)
+  tender_code: z.string().max(50).optional(),
+  tender_type_id: z
+    .string()
+    .uuid("tender_type_id must be a valid UUID")
+    .optional(),
 });
 
 /**

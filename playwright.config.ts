@@ -99,9 +99,9 @@ export default defineConfig({
             command: "cd backend && npm run dev:test",
             url:
               (process.env.BACKEND_URL || "http://localhost:3001") + "/health",
-            reuseExistingServer: true,
+            reuseExistingServer: !process.env.CI,
             timeout: 120000,
-            stdout: "ignore",
+            stdout: "pipe",
             stderr: "pipe",
           },
         ],

@@ -143,20 +143,30 @@ describe("CloseDayModal Component", () => {
       data: {
         closings_created: 2,
         business_day: "2025-12-15",
+        day_closed: true,
         bins_closed: [
           {
             bin_number: 1,
             pack_number: "1234567",
             game_name: "Lucky 7s",
             closing_serial: "025",
+            starting_serial: "000",
+            game_price: 1,
+            tickets_sold: 25,
+            sales_amount: 25,
           },
           {
             bin_number: 2,
             pack_number: "7654321",
             game_name: "Money Bags",
             closing_serial: "050",
+            starting_serial: "000",
+            game_price: 5,
+            tickets_sold: 50,
+            sales_amount: 250,
           },
         ],
+        lottery_total: 275,
       },
     });
   });

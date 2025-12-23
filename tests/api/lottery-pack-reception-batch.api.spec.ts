@@ -678,9 +678,7 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
   test("6.12-SEC-008: [P0] should reject non-existent store_id", async ({
     storeManagerApiRequest,
   }) => {
-    // GIVEN: Non-existent store_id
-    // Note: Store managers cannot access other stores, so this returns 403 (not 404)
-    // The RLS check happens before the store existence check
+    // GIVEN: Non-existent store_id (valid UUID format but doesn't exist in database)
     // WHEN: Attempting to receive packs for non-existent store
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
@@ -690,11 +688,10 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
       },
     );
 
-    // THEN: Request is rejected with 403 (user doesn't have access to this store_id)
-    // The RLS check rejects before the store existence check
-    expect(response.status(), "Non-existent store should be rejected").toBe(
-      403,
-    );
+    // THEN: Request is rejected with 404 (store not found)
+    // The implementation checks store existence first (line 963-977), then access control (line 979-990)
+    // So non-existent stores return 404, while existing stores with no access return 403
+    expect(response.status(), "Non-existent store should return 404").toBe(404);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1073,6 +1070,86 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     expect(pack.serial_start).toBe("000");
     expect(pack.serial_end, "serial_end for 50 tickets should be 049").toBe(
       "049",
+    );
+  });
+
+  test("6.12-EDGE-010: [P1] should prioritize store-scoped game over global game", async ({
+    storeManagerApiRequest,
+    storeManagerUser,
+    prismaClient,
+  }) => {
+    // GIVEN: A global game exists (no store_id = global)
+    const globalGame = await createLotteryGame(prismaClient, {
+      name: "Global Game",
+      price: 2.0,
+      // No store_id means global game
+    });
+    const gameCode = globalGame.game_code;
+
+    // AND: A store-scoped game exists with the SAME game_code
+    const storeScopedGame = await createLotteryGame(prismaClient, {
+      name: "Store-Scoped Game (Override)",
+      price: 5.0,
+      game_code: gameCode, // Same game code
+      store_id: storeManagerUser.store_id, // Store-scoped
+    });
+
+    // WHEN: Receiving a pack with this game code
+    const serial = buildSerialNumber(gameCode, "1234567", "012");
+    const response = await storeManagerApiRequest.post(
+      "/api/lottery/packs/receive/batch",
+      {
+        serialized_numbers: [serial],
+      },
+    );
+
+    // THEN: The store-scoped game is used (not the global one)
+    // Implementation: lookupGameByCode() checks store-scoped first, then falls back to global
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.data.created.length).toBe(1);
+    const pack = body.data.created[0];
+
+    // Verify the pack uses the store-scoped game, not the global game
+    expect(pack.game_id, "Should use store-scoped game ID").toBe(
+      storeScopedGame.game_id,
+    );
+    expect(pack.game.name, "Should use store-scoped game name").toBe(
+      "Store-Scoped Game (Override)",
+    );
+  });
+
+  test("6.12-EDGE-011: [P1] should use global game when store-scoped game doesn't exist", async ({
+    storeManagerApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Only a global game exists (no store-scoped override)
+    const globalGame = await createLotteryGame(prismaClient, {
+      name: "Global Game Only",
+      price: 3.0,
+      // No store_id means global game
+    });
+    const gameCode = globalGame.game_code;
+
+    // WHEN: Receiving a pack with this game code
+    const serial = buildSerialNumber(gameCode, "9999999", "012");
+    const response = await storeManagerApiRequest.post(
+      "/api/lottery/packs/receive/batch",
+      {
+        serialized_numbers: [serial],
+      },
+    );
+
+    // THEN: The global game is used (fallback behavior)
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.data.created.length).toBe(1);
+    const pack = body.data.created[0];
+
+    // Verify the pack uses the global game
+    expect(pack.game_id, "Should use global game ID").toBe(globalGame.game_id);
+    expect(pack.game.name, "Should use global game name").toBe(
+      "Global Game Only",
     );
   });
 });

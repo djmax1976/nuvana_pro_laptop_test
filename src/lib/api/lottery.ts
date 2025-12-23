@@ -902,12 +902,19 @@ export interface CloseLotteryDayInput {
 export interface CloseLotteryDayResponse {
   closings_created: number;
   business_day: string;
+  day_closed: boolean;
   bins_closed: Array<{
     bin_number: number;
     pack_number: string;
     game_name: string;
     closing_serial: string;
+    starting_serial: string;
+    game_price: number;
+    tickets_sold: number;
+    sales_amount: number;
   }>;
+  /** Total lottery sales amount for the day (sum of all sales_amount) */
+  lottery_total: number;
 }
 
 /**

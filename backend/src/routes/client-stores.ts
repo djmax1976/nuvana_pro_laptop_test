@@ -3,9 +3,48 @@ import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
 import { storeService } from "../services/store.service";
+import { rbacService } from "../services/rbac.service";
 import { z } from "zod";
 import { OperatingHours } from "../services/store.service";
 import { prisma } from "../utils/db";
+
+/**
+ * Get user's accessible stores based on RBAC scope
+ * @param userId - User ID
+ * @returns Object with company_id and store_ids arrays for filtering
+ */
+async function getUserStoreAccess(userId: string): Promise<{
+  isSystemAdmin: boolean;
+  companyIds: string[];
+  storeIds: string[];
+}> {
+  const userRoles = await rbacService.getUserRoles(userId);
+
+  // Check for SYSTEM scope (System Admin)
+  const hasSystemScope = userRoles.some((role) => role.scope === "SYSTEM");
+  if (hasSystemScope) {
+    return { isSystemAdmin: true, companyIds: [], storeIds: [] };
+  }
+
+  // Collect company_ids and store_ids from user's roles
+  const companyIds = new Set<string>();
+  const storeIds = new Set<string>();
+
+  for (const role of userRoles) {
+    if (role.company_id) {
+      companyIds.add(role.company_id);
+    }
+    if (role.store_id) {
+      storeIds.add(role.store_id);
+    }
+  }
+
+  return {
+    isSystemAdmin: false,
+    companyIds: Array.from(companyIds),
+    storeIds: Array.from(storeIds),
+  };
+}
 
 // UUID validation helper
 const UUID_REGEX =
@@ -96,6 +135,169 @@ async function validateUpdateStoreSettingsBody(
  * - Update settings for stores they own
  */
 export async function clientStoreRoutes(fastify: FastifyInstance) {
+  /**
+   * GET /api/client/stores
+   * List stores accessible to the authenticated client user
+   *
+   * Returns stores based on user's RBAC scope:
+   * - System Admin: All stores
+   * - Company scope: All stores in user's companies
+   * - Store scope: Only specific stores assigned to user
+   *
+   * @security Requires STORE_READ permission
+   * @returns List of stores with company info
+   */
+  fastify.get(
+    "/api/client/stores",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.STORE_READ),
+      ],
+      schema: {
+        description: "List stores accessible to the authenticated client user",
+        tags: ["client-stores"],
+        querystring: {
+          type: "object",
+          properties: {
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 100,
+              default: 50,
+              description: "Items per page (max 100)",
+            },
+            offset: {
+              type: "integer",
+              minimum: 0,
+              default: 0,
+              description: "Pagination offset",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    store_id: { type: "string", format: "uuid" },
+                    company_id: { type: "string", format: "uuid" },
+                    name: { type: "string" },
+                    location_json: {
+                      type: "object",
+                      additionalProperties: true,
+                      nullable: true,
+                    },
+                    timezone: { type: "string" },
+                    status: { type: "string" },
+                    configuration: {
+                      type: "object",
+                      additionalProperties: true,
+                      nullable: true,
+                    },
+                    created_at: { type: "string", format: "date-time" },
+                    updated_at: { type: "string", format: "date-time" },
+                    company: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+              meta: {
+                type: "object",
+                properties: {
+                  total: { type: "integer" },
+                  limit: { type: "integer" },
+                  offset: { type: "integer" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = (request as unknown as { user: UserIdentity }).user;
+        const query = request.query as { limit?: number; offset?: number };
+        const limit = query.limit || 50;
+        const offset = query.offset || 0;
+
+        // Get user's store access based on RBAC
+        const access = await getUserStoreAccess(user.id);
+
+        // Build where clause based on access level
+        // Note: Store uses status field, not deleted_at
+        let whereClause: any = { status: { not: "DELETED" } };
+
+        if (!access.isSystemAdmin) {
+          if (access.companyIds.length > 0 && access.storeIds.length > 0) {
+            // User has both company and store-level access
+            whereClause.OR = [
+              { company_id: { in: access.companyIds } },
+              { store_id: { in: access.storeIds } },
+            ];
+          } else if (access.companyIds.length > 0) {
+            // User has company-level access only
+            whereClause.company_id = { in: access.companyIds };
+          } else if (access.storeIds.length > 0) {
+            // User has store-level access only
+            whereClause.store_id = { in: access.storeIds };
+          } else {
+            // User has no store access
+            return reply.code(200).send({
+              success: true,
+              data: [],
+              meta: { total: 0, limit, offset },
+            });
+          }
+        }
+
+        // Get stores with company info
+        const [stores, total] = await Promise.all([
+          prisma.store.findMany({
+            where: whereClause,
+            skip: offset,
+            take: limit,
+            orderBy: [{ name: "asc" }, { store_id: "asc" }],
+            include: {
+              company: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          }),
+          prisma.store.count({ where: whereClause }),
+        ]);
+
+        return reply.code(200).send({
+          success: true,
+          data: stores,
+          meta: { total, limit, offset },
+        });
+      } catch (error: unknown) {
+        fastify.log.error({ error }, "Error listing client stores");
+
+        return reply.code(500).send({
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to list stores",
+          },
+        });
+      }
+    },
+  );
+
   /**
    * GET /api/client/stores/:storeId/settings
    * Get store settings (name, address, timezone, contact_email, operating_hours)

@@ -94,7 +94,7 @@ export function StoreCashiersTab({ storeId }: StoreCashiersTabProps) {
               <TableCell>
                 {cashier.hired_on
                   ? format(new Date(cashier.hired_on), "MMM d, yyyy")
-                  : "—"}
+                  : "--"}
               </TableCell>
               <TableCell>
                 <Badge variant={cashier.is_active ? "default" : "outline"}>

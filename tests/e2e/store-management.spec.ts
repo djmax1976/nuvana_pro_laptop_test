@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
@@ -220,10 +220,13 @@ test.describe("Store Management E2E", () => {
     await submitButton.click();
 
     // Wait for success message or navigation instead of hard wait
+    // Use first() to avoid strict mode violation when toast renders in multiple elements
     await Promise.any([
-      expect(page.getByText(/store updated|successfully/i)).toBeVisible({
-        timeout: 10000,
-      }),
+      expect(page.getByText(/store updated|successfully/i).first()).toBeVisible(
+        {
+          timeout: 10000,
+        },
+      ),
       expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
     ]);
 
@@ -254,8 +257,9 @@ test.describe("Store Management E2E", () => {
     await submitButton.click();
 
     // Wait for success message or navigation instead of hard wait
+    // Use first() to avoid strict mode violation when toast renders in multiple elements
     const result = await Promise.race([
-      expect(page.getByText(/store updated|successfully/i))
+      expect(page.getByText(/store updated|successfully/i).first())
         .toBeVisible({ timeout: 10000 })
         .then(() => true),
       expect(page)
@@ -285,17 +289,41 @@ test.describe("Store Management E2E", () => {
     // Timezone is an Input field, not a Select
     const timezoneInput = page.getByLabel("Timezone");
     await expect(timezoneInput).toBeVisible({ timeout: 10000 });
-    await timezoneInput.clear();
+    await expect(timezoneInput).toBeEditable({ timeout: 5000 });
+
+    // Clear and fill with triple-click to select all, then type
+    await timezoneInput.click({ clickCount: 3 });
     await timezoneInput.fill("America/Los_Angeles");
 
+    // Verify the value was set correctly before submitting
+    await expect(timezoneInput).toHaveValue("America/Los_Angeles", {
+      timeout: 5000,
+    });
+
     const submitButton = page.getByRole("button", { name: "Update Store" });
+    await expect(submitButton).toBeEnabled({ timeout: 5000 });
+
+    // Set up response promise to capture the update response
+    const updateResponsePromise = page.waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/stores/") &&
+        resp.request().method() === "PUT" &&
+        (resp.status() === 200 || resp.status() === 201),
+      { timeout: 15000 },
+    );
+
     await submitButton.click();
 
-    // Wait for success message or navigation instead of hard wait
+    // Wait for API response
+    await updateResponsePromise;
+
+    // Wait for success message or navigation
     await Promise.any([
-      expect(page.getByText(/store updated|successfully/i)).toBeVisible({
-        timeout: 10000,
-      }),
+      expect(page.getByText(/store updated|successfully/i).first()).toBeVisible(
+        {
+          timeout: 10000,
+        },
+      ),
       expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
     ]);
 

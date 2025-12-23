@@ -25,6 +25,9 @@ import {
 import { TransactionMessage } from "../services/transaction.service";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 import { prisma } from "../utils/db";
+// Phase 1.5: Import lookup services for FK resolution
+import { tenderTypeService } from "../services/tender-type.service";
+import { departmentService } from "../services/department.service";
 
 /**
  * Worker configuration
@@ -265,9 +268,30 @@ async function createTransactionRecords(
       throw error;
     }
 
-    // Create TransactionLineItem records
-    const lineItemPromises = payload.line_items.map((item) => {
+    // Phase 1.5: Create TransactionLineItem records with FK resolution
+    const lineItemPromises = payload.line_items.map(async (item) => {
       const lineTotal = item.quantity * item.unit_price - item.discount;
+
+      // Resolve department FK if department_code or department_id provided
+      let departmentId: string | null = null;
+      let departmentCode: string | null = null;
+      if (item.department_id || item.department_code) {
+        if (item.department_id) {
+          // Direct ID lookup
+          const dept = await departmentService.getById(item.department_id);
+          departmentId = dept?.department_id || null;
+          departmentCode = dept?.code || null;
+        } else if (item.department_code) {
+          // Resolve from code (client-first, then system default)
+          const dept = await departmentService.resolveForTransaction(
+            item.department_code,
+            null, // clientId - null for system-level resolution in worker
+          );
+          departmentId = dept?.department_id || null;
+          departmentCode = dept?.code || null;
+        }
+      }
+
       return tx.transactionLineItem.create({
         data: {
           transaction_id: transactionId,
@@ -277,22 +301,34 @@ async function createTransactionRecords(
           quantity: item.quantity,
           unit_price: new Prisma.Decimal(item.unit_price),
           discount: new Prisma.Decimal(item.discount),
+          tax_amount: new Prisma.Decimal(item.tax_amount || 0),
           line_total: new Prisma.Decimal(lineTotal),
+          department_id: departmentId,
+          department_code: departmentCode,
         },
       });
     });
 
-    // Create TransactionPayment records
-    const paymentPromises = payload.payments.map((payment) =>
-      tx.transactionPayment.create({
+    // Phase 1.5: Create TransactionPayment records with FK resolution
+    const paymentPromises = payload.payments.map(async (payment) => {
+      // Resolve tender type FK - use tender_code if provided, otherwise use method
+      const tenderCode = payment.tender_code || payment.method;
+      const tenderType = await tenderTypeService.resolveForTransaction(
+        tenderCode,
+        null, // clientId - null for system-level resolution in worker
+      );
+
+      return tx.transactionPayment.create({
         data: {
           transaction_id: transactionId,
           method: payment.method,
           amount: new Prisma.Decimal(payment.amount),
           reference: payment.reference || null,
+          tender_type_id: tenderType?.tender_type_id || null,
+          tender_code: tenderType?.code || null,
         },
-      }),
-    );
+      });
+    });
 
     await Promise.all([...lineItemPromises, ...paymentPromises]);
 

@@ -179,6 +179,7 @@ export interface IncludeOptions {
 
 /**
  * Line item response for API output
+ * Phase 1.5: Added department FK fields and tax_amount
  */
 export interface TransactionLineItemResponse {
   line_item_id: string;
@@ -188,17 +189,27 @@ export interface TransactionLineItemResponse {
   quantity: number;
   unit_price: number;
   discount: number;
+  tax_amount: number; // Phase 1.5: Per-item tax amount
   line_total: number;
+  // Phase 1.5: Department FK fields
+  department_id: string | null;
+  department_code: string | null;
+  department_name?: string; // Optional: populated when including department details
 }
 
 /**
  * Payment response for API output
+ * Phase 1.5: Added tender type FK fields
  */
 export interface TransactionPaymentResponse {
   payment_id: string;
   method: string;
   amount: number;
   reference: string | null;
+  // Phase 1.5: Tender type FK fields
+  tender_type_id: string | null;
+  tender_code: string | null;
+  tender_name?: string; // Optional: populated when including tender type details
 }
 
 /**

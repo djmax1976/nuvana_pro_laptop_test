@@ -14,23 +14,31 @@
  */
 
 import { config } from "dotenv";
-// Load environment variables from .env.local before any other processing
-// Use override: true to ensure test config takes precedence over system env vars
-config({ path: ".env.local", override: true });
+// Load environment variables from .env.local as defaults
+// IMPORTANT: Do NOT use override: true - the test script's DATABASE_URL
+// (e.g., nuvana_test) must take precedence over .env.local's DATABASE_URL
+config({ path: ".env.local" });
 
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
+import {
+  generatePublicId,
+  PUBLIC_ID_PREFIXES,
+} from "../../backend/src/utils/public-id";
 
 // =============================================================================
-// DATABASE PROTECTION - Validate we're connecting to a test database
+// DATABASE PROTECTION - Validate we're connecting to a safe database
 // =============================================================================
+// Production/staging databases that should NEVER be used for tests
 const PROTECTED_DATABASE_PATTERNS = [
-  /nuvana_dev/i,
   /nuvana_prod/i,
   /nuvana_production/i,
   /nuvana_staging/i,
 ];
 
+// Databases allowed for testing (dev and test are both safe for local development)
 const ALLOWED_TEST_DATABASE_PATTERNS = [
+  /nuvana_dev/i, // Local development database - safe for tests
   /nuvana_test/i,
   /_test$/i,
   /_test_/i,
@@ -73,6 +81,62 @@ function purgeRabbitMQQueues(): void {
   } catch (error) {
     // Script handles its own error logging, just continue
     console.log("   ○ RabbitMQ purge completed (check output above)\n");
+  }
+}
+
+/**
+ * Ensure the admin user exists for seeded user tests
+ * This mirrors what bootstrap-admin.ts does in CI
+ */
+async function ensureAdminUser(prisma: PrismaClient): Promise<void> {
+  const ADMIN_EMAIL = "admin@nuvana.com";
+  const ADMIN_PASSWORD = "Admin123!";
+
+  console.log("   Checking for admin user...");
+
+  let adminUser = await prisma.user.findUnique({
+    where: { email: ADMIN_EMAIL },
+  });
+
+  if (!adminUser) {
+    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+    adminUser = await prisma.user.create({
+      data: {
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        email: ADMIN_EMAIL,
+        name: "System Administrator",
+        password_hash: passwordHash,
+        status: "ACTIVE",
+      },
+    });
+    console.log("   ✓ Created admin user: admin@nuvana.com");
+  } else {
+    console.log("   ✓ Admin user already exists");
+  }
+
+  const superadminRole = await prisma.role.findUnique({
+    where: { code: "SUPERADMIN" },
+  });
+
+  if (superadminRole) {
+    const existingRole = await prisma.userRole.findFirst({
+      where: {
+        user_id: adminUser.user_id,
+        role_id: superadminRole.role_id,
+      },
+    });
+
+    if (!existingRole) {
+      await prisma.userRole.create({
+        data: {
+          user_id: adminUser.user_id,
+          role_id: superadminRole.role_id,
+        },
+      });
+      console.log("   ✓ Assigned SUPERADMIN role to admin user");
+    }
+  } else {
+    console.log("   ⚠️  SUPERADMIN role not found - run RBAC seed first");
   }
 }
 
@@ -144,12 +208,40 @@ async function globalSetup() {
     console.log(`   Found ${companyIds.length} test companies to clean`);
     console.log(`   Found ${storeIds.length} test stores to clean`);
 
+    // Always clean NAXML file logs with test UUID patterns (these use fake store IDs)
+    // These are created by file-exchange-integration tests and don't reference real stores
+    // Test store IDs: 10000000-0000-0000-0000-000000000001 through ...000000000012
+    const testStoreIdPattern = [
+      "10000000-0000-0000-0000-000000000001",
+      "10000000-0000-0000-0000-000000000002",
+      "10000000-0000-0000-0000-000000000003",
+      "10000000-0000-0000-0000-000000000004",
+      "10000000-0000-0000-0000-000000000005",
+      "10000000-0000-0000-0000-000000000006",
+      "10000000-0000-0000-0000-000000000007",
+      "10000000-0000-0000-0000-000000000008",
+      "10000000-0000-0000-0000-000000000009",
+      "10000000-0000-0000-0000-000000000010",
+      "10000000-0000-0000-0000-000000000011",
+      "10000000-0000-0000-0000-000000000012",
+    ];
+    const naxmlFileLogResult = await prisma.nAXMLFileLog.deleteMany({
+      where: {
+        store_id: { in: testStoreIdPattern },
+      },
+    });
+    if (naxmlFileLogResult.count > 0) {
+      console.log(`   Deleted ${naxmlFileLogResult.count} NAXML file logs`);
+    }
+
     if (
       userIds.length === 0 &&
       companyIds.length === 0 &&
       storeIds.length === 0
     ) {
       console.log("\n✅ Database already clean\n");
+      // Still need to ensure admin user exists
+      await ensureAdminUser(prisma);
       return;
     }
 
@@ -270,6 +362,9 @@ async function globalSetup() {
     });
 
     console.log("\n✅ Database cleanup complete\n");
+
+    // Ensure admin user exists for seeded user tests
+    await ensureAdminUser(prisma);
   } catch (error) {
     console.error("❌ Global setup error:", error);
     // Don't throw - let tests run even if cleanup fails

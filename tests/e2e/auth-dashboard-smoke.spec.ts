@@ -22,13 +22,16 @@
  * - Proper cleanup with error handling
  * - API error monitoring for 403 detection
  * - Deterministic test behavior
+ * - Serial execution to prevent database conflicts
+ *
+ * IMPORTANT: Uses bcryptjs (not bcrypt) for password hashing to match backend
  */
 
 import { test as base, expect, Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { withBypassClient } from "../support/prisma-bypass";
-import { createUser, createClientUser } from "../support/factories";
-import bcrypt from "bcrypt";
+import { createUser } from "../support/factories";
+import bcrypt from "bcryptjs";
 
 /**
  * Generate a short unique ID for test data (max 30 chars for public_id columns)
@@ -79,10 +82,19 @@ async function performRealLogin(
   isClientUser: boolean = false,
 ): Promise<void> {
   // Navigate to login page
+  // Note: /client-login redirects to /login, but we use it for clarity in tests
+  // The unified login page handles both admin and client users
   const loginPath = isClientUser ? "/client-login" : "/login";
   await page.goto(`${frontendUrl}${loginPath}`, {
     waitUntil: "networkidle",
   });
+
+  // If we navigated to /client-login, it redirects to /login, so wait for that
+  if (isClientUser) {
+    await page.waitForURL((url) => url.pathname === "/login", {
+      timeout: 5000,
+    });
+  }
 
   // Wait for page to be fully loaded
   await page.waitForLoadState("domcontentloaded");
@@ -129,16 +141,29 @@ async function performRealLogin(
 }
 
 /**
- * Helper to setup API error listener for 403 detection
+ * Helper to setup API error listener for 401/403 detection
+ * Monitors API responses for authentication/authorization failures
  */
-function setupApiErrorListener(page: Page): string[] {
+function setupApiErrorListener(page: Page): {
+  errors: string[];
+  has401: () => boolean;
+  has403: () => boolean;
+} {
   const errors: string[] = [];
   page.on("response", (response) => {
-    if (response.status() === 403 && response.url().includes("/api/")) {
-      errors.push(`403 on ${response.url()}`);
+    const status = response.status();
+    if (
+      (status === 401 || status === 403) &&
+      response.url().includes("/api/")
+    ) {
+      errors.push(`${status} on ${response.url()}`);
     }
   });
-  return errors;
+  return {
+    errors,
+    has401: () => errors.some((e) => e.startsWith("401")),
+    has403: () => errors.some((e) => e.startsWith("403")),
+  };
 }
 
 /**
@@ -178,8 +203,9 @@ async function cleanupTestUser(
   }
 }
 
-test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
-  test.describe("AUTH-E2E-SA: Superadmin Dashboard Access", () => {
+test.describe
+  .serial("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
+  test.describe.serial("AUTH-E2E-SA: Superadmin Dashboard Access", () => {
     test("AUTH-E2E-SA-001: [P0] superadmin can login and access dashboard without 403 errors", async ({
       page,
       frontendUrl,
@@ -206,7 +232,7 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
         });
       });
 
-      const apiErrors = setupApiErrorListener(page);
+      const apiErrorListener = setupApiErrorListener(page);
 
       try {
         // WHEN: Performing real login
@@ -220,8 +246,11 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
           page.getByRole("heading", { name: /dashboard/i }),
         ).toBeVisible({ timeout: 10000 });
 
-        // THEN: No 403 errors should occur
-        expect(apiErrors, "No API 403 errors expected").toHaveLength(0);
+        // THEN: No 401/403 errors should occur
+        expect(
+          apiErrorListener.errors,
+          "No API auth errors expected",
+        ).toHaveLength(0);
       } finally {
         await cleanupTestUser(user.user_id);
       }
@@ -253,7 +282,7 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
         });
       });
 
-      const apiErrors = setupApiErrorListener(page);
+      const apiErrorListener = setupApiErrorListener(page);
 
       try {
         // WHEN: Login and navigate to companies
@@ -267,13 +296,13 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
           page.getByRole("heading", { name: /companies/i }),
         ).toBeVisible({ timeout: 10000 });
 
-        // Wait for data to load
-        await page.waitForTimeout(2000);
+        // Wait for API requests to complete
+        await page.waitForLoadState("networkidle");
 
-        // THEN: No 403 errors should occur
+        // THEN: No 401/403 errors should occur
         expect(
-          apiErrors,
-          `API returned 403 errors: ${apiErrors.join(", ")}`,
+          apiErrorListener.errors,
+          `API returned auth errors: ${apiErrorListener.errors.join(", ")}`,
         ).toHaveLength(0);
       } finally {
         await cleanupTestUser(user.user_id);
@@ -306,7 +335,7 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
         });
       });
 
-      const apiErrors = setupApiErrorListener(page);
+      const apiErrorListener = setupApiErrorListener(page);
 
       try {
         // WHEN: Login and navigate to admin users page
@@ -320,12 +349,13 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
           page.getByRole("heading", { name: /user/i }).first(),
         ).toBeVisible({ timeout: 10000 });
 
-        await page.waitForTimeout(2000);
+        // Wait for API requests to complete
+        await page.waitForLoadState("networkidle");
 
-        // THEN: No 403 errors should occur
+        // THEN: No 401/403 errors should occur
         expect(
-          apiErrors,
-          `API returned 403 errors: ${apiErrors.join(", ")}`,
+          apiErrorListener.errors,
+          `API returned auth errors: ${apiErrorListener.errors.join(", ")}`,
         ).toHaveLength(0);
       } finally {
         await cleanupTestUser(user.user_id);
@@ -358,7 +388,7 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
         });
       });
 
-      const apiErrors = setupApiErrorListener(page);
+      const apiErrorListener = setupApiErrorListener(page);
 
       try {
         // WHEN: Login and navigate to stores
@@ -372,12 +402,13 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
           { timeout: 10000 },
         );
 
-        await page.waitForTimeout(2000);
+        // Wait for API requests to complete
+        await page.waitForLoadState("networkidle");
 
-        // THEN: No 403 errors should occur
+        // THEN: No 401/403 errors should occur
         expect(
-          apiErrors,
-          `API returned 403 errors: ${apiErrors.join(", ")}`,
+          apiErrorListener.errors,
+          `API returned auth errors: ${apiErrorListener.errors.join(", ")}`,
         ).toHaveLength(0);
       } finally {
         await cleanupTestUser(user.user_id);
@@ -385,7 +416,7 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
     });
   });
 
-  test.describe("AUTH-E2E-CO: Client Owner Dashboard Access", () => {
+  test.describe.serial("AUTH-E2E-CO: Client Owner Dashboard Access", () => {
     test("AUTH-E2E-CO-001: [P0] client owner can login and access client dashboard without 403 errors", async ({
       page,
       frontendUrl,
@@ -395,11 +426,17 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
       const password = "TestClientOwner123!";
       const passwordHash = await bcrypt.hash(password, 10);
       const testId = shortId();
-      const userData = createClientUser({
+      const userData = createUser({
         email: `test-co1-${testId}@test.nuvana.local`,
         password_hash: passwordHash,
+        auth_provider_id: null, // Local auth user (not OAuth)
+        is_client_user: true, // Mark as client user
       });
-      const user = await prismaClient.user.create({ data: userData });
+      const user = await prismaClient.user.create({
+        data: userData as Parameters<
+          typeof prismaClient.user.create
+        >[0]["data"],
+      });
 
       const company = await prismaClient.company.create({
         data: {
@@ -425,7 +462,7 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
         });
       });
 
-      const apiErrors = setupApiErrorListener(page);
+      const apiErrorListener = setupApiErrorListener(page);
 
       try {
         // WHEN: Performing real login via client login
@@ -434,13 +471,19 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
         // THEN: Should land on client dashboard
         await expect(page).toHaveURL(/\/client-dashboard/, { timeout: 15000 });
 
-        await page.waitForLoadState("load");
-        await page.waitForTimeout(2000);
+        // THEN: Client dashboard should load without errors
+        // Check for the welcome heading that appears on client dashboard
+        await expect(
+          page.getByRole("heading", { name: /welcome back/i }),
+        ).toBeVisible({ timeout: 10000 });
 
-        // THEN: No 403 errors should occur
+        // Wait for API requests to complete
+        await page.waitForLoadState("networkidle");
+
+        // THEN: No 401/403 errors should occur
         expect(
-          apiErrors,
-          `API returned 403 errors: ${apiErrors.join(", ")}`,
+          apiErrorListener.errors,
+          `API returned auth errors: ${apiErrorListener.errors.join(", ")}`,
         ).toHaveLength(0);
       } finally {
         await cleanupTestUser(user.user_id, company.company_id);
@@ -456,11 +499,17 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
       const password = "TestClientOwner123!";
       const passwordHash = await bcrypt.hash(password, 10);
       const testId = shortId();
-      const userData = createClientUser({
+      const userData = createUser({
         email: `test-co2-${testId}@test.nuvana.local`,
         password_hash: passwordHash,
+        auth_provider_id: null, // Local auth user (not OAuth)
+        is_client_user: true, // Mark as client user
       });
-      const user = await prismaClient.user.create({ data: userData });
+      const user = await prismaClient.user.create({
+        data: userData as Parameters<
+          typeof prismaClient.user.create
+        >[0]["data"],
+      });
 
       const company = await prismaClient.company.create({
         data: {
@@ -534,7 +583,7 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
     });
   });
 
-  test.describe("AUTH-E2E-NR: User Without Roles", () => {
+  test.describe.serial("AUTH-E2E-NR: User Without Roles", () => {
     test("AUTH-E2E-NR-001: [P0] user with no roles should be denied access to protected pages", async ({
       page,
       frontendUrl,
@@ -551,7 +600,7 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
       const user = await prismaClient.user.create({ data: userData });
 
       // Deliberately NOT assigning any role
-      const apiErrors = setupApiErrorListener(page);
+      const apiErrorListener = setupApiErrorListener(page);
 
       try {
         // WHEN: Login and access protected page
@@ -560,17 +609,18 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
           waitUntil: "domcontentloaded",
         });
 
-        await page.waitForTimeout(3000);
+        // Wait for API requests to complete
+        await page.waitForLoadState("networkidle");
 
-        // THEN: Should either get 403 from API OR be redirected to login
-        // (Frontend may redirect unauthorized users instead of showing 403)
+        // THEN: Should either get 401/403 from API OR be redirected to login
+        // (Frontend may redirect unauthorized users instead of showing errors)
         const currentUrl = page.url();
         const redirectedToLogin = currentUrl.includes("login");
-        const got403Errors = apiErrors.length > 0;
+        const gotAuthErrors = apiErrorListener.errors.length > 0;
 
         expect(
-          redirectedToLogin || got403Errors,
-          `User without roles should be denied access - got 403: ${got403Errors}, redirected: ${redirectedToLogin}`,
+          redirectedToLogin || gotAuthErrors,
+          `User without roles should be denied access - got auth errors: ${gotAuthErrors}, redirected: ${redirectedToLogin}`,
         ).toBeTruthy();
       } finally {
         await cleanupTestUser(user.user_id);
@@ -579,7 +629,7 @@ test.describe("AUTH-E2E: Real Login & Dashboard Access Smoke Tests", () => {
   });
 });
 
-test.describe("AUTH-E2E-SEED: Seeded User Login Verification", () => {
+test.describe.serial("AUTH-E2E-SEED: Seeded User Login Verification", () => {
   // These tests verify that the actual seeded users can log in and access their dashboards
   // This catches issues where seed data is incorrect or roles weren't properly assigned
 
@@ -587,7 +637,7 @@ test.describe("AUTH-E2E-SEED: Seeded User Login Verification", () => {
     page,
   }) => {
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const apiErrors = setupApiErrorListener(page);
+    const apiErrorListener = setupApiErrorListener(page);
 
     // WHEN: Login as the seeded admin user
     await performRealLogin(page, frontendUrl, "admin@nuvana.com", "Admin123!");
@@ -595,16 +645,23 @@ test.describe("AUTH-E2E-SEED: Seeded User Login Verification", () => {
     // THEN: Should land on dashboard
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
 
+    // THEN: Dashboard should show correct heading
+    await expect(page.getByRole("heading", { name: /dashboard/i })).toBeVisible(
+      { timeout: 10000 },
+    );
+
     // Navigate to companies to verify access
     await page.goto(`${frontendUrl}/companies`, {
       waitUntil: "domcontentloaded",
     });
-    await page.waitForTimeout(2000);
 
-    // THEN: No 403 errors should occur
+    // Wait for API requests to complete
+    await page.waitForLoadState("networkidle");
+
+    // THEN: No 401/403 errors should occur
     expect(
-      apiErrors,
-      `Seeded admin user got 403 errors: ${apiErrors.join(", ")}`,
+      apiErrorListener.errors,
+      `Seeded admin user got auth errors: ${apiErrorListener.errors.join(", ")}`,
     ).toHaveLength(0);
   });
 
@@ -614,7 +671,7 @@ test.describe("AUTH-E2E-SEED: Seeded User Login Verification", () => {
     page,
   }) => {
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const apiErrors = setupApiErrorListener(page);
+    const apiErrorListener = setupApiErrorListener(page);
 
     await performRealLogin(
       page,
@@ -625,11 +682,18 @@ test.describe("AUTH-E2E-SEED: Seeded User Login Verification", () => {
     );
 
     await expect(page).toHaveURL(/\/client-dashboard/, { timeout: 15000 });
-    await page.waitForTimeout(2000);
+
+    // THEN: Client dashboard should load with welcome heading
+    await expect(
+      page.getByRole("heading", { name: /welcome back/i }),
+    ).toBeVisible({ timeout: 10000 });
+
+    // Wait for API requests to complete
+    await page.waitForLoadState("networkidle");
 
     expect(
-      apiErrors,
-      `Seeded client owner got 403 errors: ${apiErrors.join(", ")}`,
+      apiErrorListener.errors,
+      `Seeded client owner got auth errors: ${apiErrorListener.errors.join(", ")}`,
     ).toHaveLength(0);
   });
 });

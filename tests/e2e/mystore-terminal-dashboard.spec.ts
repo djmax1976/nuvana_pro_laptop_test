@@ -16,7 +16,7 @@
  */
 
 import { test, expect, Page } from "@playwright/test";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { PrismaClient } from "@prisma/client";
 import {
@@ -45,6 +45,9 @@ async function loginAndWaitForMyStore(
 }
 
 test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
+  // Run tests serially since they share database state created in beforeAll
+  test.describe.configure({ mode: "serial" });
+
   let prisma: PrismaClient;
   let clientUser: any;
   let storeManager: any;
@@ -162,44 +165,67 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
   });
 
   test.afterAll(async () => {
-    // Cleanup in proper order
-    if (terminal1) {
-      await prisma.pOSTerminal
-        .delete({ where: { pos_terminal_id: terminal1.pos_terminal_id } })
-        .catch(() => {});
+    // Cleanup in proper FK-safe order:
+    // 1. UserRoles (references users)
+    // 2. Terminals (references stores)
+    // 3. Stores (references companies)
+    // 4. Users (no longer referenced by user_roles)
+    // 5. Companies (no longer referenced by stores, but still referenced by owner_user_id)
+    // Note: We delete users before company because company.owner_user_id is a reference
+
+    try {
+      // 1. Delete user roles first (references users)
+      if (clientUser) {
+        await prisma.userRole
+          .deleteMany({ where: { user_id: clientUser.user_id } })
+          .catch(() => {});
+      }
+      if (storeManager) {
+        await prisma.userRole
+          .deleteMany({ where: { user_id: storeManager.user_id } })
+          .catch(() => {});
+      }
+
+      // 2. Delete terminals (references stores)
+      if (terminal1) {
+        await prisma.pOSTerminal
+          .delete({ where: { pos_terminal_id: terminal1.pos_terminal_id } })
+          .catch(() => {});
+      }
+      if (terminal2) {
+        await prisma.pOSTerminal
+          .delete({ where: { pos_terminal_id: terminal2.pos_terminal_id } })
+          .catch(() => {});
+      }
+
+      // 3. Delete store (references company)
+      if (store) {
+        await prisma.store
+          .delete({ where: { store_id: store.store_id } })
+          .catch(() => {});
+      }
+
+      // 4. Delete company (has owner_user_id FK, but ON DELETE SET NULL typically)
+      if (company) {
+        await prisma.company
+          .delete({ where: { company_id: company.company_id } })
+          .catch(() => {});
+      }
+
+      // 5. Delete users last
+      if (clientUser) {
+        await prisma.user
+          .delete({ where: { user_id: clientUser.user_id } })
+          .catch(() => {});
+      }
+      if (storeManager) {
+        await prisma.user
+          .delete({ where: { user_id: storeManager.user_id } })
+          .catch(() => {});
+      }
+    } finally {
+      await prisma.$disconnect();
     }
-    if (terminal2) {
-      await prisma.pOSTerminal
-        .delete({ where: { pos_terminal_id: terminal2.pos_terminal_id } })
-        .catch(() => {});
-    }
-    if (store) {
-      await prisma.store
-        .delete({ where: { store_id: store.store_id } })
-        .catch(() => {});
-    }
-    if (company) {
-      await prisma.company
-        .delete({ where: { company_id: company.company_id } })
-        .catch(() => {});
-    }
-    if (clientUser) {
-      await prisma.userRole
-        .deleteMany({ where: { user_id: clientUser.user_id } })
-        .catch(() => {});
-      await prisma.user
-        .delete({ where: { user_id: clientUser.user_id } })
-        .catch(() => {});
-    }
-    if (storeManager) {
-      await prisma.userRole
-        .deleteMany({ where: { user_id: storeManager.user_id } })
-        .catch(() => {});
-      await prisma.user
-        .delete({ where: { user_id: storeManager.user_id } })
-        .catch(() => {});
-    }
-    await prisma.$disconnect();
   });
 
   test("[P0] 4.9-E2E-001: CLIENT_USER should be redirected to /mystore after login", async ({
@@ -212,7 +238,7 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     expect(page.url()).toContain("/mystore");
   });
 
-  test("[P0] 4.9-E2E-002: Sidebar should display only terminal links and Clock In/Out link", async ({
+  test("[P0] 4.9-E2E-002: Sidebar should display terminal links, Clock In/Out, and Lottery (if permitted)", async ({
     page,
   }) => {
     // GIVEN: User is logged in and on /mystore dashboard
@@ -221,6 +247,9 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     // Get sidebar element for scoped assertions
     const sidebar = page.getByTestId("mystore-sidebar");
     await expect(sidebar).toBeVisible();
+
+    // THEN: Dashboard link should be visible (exact match for "/mystore")
+    await expect(page.getByTestId("dashboard-link")).toBeVisible();
 
     // THEN: Clock In/Out link should be visible
     await expect(page.getByTestId("clock-in-out-link")).toBeVisible();
@@ -234,12 +263,14 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     ).toBeVisible();
 
     // THEN: CLIENT_USER role CAN see Lottery link in sidebar
-    // (CLIENT_USER has LOTTERY_REPORT permission per rbac.seed.ts)
+    // Menu visibility uses canAccessMenuByKey("lottery") which checks for ANY of:
+    // LOTTERY_PACK_RECEIVE, LOTTERY_SHIFT_RECONCILE, or LOTTERY_REPORT
+    // CLIENT_USER has LOTTERY_REPORT permission per rbac.seed.ts
     await expect(page.getByTestId("lottery-link")).toBeVisible();
 
     // THEN: Excluded navigation items should NOT be present in the sidebar
     // Note: We check within sidebar context to avoid matching text elsewhere
-    // MyStore sidebar only shows: Clock In/Out, Lottery (if permitted), and Terminal links
+    // MyStore sidebar only shows: Dashboard, Clock In/Out, Lottery (if permitted), and Terminal links
     await expect(sidebar.getByText(/shifts/i)).not.toBeVisible();
     await expect(sidebar.getByText(/inventory/i)).not.toBeVisible();
     await expect(sidebar.getByText(/employees/i)).not.toBeVisible();
@@ -286,7 +317,10 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
       .getByTestId(`terminal-link-${terminal1.pos_terminal_id}`)
       .click();
 
-    // THEN: Form fields should be visible
+    // Wait for modal to appear
+    await expect(page.getByTestId("terminal-auth-modal")).toBeVisible();
+
+    // THEN: Form fields should be visible (new shift mode shows cashier dropdown)
     await expect(page.getByTestId("cashier-name-select")).toBeVisible();
     await expect(page.getByLabel(/cashier name/i)).toBeVisible();
     await expect(page.getByTestId("pin-number-input")).toBeVisible();
@@ -295,6 +329,32 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     // THEN: Cancel and Submit buttons should be visible
     await expect(page.getByTestId("terminal-auth-cancel-button")).toBeVisible();
     await expect(page.getByTestId("terminal-auth-submit-button")).toBeVisible();
+
+    // THEN: Submit button should say "Start Shift" in new shift mode (no active shift)
+    await expect(page.getByTestId("terminal-auth-submit-button")).toHaveText(
+      "Start Shift",
+    );
+  });
+
+  test("[P1] 4.9-E2E-004a: TerminalAuthModal cancel button should close the modal", async ({
+    page,
+  }) => {
+    // GIVEN: User is logged in and on /mystore dashboard
+    await loginAndWaitForMyStore(page, clientUser.email, password);
+
+    // WHEN: User clicks on a terminal to open modal
+    await page
+      .getByTestId(`terminal-link-${terminal1.pos_terminal_id}`)
+      .click();
+
+    // Wait for modal to appear
+    await expect(page.getByTestId("terminal-auth-modal")).toBeVisible();
+
+    // WHEN: User clicks Cancel button
+    await page.getByTestId("terminal-auth-cancel-button").click();
+
+    // THEN: Modal should be closed
+    await expect(page.getByTestId("terminal-auth-modal")).not.toBeVisible();
   });
 
   test("[P1] 4.9-E2E-005: Clock In/Out page should display 'Coming Soon' message", async ({
@@ -317,6 +377,34 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
         /the clock in\/out feature is currently under development/i,
       ),
     ).toBeVisible();
+  });
+
+  test("[P1] 4.9-E2E-005a: Dashboard link should navigate back to /mystore", async ({
+    page,
+  }) => {
+    // GIVEN: User is logged in and on /mystore/clock-in-out page
+    await loginAndWaitForMyStore(page, clientUser.email, password);
+    await page.getByTestId("clock-in-out-link").click();
+    await expect(page).toHaveURL(/.*mystore\/clock-in-out.*/);
+
+    // WHEN: User clicks Dashboard link
+    await page.getByTestId("dashboard-link").click();
+
+    // THEN: Page should navigate back to /mystore (exact path)
+    await expect(page).toHaveURL(/.*\/mystore$/);
+  });
+
+  test("[P1] 4.9-E2E-005b: Lottery link should navigate to lottery page", async ({
+    page,
+  }) => {
+    // GIVEN: User is logged in and on /mystore dashboard
+    await loginAndWaitForMyStore(page, clientUser.email, password);
+
+    // WHEN: User clicks Lottery link
+    await page.getByTestId("lottery-link").click();
+
+    // THEN: Page should navigate to /mystore/lottery
+    await expect(page).toHaveURL(/.*mystore\/lottery.*/);
   });
 
   test("[P1] 4.9-E2E-006: Store Manager should be able to access /mystore dashboard", async ({
@@ -394,6 +482,9 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
  * CLIENT_OWNER should go to /client-dashboard, not /mystore (terminal dashboard)
  */
 test.describe("4.9-E2E: CLIENT_OWNER Access Control", () => {
+  // Run tests serially since they share database state created in beforeAll
+  test.describe.configure({ mode: "serial" });
+
   let prisma: PrismaClient;
   let clientOwner: any;
   let company: any;
@@ -445,20 +536,31 @@ test.describe("4.9-E2E: CLIENT_OWNER Access Control", () => {
   });
 
   test.afterAll(async () => {
-    if (company) {
-      await prisma.company
-        .delete({ where: { company_id: company.company_id } })
-        .catch(() => {});
+    // Cleanup in proper FK-safe order
+    try {
+      // 1. Delete user roles first
+      if (clientOwner) {
+        await prisma.userRole
+          .deleteMany({ where: { user_id: clientOwner.user_id } })
+          .catch(() => {});
+      }
+
+      // 2. Delete company (before user since company.owner_user_id references user)
+      if (company) {
+        await prisma.company
+          .delete({ where: { company_id: company.company_id } })
+          .catch(() => {});
+      }
+
+      // 3. Delete user last
+      if (clientOwner) {
+        await prisma.user
+          .delete({ where: { user_id: clientOwner.user_id } })
+          .catch(() => {});
+      }
+    } finally {
+      await prisma.$disconnect();
     }
-    if (clientOwner) {
-      await prisma.userRole
-        .deleteMany({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-      await prisma.user
-        .delete({ where: { user_id: clientOwner.user_id } })
-        .catch(() => {});
-    }
-    await prisma.$disconnect();
   });
 
   test("[P0] 4.9-E2E-009: CLIENT_OWNER should be redirected to /client-dashboard after login, NOT /mystore", async ({

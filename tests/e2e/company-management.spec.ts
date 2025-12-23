@@ -34,13 +34,13 @@ test.describe("2.4-E2E: Company List - Display and Owner Information", () => {
     // GIVEN: A company exists with an owner
     const ownerUser = await prismaClient.user.create({
       data: createUserFactory({
-        name: "Test Owner",
-        email: "owner@test.nuvana.local",
+        name: "E2E Test Owner Display",
+        email: "e2e-owner-display@test.nuvana.local",
       }),
     });
 
     await createCompany(prismaClient, {
-      name: "Test Company With Owner",
+      name: "E2E Test Company With Owner",
       status: "ACTIVE",
       owner_user_id: ownerUser.user_id,
     });
@@ -63,7 +63,9 @@ test.describe("2.4-E2E: Company List - Display and Owner Information", () => {
 
     // THEN: The company row should be visible
     const companyRow = superadminPage.locator("tr", {
-      has: superadminPage.getByText("Test Company With Owner", { exact: true }),
+      has: superadminPage.getByText("E2E Test Company With Owner", {
+        exact: true,
+      }),
     });
     await expect(companyRow).toBeVisible({ timeout: 10000 });
 
@@ -74,11 +76,13 @@ test.describe("2.4-E2E: Company List - Display and Owner Information", () => {
 
     // Verify owner name is displayed (in font-medium div)
     const ownerName = ownerColumn.locator(".font-medium").first();
-    await expect(ownerName).toHaveText("Test Owner", { timeout: 10000 });
+    await expect(ownerName).toHaveText("E2E Test Owner Display", {
+      timeout: 10000,
+    });
 
     // Verify owner email is displayed (in text-xs text-muted-foreground div)
     const ownerEmail = ownerColumn.locator(".text-xs.text-muted-foreground");
-    await expect(ownerEmail).toHaveText("owner@test.nuvana.local", {
+    await expect(ownerEmail).toHaveText("e2e-owner-display@test.nuvana.local", {
       timeout: 10000,
     });
   });
@@ -89,11 +93,11 @@ test.describe("2.4-E2E: Company List - Display and Owner Information", () => {
   }) => {
     // GIVEN: A company exists
     const ownerUser = await prismaClient.user.create({
-      data: createUserFactory({ name: "Column Test Owner" }),
+      data: createUserFactory({ name: "E2E Column Test Owner" }),
     });
 
     await createCompany(prismaClient, {
-      name: "Column Test Company",
+      name: "E2E Column Test Company",
       status: "ACTIVE",
       owner_user_id: ownerUser.user_id,
     });
@@ -128,11 +132,11 @@ test.describe("2.4-E2E: Company List - Display and Owner Information", () => {
   }) => {
     // GIVEN: A company exists
     const ownerUser = await prismaClient.user.create({
-      data: createUserFactory({ name: "No Create Button Owner" }),
+      data: createUserFactory({ name: "E2E No Create Button Owner" }),
     });
 
     await createCompany(prismaClient, {
-      name: "No Create Button Company",
+      name: "E2E No Create Button Company",
       status: "ACTIVE",
       owner_user_id: ownerUser.user_id,
     });
@@ -202,11 +206,11 @@ test.describe("2.4-E2E: Company Editing", () => {
   }) => {
     // GIVEN: A company exists
     const ownerUser = await prismaClient.user.create({
-      data: createUserFactory({ name: "Edit Test Owner" }),
+      data: createUserFactory({ name: "E2E Edit Test Owner" }),
     });
 
     const company = await createCompany(prismaClient, {
-      name: "Company To Edit",
+      name: "E2E Company To Edit",
       status: "ACTIVE",
       owner_user_id: ownerUser.user_id,
     });
@@ -221,7 +225,7 @@ test.describe("2.4-E2E: Company Editing", () => {
 
     // THEN: Company name should be visible
     await expect(
-      superadminPage.getByText("Company To Edit", { exact: true }),
+      superadminPage.getByText("E2E Company To Edit", { exact: true }),
     ).toBeVisible({ timeout: 10000 });
 
     // THEN: Edit button should be visible and clickable
@@ -254,13 +258,13 @@ test.describe("2.4-E2E: Company Editing", () => {
     // GIVEN: A company exists with owner
     const ownerUser = await prismaClient.user.create({
       data: createUserFactory({
-        name: "Owner For Modal",
-        email: "modal-owner@test.nuvana.local",
+        name: "E2E Owner For Modal",
+        email: "e2e-modal-owner@test.nuvana.local",
       }),
     });
 
     const company = await createCompany(prismaClient, {
-      name: "Company For Modal Test",
+      name: "E2E Company For Modal Test",
       status: "ACTIVE",
       owner_user_id: ownerUser.user_id,
     });
@@ -274,7 +278,7 @@ test.describe("2.4-E2E: Company Editing", () => {
     ).toBeVisible({ timeout: 30000 });
 
     await expect(
-      superadminPage.getByText("Company For Modal Test", { exact: true }),
+      superadminPage.getByText("E2E Company For Modal Test", { exact: true }),
     ).toBeVisible({ timeout: 10000 });
 
     const editButton = superadminPage.locator(
@@ -291,11 +295,13 @@ test.describe("2.4-E2E: Company Editing", () => {
     // THEN: Owner information should be displayed in the modal (read-only)
     const ownerName = superadminPage.getByTestId("edit-company-owner-name");
     await expect(ownerName).toBeVisible({ timeout: 10000 });
-    await expect(ownerName).toHaveText("Owner For Modal", { timeout: 10000 });
+    await expect(ownerName).toHaveText("E2E Owner For Modal", {
+      timeout: 10000,
+    });
 
     const ownerEmail = superadminPage.getByTestId("edit-company-owner-email");
     await expect(ownerEmail).toBeVisible({ timeout: 10000 });
-    await expect(ownerEmail).toHaveText("modal-owner@test.nuvana.local", {
+    await expect(ownerEmail).toHaveText("e2e-modal-owner@test.nuvana.local", {
       timeout: 10000,
     });
   });
@@ -308,11 +314,11 @@ test.describe("2.4-E2E: Company Status Management", () => {
   }) => {
     // GIVEN: An ACTIVE company exists
     const ownerUser = await prismaClient.user.create({
-      data: createUserFactory({ name: "Deactivate Test Owner" }),
+      data: createUserFactory({ name: "E2E Deactivate Test Owner" }),
     });
 
     const company = await createCompany(prismaClient, {
-      name: "Company To Deactivate",
+      name: "E2E Company To Deactivate",
       status: "ACTIVE",
       owner_user_id: ownerUser.user_id,
     });
@@ -326,12 +332,14 @@ test.describe("2.4-E2E: Company Status Management", () => {
     ).toBeVisible({ timeout: 30000 });
 
     await expect(
-      superadminPage.getByText("Company To Deactivate", { exact: true }),
+      superadminPage.getByText("E2E Company To Deactivate", { exact: true }),
     ).toBeVisible({ timeout: 10000 });
 
     // WHEN: Clicking the status toggle button
     const companyRow = superadminPage.locator("tr", {
-      has: superadminPage.getByText("Company To Deactivate", { exact: true }),
+      has: superadminPage.getByText("E2E Company To Deactivate", {
+        exact: true,
+      }),
     });
 
     const statusButton = companyRow.locator(
@@ -372,11 +380,11 @@ test.describe("2.4-E2E: Company Status Management", () => {
   }) => {
     // GIVEN: An ACTIVE company exists
     const ownerUser = await prismaClient.user.create({
-      data: createUserFactory({ name: "Delete Block Test Owner" }),
+      data: createUserFactory({ name: "E2E Delete Block Test Owner" }),
     });
 
     const company = await createCompany(prismaClient, {
-      name: "Active Company Cannot Delete",
+      name: "E2E Active Company Cannot Delete",
       status: "ACTIVE",
       owner_user_id: ownerUser.user_id,
     });
@@ -390,12 +398,14 @@ test.describe("2.4-E2E: Company Status Management", () => {
     ).toBeVisible({ timeout: 30000 });
 
     await expect(
-      superadminPage.getByText("Active Company Cannot Delete", { exact: true }),
+      superadminPage.getByText("E2E Active Company Cannot Delete", {
+        exact: true,
+      }),
     ).toBeVisible({ timeout: 10000 });
 
     // THEN: Delete button should be disabled for active company
     const companyRow = superadminPage.locator("tr", {
-      has: superadminPage.getByText("Active Company Cannot Delete", {
+      has: superadminPage.getByText("E2E Active Company Cannot Delete", {
         exact: true,
       }),
     });
@@ -413,11 +423,11 @@ test.describe("2.4-E2E: Company Status Management", () => {
   }) => {
     // GIVEN: An INACTIVE company exists
     const ownerUser = await prismaClient.user.create({
-      data: createUserFactory({ name: "Delete Test Owner" }),
+      data: createUserFactory({ name: "E2E Delete Test Owner" }),
     });
 
     const company = await createCompany(prismaClient, {
-      name: "Inactive Company To Delete",
+      name: "E2E Inactive Company To Delete",
       status: "INACTIVE",
       owner_user_id: ownerUser.user_id,
     });
@@ -431,12 +441,14 @@ test.describe("2.4-E2E: Company Status Management", () => {
     ).toBeVisible({ timeout: 30000 });
 
     await expect(
-      superadminPage.getByText("Inactive Company To Delete", { exact: true }),
+      superadminPage.getByText("E2E Inactive Company To Delete", {
+        exact: true,
+      }),
     ).toBeVisible({ timeout: 10000 });
 
     // WHEN: Clicking delete for the inactive company
     const companyRow = superadminPage.locator("tr", {
-      has: superadminPage.getByText("Inactive Company To Delete", {
+      has: superadminPage.getByText("E2E Inactive Company To Delete", {
         exact: true,
       }),
     });
@@ -727,18 +739,18 @@ test.describe("2.4-E2E: Company List - Stores Relationship", () => {
   }) => {
     // GIVEN: A company exists with stores
     const ownerUser = await prismaClient.user.create({
-      data: createUserFactory({ name: "Store Test Owner" }),
+      data: createUserFactory({ name: "E2E Store Test Owner" }),
     });
 
     const company = await createCompany(prismaClient, {
-      name: "Company With Stores",
+      name: "E2E Company With Stores",
       status: "ACTIVE",
       owner_user_id: ownerUser.user_id,
     });
 
     // Create stores for this company
     const storeData = createStore({
-      name: "Test Store 1",
+      name: "E2E Test Store 1",
       status: "ACTIVE",
       timezone: "America/New_York",
     });
@@ -759,7 +771,7 @@ test.describe("2.4-E2E: Company List - Stores Relationship", () => {
 
     // THEN: The company should be visible
     await expect(
-      superadminPage.getByText("Company With Stores", { exact: true }),
+      superadminPage.getByText("E2E Company With Stores", { exact: true }),
     ).toBeVisible({ timeout: 10000 });
   });
 });

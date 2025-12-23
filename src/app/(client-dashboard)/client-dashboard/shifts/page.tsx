@@ -5,9 +5,11 @@
  * Displays shift list with filtering, pagination, and detail view for store operations
  *
  * Story: 4.7 - Shift Management UI
+ * Story: Client Owner Dashboard - Shift Detail View
  */
 
 import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { ShiftList } from "@/components/shifts/ShiftList";
 import {
   type ShiftQueryFilters,
@@ -18,12 +20,12 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export default function ClientShiftsPage() {
+  const router = useRouter();
   const [filters, setFilters] = useState<ShiftQueryFilters>({});
   const [pagination, setPagination] = useState<PaginationOptions>({
     limit: 50,
     offset: 0,
   });
-  const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
   const [paginationMeta, setPaginationMeta] = useState<{
     total: number;
     limit: number;
@@ -38,11 +40,13 @@ export default function ClientShiftsPage() {
     setPagination({ limit: 50, offset: 0 });
   }, []);
 
-  // Handle shift click (for future detail modal)
-  const handleShiftClick = useCallback((shift: ShiftResponse) => {
-    setSelectedShiftId(shift.shift_id);
-    // TODO: Open shift detail modal
-  }, []);
+  // Handle shift click - navigate to shift detail page
+  const handleShiftClick = useCallback(
+    (shift: ShiftResponse) => {
+      router.push(`/client-dashboard/shifts/${shift.shift_id}`);
+    },
+    [router],
+  );
 
   // Handle pagination
   const handlePreviousPage = useCallback(() => {

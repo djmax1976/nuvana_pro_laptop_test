@@ -10,14 +10,12 @@ import {
   createCompany,
   createClientUser,
   createUser,
-  createCashier,
 } from "../support/factories";
 import { PrismaClient } from "@prisma/client";
 import {
   createShift as createShiftHelper,
   createCashier as createCashierHelper,
 } from "../support/helpers/database-helpers";
-import { withBypassClient } from "../support/prisma-bypass";
 
 /**
  * Helper function to create a company with an owner and store
@@ -60,69 +58,6 @@ async function createTestCashier(
     prismaClient,
   );
 }
-
-/**
- * Helper function to assign a user to a test store with a specific role
- * CRITICAL: Required for RLS - user must be assigned to store to see shifts
- *
- * @param user - The user to assign to the store (must have user_id)
- * @param company - The company that owns the store
- * @param store - The store to assign the user to
- * @param roleCode - The role code to use (defaults to CLIENT_OWNER)
- */
-async function assignUserToStore(
-  user: { user_id: string },
-  company: { company_id: string },
-  store: { store_id: string },
-  roleCode: string = "CLIENT_OWNER",
-) {
-  await withBypassClient(async (bypassClient) => {
-    const role = await bypassClient.role.findUnique({
-      where: { code: roleCode },
-    });
-
-    if (!role) {
-      throw new Error(
-        `Role not found: roleCode="${roleCode}", user_id="${user.user_id}", company_id="${company.company_id}", store_id="${store.store_id}". ` +
-          `The role with code "${roleCode}" does not exist in the database. ` +
-          `This may indicate a missing test setup or database seed data.`,
-      );
-    }
-
-    // Update existing userRole to point to the test store
-    // This handles cases where the user already has a role assigned
-    const existingRoleAssignment = await bypassClient.userRole.findFirst({
-      where: {
-        user_id: user.user_id,
-        role_id: role.role_id,
-      },
-    });
-
-    if (existingRoleAssignment) {
-      // Update existing assignment to point to the test store
-      await bypassClient.userRole.update({
-        where: { user_role_id: existingRoleAssignment.user_role_id },
-        data: {
-          company_id: company.company_id,
-          store_id: store.store_id,
-        },
-      });
-    } else {
-      // Create new role assignment
-      await bypassClient.userRole.create({
-        data: {
-          user_id: user.user_id,
-          role_id: role.role_id,
-          company_id: company.company_id,
-          store_id: store.store_id,
-        },
-      });
-    }
-  });
-}
-
-// Keep backward compatibility alias
-const assignStoreManagerToStore = assignUserToStore;
 
 /**
  * Helper function to navigate to shifts page and wait for it to load
@@ -455,44 +390,83 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     await expect(closedShiftRow).not.toBeVisible();
   });
 
-  test.skip("4.7-E2E-005: [P0] Should close and reconcile a shift", async ({
-    clientOwnerPage,
+  test("4.7-E2E-005: [P0] Should close and reconcile a shift via API", async ({
+    clientUserApiRequest,
+    clientUser,
     prismaClient,
   }) => {
-    // TODO: Implement close/reconcile workflow once UI is finalized
-    // GIVEN: A store exists with an OPEN shift
-    const { owner, company, store } =
-      await createCompanyWithStore(prismaClient);
+    // GIVEN: Using clientUser's own store with an OPEN shift
+    // This tests the complete close/reconcile workflow via the API
+    // Story 4.3: Cash Reconciliation API
+    const store_id = clientUser.store_id;
+
     const cashierUser = await prismaClient.user.create({
       data: createClientUser(),
     });
 
     const cashier = await createTestCashier(
       prismaClient,
-      store.store_id,
-      owner.user_id,
+      store_id,
+      clientUser.user_id,
     );
 
+    const openingCash = 100.0;
     const shift = await createShiftHelper(
       {
-        store_id: store.store_id,
+        store_id: store_id,
         cashier_id: cashier.cashier_id,
         opened_by: cashierUser.user_id,
         status: "OPEN",
-        opening_cash: 100.0,
+        opening_cash: openingCash,
       },
       prismaClient,
     );
 
-    // WHEN: Navigating to shifts page and closing the shift
-    await navigateToShiftsPage(clientOwnerPage);
+    // WHEN: Closing the shift via the direct close API
+    // POST /api/shifts/:shiftId/close - simplified single-step flow
+    const closingCash = 150.0; // More than opening (from sales)
+    const closeResponse = await clientUserApiRequest.post(
+      `/api/shifts/${shift.shift_id}/close`,
+      { closing_cash: closingCash },
+    );
 
-    // Click shift row to view details or close
-    // Note: Actual UI interaction would depend on implementation
-    // This test verifies the flow can be initiated
+    // THEN: Shift should be closed successfully
+    expect(closeResponse.status()).toBe(200);
 
-    // THEN: Shift closing form should be accessible
-    // Note: Full reconciliation flow would require additional setup
+    const closeBody = await closeResponse.json();
+    expect(closeBody.success).toBe(true);
+    expect(closeBody.data).toBeDefined();
+    expect(closeBody.data.shift_id).toBe(shift.shift_id);
+    expect(closeBody.data.status).toBe("CLOSED");
+    expect(closeBody.data.closing_cash).toBe(closingCash);
+    expect(closeBody.data.closed_at).toBeDefined();
+    expect(closeBody.data.closed_by).toBeDefined();
+
+    // Verify the shift is now CLOSED in the database
+    const closedShift = await prismaClient.shift.findUnique({
+      where: { shift_id: shift.shift_id },
+    });
+    expect(closedShift).not.toBeNull();
+    expect(closedShift!.status).toBe("CLOSED");
+    expect(Number(closedShift!.closing_cash)).toBe(closingCash);
+    expect(closedShift!.closed_at).not.toBeNull();
+
+    // Verify the shift appears as CLOSED in the shift list API
+    const listResponse = await clientUserApiRequest.get(
+      `/api/shifts?status=CLOSED`,
+    );
+    expect(listResponse.status()).toBe(200);
+
+    const listBody = await listResponse.json();
+    expect(listBody.success).toBe(true);
+    expect(listBody.data.shifts).toBeDefined();
+
+    // Find our closed shift in the list
+    const closedShiftInList = listBody.data.shifts.find(
+      (s: { shift_id: string }) => s.shift_id === shift.shift_id,
+    );
+    expect(closedShiftInList).toBeDefined();
+    expect(closedShiftInList.status).toBe("CLOSED");
   });
 
   // ============================================================================
@@ -547,11 +521,8 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     const accessibleStoreId = clientUser.store_id;
 
     // Create a completely separate company/store that clientUser does NOT have access to
-    const {
-      owner: otherOwner,
-      company: otherCompany,
-      store: otherStore,
-    } = await createCompanyWithStore(prismaClient);
+    const { owner: otherOwner, store: otherStore } =
+      await createCompanyWithStore(prismaClient);
 
     const cashierUser1 = await prismaClient.user.create({
       data: createClientUser(),
@@ -638,21 +609,20 @@ test.describe("4.7-E2E: Shift Management UI", () => {
   // ============================================================================
 
   test("4.7-E2E-SEC-003: [P1] Should reject requests with invalid authentication token", async ({
-    page,
+    apiRequest,
   }) => {
-    // GIVEN: User attempts to access API with invalid token
-    // (Using page fixture without proper authentication)
+    // GIVEN: User attempts to access backend API with invalid token
+    // Note: Using apiRequest to hit the backend directly (not the frontend)
 
     // WHEN: Attempting to make API request with invalid token
-    const response = await page.request.get("/api/shifts", {
+    const response = await apiRequest.get("/api/shifts", {
       headers: {
         Authorization: "Bearer invalid-token-12345",
       },
     });
 
-    // THEN: Should return 401 or 403 (unauthorized)
-    expect(response.status()).toBeGreaterThanOrEqual(400);
-    expect(response.status()).toBeLessThan(500);
+    // THEN: Should return 401 (unauthorized)
+    expect(response.status()).toBe(401);
   });
 
   test("4.7-E2E-SEC-004: [P1] Should reject requests without authentication token", async ({
@@ -807,11 +777,9 @@ test.describe("4.7-E2E: Shift Management UI", () => {
 
   test("4.7-E2E-EDGE-001: [P2] Should handle empty shift list gracefully", async ({
     clientOwnerPage,
-    clientUser,
-    prismaClient,
   }) => {
-    // GIVEN: Using clientUser's own store with no shifts
-    // The clientUser already has access to their own company/store via the CLIENT_OWNER role
+    // GIVEN: Using clientOwnerPage which is already authenticated as CLIENT_OWNER
+    // The clientOwnerPage has access to their own company/store via the CLIENT_OWNER role
     // Note: Other tests may have created shifts, so we check the empty state behavior
     // by filtering for a date range that has no shifts
 

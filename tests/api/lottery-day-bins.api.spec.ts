@@ -846,6 +846,9 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     expect(response.status(), "Should return 403 for unauthorized access").toBe(
       403,
     );
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("PERMISSION_DENIED");
 
     // Cleanup
     await withBypassClient(async (tx) => {
@@ -874,23 +877,21 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     );
   });
 
-  test("DAY-BINS-013: [P0] Should return 403 for non-existent store (security by obscurity)", async ({
+  test("DAY-BINS-013: [P0] Should return 404 for non-existent store", async ({
     clientUserApiRequest,
   }) => {
     // WHEN: I query a non-existent store
-    // Note: Permission middleware checks store membership BEFORE route handler
-    // For security, non-existent stores return 403 (same as unauthorized) to avoid
-    // leaking information about which store IDs exist
     const fakeStoreId = "00000000-0000-0000-0000-000000000000";
     const response = await clientUserApiRequest.get(
       `/api/lottery/bins/day/${fakeStoreId}`,
     );
 
-    // THEN: Should return 403 Forbidden (not 404) for security reasons
-    // This prevents attackers from enumerating valid store IDs
-    expect(
-      response.status(),
-      "Should return 403 for non-existent store (security)",
-    ).toBe(403);
+    // THEN: Should return 404 Not Found for unknown store
+    expect(response.status(), "Should return 404 for non-existent store").toBe(
+      404,
+    );
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("NOT_FOUND");
   });
 });

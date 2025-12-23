@@ -69,13 +69,15 @@ export const createJWTRefreshTokenPayload = (
 /**
  * Creates a real signed JWT access token (for testing purposes)
  * Returns a properly signed JWT that the backend auth middleware can verify.
+ * Uses the same secret as backend/.env for compatibility.
  */
 export const createJWTAccessToken = (
   overrides: Partial<JWTTokenPayload> = {},
 ): string => {
   const payload = createJWTAccessTokenPayload(overrides);
+  // Use the dev secret from backend/.env for consistency
   const secret =
-    process.env.JWT_SECRET || "test-secret-key-change-in-production";
+    process.env.JWT_SECRET || "dev_jwt_secret_change_in_production_12345678";
 
   return jwt.sign(payload, secret, {
     expiresIn: "15m",
@@ -125,9 +127,10 @@ export const createJWTRefreshToken = async (
     jti, // Add JTI to payload
   };
 
+  // Use the dev secret from backend/.env for consistency
   const secret =
     process.env.JWT_REFRESH_SECRET ||
-    "test-refresh-secret-key-change-in-production";
+    "dev_refresh_secret_change_in_production_87654321";
 
   const token = jwt.sign(payload, secret, {
     expiresIn: "7d",
@@ -162,8 +165,9 @@ export const createExpiredJWTAccessToken = (
   overrides: Partial<JWTTokenPayload> = {},
 ): string => {
   const payload = createJWTAccessTokenPayload(overrides);
+  // Use the dev secret from backend/.env for consistency
   const secret =
-    process.env.JWT_SECRET || "test-secret-key-change-in-production";
+    process.env.JWT_SECRET || "dev_jwt_secret_change_in_production_12345678";
 
   // Sign with negative expiry to create already-expired token
   return jwt.sign(payload, secret, {
@@ -188,9 +192,10 @@ export const createExpiredJWTRefreshToken = (
     jti, // Add JTI to payload
   };
 
+  // Use the dev secret from backend/.env for consistency
   const secret =
     process.env.JWT_REFRESH_SECRET ||
-    "test-refresh-secret-key-change-in-production";
+    "dev_refresh_secret_change_in_production_87654321";
 
   // Sign with negative expiry to create already-expired token
   return jwt.sign(payload, secret, {
@@ -268,8 +273,9 @@ export type MalformedJWTPayload = {
 export const createMalformedJWTAccessToken = (
   payload: MalformedJWTPayload = {},
 ): string => {
+  // Use the dev secret from backend/.env for consistency
   const secret =
-    process.env.JWT_SECRET || "test-secret-key-change-in-production";
+    process.env.JWT_SECRET || "dev_jwt_secret_change_in_production_12345678";
 
   // Sign the payload directly without adding defaults
   // This creates a valid JWT signature but with missing claims
