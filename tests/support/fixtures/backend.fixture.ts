@@ -1,20 +1,19 @@
 import { config } from "dotenv";
 import { test as base, APIRequestContext } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { assertDatabaseSafeForTests } from "../config/database-protection";
 
 // Load environment variables from .env.local for Playwright tests
 config({ path: ".env.local" });
 
 // =============================================================================
-// DATABASE PROTECTION - Block prod/staging databases in test code
+// DATABASE PROTECTION - Uses centralized config
 // =============================================================================
-const dbUrl = process.env.DATABASE_URL || "";
-// Only block production/staging - allow nuvana_dev and nuvana_test for local development
-if (/nuvana_prod|nuvana_production|nuvana_staging|_prod$/i.test(dbUrl)) {
-  throw new Error(
-    `🚨 BLOCKED: Cannot use backend.fixture with production database: ${dbUrl}`,
-  );
-}
+// Validation logic is centralized in ./config/database-protection.ts
+// This ensures consistency across Vitest, Playwright, and all test infrastructure.
+// =============================================================================
+
+assertDatabaseSafeForTests();
 
 /**
  * Backend Test Fixtures

@@ -2,17 +2,23 @@
 
 /**
  * Manual Entry Authentication Modal Component
- * Dialog form for authorizing manual entry mode in lottery shift closing
+ * Dialog form for authorizing manual entry mode in lottery management
  *
  * Story: 10.4 - Manual Entry Override
  *
  * @requirements
- * - AC #2: Modal with cashier authentication form
+ * - AC #2: Modal with user authentication form (email/password)
  * - AC #3: Permission check for LOTTERY_MANUAL_ENTRY
- * - Cashier dropdown (only active shift cashiers at this store)
- * - PIN input field (4 digits, masked)
+ * - Email input field
+ * - Password input field (masked)
  * - Cancel and Verify buttons
- * - Error handling for invalid PIN and unauthorized users
+ * - Error handling for invalid credentials and unauthorized users
+ * - Audit trail: Records who authorized manual entry for compliance
+ *
+ * MCP Guidance Applied:
+ * - FE-002: FORM_VALIDATION - Mirror backend validation client-side
+ * - SEC-014: INPUT_VALIDATION - Strict schemas with format constraints
+ * - SEC-004: XSS - React auto-escapes output
  */
 
 import { useForm } from "react-hook-form";
@@ -29,13 +35,6 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -46,41 +45,32 @@ import {
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 
 /**
  * Form validation schema for manual entry authentication
- * Validates cashier selection (required) and PIN number (required, exactly 4 numeric digits)
+ * Validates email (required, valid format) and password (required)
  *
  * MCP Guidance Applied:
- * - FORM_VALIDATION: Mirror backend validation client-side, sanitize all user input
- * - INPUT_VALIDATION: Define strict schemas with length, type, and format constraints
+ * - FE-002: FORM_VALIDATION - Mirror backend validation client-side
+ * - SEC-014: INPUT_VALIDATION - Define strict schemas with format constraints
  */
 const manualEntryAuthFormSchema = z.object({
-  cashierId: z
-    .string({ message: "Cashier is required" })
-    .min(1, { message: "Cashier is required" }),
-  pin: z
-    .string({ message: "PIN number is required" })
-    .min(1, { message: "PIN number is required" })
-    .regex(/^\d{4}$/, { message: "PIN must be exactly 4 numeric digits" }),
+  email: z
+    .string({ message: "Email is required" })
+    .min(1, { message: "Email is required" })
+    .email({ message: "Please enter a valid email address" }),
+  password: z
+    .string({ message: "Password is required" })
+    .min(1, { message: "Password is required" }),
 });
 
 type ManualEntryAuthFormValues = z.infer<typeof manualEntryAuthFormSchema>;
 
 /**
- * Active shift cashier type
+ * User permission verification result
  */
-export interface ActiveShiftCashier {
-  id: string;
-  name: string;
-  shiftId: string;
-}
-
-/**
- * Cashier permission verification result
- */
-export interface CashierPermissionVerificationResult {
+export interface UserPermissionVerificationResult {
   valid: boolean;
   userId?: string;
   name?: string;
@@ -96,57 +86,20 @@ interface ManualEntryAuthModalProps {
 }
 
 /**
- * Fetch active shift cashiers for a store
- * TODO: This will be implemented in Task 5 when API endpoint is created
+ * Verify user credentials and check permission
+ * Calls POST /api/auth/verify-user-permission
  */
-async function getActiveShiftCashiers(
-  storeId: string,
-): Promise<ActiveShiftCashier[]> {
-  const API_BASE_URL =
-    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
-
-  const response = await fetch(
-    `${API_BASE_URL}/api/stores/${storeId}/active-shift-cashiers`,
-    {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    },
-  );
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-    }));
-    const errorMessage =
-      typeof errorData.error === "object"
-        ? errorData.error.message
-        : errorData.error || "Failed to load active cashiers";
-    throw new Error(errorMessage);
-  }
-
-  const result = await response.json();
-  return result.data || [];
-}
-
-/**
- * Verify cashier PIN and check permission
- * TODO: This will be implemented in Task 5 when API endpoint is created
- */
-async function verifyCashierPermission(
-  cashierId: string,
-  pin: string,
+async function verifyUserPermission(
+  email: string,
+  password: string,
   permission: string,
   storeId: string,
-): Promise<CashierPermissionVerificationResult> {
+): Promise<UserPermissionVerificationResult> {
   const API_BASE_URL =
     process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 
   const response = await fetch(
-    `${API_BASE_URL}/api/auth/verify-cashier-permission`,
+    `${API_BASE_URL}/api/auth/verify-user-permission`,
     {
       method: "POST",
       credentials: "include",
@@ -154,8 +107,8 @@ async function verifyCashierPermission(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        cashierId,
-        pin,
+        email,
+        password,
         permission,
         storeId,
       }),
@@ -164,7 +117,7 @@ async function verifyCashierPermission(
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({
-      success: false,
+      valid: false,
       error: "Unknown error",
     }));
     const errorMessage =
@@ -187,10 +140,10 @@ async function verifyCashierPermission(
  * Uses React Hook Form with Zod validation
  *
  * MCP Guidance Applied:
- * - FORM_VALIDATION: Display validation errors clearly, disable submission until fields pass checks
- * - INPUT_VALIDATION: Apply length, type, and format constraints at the boundary
- * - XSS: React automatically escapes output, no manual sanitization needed for text inputs
- * - AUTHENTICATION: Secure authentication flow with proper error handling
+ * - FE-002: FORM_VALIDATION - Display validation errors clearly, disable submission until fields pass
+ * - SEC-014: INPUT_VALIDATION - Apply format constraints at the boundary
+ * - SEC-004: XSS - React automatically escapes output
+ * - API-004: AUTHENTICATION - Secure authentication flow with proper error handling
  */
 export function ManualEntryAuthModal({
   open,
@@ -204,28 +157,15 @@ export function ManualEntryAuthModal({
     reValidateMode: "onChange",
     shouldFocusError: true,
     defaultValues: {
-      cashierId: "",
-      pin: "",
+      email: "",
+      password: "",
     },
   });
 
-  // Fetch active shift cashiers
-  const {
-    data: activeCashiers = [],
-    isLoading: isLoadingCashiers,
-    error: cashiersError,
-  } = useQuery({
-    queryKey: ["active-shift-cashiers", storeId],
-    queryFn: () => getActiveShiftCashiers(storeId),
-    enabled: open && !!storeId,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
-  });
-
-  // Verify cashier permission mutation
+  // Verify user permission mutation
   const verifyPermissionMutation = useMutation({
-    mutationFn: ({ cashierId, pin }: { cashierId: string; pin: string }) =>
-      verifyCashierPermission(cashierId, pin, "LOTTERY_MANUAL_ENTRY", storeId),
+    mutationFn: ({ email, password }: { email: string; password: string }) =>
+      verifyUserPermission(email, password, "LOTTERY_MANUAL_ENTRY", storeId),
   });
 
   const isSubmitting =
@@ -235,8 +175,8 @@ export function ManualEntryAuthModal({
   useEffect(() => {
     if (open) {
       form.reset({
-        cashierId: "",
-        pin: "",
+        email: "",
+        password: "",
       });
       verifyPermissionMutation.reset();
     }
@@ -246,15 +186,15 @@ export function ManualEntryAuthModal({
   const handleSubmit = async (values: ManualEntryAuthFormValues) => {
     try {
       const result = await verifyPermissionMutation.mutateAsync({
-        cashierId: values.cashierId,
-        pin: values.pin,
+        email: values.email,
+        password: values.password,
       });
 
-      // Check if PIN is valid
+      // Check if credentials are valid
       if (!result.valid) {
-        form.setError("pin", {
+        form.setError("root", {
           type: "manual",
-          message: result.error || "Invalid PIN. Please try again.",
+          message: result.error || "Invalid credentials. Please try again.",
         });
         return;
       }
@@ -293,9 +233,10 @@ export function ManualEntryAuthModal({
     onOpenChange(false);
   };
 
-  // Disable Verify button until cashier selected and 4-digit PIN entered
-  const isFormValid =
-    form.watch("cashierId") && form.watch("pin")?.length === 4;
+  // Disable Verify button until email and password are entered
+  const watchedEmail = form.watch("email");
+  const watchedPassword = form.watch("password");
+  const isFormValid = watchedEmail?.length > 0 && watchedPassword?.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -306,7 +247,8 @@ export function ManualEntryAuthModal({
         <DialogHeader>
           <DialogTitle>Authorize Manual Entry</DialogTitle>
           <DialogDescription>
-            Enter cashier credentials to authorize manual entry mode
+            Enter your credentials to authorize manual entry mode. This action
+            will be recorded for audit purposes.
           </DialogDescription>
         </DialogHeader>
 
@@ -315,14 +257,6 @@ export function ManualEntryAuthModal({
             onSubmit={form.handleSubmit(handleSubmit)}
             className="space-y-4"
           >
-            {cashiersError && (
-              <Alert variant="destructive">
-                <AlertDescription data-testid="error-message">
-                  Failed to load cashiers. Please try again.
-                </AlertDescription>
-              </Alert>
-            )}
-
             {verifyPermissionMutation.isError && (
               <Alert variant="destructive">
                 <AlertDescription data-testid="error-message">
@@ -343,34 +277,20 @@ export function ManualEntryAuthModal({
 
             <FormField
               control={form.control}
-              name="cashierId"
+              name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Cashier Name</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                    disabled={isSubmitting || isLoadingCashiers}
-                  >
-                    <FormControl>
-                      <SelectTrigger data-testid="cashier-dropdown">
-                        <SelectValue
-                          placeholder={
-                            isLoadingCashiers
-                              ? "Loading cashiers..."
-                              : "Select cashier name"
-                          }
-                        />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {activeCashiers.map((cashier) => (
-                        <SelectItem key={cashier.id} value={cashier.id}>
-                          {cashier.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="email"
+                      placeholder="Enter your email"
+                      autoComplete="email"
+                      disabled={isSubmitting}
+                      data-testid="email-input"
+                      {...field}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -378,18 +298,17 @@ export function ManualEntryAuthModal({
 
             <FormField
               control={form.control}
-              name="pin"
+              name="password"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>PIN Number</FormLabel>
+                  <FormLabel>Password</FormLabel>
                   <FormControl>
                     <Input
                       type="password"
-                      placeholder="Enter 4-digit PIN"
-                      autoComplete="off"
+                      placeholder="Enter your password"
+                      autoComplete="current-password"
                       disabled={isSubmitting}
-                      maxLength={4}
-                      data-testid="pin-input"
+                      data-testid="password-input"
                       {...field}
                     />
                   </FormControl>
@@ -410,7 +329,7 @@ export function ManualEntryAuthModal({
               </Button>
               <Button
                 type="submit"
-                disabled={isSubmitting || !isFormValid || isLoadingCashiers}
+                disabled={isSubmitting || !isFormValid}
                 data-testid="verify-button"
               >
                 {isSubmitting && (

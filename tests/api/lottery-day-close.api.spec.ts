@@ -457,7 +457,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     });
   });
 
-  test("DAY-CLOSE-004: [P0] Should update ending_serial in subsequent day bins query", async ({
+  test("DAY-CLOSE-004: [P0] Should carry forward ending_serial as starting_serial after day close", async ({
     clientUserApiRequest,
     clientUser,
   }) => {
@@ -486,7 +486,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     );
 
     // WHEN: I close the day with closing_serial "035"
-    await clientUserApiRequest.post(
+    const closeResponse = await clientUserApiRequest.post(
       `/api/lottery/bins/day/${store.store_id}/close`,
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "035" }],
@@ -494,20 +494,33 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       },
     );
 
-    // AND: I query the day bins
+    // Verify the close was successful
+    expect(closeResponse.status()).toBe(200);
+    const closeBody = await closeResponse.json();
+    expect(closeBody.success).toBe(true);
+    expect(closeBody.data.day_closed).toBe(true);
+
+    // AND: I query the day bins after day is closed
     const binsResponse = await clientUserApiRequest.get(
       `/api/lottery/bins/day/${store.store_id}`,
     );
 
-    // THEN: ending_serial should be "035"
+    // THEN: The closed day's ending serial becomes the starting serial for the next period
+    // Once a day is closed, the ending_serial is carried forward as starting_serial
+    // and ending_serial is null (no new ending yet for the next period)
     const binsBody = await binsResponse.json();
     const testBin = binsBody.data.bins.find(
       (b: any) => b.bin_id === bin.bin_id,
     );
     expect(testBin, "Bin should be present in day bins").toBeDefined();
-    expect(testBin.pack.ending_serial, "Ending serial should be updated").toBe(
-      "035",
-    );
+    expect(
+      testBin.pack.starting_serial,
+      "Starting serial should carry forward from closed day's ending serial",
+    ).toBe("035");
+    expect(
+      testBin.pack.ending_serial,
+      "Ending serial should be null after day close (no new ending for next period)",
+    ).toBeNull();
 
     // Cleanup
     const closing = await withBypassClient(async (tx) => {

@@ -63,14 +63,15 @@ async function performLogin(
   await page.goto("/login", { waitUntil: "domcontentloaded" });
 
   // Wait for login form to be visible and ready for input
+  // Increase timeout for CI environments
   await page.waitForSelector('input[type="email"]', {
     state: "visible",
-    timeout: 15000,
+    timeout: 30000,
   });
 
   // Wait for input to be editable (ensures React hydration is complete)
   await expect(page.locator('input[type="email"]')).toBeEditable({
-    timeout: 10000,
+    timeout: 15000,
   });
 
   // Wait for network to settle after page load (React hydration)
@@ -94,9 +95,10 @@ async function performLogin(
   await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
 
   // Set up response promise that captures any login response (success or failure)
+  // Increase timeout for CI environments
   const loginResponsePromise = page.waitForResponse(
     (resp) => resp.url().includes("/api/auth/login"),
-    { timeout: 30000 },
+    { timeout: 45000 },
   );
 
   // Click submit button (triggers login API request)
@@ -119,8 +121,9 @@ async function performLogin(
   }
 
   // Wait for navigation to client-dashboard
+  // Increase timeout for CI environments
   await page.waitForURL(/.*client-dashboard.*/, {
-    timeout: 30000,
+    timeout: 45000,
     waitUntil: "domcontentloaded",
   });
 
@@ -140,29 +143,58 @@ async function navigateToCashiersAndOpenDialog(page: Page): Promise<void> {
   });
 
   // Wait for the page to load and dashboard API to complete
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
-    // Continue if networkidle times out
+  await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {
+    // Continue if networkidle times out - CI can be slow
   });
 
-  // Wait for the cashier list to be visible (ensures page is fully loaded)
-  await page.waitForSelector(
-    '[data-testid="create-cashier-btn"], [data-testid="cashier-search"]',
-    {
-      timeout: 15000,
-      state: "visible",
-    },
-  );
+  // The CashierList component shows a skeleton during loading, then either:
+  // 1. "No cashiers yet" state with create-cashier-btn
+  // 2. Full list with cashier-search and create-cashier-btn
+  // 3. Error state with "Failed to load cashiers"
+  //
+  // Wait for ANY of these states to appear (loading to complete)
+  // Increase timeout to 30s for CI environments
+  await Promise.race([
+    // Success state: either the Add Cashier button or search field
+    page
+      .locator('[data-testid="create-cashier-btn"]')
+      .first()
+      .waitFor({ state: "visible", timeout: 30000 }),
+    // Error state
+    page
+      .getByText("Failed to load cashiers")
+      .waitFor({ state: "visible", timeout: 30000 }),
+    // No stores state
+    page
+      .getByText("No stores available")
+      .waitFor({ state: "visible", timeout: 30000 }),
+  ]);
+
+  // Check for error states and fail early with meaningful message
+  const hasError = await page.getByText("Failed to load cashiers").isVisible();
+  if (hasError) {
+    throw new Error(
+      "CashierList failed to load - check backend connectivity and store data",
+    );
+  }
+
+  const hasNoStores = await page.getByText("No stores available").isVisible();
+  if (hasNoStores) {
+    throw new Error(
+      "No stores available - test setup may have failed to create store",
+    );
+  }
 
   // Open Add Cashier dialog
   const addButton = page.locator('[data-testid="create-cashier-btn"]').first();
-  await addButton.waitFor({ state: "visible", timeout: 15000 });
+  await addButton.waitFor({ state: "visible", timeout: 10000 });
   await addButton.click();
 
   // Wait for dialog to be visible - the dialog shows "Add New Cashier" or just the form
   // Wait for the name input which is always present in the dialog
   await page.waitForSelector('[data-testid="cashier-name"]', {
     state: "visible",
-    timeout: 10000,
+    timeout: 15000,
   });
 }
 
@@ -181,12 +213,13 @@ async function waitForStoresLoaded(
   const storeDropdown = page.locator('[data-testid="cashier-store"]');
 
   // Wait for the store dropdown to be visible (form has loaded, not showing spinner)
-  await expect(storeDropdown).toBeVisible({ timeout: 15000 });
+  // Increase timeout for CI environments
+  await expect(storeDropdown).toBeVisible({ timeout: 30000 });
 
   // Wait for the dropdown to contain the store name (not placeholder text)
   // This confirms the store data has loaded and auto-selection has occurred
   await expect(storeDropdown).toContainText(expectedStoreName, {
-    timeout: 10000,
+    timeout: 20000,
   });
 
   // Verify it's not showing the placeholder

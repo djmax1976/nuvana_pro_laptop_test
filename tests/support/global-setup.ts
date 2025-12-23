@@ -25,43 +25,16 @@ import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
+import { assertDatabaseSafeForTests } from "./config/database-protection";
 
 // =============================================================================
-// DATABASE PROTECTION - Validate we're connecting to a safe database
+// DATABASE PROTECTION - Uses centralized config
 // =============================================================================
-// Production/staging databases that should NEVER be used for tests
-const PROTECTED_DATABASE_PATTERNS = [
-  /nuvana_prod/i,
-  /nuvana_production/i,
-  /nuvana_staging/i,
-];
+// Validation logic is centralized in ./config/database-protection.ts
+// This ensures consistency across Vitest, Playwright, and all test infrastructure.
+// =============================================================================
 
-// Databases allowed for testing (dev and test are both safe for local development)
-const ALLOWED_TEST_DATABASE_PATTERNS = [
-  /nuvana_dev/i, // Local development database - safe for tests
-  /nuvana_test/i,
-  /_test$/i,
-  /_test_/i,
-  /test_db/i,
-];
-
-function validateTestDatabase(): void {
-  const dbUrl = process.env.DATABASE_URL || "";
-  const isProtectedDb = PROTECTED_DATABASE_PATTERNS.some((p) => p.test(dbUrl));
-  const isAllowedTestDb = ALLOWED_TEST_DATABASE_PATTERNS.some((p) =>
-    p.test(dbUrl),
-  );
-
-  if (isProtectedDb && !isAllowedTestDb) {
-    throw new Error(
-      `\n🚨 PROTECTED DATABASE DETECTED - TESTS BLOCKED\n` +
-        `DATABASE_URL points to: ${dbUrl}\n` +
-        `Use a test database: postgresql://postgres:postgres@localhost:5432/nuvana_test\n`,
-    );
-  }
-}
-
-validateTestDatabase();
+assertDatabaseSafeForTests();
 import { execSync } from "child_process";
 import { join } from "path";
 

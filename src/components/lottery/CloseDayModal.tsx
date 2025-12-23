@@ -63,12 +63,21 @@ interface CloseDayModalProps {
   onSuccess?: () => void;
   /** Enhanced success callback with lottery data for Day Close page integration */
   onSuccessWithData?: (data: LotteryCloseResult) => void;
+  /**
+   * External scanned bins state (controlled component pattern)
+   * When provided, scanned bins persist when modal is closed and reopened
+   * This allows users to continue scanning after closing the modal
+   */
+  scannedBins?: ScannedBin[];
+  /** Callback to update external scanned bins state */
+  onScannedBinsChange?: (bins: ScannedBin[]) => void;
 }
 
 /**
- * Scanned bin state
+ * Scanned bin state - exported for use by parent components
+ * that manage scanned bins state externally
  */
-interface ScannedBin {
+export interface ScannedBin {
   bin_id: string;
   bin_number: number;
   pack_id: string;
@@ -88,12 +97,49 @@ export function CloseDayModal({
   onOpenChange,
   onSuccess,
   onSuccessWithData,
+  scannedBins: externalScannedBins,
+  onScannedBinsChange,
 }: CloseDayModalProps) {
   const { toast } = useToast();
   const { playSuccess, playError, isMuted, toggleMute } =
     useNotificationSound();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [scannedBins, setScannedBins] = useState<ScannedBin[]>([]);
+  // Use external state if provided (controlled), otherwise use internal state (uncontrolled)
+  const [internalScannedBins, setInternalScannedBins] = useState<ScannedBin[]>(
+    [],
+  );
+  const isControlled = externalScannedBins !== undefined;
+  const scannedBins = isControlled ? externalScannedBins : internalScannedBins;
+
+  // Debug logging - remove after fixing
+  console.log("[CloseDayModal] isControlled:", isControlled);
+  console.log("[CloseDayModal] externalScannedBins:", externalScannedBins);
+  console.log("[CloseDayModal] scannedBins length:", scannedBins.length);
+
+  // Keep refs to avoid stale closures in callbacks
+  const externalScannedBinsRef = useRef(externalScannedBins);
+  const onScannedBinsChangeRef = useRef(onScannedBinsChange);
+  useEffect(() => {
+    externalScannedBinsRef.current = externalScannedBins;
+    onScannedBinsChangeRef.current = onScannedBinsChange;
+  }, [externalScannedBins, onScannedBinsChange]);
+
+  // Wrapper for setting scanned bins - handles both controlled and uncontrolled modes
+  const setScannedBins = useCallback(
+    (updater: ScannedBin[] | ((prev: ScannedBin[]) => ScannedBin[])) => {
+      if (isControlled) {
+        // For controlled mode, compute the new value and call the parent's callback
+        const currentBins = externalScannedBinsRef.current ?? [];
+        const newValue =
+          typeof updater === "function" ? updater(currentBins) : updater;
+        onScannedBinsChangeRef.current?.(newValue);
+      } else {
+        // For uncontrolled mode, use internal state
+        setInternalScannedBins(updater);
+      }
+    },
+    [isControlled],
+  );
   const [inputValue, setInputValue] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
@@ -118,17 +164,22 @@ export function CloseDayModal({
     };
   }, []);
 
-  // Reset form when dialog closes
+  // Reset form when dialog closes - only reset internal state if uncontrolled
+  // When controlled (external state), parent manages persistence
   useEffect(() => {
     if (!open) {
-      setScannedBins([]);
+      // Only reset scanned bins for uncontrolled mode
+      // In controlled mode, parent decides when to reset (e.g., after day close)
+      if (!isControlled) {
+        setInternalScannedBins([]);
+      }
       setInputValue("");
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
         debounceTimer.current = null;
       }
     }
-  }, [open]);
+  }, [open, isControlled]);
 
   // Focus input when dialog opens
   useEffect(() => {
@@ -273,6 +324,7 @@ export function CloseDayModal({
     [
       activeBins,
       scannedBins,
+      setScannedBins,
       toast,
       clearInputAndFocus,
       playSuccess,
@@ -306,9 +358,12 @@ export function CloseDayModal({
   /**
    * Remove scanned bin from list
    */
-  const handleRemoveBin = useCallback((binId: string) => {
-    setScannedBins((prev) => prev.filter((bin) => bin.bin_id !== binId));
-  }, []);
+  const handleRemoveBin = useCallback(
+    (binId: string) => {
+      setScannedBins((prev) => prev.filter((bin) => bin.bin_id !== binId));
+    },
+    [setScannedBins],
+  );
 
   /**
    * Submit closing data
@@ -377,6 +432,7 @@ export function CloseDayModal({
   }, [
     allBinsScanned,
     scannedBins,
+    setScannedBins,
     storeId,
     toast,
     onOpenChange,

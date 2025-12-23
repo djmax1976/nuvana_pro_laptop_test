@@ -52,8 +52,8 @@ async function loginAsClientOwner(
   const passwordInput = page.locator('input[type="password"]');
   const submitButton = page.locator('button[type="submit"]');
 
-  await expect(emailInput).toBeVisible({ timeout: 15000 });
-  await expect(emailInput).toBeEditable({ timeout: 10000 });
+  await expect(emailInput).toBeVisible({ timeout: 30000 });
+  await expect(emailInput).toBeEditable({ timeout: 15000 });
 
   // Wait for React hydration to complete
   await page.waitForLoadState("load").catch(() => {});
@@ -72,7 +72,7 @@ async function loginAsClientOwner(
   // Set up response promise to capture login response
   const loginResponsePromise = page.waitForResponse(
     (resp) => resp.url().includes("/api/auth/login"),
-    { timeout: 30000 },
+    { timeout: 45000 },
   );
 
   // Click submit button
@@ -91,7 +91,7 @@ async function loginAsClientOwner(
   }
 
   // Wait for navigation to /client-dashboard
-  await page.waitForURL(/.*client-dashboard.*/, { timeout: 30000 });
+  await page.waitForURL(/.*client-dashboard.*/, { timeout: 45000 });
 
   // Wait for page to be fully loaded
   await page.waitForLoadState("domcontentloaded");
@@ -110,28 +110,30 @@ async function loginAsClientOwner(
  */
 async function waitForBinConfigurationPageLoaded(page: Page): Promise<void> {
   // Wait for the settings page container (always present in all states)
+  // Increase timeout to 30s for CI environments
   await page
     .locator('[data-testid="lottery-bins-settings-page"]')
-    .waitFor({ state: "visible", timeout: 15000 });
+    .waitFor({ state: "visible", timeout: 30000 });
 
   // Wait for either the form OR an empty/error state
+  // Increase timeout to 30s for CI environments
   await Promise.race([
     page
       .locator('[data-testid="bin-configuration-form"]')
-      .waitFor({ state: "visible", timeout: 15000 }),
+      .waitFor({ state: "visible", timeout: 30000 }),
     page
       .getByText(/no stores available/i)
-      .waitFor({ state: "visible", timeout: 15000 }),
+      .waitFor({ state: "visible", timeout: 30000 }),
     page
       .getByText(/failed to load/i)
-      .waitFor({ state: "visible", timeout: 15000 }),
+      .waitFor({ state: "visible", timeout: 30000 }),
   ]).catch(() => {
     // Continue - we'll handle the state in the test
   });
 
-  // Wait for network to settle
+  // Wait for network to settle - increase timeout for CI
   await page
-    .waitForLoadState("networkidle", { timeout: 10000 })
+    .waitForLoadState("networkidle", { timeout: 15000 })
     .catch(() => {});
 }
 
@@ -148,13 +150,14 @@ async function waitForBinConfigurationPageLoaded(page: Page): Promise<void> {
  */
 async function waitForLotteryPageLoaded(page: Page): Promise<void> {
   // Wait for the lottery page container
+  // Increase timeout to 30s for CI environments
   await page
     .locator('[data-testid="client-dashboard-lottery-page"]')
-    .waitFor({ state: "visible", timeout: 15000 });
+    .waitFor({ state: "visible", timeout: 30000 });
 
   // Wait for tabs to be visible - use text content selector for reliability
   await expect(page.getByRole("tab", { name: "Inventory" })).toBeVisible({
-    timeout: 10000,
+    timeout: 15000,
   });
 
   // Wait for DOM to settle
@@ -327,17 +330,17 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     // Wait for bin configuration form to load with bins
     await page
       .locator('[data-testid="bin-configuration-form"]')
-      .waitFor({ state: "visible", timeout: 15000 });
+      .waitFor({ state: "visible", timeout: 30000 });
 
     // THEN: Add bin button should be visible (BinConfigurationForm.tsx line 329)
     await expect(page.locator('[data-testid="add-bin-button"]')).toBeVisible({
-      timeout: 10000,
+      timeout: 15000,
     });
 
     // Wait for form to initialize with bins (default 24 bins per BinConfigurationForm.tsx line 86-91)
     const firstBinNameInput = page.locator('[data-testid="bin-name-input-0"]');
-    await expect(firstBinNameInput).toBeVisible({ timeout: 15000 });
-    await expect(firstBinNameInput).toBeEditable({ timeout: 5000 });
+    await expect(firstBinNameInput).toBeVisible({ timeout: 20000 });
+    await expect(firstBinNameInput).toBeEditable({ timeout: 10000 });
 
     // Change the name to something different to trigger hasChanges state
     await firstBinNameInput.click();
@@ -556,7 +559,7 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
 
     // Wait for form to load with bins
     await expect(page.locator('[data-testid="bin-name-input-0"]')).toBeVisible({
-      timeout: 15000,
+      timeout: 30000,
     });
 
     // AND: I clear the first bin name (make it empty to trigger validation)
@@ -796,8 +799,8 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     // Wait for bins to load (need at least 2 bins to test reordering)
     const firstBinInput = page.locator('[data-testid="bin-name-input-0"]');
     const secondBinInput = page.locator('[data-testid="bin-name-input-1"]');
-    await expect(firstBinInput).toBeVisible({ timeout: 15000 });
-    await expect(secondBinInput).toBeVisible({ timeout: 5000 });
+    await expect(firstBinInput).toBeVisible({ timeout: 30000 });
+    await expect(secondBinInput).toBeVisible({ timeout: 15000 });
 
     // First, set unique and known names for both bins to ensure reliable testing
     // This avoids any dependency on previous test state
