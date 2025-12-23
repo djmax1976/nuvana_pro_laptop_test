@@ -47,6 +47,7 @@ import { useShiftDetail } from "@/lib/api/shifts";
 import {
   CloseDayModal,
   type LotteryCloseResult,
+  type ScannedBin,
 } from "@/components/lottery/CloseDayModal";
 import { ShiftClosingForm } from "@/components/shifts/ShiftClosingForm";
 
@@ -116,6 +117,8 @@ export default function ShiftEndPage() {
   const [lotteryData, setLotteryData] = useState<LotteryCloseResult | null>(
     null,
   );
+  // Scanned bins state - persists when modal is closed until day is closed
+  const [scannedBins, setScannedBins] = useState<ScannedBin[]>([]);
 
   // Shift closing form state
   const [shiftClosingFormOpen, setShiftClosingFormOpen] = useState(false);
@@ -378,6 +381,8 @@ export default function ShiftEndPage() {
           open={closeDayModalOpen}
           onOpenChange={setCloseDayModalOpen}
           onSuccessWithData={handleLotterySuccess}
+          scannedBins={scannedBins}
+          onScannedBinsChange={setScannedBins}
         />
       )}
 

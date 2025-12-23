@@ -6422,6 +6422,61 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           }
         }
 
+        // Look for the most recent CLOSED day's ending serials to use as starting serials
+        // This handles two scenarios:
+        // 1. No LotteryDayPack for today yet -> use previous closed day's ending serials
+        // 2. Today's LotteryBusinessDay exists but is CLOSED -> use today's ending serials as "current" position
+        //    (for when the same calendar day has been closed and we need to show where we are now)
+        const previousDayEndingByPack = new Map<string, string>();
+
+        // If today's day is CLOSED, use today's ending serials as the "current" position
+        // This handles the case where you close the lottery day and want to see where you ended up
+        if (
+          lotteryBusinessDay?.status === "CLOSED" &&
+          lotteryBusinessDay.day_packs.length > 0
+        ) {
+          for (const dayPack of lotteryBusinessDay.day_packs) {
+            if (dayPack.ending_serial) {
+              previousDayEndingByPack.set(
+                dayPack.pack_id,
+                dayPack.ending_serial,
+              );
+            }
+          }
+        } else if (
+          !lotteryBusinessDay ||
+          lotteryBusinessDay.day_packs.length === 0
+        ) {
+          // Find the most recent closed LotteryBusinessDay for this store (any prior day)
+          const previousClosedDay = await prisma.lotteryBusinessDay.findFirst({
+            where: {
+              store_id: params.storeId,
+              status: "CLOSED",
+              business_date: { lt: targetDate },
+            },
+            orderBy: { business_date: "desc" },
+            include: {
+              day_packs: {
+                where: {
+                  pack_id: { in: activePackIds },
+                  ending_serial: { not: null },
+                },
+              },
+            },
+          });
+
+          if (previousClosedDay?.day_packs) {
+            for (const dayPack of previousClosedDay.day_packs) {
+              if (dayPack.ending_serial) {
+                previousDayEndingByPack.set(
+                  dayPack.pack_id,
+                  dayPack.ending_serial,
+                );
+              }
+            }
+          }
+        }
+
         // Build bin response data
         const binsData = bins.map((bin) => {
           const pack = bin.packs[0] || null;
@@ -6437,8 +6492,10 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           }
 
           // Determine starting serial:
-          // Priority 1: Use LotteryDayPack data if available (new day-based tracking)
-          // Priority 2: Use shift-based data (backward compatibility)
+          // Priority 1: If there's a closed day ending serial (either today closed, or previous day closed)
+          //             -> use that as the current/starting position
+          // Priority 2: Use LotteryDayPack data if available for today and day is OPEN (day-based tracking)
+          // Priority 3: Use shift-based data (backward compatibility)
           //   a. If opened today -> use today's opening serial
           //   b. If no opening today but has history -> use most recent closing serial
           //   c. If no history -> use pack's serial_start
@@ -6446,8 +6503,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           let endingSerial: string | null;
 
           const dayPackData = dayPackByPackId.get(pack.pack_id);
-          if (dayPackData) {
-            // Use day-based tracking data
+
+          if (previousDayEndingByPack.has(pack.pack_id)) {
+            // Use closed day's ending serial as the current/starting position
+            // This handles: today closed (show where we ended), or new day after close (carry forward)
+            startingSerial = previousDayEndingByPack.get(pack.pack_id)!;
+            endingSerial = null; // No new ending yet for the next period
+          } else if (dayPackData && lotteryBusinessDay?.status === "OPEN") {
+            // Use day-based tracking data for today (only if day is still OPEN)
             startingSerial = dayPackData.starting_serial;
             endingSerial = dayPackData.ending_serial;
           } else {
@@ -6798,14 +6861,25 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           dayStartUtc.getTime() + 24 * 60 * 60 * 1000 - 1,
         );
 
-        // Find the most recent shift for today
-        const todayShifts = await prisma.shift.findMany({
+        // Find eligible shifts: either opened today OR currently open (regardless of when opened)
+        // This handles cases where a shift opened yesterday is still active
+        const eligibleShifts = await prisma.shift.findMany({
           where: {
             store_id: params.storeId,
-            opened_at: {
-              gte: dayStartUtc,
-              lte: dayEndUtc,
-            },
+            OR: [
+              // Shifts opened today
+              {
+                opened_at: {
+                  gte: dayStartUtc,
+                  lte: dayEndUtc,
+                },
+              },
+              // Currently open shifts (opened any time, not yet closed)
+              {
+                closed_at: null,
+                status: "OPEN",
+              },
+            ],
           },
           orderBy: { opened_at: "desc" },
           select: {
@@ -6816,7 +6890,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           },
         });
 
-        if (todayShifts.length === 0) {
+        if (eligibleShifts.length === 0) {
           reply.code(400);
           return {
             success: false,
@@ -6828,8 +6902,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Use the most recent shift for today
-        const targetShift = todayShifts[0];
+        // Prefer the most recent shift opened today, otherwise use the currently open shift
+        const todayShifts = eligibleShifts.filter(
+          (s) => s.opened_at >= dayStartUtc && s.opened_at <= dayEndUtc,
+        );
+        const targetShift =
+          todayShifts.length > 0 ? todayShifts[0] : eligibleShifts[0];
 
         // Get all active bins with their active packs for the store
         const activeBins = await prisma.lotteryBin.findMany({

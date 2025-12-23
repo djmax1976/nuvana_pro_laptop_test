@@ -25,7 +25,10 @@ import {
 import { DayBinsTable } from "@/components/lottery/DayBinsTable";
 import { DepletedPacksSection } from "@/components/lottery/DepletedPacksSection";
 import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
-import { CloseDayModal } from "@/components/lottery/CloseDayModal";
+import {
+  CloseDayModal,
+  type ScannedBin,
+} from "@/components/lottery/CloseDayModal";
 import {
   PackActivationForm,
   type PackOption,
@@ -97,6 +100,8 @@ export default function LotteryManagementPage() {
   const [receptionDialogOpen, setReceptionDialogOpen] = useState(false);
   const [activationDialogOpen, setActivationDialogOpen] = useState(false);
   const [closeDayDialogOpen, setCloseDayDialogOpen] = useState(false);
+  // Scanned bins state - persists when modal is closed until day is closed
+  const [scannedBins, setScannedBins] = useState<ScannedBin[]>([]);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -446,6 +451,21 @@ export default function LotteryManagementPage() {
         day: "numeric",
       });
 
+  // Format day start time if available
+  const dayStartTime = dayBinsData?.business_day?.first_shift_opened_at
+    ? new Date(dayBinsData.business_day.first_shift_opened_at).toLocaleString(
+        undefined,
+        {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        },
+      )
+    : null;
+
   // Convert pack details to modal format
   // Note: Convert null to undefined for location since PackDetailsData expects string | undefined
   const packDetailsForModal: PackDetailsData | null = packDetails
@@ -502,6 +522,11 @@ export default function LotteryManagementPage() {
           <p className="text-muted-foreground">
             {storeName} &bull; {currentDate}
           </p>
+          {dayStartTime && (
+            <p className="text-sm text-muted-foreground">
+              Day started: {dayStartTime}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -686,6 +711,8 @@ export default function LotteryManagementPage() {
             setSuccessMessage("Lottery day closed successfully");
             setTimeout(() => setSuccessMessage(null), 5000);
           }}
+          scannedBins={scannedBins}
+          onScannedBinsChange={setScannedBins}
         />
       )}
 

@@ -971,4 +971,263 @@ export async function authRoutes(fastify: FastifyInstance) {
       }
     },
   );
+
+  /**
+   * Verify user credentials and check permission
+   * POST /api/auth/verify-user-permission
+   * Re-authenticates a user via email/password and checks if they have the required permission
+   * Used for manual entry authorization in lottery management (MyStore dashboard)
+   *
+   * MCP Guidance Applied:
+   * - API-001: VALIDATION - Zod schema validation for request body
+   * - API-003: ERROR_HANDLING - Generic errors, no stack traces leaked
+   * - API-004: AUTHENTICATION - Secure password verification with bcrypt
+   * - SEC-006: SQL_INJECTION - Parameterized queries via Prisma ORM
+   */
+  const verifyUserPermissionSchema = z.object({
+    email: z.string().email("Email must be a valid email address"),
+    password: z.string().min(1, "Password is required"),
+    permission: z.enum(["LOTTERY_MANUAL_ENTRY"], {
+      errorMap: () => ({ message: "Invalid permission requested" }),
+    }),
+    storeId: z.string().uuid("storeId must be a valid UUID"),
+  });
+
+  fastify.post(
+    "/api/auth/verify-user-permission",
+    {
+      schema: {
+        description: "Verify user credentials and check permission",
+        tags: ["auth"],
+        body: {
+          type: "object",
+          properties: {
+            email: {
+              type: "string",
+              format: "email",
+              description: "User email address",
+            },
+            password: {
+              type: "string",
+              description: "User password",
+            },
+            permission: {
+              type: "string",
+              enum: ["LOTTERY_MANUAL_ENTRY"],
+              description: "Permission to check",
+            },
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID for permission scope",
+            },
+          },
+          required: ["email", "password", "permission", "storeId"],
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              valid: { type: "boolean" },
+              userId: { type: "string", format: "uuid" },
+              name: { type: "string" },
+              hasPermission: { type: "boolean" },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              valid: { type: "boolean" },
+              error: { type: "string" },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              valid: { type: "boolean" },
+              error: { type: "string" },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              valid: { type: "boolean" },
+              error: { type: "string" },
+            },
+          },
+        },
+      },
+      preHandler: [authMiddleware], // Requires authenticated session to make the request
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // API-001: VALIDATION - Validate request body with Zod schema
+        const parseResult = verifyUserPermissionSchema.safeParse(request.body);
+        if (!parseResult.success) {
+          reply.code(400);
+          return {
+            valid: false,
+            error: parseResult.error.issues[0]?.message || "Invalid request",
+          };
+        }
+
+        const { email, password, permission, storeId } = parseResult.data;
+        const requestingUser = (request as unknown as { user: UserIdentity })
+          .user;
+        const auditContext = getAuditContext(request, requestingUser);
+
+        // Step 1: Find user by email
+        // SEC-006: SQL_INJECTION - Use parameterized query via Prisma ORM
+        const user = await prisma.user.findUnique({
+          where: { email: email.toLowerCase().trim() },
+          select: {
+            user_id: true,
+            email: true,
+            password_hash: true,
+            status: true,
+            name: true,
+          },
+        });
+
+        if (!user) {
+          // Log failed authentication attempt (user not found)
+          await prisma.auditLog.create({
+            data: {
+              user_id: requestingUser.id,
+              action: "MANUAL_ENTRY_AUTH_FAILURE",
+              table_name: "users",
+              record_id: requestingUser.id, // Use requesting user as record since target doesn't exist
+              new_values: {
+                reason: "User not found",
+                email: email.toLowerCase().trim(),
+                store_id: storeId,
+                permission: permission,
+              },
+              ip_address: auditContext.ipAddress,
+              user_agent: auditContext.userAgent,
+            },
+          });
+
+          reply.code(401);
+          return {
+            valid: false,
+            error: "Invalid email or password",
+          };
+        }
+
+        // Step 2: Check if user is active
+        if (user.status !== "ACTIVE") {
+          await prisma.auditLog.create({
+            data: {
+              user_id: requestingUser.id,
+              action: "MANUAL_ENTRY_AUTH_FAILURE",
+              table_name: "users",
+              record_id: user.user_id,
+              new_values: {
+                reason: "User account inactive",
+                store_id: storeId,
+                permission: permission,
+                user_status: user.status,
+              },
+              ip_address: auditContext.ipAddress,
+              user_agent: auditContext.userAgent,
+            },
+          });
+
+          reply.code(401);
+          return {
+            valid: false,
+            error: "User account is not active",
+          };
+        }
+
+        // Step 3: Verify password
+        // API-004: AUTHENTICATION - Secure password verification with bcrypt
+        if (!user.password_hash) {
+          reply.code(401);
+          return {
+            valid: false,
+            error: "Invalid email or password",
+          };
+        }
+
+        const passwordValid = await bcrypt.compare(
+          password,
+          user.password_hash,
+        );
+        if (!passwordValid) {
+          // Log failed authentication attempt (invalid password)
+          await prisma.auditLog.create({
+            data: {
+              user_id: requestingUser.id,
+              action: "MANUAL_ENTRY_AUTH_FAILURE",
+              table_name: "users",
+              record_id: user.user_id,
+              new_values: {
+                reason: "Invalid password",
+                store_id: storeId,
+                permission: permission,
+              },
+              ip_address: auditContext.ipAddress,
+              user_agent: auditContext.userAgent,
+            },
+          });
+
+          reply.code(401);
+          return {
+            valid: false,
+            error: "Invalid email or password",
+          };
+        }
+
+        // Step 4: Check permission using RBAC service
+        const rbacService = new RBACService();
+        const hasPermission = await rbacService.checkPermission(
+          user.user_id,
+          PERMISSIONS.LOTTERY_MANUAL_ENTRY,
+          {
+            storeId: storeId,
+          },
+        );
+
+        // Log successful authentication and permission check
+        await prisma.auditLog.create({
+          data: {
+            user_id: requestingUser.id,
+            action: "MANUAL_ENTRY_AUTH_SUCCESS",
+            table_name: "users",
+            record_id: user.user_id,
+            new_values: {
+              reason: "User credentials verified for manual entry",
+              store_id: storeId,
+              permission: permission,
+              has_permission: hasPermission,
+              authorized_user_id: user.user_id,
+              authorized_user_name: user.name,
+            },
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+          },
+        });
+
+        // Return result
+        reply.code(200);
+        return {
+          valid: true,
+          userId: user.user_id,
+          name: user.name,
+          hasPermission: hasPermission,
+        };
+      } catch (error: unknown) {
+        // API-003: ERROR_HANDLING - Generic error message, don't leak implementation details
+        fastify.log.error({ error }, "Error verifying user permission");
+
+        reply.code(500);
+        return {
+          valid: false,
+          error: "Failed to verify user permission",
+        };
+      }
+    },
+  );
 }

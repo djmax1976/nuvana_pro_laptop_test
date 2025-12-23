@@ -9,6 +9,8 @@
  * @priority P0 (Critical - Core User Journey)
  * @updated 2025-12-16 - SKIPPED: Route /mystore/terminal/shift-closing/lottery was removed.
  *                       Lottery functionality moved to /mystore/lottery. Tests need update.
+ * @updated 2025-12-23 - Updated to use new email/password authentication flow instead of
+ *                       cashier PIN verification. Now uses POST /api/auth/verify-user-permission.
  *
  * NOTE: These tests require a running frontend and backend with authentication.
  * Tests mock API responses but require valid session cookies for authenticated routes.
@@ -233,14 +235,16 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
         }),
     );
 
-    // Mock cashier permission verification (successful)
-    await page.route("**/api/auth/verify-cashier-permission", (route) =>
+    // Mock user permission verification (successful)
+    // NOTE: Updated from verify-cashier-permission to verify-user-permission
+    // Now uses email/password instead of cashier PIN
+    await page.route("**/api/auth/verify-user-permission", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
           valid: true,
-          userId: testCashierId,
+          userId: testUserId,
           name: "Shift Manager",
           hasPermission: true,
         }),
@@ -304,12 +308,10 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
       page.locator('[data-testid="manual-entry-auth-modal"]'),
     ).toBeVisible({ timeout: 5000 });
 
-    // WHEN: User selects cashier and enters PIN
-    await page.click('[data-testid="cashier-dropdown"]');
-    // Wait for dropdown to open and select cashier
-    await page.waitForSelector('[role="option"]', { timeout: 5000 });
-    await page.click('text="Shift Manager"');
-    await page.fill('[data-testid="pin-input"]', "1234");
+    // WHEN: User enters email and password for authorization
+    // NOTE: Updated from cashier/PIN to email/password
+    await page.fill('[data-testid="email-input"]', "manager@example.com");
+    await page.fill('[data-testid="password-input"]', "securePassword123");
     await page.click('[data-testid="verify-button"]');
 
     // THEN: Modal closes and manual entry mode activates
@@ -354,7 +356,7 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
     expect(closeRequest!.closings.length).toBeGreaterThan(0);
     expect(closeRequest!.closings[0].entry_method).toBe("MANUAL");
     expect(closeRequest!.closings[0].manual_entry_authorized_by).toBe(
-      testCashierId,
+      testUserId,
     );
     expect(closeRequest!.closings[0].manual_entry_authorized_at).toBeDefined();
     expect(closeRequest!.closed_by).toBe(testUserId);
@@ -409,14 +411,15 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
         }),
     );
 
-    // Mock API to return invalid PIN error
-    await page.route("**/api/auth/verify-cashier-permission", (route) =>
+    // Mock API to return invalid credentials error
+    // NOTE: Updated from verify-cashier-permission to verify-user-permission
+    await page.route("**/api/auth/verify-user-permission", (route) =>
       route.fulfill({
         status: 401,
         contentType: "application/json",
         body: JSON.stringify({
           valid: false,
-          error: "Invalid PIN",
+          error: "Invalid email or password",
         }),
       }),
     );
@@ -437,17 +440,15 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
       timeout: 10000,
     });
 
-    // WHEN: User attempts manual entry with invalid PIN
+    // WHEN: User attempts manual entry with invalid credentials
+    // NOTE: Updated from cashier/PIN to email/password
     await page.click('[data-testid="manual-entry-button"]');
     await expect(
       page.locator('[data-testid="manual-entry-auth-modal"]'),
     ).toBeVisible({ timeout: 5000 });
 
-    await page.click('[data-testid="cashier-dropdown"]');
-    // Wait for dropdown to open
-    await page.waitForSelector('[role="option"]', { timeout: 5000 });
-    await page.click('text="Shift Manager"');
-    await page.fill('[data-testid="pin-input"]', "9999"); // Invalid PIN
+    await page.fill('[data-testid="email-input"]', "wrong@example.com");
+    await page.fill('[data-testid="password-input"]', "wrongpassword");
     await page.click('[data-testid="verify-button"]');
 
     // THEN: Error message is displayed and modal stays open
@@ -458,7 +459,7 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
 
     await expect(
       page.locator('[data-testid="error-message"]').first(),
-    ).toContainText(/invalid.*pin/i);
+    ).toContainText(/invalid.*email.*password/i);
 
     // Modal should still be visible
     await expect(
@@ -519,14 +520,15 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
     );
 
     // Mock API to return no permission
-    await page.route("**/api/auth/verify-cashier-permission", (route) =>
+    // NOTE: Updated from verify-cashier-permission to verify-user-permission
+    await page.route("**/api/auth/verify-user-permission", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
           valid: true,
-          userId: regularCashierId,
-          name: "Regular Cashier",
+          userId: "regular-user-id",
+          name: "Regular User",
           hasPermission: false, // No permission for manual entry
         }),
       }),
@@ -549,16 +551,14 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
     });
 
     // WHEN: User attempts manual entry without permission
+    // NOTE: Updated from cashier/PIN to email/password
     await page.click('[data-testid="manual-entry-button"]');
     await expect(
       page.locator('[data-testid="manual-entry-auth-modal"]'),
     ).toBeVisible({ timeout: 5000 });
 
-    await page.click('[data-testid="cashier-dropdown"]');
-    // Wait for dropdown to open
-    await page.waitForSelector('[role="option"]', { timeout: 5000 });
-    await page.click('text="Regular Cashier"');
-    await page.fill('[data-testid="pin-input"]', "1234");
+    await page.fill('[data-testid="email-input"]', "regular@example.com");
+    await page.fill('[data-testid="password-input"]', "password123");
     await page.click('[data-testid="verify-button"]');
 
     // THEN: Authorization error is displayed and modal stays open
@@ -611,35 +611,17 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
       ),
     );
 
-    // Mock active shift cashiers
-    await page.route(
-      `**/api/stores/${testStoreId}/active-shift-cashiers`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            success: true,
-            data: [
-              {
-                id: testCashierId,
-                name: "Shift Manager",
-                shiftId: testShiftId,
-              },
-            ],
-          }),
-        }),
-    );
-
     // Intercept and capture API request structure
+    // NOTE: Updated from verify-cashier-permission to verify-user-permission
+    // Now captures email/password instead of cashierId/pin
     let verifyRequest: {
-      cashierId: string;
-      pin: string;
+      email: string;
+      password: string;
       permission: string;
       storeId: string;
     } | null = null;
 
-    await page.route("**/api/auth/verify-cashier-permission", async (route) => {
+    await page.route("**/api/auth/verify-user-permission", async (route) => {
       const request = route.request();
       verifyRequest = await request.postDataJSON();
       await route.fulfill({
@@ -647,7 +629,7 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
         contentType: "application/json",
         body: JSON.stringify({
           valid: true,
-          userId: testCashierId,
+          userId: testUserId,
           name: "Shift Manager",
           hasPermission: true,
         }),
@@ -675,11 +657,9 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
       page.locator('[data-testid="manual-entry-auth-modal"]'),
     ).toBeVisible({ timeout: 5000 });
 
-    await page.click('[data-testid="cashier-dropdown"]');
-    // Wait for dropdown to open
-    await page.waitForSelector('[role="option"]', { timeout: 5000 });
-    await page.click('text="Shift Manager"');
-    await page.fill('[data-testid="pin-input"]', "1234");
+    // NOTE: Updated from cashier/PIN to email/password
+    await page.fill('[data-testid="email-input"]', "manager@example.com");
+    await page.fill('[data-testid="password-input"]', "securePassword123");
     await page.click('[data-testid="verify-button"]');
 
     // THEN: API request has correct structure
@@ -689,8 +669,8 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
     ).not.toBeVisible({ timeout: 5000 });
 
     expect(verifyRequest).not.toBeNull();
-    expect(verifyRequest!.cashierId).toBe(testCashierId);
-    expect(verifyRequest!.pin).toBe("1234");
+    expect(verifyRequest!.email).toBe("manager@example.com");
+    expect(verifyRequest!.password).toBe("securePassword123");
     expect(verifyRequest!.permission).toBe("LOTTERY_MANUAL_ENTRY");
     expect(verifyRequest!.storeId).toBe(testStoreId);
 
@@ -704,7 +684,7 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
   // 🔒 SECURITY TESTS (Mandatory for auth flows)
   // ============================================================================
 
-  test("10-4-E2E-SEC-001: should not expose PIN in UI after entry", async ({
+  test("10-4-E2E-SEC-001: should not expose password in UI after entry", async ({
     page,
   }) => {
     // Mock lottery closing data
@@ -729,34 +709,15 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
       ),
     );
 
-    // Mock active shift cashiers
-    await page.route(
-      `**/api/stores/${testStoreId}/active-shift-cashiers`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            success: true,
-            data: [
-              {
-                id: testCashierId,
-                name: "Shift Manager",
-                shiftId: testShiftId,
-              },
-            ],
-          }),
-        }),
-    );
-
     // Mock successful verification
-    await page.route("**/api/auth/verify-cashier-permission", (route) =>
+    // NOTE: Updated from verify-cashier-permission to verify-user-permission
+    await page.route("**/api/auth/verify-user-permission", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
           valid: true,
-          userId: testCashierId,
+          userId: testUserId,
           name: "Shift Manager",
           hasPermission: true,
         }),
@@ -784,16 +745,17 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
       page.locator('[data-testid="manual-entry-auth-modal"]'),
     ).toBeVisible({ timeout: 5000 });
 
-    // WHEN: User enters PIN
-    const pinInput = page.locator('[data-testid="pin-input"]');
-    await pinInput.fill("1234");
+    // WHEN: User enters password
+    // NOTE: Updated from PIN to password input
+    const passwordInput = page.locator('[data-testid="password-input"]');
+    await passwordInput.fill("securePassword123");
 
-    // THEN: PIN input should be masked (type="password")
-    await expect(pinInput).toHaveAttribute("type", "password");
+    // THEN: Password input should be masked (type="password")
+    await expect(passwordInput).toHaveAttribute("type", "password");
 
-    // AND: PIN value should not be visible as plain text in the input's value display
-    // The actual value attribute should contain the PIN, but it should be rendered as dots
-    await expect(pinInput).toHaveValue("1234");
+    // AND: Password value should not be visible as plain text in the input's value display
+    // The actual value attribute should contain the password, but it should be rendered as dots
+    await expect(passwordInput).toHaveValue("securePassword123");
   });
 
   test("10-4-E2E-SEC-002: should clear form on modal cancel", async ({
@@ -821,26 +783,6 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
       ),
     );
 
-    // Mock active shift cashiers
-    await page.route(
-      `**/api/stores/${testStoreId}/active-shift-cashiers`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            success: true,
-            data: [
-              {
-                id: testCashierId,
-                name: "Shift Manager",
-                shiftId: testShiftId,
-              },
-            ],
-          }),
-        }),
-    );
-
     // GIVEN: User is on Lottery Shift Closing page
     await page.goto(
       `/mystore/terminal/shift-closing/lottery?shiftId=${testShiftId}`,
@@ -862,10 +804,9 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
       page.locator('[data-testid="manual-entry-auth-modal"]'),
     ).toBeVisible({ timeout: 5000 });
 
-    await page.click('[data-testid="cashier-dropdown"]');
-    await page.waitForSelector('[role="option"]', { timeout: 5000 });
-    await page.click('text="Shift Manager"');
-    await page.fill('[data-testid="pin-input"]', "1234");
+    // NOTE: Updated from cashier/PIN to email/password
+    await page.fill('[data-testid="email-input"]', "manager@example.com");
+    await page.fill('[data-testid="password-input"]', "securePassword123");
 
     // WHEN: User cancels
     await page.click('[data-testid="cancel-button"]');
@@ -881,12 +822,10 @@ test.describe.skip("10-4-E2E: Manual Entry Flow (Critical Journey)", () => {
       page.locator('[data-testid="manual-entry-auth-modal"]'),
     ).toBeVisible({ timeout: 5000 });
 
-    // PIN should be empty
-    await expect(page.locator('[data-testid="pin-input"]')).toHaveValue("");
-
-    // Cashier dropdown should show placeholder
-    await expect(
-      page.locator('[data-testid="cashier-dropdown"]'),
-    ).toContainText(/select.*cashier/i);
+    // Email and password should be empty
+    await expect(page.locator('[data-testid="email-input"]')).toHaveValue("");
+    await expect(page.locator('[data-testid="password-input"]')).toHaveValue(
+      "",
+    );
   });
 });

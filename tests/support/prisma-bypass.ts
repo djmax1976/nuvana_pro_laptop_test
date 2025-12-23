@@ -7,17 +7,16 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { PrismaClient } from "@prisma/client";
+import { assertDatabaseSafeForTests } from "./config/database-protection";
 
 // =============================================================================
-// DATABASE PROTECTION - Block prod/staging databases in test code
+// DATABASE PROTECTION - Uses centralized config
 // =============================================================================
-const dbUrl = process.env.DATABASE_URL || "";
-// Only block production/staging - allow nuvana_dev and nuvana_test for local development
-if (/nuvana_prod|nuvana_production|nuvana_staging|_prod$/i.test(dbUrl)) {
-  throw new Error(
-    `🚨 BLOCKED: Cannot use prisma-bypass with production database: ${dbUrl}`,
-  );
-}
+// Validation logic is centralized in ./config/database-protection.ts
+// This ensures consistency across Vitest, Playwright, and all test infrastructure.
+// =============================================================================
+
+assertDatabaseSafeForTests();
 
 /**
  * Create a Prisma client that bypasses RLS (Row-Level Security) for test cleanup
