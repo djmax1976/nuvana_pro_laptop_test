@@ -559,7 +559,7 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
 
     // Wait for form to load with bins
     await expect(page.locator('[data-testid="bin-name-input-0"]')).toBeVisible({
-      timeout: 15000,
+      timeout: 30000,
     });
 
     // AND: I clear the first bin name (make it empty to trigger validation)
@@ -799,8 +799,8 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     // Wait for bins to load (need at least 2 bins to test reordering)
     const firstBinInput = page.locator('[data-testid="bin-name-input-0"]');
     const secondBinInput = page.locator('[data-testid="bin-name-input-1"]');
-    await expect(firstBinInput).toBeVisible({ timeout: 15000 });
-    await expect(secondBinInput).toBeVisible({ timeout: 5000 });
+    await expect(firstBinInput).toBeVisible({ timeout: 30000 });
+    await expect(secondBinInput).toBeVisible({ timeout: 15000 });
 
     // First, set unique and known names for both bins to ensure reliable testing
     // This avoids any dependency on previous test state

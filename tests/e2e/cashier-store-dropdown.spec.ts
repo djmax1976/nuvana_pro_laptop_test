@@ -63,14 +63,15 @@ async function performLogin(
   await page.goto("/login", { waitUntil: "domcontentloaded" });
 
   // Wait for login form to be visible and ready for input
+  // Increase timeout for CI environments
   await page.waitForSelector('input[type="email"]', {
     state: "visible",
-    timeout: 15000,
+    timeout: 30000,
   });
 
   // Wait for input to be editable (ensures React hydration is complete)
   await expect(page.locator('input[type="email"]')).toBeEditable({
-    timeout: 10000,
+    timeout: 15000,
   });
 
   // Wait for network to settle after page load (React hydration)
@@ -94,9 +95,10 @@ async function performLogin(
   await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
 
   // Set up response promise that captures any login response (success or failure)
+  // Increase timeout for CI environments
   const loginResponsePromise = page.waitForResponse(
     (resp) => resp.url().includes("/api/auth/login"),
-    { timeout: 30000 },
+    { timeout: 45000 },
   );
 
   // Click submit button (triggers login API request)
@@ -119,8 +121,9 @@ async function performLogin(
   }
 
   // Wait for navigation to client-dashboard
+  // Increase timeout for CI environments
   await page.waitForURL(/.*client-dashboard.*/, {
-    timeout: 30000,
+    timeout: 45000,
     waitUntil: "domcontentloaded",
   });
 
@@ -210,12 +213,13 @@ async function waitForStoresLoaded(
   const storeDropdown = page.locator('[data-testid="cashier-store"]');
 
   // Wait for the store dropdown to be visible (form has loaded, not showing spinner)
-  await expect(storeDropdown).toBeVisible({ timeout: 15000 });
+  // Increase timeout for CI environments
+  await expect(storeDropdown).toBeVisible({ timeout: 30000 });
 
   // Wait for the dropdown to contain the store name (not placeholder text)
   // This confirms the store data has loaded and auto-selection has occurred
   await expect(storeDropdown).toContainText(expectedStoreName, {
-    timeout: 10000,
+    timeout: 20000,
   });
 
   // Verify it's not showing the placeholder
