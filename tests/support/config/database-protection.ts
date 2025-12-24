@@ -6,8 +6,8 @@
  *
  * POLICY:
  * - Production/staging databases are ALWAYS blocked (tests will crash immediately)
- * - Test database (nuvana_test) is the PRIMARY test database
- * - Dev database (nuvana_dev) is ALLOWED for local development testing
+ * - Test database (nuvana_test) is the ONLY allowed database for testing
+ * - Dev database (nuvana_dev) is NOT allowed - protects development data from test cleanup
  *
  * This file is imported by:
  * - vitest-setup.ts (unit/component tests)
@@ -210,15 +210,15 @@ function formatMissingDatabaseError(): string {
 ╔══════════════════════════════════════════════════════════════════════╗
 ║  DATABASE_URL REQUIRED                                               ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  Tests require DATABASE_URL pointing to a test database.             ║
+║  Tests require DATABASE_URL pointing to nuvana_test.                 ║
 ║                                                                      ║
-║  For local development, use one of:                                  ║
+║  Required:                                                           ║
 ║  DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nuvana_test
-║  DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nuvana_dev
 ║                                                                      ║
 ║  Run tests with npm scripts (DATABASE_URL is set automatically):    ║
 ║  npm run test:api                                                    ║
 ║  npm run test:unit                                                   ║
+║  npm run test:e2e                                                    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 `;
 }
@@ -242,16 +242,18 @@ function formatBlockedDatabaseError(maskedUrl: string): string {
 function formatUnrecognizedDatabaseError(maskedUrl: string): string {
   return `
 ╔══════════════════════════════════════════════════════════════════════╗
-║  ⚠️  UNRECOGNIZED DATABASE - TESTS BLOCKED ⚠️                        ║
+║  ⚠️  WRONG DATABASE - TESTS BLOCKED ⚠️                               ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  DATABASE_URL does not match the allowed test database.              ║
+║  Tests can ONLY run against nuvana_test database.                    ║
 ║                                                                      ║
 ║  Current: ${maskedUrl.substring(0, 55).padEnd(55)}...
 ║                                                                      ║
-║  ONLY ALLOWED DATABASE: nuvana_test                                  ║
+║  nuvana_dev is NOT allowed - it contains development data.           ║
 ║                                                                      ║
-║  Set DATABASE_URL to:                                                ║
-║  postgresql://postgres:postgres@localhost:5432/nuvana_test           ║
+║  Use npm scripts which set DATABASE_URL automatically:               ║
+║  npm run test:api                                                    ║
+║  npm run test:unit                                                   ║
+║  npm run test:e2e                                                    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 `;
 }

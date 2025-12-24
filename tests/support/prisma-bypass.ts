@@ -1,9 +1,7 @@
 import { config } from "dotenv";
-// Load environment variables from .env.local as defaults
-// IMPORTANT: Do NOT use override: true here - the test script's DATABASE_URL
-// (e.g., nuvana_test) must take precedence over .env.local's DATABASE_URL
-// (e.g., nuvana_dev). Using override would cause fixtures to write to nuvana_dev
-// while the backend reads from nuvana_test, causing 401 errors.
+// Load environment variables from .env.local as defaults for non-DB vars (JWT secrets, etc.)
+// IMPORTANT: Do NOT use override: true - test scripts set DATABASE_URL=nuvana_test
+// via cross-env, which MUST take precedence over .env.local's nuvana_dev setting.
 config({ path: ".env.local" });
 
 import { PrismaClient } from "@prisma/client";
