@@ -8,7 +8,8 @@ import {
   useClientAuth,
 } from "@/contexts/ClientAuthContext";
 import { CashierSessionProvider } from "@/contexts/CashierSessionContext";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "@/lib/query-client-factory";
 
 /**
  * Inner layout component that uses client auth context
@@ -70,6 +71,10 @@ function MyStoreDashboardLayoutInner({
  * (CLIENT_USER, STORE_MANAGER, SHIFT_MANAGER, CASHIER)
  * Redirects CLIENT_OWNER to /client-dashboard
  *
+ * Session Expiration Handling:
+ * Uses createQueryClient() which includes global 401 error handlers.
+ * When any API returns 401, user is automatically redirected to /login.
+ *
  * @requirements
  * - AC #1: Redirect store-level users to /mystore dashboard
  * - AC #2: Redirect CLIENT_OWNER to /client-dashboard (not /mystore)
@@ -80,18 +85,9 @@ export default function MyStoreDashboardRouteLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Create a QueryClient instance per component tree for proper cache isolation
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 30000, // 30 seconds
-            retry: 1,
-          },
-        },
-      }),
-  );
+  // Create a QueryClient with proper 401 handling for session expiration
+  // This ensures users are redirected to login when their session expires
+  const [queryClient] = useState(() => createQueryClient({ staleTime: 30000 }));
 
   return (
     <QueryClientProvider client={queryClient}>

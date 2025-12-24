@@ -40,7 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Trash2, X, Check } from "lucide-react";
+import { Loader2, Trash2, X, Check, AlertTriangle } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -99,6 +99,12 @@ interface PendingBinAssignment {
   gameName: string;
   gamePrice: number;
   serialStart: string;
+  /** If true, will auto-deplete the previous pack in this bin */
+  depletePrevious?: boolean;
+  /** Pack number of the pack that will be depleted (for display) */
+  previousPackNumber?: string;
+  /** Game name of the pack that will be depleted (for display) */
+  previousGameName?: string;
 }
 
 /**
@@ -120,15 +126,29 @@ interface BinWithPack {
   };
 }
 
+/**
+ * Information about an occupied bin for auto-depletion confirmation
+ */
+interface OccupiedBinInfo {
+  binNumber: number;
+  packNumber: string;
+  gameName: string;
+}
+
 interface AddBinModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   storeId: string;
   /**
    * Array of bin numbers that are currently occupied (have an active pack)
-   * These will be excluded from the dropdown selection
+   * Used to show warnings when selecting an occupied bin for auto-depletion
    */
   occupiedBinNumbers: number[];
+  /**
+   * Optional detailed info about occupied bins for auto-depletion warnings
+   * Maps bin number to pack info (pack number, game name)
+   */
+  occupiedBinInfo?: Map<number, OccupiedBinInfo>;
   onBinCreated: (newBin: BinWithPack) => void;
 }
 
@@ -176,6 +196,7 @@ async function validatePackForActivation(
 /**
  * Create bin with pack activation (no shift required for client dashboard)
  * Creates bin, activates pack, and creates all required records in transaction
+ * If deplete_previous is true, will auto-deplete any existing pack in the bin
  */
 async function createBinWithPack(
   storeId: string,
@@ -187,6 +208,7 @@ async function createBinWithPack(
     serial_start: string;
     activated_by: string;
     activated_shift_id?: string | null;
+    deplete_previous?: boolean;
   },
 ): Promise<BinWithPack> {
   const response = await fetch(
@@ -245,6 +267,7 @@ export function AddBinModal({
   onOpenChange,
   storeId,
   occupiedBinNumbers,
+  occupiedBinInfo,
   onBinCreated,
 }: AddBinModalProps) {
   const { user } = useClientAuth();
@@ -261,15 +284,28 @@ export function AddBinModal({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Calculate available bin numbers (exclude occupied and already pending)
+  // Calculate available bin numbers (exclude already pending, but allow occupied with warning)
   const getAvailableBinNumbers = useCallback(() => {
     const pendingBinNumbers = new Set(
       pendingAssignments.map((p) => p.binNumber),
     );
-    const occupiedSet = new Set(occupiedBinNumbers);
     return Array.from({ length: MAX_BIN_NUMBER }, (_, i) => i + 1).filter(
-      (num) => !occupiedSet.has(num) && !pendingBinNumbers.has(num),
+      (num) => !pendingBinNumbers.has(num),
     );
+  }, [pendingAssignments]);
+
+  // Get the first available EMPTY bin number (prioritize empty bins for auto-assignment)
+  const getFirstEmptyBinNumber = useCallback(() => {
+    const pendingBinNumbers = new Set(
+      pendingAssignments.map((p) => p.binNumber),
+    );
+    const occupiedSet = new Set(occupiedBinNumbers);
+    for (let i = 1; i <= MAX_BIN_NUMBER; i++) {
+      if (!occupiedSet.has(i) && !pendingBinNumbers.has(i)) {
+        return i;
+      }
+    }
+    return null; // All bins are occupied or pending
   }, [occupiedBinNumbers, pendingAssignments]);
 
   // Pack validation mutation
@@ -288,6 +324,7 @@ export function AddBinModal({
       serial_start: string;
       activated_by: string;
       activated_shift_id?: string | null;
+      deplete_previous?: boolean;
     }) => createBinWithPack(storeId, data),
   });
 
@@ -389,19 +426,25 @@ export function AddBinModal({
           return;
         }
 
-        // Get next available bin number
+        // Get next available empty bin number (prioritize empty bins)
+        const nextEmptyBin = getFirstEmptyBinNumber();
         const availableBins = getAvailableBinNumbers();
+
         if (availableBins.length === 0) {
           toast({
             title: "No bins available",
-            description: "All bin slots are occupied or pending",
+            description: "All bin slots are pending assignment",
             variant: "destructive",
           });
           clearInputAndFocus();
           return;
         }
 
-        const nextBinNumber = availableBins[0];
+        // Use first empty bin if available, otherwise use first available (which may be occupied)
+        const nextBinNumber = nextEmptyBin ?? availableBins[0];
+        const isOccupied = occupiedBinNumbers.includes(nextBinNumber);
+        const previousPackInfo =
+          isOccupied && occupiedBinInfo?.get(nextBinNumber);
 
         // Auto-add to pending list (same as PackReceptionForm)
         const newAssignment: PendingBinAssignment = {
@@ -412,9 +455,26 @@ export function AddBinModal({
           gameName: validationResult.game!.name,
           gamePrice: validationResult.game!.price,
           serialStart: DEFAULT_STARTING_NUMBER,
+          depletePrevious: isOccupied,
+          previousPackNumber: previousPackInfo
+            ? previousPackInfo.packNumber
+            : undefined,
+          previousGameName: previousPackInfo
+            ? previousPackInfo.gameName
+            : undefined,
         };
 
         setPendingAssignments((prev) => [...prev, newAssignment]);
+
+        // Show warning toast if assigning to an occupied bin
+        if (isOccupied) {
+          toast({
+            title: "Bin occupied - Pack will be marked sold",
+            description: previousPackInfo
+              ? `Bin ${nextBinNumber} has Pack #${previousPackInfo.packNumber} (${previousPackInfo.gameName}). It will be marked as sold when you submit.`
+              : `Bin ${nextBinNumber} already has a pack. It will be marked as sold when you submit.`,
+          });
+        }
         clearInputAndFocus();
       } catch (error) {
         const errorMessage =
@@ -435,6 +495,9 @@ export function AddBinModal({
       clearInputAndFocus,
       validatePackMutation,
       getAvailableBinNumbers,
+      getFirstEmptyBinNumber,
+      occupiedBinNumbers,
+      occupiedBinInfo,
     ],
   );
 
@@ -472,14 +535,41 @@ export function AddBinModal({
   // Handle changing bin number for a pending item
   const handleBinNumberChange = useCallback(
     (id: string, newBinNumber: number) => {
+      const isOccupied = occupiedBinNumbers.includes(newBinNumber);
+      const previousPackInfo = isOccupied && occupiedBinInfo?.get(newBinNumber);
+
       setPendingAssignments((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, binNumber: newBinNumber } : p)),
+        prev.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                binNumber: newBinNumber,
+                depletePrevious: isOccupied,
+                previousPackNumber: previousPackInfo
+                  ? previousPackInfo.packNumber
+                  : undefined,
+                previousGameName: previousPackInfo
+                  ? previousPackInfo.gameName
+                  : undefined,
+              }
+            : p,
+        ),
       );
+
+      // Show warning if user changes to an occupied bin
+      if (isOccupied) {
+        toast({
+          title: "Bin occupied - Pack will be marked sold",
+          description: previousPackInfo
+            ? `Bin ${newBinNumber} has Pack #${previousPackInfo.packNumber}. It will be marked as sold.`
+            : `Bin ${newBinNumber} already has a pack. It will be marked as sold.`,
+        });
+      }
     },
-    [],
+    [occupiedBinNumbers, occupiedBinInfo, toast],
   );
 
-  // Get available bin numbers for a specific pending item (includes its own current bin)
+  // Get available bin numbers for a specific pending item (includes its own current bin, allows occupied)
   const getAvailableBinsForItem = useCallback(
     (currentItemId: string) => {
       const otherPendingBinNumbers = new Set(
@@ -487,12 +577,11 @@ export function AddBinModal({
           .filter((p) => p.id !== currentItemId)
           .map((p) => p.binNumber),
       );
-      const occupiedSet = new Set(occupiedBinNumbers);
       return Array.from({ length: MAX_BIN_NUMBER }, (_, i) => i + 1).filter(
-        (num) => !occupiedSet.has(num) && !otherPendingBinNumbers.has(num),
+        (num) => !otherPendingBinNumbers.has(num),
       );
     },
-    [occupiedBinNumbers, pendingAssignments],
+    [pendingAssignments],
   );
 
   // Handle batch submit
@@ -520,6 +609,7 @@ export function AddBinModal({
           serial_start: assignment.serialStart,
           activated_by: user.id,
           activated_shift_id: null, // No shift required for client dashboard
+          deplete_previous: assignment.depletePrevious, // Auto-deplete if replacing existing pack
         });
 
         // Notify parent for each created bin
@@ -612,7 +702,11 @@ export function AddBinModal({
                 {pendingAssignments.map((assignment) => (
                   <div
                     key={assignment.id}
-                    className="p-3 flex items-center gap-3 hover:bg-muted/50"
+                    className={`p-3 flex items-center gap-3 hover:bg-muted/50 ${
+                      assignment.depletePrevious
+                        ? "bg-amber-50 dark:bg-amber-950/20"
+                        : ""
+                    }`}
                     data-testid={`pending-item-${assignment.id}`}
                   >
                     {/* 1. BIN DROPDOWN (first) */}
@@ -627,29 +721,44 @@ export function AddBinModal({
                       disabled={isSubmitting}
                     >
                       <SelectTrigger
-                        className="w-24"
+                        className={`w-24 ${
+                          assignment.depletePrevious ? "border-amber-500" : ""
+                        }`}
                         data-testid={`bin-select-${assignment.id}`}
                       >
                         <SelectValue placeholder="Bin" />
                       </SelectTrigger>
                       <SelectContent>
                         {getAvailableBinsForItem(assignment.id).map(
-                          (binNum) => (
-                            <SelectItem key={binNum} value={String(binNum)}>
-                              Bin {binNum}
-                            </SelectItem>
-                          ),
+                          (binNum) => {
+                            const isOccupied =
+                              occupiedBinNumbers.includes(binNum);
+                            return (
+                              <SelectItem key={binNum} value={String(binNum)}>
+                                Bin {binNum} {isOccupied ? "(Occupied)" : ""}
+                              </SelectItem>
+                            );
+                          },
                         )}
                       </SelectContent>
                     </Select>
 
                     {/* 2. GAME NAME (second) */}
-                    <span
-                      className="flex-1 font-medium truncate"
-                      data-testid="pending-game-name"
-                    >
-                      {assignment.gameName}
-                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span
+                        className="font-medium truncate block"
+                        data-testid="pending-game-name"
+                      >
+                        {assignment.gameName}
+                      </span>
+                      {/* Show warning about previous pack being depleted */}
+                      {assignment.depletePrevious && (
+                        <span className="text-xs text-amber-600 dark:text-amber-500 truncate block">
+                          Replaces:{" "}
+                          {assignment.previousPackNumber || "existing pack"}
+                        </span>
+                      )}
+                    </div>
 
                     {/* 3. DOLLAR AMOUNT (third) */}
                     <span
@@ -659,11 +768,19 @@ export function AddBinModal({
                       ${assignment.gamePrice.toFixed(2)}
                     </span>
 
-                    {/* 4. GREEN CHECK (fourth) */}
-                    <Check
-                      className="h-5 w-5 text-green-500"
-                      data-testid="valid-check-icon"
-                    />
+                    {/* 4. STATUS ICON - Warning for auto-deplete, Green check otherwise */}
+                    {assignment.depletePrevious ? (
+                      <AlertTriangle
+                        className="h-5 w-5 text-amber-500"
+                        data-testid="deplete-warning-icon"
+                        aria-label="Will mark existing pack as sold"
+                      />
+                    ) : (
+                      <Check
+                        className="h-5 w-5 text-green-500"
+                        data-testid="valid-check-icon"
+                      />
+                    )}
 
                     {/* Remove button */}
                     <Button

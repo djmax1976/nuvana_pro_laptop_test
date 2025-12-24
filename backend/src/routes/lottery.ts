@@ -1767,6 +1767,356 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * POST /api/lottery/packs/:packId/deplete
+   * Manually mark a lottery pack as sold out (depleted)
+   * Protected route - requires LOTTERY_SHIFT_CLOSE permission
+   *
+   * This endpoint allows users to manually mark an ACTIVE pack as DEPLETED
+   * when all tickets have been sold. It creates appropriate audit trails
+   * and closing records.
+   *
+   * MCP Guidance Applied:
+   * - DB-006: TENANT_ISOLATION - Validate user has store access via role scope
+   * - API-001: VALIDATION - Schema validation for request parameters
+   * - API-003: ERROR_HANDLING - Return generic errors, never leak internals
+   * - DB-001: ORM_USAGE - Use Prisma ORM with transactions for atomicity
+   */
+  fastify.post(
+    "/api/lottery/packs/:packId/deplete",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_SHIFT_CLOSE),
+      ],
+      schema: {
+        description: "Manually mark a lottery pack as sold out (depleted)",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["packId"],
+          properties: {
+            packId: {
+              type: "string",
+              format: "uuid",
+              description: "Pack UUID to mark as depleted",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          properties: {
+            closing_serial: {
+              type: "string",
+              maxLength: 100,
+              description:
+                "Optional closing serial number (defaults to pack serial_end)",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  pack_id: { type: "string", format: "uuid" },
+                  pack_number: { type: "string" },
+                  status: { type: "string", enum: ["DEPLETED"] },
+                  depleted_at: { type: "string", format: "date-time" },
+                  depletion_reason: {
+                    type: "string",
+                    enum: ["MANUAL_SOLD_OUT"],
+                  },
+                  game_name: { type: "string" },
+                  bin_name: { type: "string", nullable: true },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { packId: string };
+      const body = (request.body as { closing_serial?: string }) || {};
+
+      try {
+        // Extract audit metadata
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        // Fetch pack with relationships for validation
+        const pack = await prisma.lotteryPack.findUnique({
+          where: { pack_id: params.packId },
+          include: {
+            game: {
+              select: {
+                game_id: true,
+                name: true,
+              },
+            },
+            store: {
+              select: {
+                store_id: true,
+                name: true,
+                company_id: true,
+              },
+            },
+            bin: {
+              select: {
+                bin_id: true,
+                name: true,
+              },
+            },
+          },
+        });
+
+        if (!pack) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "PACK_NOT_FOUND",
+              message: "Lottery pack not found",
+            },
+          };
+        }
+
+        // Validate user has access to this store (TENANT_ISOLATION - DB-006)
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasAccess = validateUserStoreAccess(
+          userRoles,
+          pack.store_id,
+          pack.store.company_id,
+        );
+
+        if (!hasAccess) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message:
+                "You do not have access to this store's lottery packs (RLS violation)",
+            },
+          };
+        }
+
+        // Validate pack is in ACTIVE status (only ACTIVE packs can be manually depleted)
+        if (pack.status !== "ACTIVE") {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "INVALID_PACK_STATUS",
+              message: `Pack must be ACTIVE to mark as sold out. Current status: ${pack.status}`,
+            },
+          };
+        }
+
+        // Determine closing serial (use provided or default to serial_end)
+        const closingSerial = body.closing_serial || pack.serial_end;
+
+        // Validate closing serial if provided
+        if (body.closing_serial) {
+          const serialNum = parseInt(body.closing_serial, 10);
+          const serialEndNum = parseInt(pack.serial_end, 10);
+          if (isNaN(serialNum) || serialNum < 0 || serialNum > serialEndNum) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "INVALID_CLOSING_SERIAL",
+                message: `Closing serial must be between 0 and ${pack.serial_end}`,
+              },
+            };
+          }
+        }
+
+        // Find active shift for this store (if any)
+        const activeShift = await prisma.shift.findFirst({
+          where: {
+            store_id: pack.store_id,
+            status: {
+              in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"],
+            },
+            closed_at: null,
+          },
+          orderBy: {
+            opened_at: "desc",
+          },
+          select: {
+            shift_id: true,
+          },
+        });
+
+        // Perform atomic update in transaction (ORM_USAGE - DB-001)
+        const result = await prisma.$transaction(async (tx) => {
+          const now = new Date();
+
+          // 1. Update pack status to DEPLETED with manual sold out reason
+          const updatedPack = await tx.lotteryPack.update({
+            where: { pack_id: params.packId },
+            data: {
+              status: "DEPLETED",
+              depleted_at: now,
+              depleted_by: user.id,
+              depleted_shift_id: activeShift?.shift_id || null,
+              depletion_reason: "MANUAL_SOLD_OUT",
+            },
+            include: {
+              game: { select: { name: true } },
+              bin: { select: { name: true } },
+            },
+          });
+
+          // 2. Create shift closing record if there's an active shift
+          if (activeShift) {
+            // Check if closing record already exists for this shift/pack
+            const existingClosing = await tx.lotteryShiftClosing.findUnique({
+              where: {
+                shift_id_pack_id: {
+                  shift_id: activeShift.shift_id,
+                  pack_id: params.packId,
+                },
+              },
+            });
+
+            if (!existingClosing) {
+              await tx.lotteryShiftClosing.create({
+                data: {
+                  shift_id: activeShift.shift_id,
+                  pack_id: params.packId,
+                  closing_serial: closingSerial,
+                  entry_method: "MANUAL",
+                  manual_entry_authorized_by: user.id,
+                  manual_entry_authorized_at: now,
+                },
+              });
+            }
+          }
+
+          // 3. Create audit log entry
+          try {
+            await tx.auditLog.create({
+              data: {
+                user_id: user.id,
+                action: "PACK_MANUALLY_DEPLETED",
+                table_name: "lottery_packs",
+                record_id: params.packId,
+                new_values: {
+                  status: "DEPLETED",
+                  depleted_at: now.toISOString(),
+                  depleted_by: user.id,
+                  depleted_shift_id: activeShift?.shift_id || null,
+                  depletion_reason: "MANUAL_SOLD_OUT",
+                  closing_serial: closingSerial,
+                },
+                ip_address: ipAddress,
+                user_agent: userAgent,
+                reason: `Lottery pack ${pack.pack_number} manually marked as sold out by user`,
+              },
+            });
+          } catch (auditError) {
+            // Log audit failure but don't fail the operation
+            fastify.log.error(
+              { error: auditError },
+              "Failed to create audit log for manual pack depletion",
+            );
+          }
+
+          return updatedPack;
+        });
+
+        reply.code(200);
+        return {
+          success: true,
+          data: {
+            pack_id: result.pack_id,
+            pack_number: pack.pack_number,
+            status: result.status,
+            depleted_at: result.depleted_at?.toISOString(),
+            depletion_reason: result.depletion_reason,
+            game_name: result.game.name,
+            bin_name: result.bin?.name || null,
+          },
+        };
+      } catch (error: unknown) {
+        fastify.log.error({ error }, "Error manually depleting lottery pack");
+
+        // Generic error response (ERROR_HANDLING - API-003)
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to mark pack as sold out",
+          },
+        };
+      }
+    },
+  );
+
+  /**
    * GET /api/lottery/games
    * Query active lottery games
    * Protected route - requires LOTTERY_GAME_READ permission

@@ -4,12 +4,16 @@
  * All functions require STORE_READ/STORE_UPDATE permissions (Client Users only)
  *
  * Story: 6.14 - Store Settings Page with Employee/Cashier Management
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 // ============ Types ============
 
@@ -67,57 +71,6 @@ export interface UpdateStoreSettingsResponse {
   };
 }
 
-/**
- * API error response
- */
-export interface ApiError {
-  error: string | { code: string; message: string };
-  message?: string;
-}
-
-// ============ API Request Helper ============
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    const errorMessage =
-      typeof errorData.error === "object"
-        ? errorData.error.message
-        : errorData.message || errorData.error || "API request failed";
-
-    throw new Error(errorMessage);
-  }
-
-  return response.json();
-}
-
 // ============ API Functions ============
 
 /**
@@ -132,10 +85,10 @@ export async function getStoreSettings(
     throw new Error("Store ID is required");
   }
 
-  return apiRequest<StoreSettingsResponse>(
+  const response = await apiClient.get<StoreSettingsResponse>(
     `/api/client/stores/${storeId}/settings`,
-    { method: "GET" },
   );
+  return response.data;
 }
 
 /**
@@ -152,13 +105,11 @@ export async function updateStoreSettings(
     throw new Error("Store ID is required");
   }
 
-  return apiRequest<UpdateStoreSettingsResponse>(
+  const response = await apiClient.put<UpdateStoreSettingsResponse>(
     `/api/client/stores/${storeId}/settings`,
-    {
-      method: "PUT",
-      body: JSON.stringify(config),
-    },
+    config,
   );
+  return response.data;
 }
 
 // ============ TanStack Query Keys ============

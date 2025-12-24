@@ -502,6 +502,15 @@ enum LotteryPackStatus {
   RETURNED
 }
 
+/// Lottery Pack Depletion Reason - Tracks how a pack became depleted
+/// Used for audit trail and distinguishing manual vs automatic depletion
+enum LotteryPackDepletionReason {
+  SHIFT_CLOSE     // Depleted during shift/day closing (ending serial = serial_end)
+  AUTO_REPLACED   // Auto-depleted when new pack activated in same bin
+  MANUAL_SOLD_OUT // Manually marked as sold out by user
+  POS_LAST_TICKET // Future: POS reported last ticket sold
+}
+
 enum LotteryConfigType {
   PACK_VALUE
   TICKET_PRICE
@@ -1068,8 +1077,9 @@ model LotteryPack {
   activated_shift_id String? @db.Uuid
 
   // Pack depletion context (Story 10.2)
-  depleted_by       String? @db.Uuid
-  depleted_shift_id String? @db.Uuid
+  depleted_by        String?                      @db.Uuid
+  depleted_shift_id  String?                      @db.Uuid
+  depletion_reason   LotteryPackDepletionReason?
 
   game            LotteryGame             @relation(fields: [game_id], references: [game_id], onDelete: Cascade)
   store           Store                   @relation(fields: [store_id], references: [store_id], onDelete: Cascade)

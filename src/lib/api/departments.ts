@@ -8,12 +8,16 @@
  * - API-001: Schema validation using TypeScript types
  * - FE-001: HttpOnly cookies for auth tokens
  * - API-003: Error handling with typed responses
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 // ============ Types ============
 
@@ -89,67 +93,6 @@ interface ApiResponse<T> {
   message?: string;
 }
 
-/**
- * API error response
- */
-interface ApiError {
-  success: false;
-  error: string | { code: string; message: string };
-  message?: string;
-}
-
-// ============ API Request Helper ============
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    let errorMessage: string;
-    if (errorData.message) {
-      errorMessage = errorData.message;
-    } else if (typeof errorData.error === "string") {
-      errorMessage = errorData.error;
-    } else if (
-      typeof errorData.error === "object" &&
-      errorData.error?.message
-    ) {
-      errorMessage = errorData.error.message;
-    } else {
-      errorMessage = "API request failed";
-    }
-
-    throw new Error(errorMessage);
-  }
-
-  return response.json();
-}
-
 // ============ API Functions ============
 
 /**
@@ -182,7 +125,8 @@ export async function getDepartments(
   const queryString = searchParams.toString();
   const endpoint = `/api/config/departments${queryString ? `?${queryString}` : ""}`;
 
-  return apiRequest<ApiResponse<Department[]>>(endpoint, { method: "GET" });
+  const response = await apiClient.get<ApiResponse<Department[]>>(endpoint);
+  return response.data;
 }
 
 /**
@@ -191,10 +135,10 @@ export async function getDepartments(
 export async function getDepartmentTree(): Promise<
   ApiResponse<DepartmentTreeNode[]>
 > {
-  return apiRequest<ApiResponse<DepartmentTreeNode[]>>(
+  const response = await apiClient.get<ApiResponse<DepartmentTreeNode[]>>(
     "/api/config/departments/tree",
-    { method: "GET" },
   );
+  return response.data;
 }
 
 /**
@@ -203,9 +147,10 @@ export async function getDepartmentTree(): Promise<
 export async function getDepartmentById(
   id: string,
 ): Promise<ApiResponse<Department>> {
-  return apiRequest<ApiResponse<Department>>(`/api/config/departments/${id}`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<ApiResponse<Department>>(
+    `/api/config/departments/${id}`,
+  );
+  return response.data;
 }
 
 /**
@@ -214,10 +159,11 @@ export async function getDepartmentById(
 export async function createDepartment(
   data: CreateDepartmentInput,
 ): Promise<ApiResponse<Department>> {
-  return apiRequest<ApiResponse<Department>>("/api/config/departments", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.post<ApiResponse<Department>>(
+    "/api/config/departments",
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -227,10 +173,11 @@ export async function updateDepartment(
   id: string,
   data: UpdateDepartmentInput,
 ): Promise<ApiResponse<Department>> {
-  return apiRequest<ApiResponse<Department>>(`/api/config/departments/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.patch<ApiResponse<Department>>(
+    `/api/config/departments/${id}`,
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -239,9 +186,10 @@ export async function updateDepartment(
 export async function deleteDepartment(
   id: string,
 ): Promise<ApiResponse<Department>> {
-  return apiRequest<ApiResponse<Department>>(`/api/config/departments/${id}`, {
-    method: "DELETE",
-  });
+  const response = await apiClient.delete<ApiResponse<Department>>(
+    `/api/config/departments/${id}`,
+  );
+  return response.data;
 }
 
 // ============ TanStack Query Keys ============

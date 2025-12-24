@@ -19,12 +19,14 @@ import {
   approveVariance,
   getLotteryDayBins,
   closeLotteryDay,
+  markPackAsSoldOut,
   type ReceivePackInput,
   type UpdatePackInput,
   type ApproveVarianceInput,
   type LotteryPackQueryFilters,
   type VarianceQueryFilters,
   type CloseLotteryDayInput,
+  type MarkPackAsSoldOutInput,
 } from "../lib/api/lottery";
 
 // ============ TanStack Query Keys ============
@@ -302,6 +304,39 @@ export function useLotteryDayClose() {
       // Invalidate day bins to refresh the ending serials
       queryClient.invalidateQueries({ queryKey: lotteryKeys.dayBins() });
       // Also invalidate packs list
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.packs() });
+    },
+  });
+}
+
+/**
+ * Input for the mark pack as sold out mutation
+ */
+export interface MarkPackAsSoldOutMutationInput {
+  packId: string;
+  data?: MarkPackAsSoldOutInput;
+}
+
+/**
+ * Hook to mark a pack as sold out (manual depletion)
+ * Story: Lottery Pack Auto-Depletion Feature
+ *
+ * MCP Guidance Applied:
+ * - API-001: VALIDATION - Always send valid JSON body for POST requests
+ * - FE-001: STATE_MANAGEMENT - Proper cache invalidation after mutation
+ *
+ * @returns Mutation hook for marking pack as sold out
+ */
+export function useMarkPackAsSoldOut() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ packId, data = {} }: MarkPackAsSoldOutMutationInput) =>
+      markPackAsSoldOut(packId, data),
+    onSuccess: () => {
+      // Invalidate day bins to refresh the bin display (pack removed from bin)
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.dayBins() });
+      // Also invalidate packs list to reflect status change
       queryClient.invalidateQueries({ queryKey: lotteryKeys.packs() });
     },
   });

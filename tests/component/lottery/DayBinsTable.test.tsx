@@ -23,6 +23,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import {
   DayBinsTable,
   type DayBinsTableProps,
+  type BinValidationError,
 } from "@/components/lottery/DayBinsTable";
 import type { DayBin } from "@/lib/api/lottery";
 
@@ -882,6 +883,1005 @@ describe("DayBinsTable Component", () => {
 
       // THEN: Only numeric characters are passed (script tags stripped)
       expect(onEndingChange).toHaveBeenCalledWith("bin-001", "123");
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // AUTO-ADVANCE FOCUS TESTS
+    // Story: Lottery Manual Entry Feature - Focus Management
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    it("should auto-focus first active bin input when manual entry mode is activated", async () => {
+      // GIVEN: DayBinsTable not in manual entry mode initially
+      const { rerender } = render(
+        <DayBinsTable {...defaultProps} manualEntryMode={false} />,
+      );
+
+      // WHEN: Manual entry mode is activated
+      rerender(<DayBinsTable {...manualEntryProps} />);
+
+      // THEN: First active bin's input should receive focus after delay
+      await vi.waitFor(
+        () => {
+          const firstInput = screen.getByTestId("ending-input-bin-001");
+          expect(document.activeElement).toBe(firstInput);
+        },
+        { timeout: 200 },
+      );
+    });
+
+    it("should auto-advance focus to next bin input after entering 3 digits", async () => {
+      // GIVEN: DayBinsTable in manual entry mode with multiple active bins
+      const multipleBins: DayBin[] = [
+        {
+          bin_id: "bin-001",
+          bin_number: 1,
+          name: "Bin 1",
+          is_active: true,
+          pack: {
+            pack_id: "pack-001",
+            pack_number: "1234567",
+            game_name: "Game 1",
+            game_price: 5.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "050",
+          },
+        },
+        {
+          bin_id: "bin-002",
+          bin_number: 2,
+          name: "Bin 2",
+          is_active: true,
+          pack: {
+            pack_id: "pack-002",
+            pack_number: "7654321",
+            game_name: "Game 2",
+            game_price: 10.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "100",
+          },
+        },
+      ];
+
+      const onEndingChange = vi.fn();
+      render(
+        <DayBinsTable
+          bins={multipleBins}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // WHEN: User enters 3 digits in first input
+      const firstInput = screen.getByTestId("ending-input-bin-001");
+      fireEvent.change(firstInput, { target: { value: "025" } });
+
+      // THEN: Focus should move to second bin's input after delay
+      await vi.waitFor(
+        () => {
+          const secondInput = screen.getByTestId("ending-input-bin-002");
+          expect(document.activeElement).toBe(secondInput);
+        },
+        { timeout: 150 },
+      );
+    });
+
+    it("should NOT auto-advance focus when less than 3 digits entered", async () => {
+      // GIVEN: DayBinsTable in manual entry mode with multiple active bins
+      const multipleBins: DayBin[] = [
+        {
+          bin_id: "bin-001",
+          bin_number: 1,
+          name: "Bin 1",
+          is_active: true,
+          pack: {
+            pack_id: "pack-001",
+            pack_number: "1234567",
+            game_name: "Game 1",
+            game_price: 5.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "050",
+          },
+        },
+        {
+          bin_id: "bin-002",
+          bin_number: 2,
+          name: "Bin 2",
+          is_active: true,
+          pack: {
+            pack_id: "pack-002",
+            pack_number: "7654321",
+            game_name: "Game 2",
+            game_price: 10.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "100",
+          },
+        },
+      ];
+
+      const onEndingChange = vi.fn();
+      render(
+        <DayBinsTable
+          bins={multipleBins}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // Focus first input manually
+      const firstInput = screen.getByTestId(
+        "ending-input-bin-001",
+      ) as HTMLInputElement;
+      firstInput.focus();
+
+      // WHEN: User enters only 2 digits
+      fireEvent.change(firstInput, { target: { value: "02" } });
+
+      // Wait a bit to ensure no auto-advance happens
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // THEN: Focus should remain on first input (no auto-advance)
+      expect(document.activeElement).toBe(firstInput);
+    });
+
+    it("should NOT auto-advance focus when on last active bin", async () => {
+      // GIVEN: DayBinsTable in manual entry mode - only one active bin
+      const singleBin: DayBin[] = [
+        {
+          bin_id: "bin-001",
+          bin_number: 1,
+          name: "Bin 1",
+          is_active: true,
+          pack: {
+            pack_id: "pack-001",
+            pack_number: "1234567",
+            game_name: "Game 1",
+            game_price: 5.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "050",
+          },
+        },
+      ];
+
+      const onEndingChange = vi.fn();
+      const onInputComplete = vi.fn();
+      render(
+        <DayBinsTable
+          bins={singleBin}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+          onInputComplete={onInputComplete}
+        />,
+      );
+
+      // Focus the only input
+      const onlyInput = screen.getByTestId(
+        "ending-input-bin-001",
+      ) as HTMLInputElement;
+      onlyInput.focus();
+
+      // WHEN: User enters 3 digits in the only (last) bin
+      fireEvent.change(onlyInput, { target: { value: "025" } });
+
+      // Wait for potential auto-advance
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // THEN: Focus should remain on the input (no crash, no error)
+      // onInputComplete should still be called
+      expect(onInputComplete).toHaveBeenCalledWith("bin-001");
+    });
+
+    it("should skip empty bins during auto-advance focus", async () => {
+      // GIVEN: DayBinsTable with empty bin between active bins
+      const binsWithEmpty: DayBin[] = [
+        {
+          bin_id: "bin-001",
+          bin_number: 1,
+          name: "Bin 1",
+          is_active: true,
+          pack: {
+            pack_id: "pack-001",
+            pack_number: "1234567",
+            game_name: "Game 1",
+            game_price: 5.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "050",
+          },
+        },
+        {
+          bin_id: "bin-002",
+          bin_number: 2,
+          name: "Bin 2 (Empty)",
+          is_active: true,
+          pack: null, // Empty bin - should be skipped
+        },
+        {
+          bin_id: "bin-003",
+          bin_number: 3,
+          name: "Bin 3",
+          is_active: true,
+          pack: {
+            pack_id: "pack-003",
+            pack_number: "9999999",
+            game_name: "Game 3",
+            game_price: 20.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "100",
+          },
+        },
+      ];
+
+      const onEndingChange = vi.fn();
+      render(
+        <DayBinsTable
+          bins={binsWithEmpty}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // WHEN: User enters 3 digits in first input
+      const firstInput = screen.getByTestId("ending-input-bin-001");
+      fireEvent.change(firstInput, { target: { value: "025" } });
+
+      // THEN: Focus should skip empty bin-002 and move to bin-003
+      await vi.waitFor(
+        () => {
+          const thirdInput = screen.getByTestId("ending-input-bin-003");
+          expect(document.activeElement).toBe(thirdInput);
+        },
+        { timeout: 150 },
+      );
+
+      // Verify bin-002 has no input (it's empty)
+      expect(
+        screen.queryByTestId("ending-input-bin-002"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should NOT re-focus first input after mode activation during subsequent state updates", async () => {
+      // GIVEN: DayBinsTable in manual entry mode
+      const onEndingChange = vi.fn();
+      const { rerender } = render(
+        <DayBinsTable {...manualEntryProps} onEndingChange={onEndingChange} />,
+      );
+
+      // Wait for initial focus
+      await vi.waitFor(
+        () => {
+          const firstInput = screen.getByTestId("ending-input-bin-001");
+          expect(document.activeElement).toBe(firstInput);
+        },
+        { timeout: 200 },
+      );
+
+      // Focus a different input manually (simulating user navigation)
+      const thirdInput = screen.getByTestId("ending-input-bin-003");
+      thirdInput.focus();
+      expect(document.activeElement).toBe(thirdInput);
+
+      // WHEN: State update triggers re-render (simulated by changing endingValues)
+      rerender(
+        <DayBinsTable
+          {...manualEntryProps}
+          onEndingChange={onEndingChange}
+          endingValues={{ "bin-001": "123" }}
+        />,
+      );
+
+      // Re-focus to simulate user still has focus after React re-render
+      // (In browser, focus is preserved on the same element if it stays in DOM)
+      const thirdInputAfterRerender = screen.getByTestId(
+        "ending-input-bin-003",
+      );
+      thirdInputAfterRerender.focus();
+
+      // Wait a bit for any potential focus change from component logic
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      // THEN: Focus should NOT jump back to first input
+      // The component's useEffect should not re-trigger initial focus after mode is already active
+      const currentFocus = document.activeElement;
+      const firstInput = screen.getByTestId("ending-input-bin-001");
+
+      // The key assertion: focus should NOT have jumped back to first input
+      expect(currentFocus).not.toBe(firstInput);
+      expect(currentFocus).toBe(thirdInputAfterRerender);
+    });
+
+    it("should reset focus tracking when manual entry mode is deactivated", async () => {
+      // GIVEN: DayBinsTable that was in manual entry mode
+      const { rerender } = render(<DayBinsTable {...manualEntryProps} />);
+
+      // Wait for initial focus
+      await vi.waitFor(
+        () => {
+          const firstInput = screen.getByTestId("ending-input-bin-001");
+          expect(document.activeElement).toBe(firstInput);
+        },
+        { timeout: 200 },
+      );
+
+      // WHEN: Manual entry mode is deactivated
+      rerender(<DayBinsTable {...defaultProps} manualEntryMode={false} />);
+
+      // THEN: Inputs should no longer exist
+      expect(
+        screen.queryByTestId("ending-input-bin-001"),
+      ).not.toBeInTheDocument();
+
+      // AND WHEN: Manual entry mode is re-activated
+      rerender(<DayBinsTable {...manualEntryProps} />);
+
+      // THEN: Input should be rendered and focusable
+      // Note: The component sets focus asynchronously via setTimeout
+      const firstInput = await screen.findByTestId("ending-input-bin-001");
+      expect(firstInput).toBeInTheDocument();
+
+      // Wait for the component's setTimeout(100ms) to apply focus
+      await vi.waitFor(
+        () => {
+          expect(document.activeElement).toBe(firstInput);
+        },
+        { timeout: 250 },
+      );
+    });
+
+    it("should allow sequential entry through all bins without focus jumping back", async () => {
+      // GIVEN: DayBinsTable in manual entry mode with 3 active bins
+      const threeBins: DayBin[] = [
+        {
+          bin_id: "bin-001",
+          bin_number: 1,
+          name: "Bin 1",
+          is_active: true,
+          pack: {
+            pack_id: "pack-001",
+            pack_number: "1111111",
+            game_name: "Game 1",
+            game_price: 5.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "050",
+          },
+        },
+        {
+          bin_id: "bin-002",
+          bin_number: 2,
+          name: "Bin 2",
+          is_active: true,
+          pack: {
+            pack_id: "pack-002",
+            pack_number: "2222222",
+            game_name: "Game 2",
+            game_price: 10.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "100",
+          },
+        },
+        {
+          bin_id: "bin-003",
+          bin_number: 3,
+          name: "Bin 3",
+          is_active: true,
+          pack: {
+            pack_id: "pack-003",
+            pack_number: "3333333",
+            game_name: "Game 3",
+            game_price: 20.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "150",
+          },
+        },
+      ];
+
+      const onEndingChange = vi.fn();
+      const onInputComplete = vi.fn();
+
+      render(
+        <DayBinsTable
+          bins={threeBins}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+          onInputComplete={onInputComplete}
+        />,
+      );
+
+      // Wait for initial focus on bin 1
+      await vi.waitFor(
+        () => {
+          const input1 = screen.getByTestId("ending-input-bin-001");
+          expect(document.activeElement).toBe(input1);
+        },
+        { timeout: 200 },
+      );
+
+      // WHEN: Enter 3 digits in bin 1
+      const input1 = screen.getByTestId("ending-input-bin-001");
+      fireEvent.change(input1, { target: { value: "025" } });
+
+      // THEN: onInputComplete should be called for bin 1
+      expect(onInputComplete).toHaveBeenCalledWith("bin-001");
+
+      // THEN: Focus should auto-advance to bin 2 via the component's setTimeout
+      await vi.waitFor(
+        () => {
+          const input2 = screen.getByTestId("ending-input-bin-002");
+          expect(document.activeElement).toBe(input2);
+        },
+        { timeout: 150 },
+      );
+
+      // WHEN: Enter 3 digits in bin 2
+      const input2 = screen.getByTestId("ending-input-bin-002");
+      fireEvent.change(input2, { target: { value: "050" } });
+
+      // THEN: onInputComplete should be called for bin 2
+      expect(onInputComplete).toHaveBeenCalledWith("bin-002");
+
+      // THEN: Focus should auto-advance to bin 3
+      await vi.waitFor(
+        () => {
+          const input3 = screen.getByTestId("ending-input-bin-003");
+          expect(document.activeElement).toBe(input3);
+        },
+        { timeout: 150 },
+      );
+
+      // WHEN: Enter 3 digits in bin 3 (last bin)
+      const input3 = screen.getByTestId("ending-input-bin-003");
+      fireEvent.change(input3, { target: { value: "075" } });
+
+      // THEN: onInputComplete should be called for bin 3
+      expect(onInputComplete).toHaveBeenCalledWith("bin-003");
+
+      // Wait to verify focus doesn't jump back to bin 1
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // THEN: Focus should NOT have jumped back to bin 1
+      // (Should remain on bin 3 or stay where it was)
+      const input1After = screen.getByTestId("ending-input-bin-001");
+      expect(document.activeElement).not.toBe(input1After);
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // VALIDATION ERROR DISPLAY TESTS
+    // Story: Lottery Manual Entry Validation
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    it("should display error styling when validationErrors contains an error for a bin", () => {
+      // GIVEN: DayBinsTable with validation error for bin-001
+      const validationErrors: Record<string, BinValidationError> = {
+        "bin-001": { message: "Number exceeds pack maximum (029)" },
+      };
+
+      // WHEN: Component is rendered with validation errors
+      render(
+        <DayBinsTable
+          {...manualEntryProps}
+          endingValues={{ "bin-001": "130" }}
+          validationErrors={validationErrors}
+        />,
+      );
+
+      // THEN: Input should have red border classes
+      const input = screen.getByTestId("ending-input-bin-001");
+      expect(input).toHaveClass("border-red-500");
+      expect(input).toHaveClass("bg-red-50");
+    });
+
+    it("should display error message below input when validation error exists", () => {
+      // GIVEN: DayBinsTable with validation error
+      const validationErrors: Record<string, BinValidationError> = {
+        "bin-001": { message: "Number exceeds pack maximum (029)" },
+      };
+
+      // WHEN: Component is rendered
+      render(
+        <DayBinsTable
+          {...manualEntryProps}
+          endingValues={{ "bin-001": "130" }}
+          validationErrors={validationErrors}
+        />,
+      );
+
+      // THEN: Error message should be displayed
+      const errorSpan = screen.getByTestId("ending-error-bin-001");
+      expect(errorSpan).toBeInTheDocument();
+      expect(errorSpan).toHaveTextContent("Number exceeds pack maximum (029)");
+    });
+
+    it("should have aria-invalid=true when validation error exists", () => {
+      // GIVEN: DayBinsTable with validation error
+      const validationErrors: Record<string, BinValidationError> = {
+        "bin-001": { message: "Invalid ending number" },
+      };
+
+      // WHEN: Component is rendered
+      render(
+        <DayBinsTable
+          {...manualEntryProps}
+          validationErrors={validationErrors}
+        />,
+      );
+
+      // THEN: Input should have aria-invalid="true"
+      const input = screen.getByTestId("ending-input-bin-001");
+      expect(input).toHaveAttribute("aria-invalid", "true");
+    });
+
+    it("should have aria-describedby pointing to error message when error exists", () => {
+      // GIVEN: DayBinsTable with validation error
+      const validationErrors: Record<string, BinValidationError> = {
+        "bin-001": { message: "Invalid ending number" },
+      };
+
+      // WHEN: Component is rendered
+      render(
+        <DayBinsTable
+          {...manualEntryProps}
+          validationErrors={validationErrors}
+        />,
+      );
+
+      // THEN: Input should have aria-describedby pointing to error id
+      const input = screen.getByTestId("ending-input-bin-001");
+      expect(input).toHaveAttribute("aria-describedby", "ending-error-bin-001");
+    });
+
+    it("should NOT display error styling when no validation error exists", () => {
+      // GIVEN: DayBinsTable with complete value but no error
+      const endingValues = { "bin-001": "025" };
+
+      // WHEN: Component is rendered without validation errors
+      render(
+        <DayBinsTable
+          {...manualEntryProps}
+          endingValues={endingValues}
+          validationErrors={{}}
+        />,
+      );
+
+      // THEN: Input should have green border (valid 3-digit entry)
+      const input = screen.getByTestId("ending-input-bin-001");
+      expect(input).toHaveClass("border-green-500");
+      expect(input).not.toHaveClass("border-red-500");
+    });
+
+    it("should call onValidateEnding when input loses focus with 3 digits", () => {
+      // GIVEN: DayBinsTable with onValidateEnding callback
+      const onValidateEnding = vi.fn();
+      render(
+        <DayBinsTable
+          {...manualEntryProps}
+          endingValues={{ "bin-001": "025" }}
+          onValidateEnding={onValidateEnding}
+        />,
+      );
+
+      // WHEN: Input loses focus
+      const input = screen.getByTestId("ending-input-bin-001");
+      fireEvent.blur(input);
+
+      // THEN: onValidateEnding should be called with bin_id, value, and pack data
+      expect(onValidateEnding).toHaveBeenCalledWith("bin-001", "025", {
+        starting_serial: "001",
+        serial_end: "050",
+      });
+    });
+
+    it("should NOT call onValidateEnding when input loses focus with less than 3 digits", () => {
+      // GIVEN: DayBinsTable with incomplete value
+      const onValidateEnding = vi.fn();
+      render(
+        <DayBinsTable
+          {...manualEntryProps}
+          endingValues={{ "bin-001": "02" }}
+          onValidateEnding={onValidateEnding}
+        />,
+      );
+
+      // WHEN: Input loses focus
+      const input = screen.getByTestId("ending-input-bin-001");
+      fireEvent.blur(input);
+
+      // THEN: onValidateEnding should NOT be called
+      expect(onValidateEnding).not.toHaveBeenCalled();
+    });
+
+    it("should show error on one bin without affecting other bins", () => {
+      // GIVEN: Two bins, only one has error
+      const multipleBins: DayBin[] = [
+        {
+          bin_id: "bin-001",
+          bin_number: 1,
+          name: "Bin 1",
+          is_active: true,
+          pack: {
+            pack_id: "pack-001",
+            pack_number: "1234567",
+            game_name: "Game 1",
+            game_price: 5.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "029", // Max 029
+          },
+        },
+        {
+          bin_id: "bin-002",
+          bin_number: 2,
+          name: "Bin 2",
+          is_active: true,
+          pack: {
+            pack_id: "pack-002",
+            pack_number: "7654321",
+            game_name: "Game 2",
+            game_price: 10.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "100",
+          },
+        },
+      ];
+
+      const validationErrors: Record<string, BinValidationError> = {
+        "bin-001": { message: "Max: 029" },
+      };
+
+      // WHEN: Component is rendered
+      render(
+        <DayBinsTable
+          bins={multipleBins}
+          manualEntryMode={true}
+          endingValues={{ "bin-001": "130", "bin-002": "050" }}
+          validationErrors={validationErrors}
+        />,
+      );
+
+      // THEN: First bin should have error styling
+      const input1 = screen.getByTestId("ending-input-bin-001");
+      expect(input1).toHaveClass("border-red-500");
+
+      // AND: Second bin should have valid styling
+      const input2 = screen.getByTestId("ending-input-bin-002");
+      expect(input2).toHaveClass("border-green-500");
+      expect(input2).not.toHaveClass("border-red-500");
+    });
+
+    it("should have role=alert on error message for screen readers", () => {
+      // GIVEN: DayBinsTable with validation error
+      const validationErrors: Record<string, BinValidationError> = {
+        "bin-001": { message: "Number exceeds pack maximum" },
+      };
+
+      // WHEN: Component is rendered
+      render(
+        <DayBinsTable
+          {...manualEntryProps}
+          validationErrors={validationErrors}
+        />,
+      );
+
+      // THEN: Error span should have role="alert"
+      const errorSpan = screen.getByTestId("ending-error-bin-001");
+      expect(errorSpan).toHaveAttribute("role", "alert");
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MARK SOLD OUT ACTIONS COLUMN TESTS
+  // Story: Lottery Pack Auto-Depletion Feature
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // TRACEABILITY MATRIX:
+  // | Test ID | Requirement | Type | Priority |
+  // |---------|-------------|------|----------|
+  // | ACT-001 | Actions column renders when onMarkSoldOut provided AND manualEntryMode is true | UI | P0 |
+  // | ACT-002 | Actions column hidden when onMarkSoldOut not provided | UI | P0 |
+  // | ACT-003 | Mark Sold button calls onMarkSoldOut with pack_id | Interaction | P0 |
+  // | ACT-004 | Mark Sold button hidden for empty bins | Business Logic | P0 |
+  // | ACT-005 | Actions column hidden when NOT in manual entry mode | Business Logic | P1 |
+  // | ACT-006 | Button click does not trigger row click | Interaction | P1 |
+  // | ACT-007 | Button has proper accessibility attributes | A11Y | P1 |
+  // | ACT-008 | XSS prevention in button aria-label | Security | P0 |
+
+  describe("Actions Column - Mark Sold Out", () => {
+    const mockBinsWithPacks: DayBin[] = [
+      {
+        bin_id: "bin-001",
+        bin_number: 1,
+        name: "Bin 1",
+        is_active: true,
+        pack: {
+          pack_id: "pack-001",
+          pack_number: "1234567",
+          game_name: "Mega Millions",
+          game_price: 5.0,
+          starting_serial: "001",
+          ending_serial: "025",
+          serial_end: "050",
+        },
+      },
+      {
+        bin_id: "bin-002",
+        bin_number: 2,
+        name: "Bin 2",
+        is_active: true,
+        pack: null, // Empty bin
+      },
+      {
+        bin_id: "bin-003",
+        bin_number: 3,
+        name: "Bin 3",
+        is_active: true,
+        pack: {
+          pack_id: "pack-003",
+          pack_number: "7654321",
+          game_name: "Powerball",
+          game_price: 10.0,
+          starting_serial: "050",
+          ending_serial: null,
+          serial_end: "100",
+        },
+      },
+    ];
+
+    it("ACT-001: [P0] should render Actions column when onMarkSoldOut is provided AND manualEntryMode is true", () => {
+      // GIVEN: DayBinsTable with onMarkSoldOut callback and manual entry mode active
+      const onMarkSoldOut = vi.fn();
+      const onEndingChange = vi.fn();
+
+      // WHEN: Component is rendered in manual entry mode
+      render(
+        <DayBinsTable
+          bins={mockBinsWithPacks}
+          onMarkSoldOut={onMarkSoldOut}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // THEN: Actions column header is rendered
+      expect(screen.getByText("Actions")).toBeInTheDocument();
+    });
+
+    it("ACT-002: [P0] should NOT render Actions column when onMarkSoldOut is not provided", () => {
+      // GIVEN: DayBinsTable without onMarkSoldOut callback
+      // WHEN: Component is rendered
+      render(<DayBinsTable bins={mockBinsWithPacks} />);
+
+      // THEN: Actions column header is NOT rendered
+      expect(screen.queryByText("Actions")).not.toBeInTheDocument();
+    });
+
+    it("ACT-003: [P0] should call onMarkSoldOut with pack_id when Mark Sold button is clicked", () => {
+      // GIVEN: DayBinsTable with onMarkSoldOut callback in manual entry mode
+      const onMarkSoldOut = vi.fn();
+      const onEndingChange = vi.fn();
+      render(
+        <DayBinsTable
+          bins={mockBinsWithPacks}
+          onMarkSoldOut={onMarkSoldOut}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // WHEN: Mark Sold button is clicked
+      const button = screen.getByTestId("mark-sold-btn-bin-001");
+      fireEvent.click(button);
+
+      // THEN: onMarkSoldOut is called with the pack_id
+      expect(onMarkSoldOut).toHaveBeenCalledWith("pack-001");
+    });
+
+    it("ACT-004: [P0] should display '--' placeholder for empty bins", () => {
+      // GIVEN: DayBinsTable with empty bin in manual entry mode
+      const onMarkSoldOut = vi.fn();
+      const onEndingChange = vi.fn();
+      render(
+        <DayBinsTable
+          bins={mockBinsWithPacks}
+          onMarkSoldOut={onMarkSoldOut}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // THEN: Empty bin row should NOT have Mark Sold button
+      expect(
+        screen.queryByTestId("mark-sold-btn-bin-002"),
+      ).not.toBeInTheDocument();
+
+      // The Actions cell for empty bin should show "--"
+      const emptyRow = screen.getByTestId("day-bins-row-bin-002");
+      expect(emptyRow).toHaveTextContent("--");
+    });
+
+    it("ACT-005: [P1] should NOT render Actions column when NOT in manual entry mode", () => {
+      // GIVEN: DayBinsTable with onMarkSoldOut but NOT in manual entry mode
+      const onMarkSoldOut = vi.fn();
+
+      // WHEN: Component is rendered without manual entry mode
+      render(
+        <DayBinsTable
+          bins={mockBinsWithPacks}
+          onMarkSoldOut={onMarkSoldOut}
+          manualEntryMode={false}
+        />,
+      );
+
+      // THEN: Actions column header is NOT rendered
+      expect(screen.queryByText("Actions")).not.toBeInTheDocument();
+
+      // AND: Mark Sold buttons are NOT rendered
+      expect(
+        screen.queryByTestId("mark-sold-btn-bin-001"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("ACT-006: [P1] should NOT trigger row click when Mark Sold button is clicked", () => {
+      // GIVEN: DayBinsTable with both onRowClick and onMarkSoldOut callbacks in manual entry mode
+      // Note: Row click is disabled in manual entry mode, but button should still stop propagation
+      const onRowClick = vi.fn();
+      const onMarkSoldOut = vi.fn();
+      const onEndingChange = vi.fn();
+
+      render(
+        <DayBinsTable
+          bins={mockBinsWithPacks}
+          onRowClick={onRowClick}
+          onMarkSoldOut={onMarkSoldOut}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // WHEN: Mark Sold button is clicked
+      const button = screen.getByTestId("mark-sold-btn-bin-001");
+      fireEvent.click(button);
+
+      // THEN: onMarkSoldOut is called
+      expect(onMarkSoldOut).toHaveBeenCalledWith("pack-001");
+
+      // AND: onRowClick is NOT called (button stops propagation + row click disabled in manual mode)
+      expect(onRowClick).not.toHaveBeenCalled();
+    });
+
+    it("ACT-007: [P1] [A11Y] should have proper accessibility attributes", () => {
+      // GIVEN: DayBinsTable with onMarkSoldOut callback in manual entry mode
+      const onMarkSoldOut = vi.fn();
+      const onEndingChange = vi.fn();
+      render(
+        <DayBinsTable
+          bins={mockBinsWithPacks}
+          onMarkSoldOut={onMarkSoldOut}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // THEN: Button has aria-label
+      const button = screen.getByTestId("mark-sold-btn-bin-001");
+      expect(button).toHaveAttribute(
+        "aria-label",
+        "Mark pack 1234567 as sold out",
+      );
+    });
+
+    it("ACT-008: [P0] [SECURITY] should prevent XSS in button aria-label", () => {
+      // GIVEN: Bin with XSS attempt in pack number
+      const xssPayload = "<script>alert('xss')</script>";
+      const xssBins: DayBin[] = [
+        {
+          bin_id: "bin-xss",
+          bin_number: 1,
+          name: "Bin XSS",
+          is_active: true,
+          pack: {
+            pack_id: "pack-xss",
+            pack_number: xssPayload,
+            game_name: "Safe Game",
+            game_price: 5.0,
+            starting_serial: "001",
+            ending_serial: null,
+            serial_end: "050",
+          },
+        },
+      ];
+
+      const onMarkSoldOut = vi.fn();
+      const onEndingChange = vi.fn();
+
+      // WHEN: Component is rendered in manual entry mode
+      render(
+        <DayBinsTable
+          bins={xssBins}
+          onMarkSoldOut={onMarkSoldOut}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // THEN: Button is rendered (not broken by XSS)
+      const button = screen.getByTestId("mark-sold-btn-bin-xss");
+      expect(button).toBeInTheDocument();
+
+      // AND: aria-label contains escaped payload (not executed)
+      expect(button).toHaveAttribute(
+        "aria-label",
+        `Mark pack ${xssPayload} as sold out`,
+      );
+    });
+
+    it("should render Mark Sold button for all bins with packs in manual entry mode", () => {
+      // GIVEN: DayBinsTable with multiple bins in manual entry mode
+      const onMarkSoldOut = vi.fn();
+      const onEndingChange = vi.fn();
+      render(
+        <DayBinsTable
+          bins={mockBinsWithPacks}
+          onMarkSoldOut={onMarkSoldOut}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // THEN: Both bins with packs have Mark Sold buttons
+      expect(screen.getByTestId("mark-sold-btn-bin-001")).toBeInTheDocument();
+      expect(screen.getByTestId("mark-sold-btn-bin-003")).toBeInTheDocument();
+
+      // AND: Empty bin does not have button
+      expect(
+        screen.queryByTestId("mark-sold-btn-bin-002"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("should call onMarkSoldOut with correct pack_id for different bins", () => {
+      // GIVEN: DayBinsTable with multiple bins in manual entry mode
+      const onMarkSoldOut = vi.fn();
+      const onEndingChange = vi.fn();
+      render(
+        <DayBinsTable
+          bins={mockBinsWithPacks}
+          onMarkSoldOut={onMarkSoldOut}
+          manualEntryMode={true}
+          endingValues={{}}
+          onEndingChange={onEndingChange}
+        />,
+      );
+
+      // WHEN: Click first bin's button
+      fireEvent.click(screen.getByTestId("mark-sold-btn-bin-001"));
+
+      // THEN: Called with pack-001
+      expect(onMarkSoldOut).toHaveBeenCalledWith("pack-001");
+
+      // WHEN: Click third bin's button
+      fireEvent.click(screen.getByTestId("mark-sold-btn-bin-003"));
+
+      // THEN: Called with pack-003
+      expect(onMarkSoldOut).toHaveBeenCalledWith("pack-003");
     });
   });
 });

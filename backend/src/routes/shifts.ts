@@ -3117,6 +3117,7 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                 depleted_at: new Date(),
                 depleted_by: user.id, // Story 10.2: Track who closed the shift (cashier)
                 depleted_shift_id: validatedShiftId, // Story 10.2: Track which shift the pack was depleted in
+                depletion_reason: "SHIFT_CLOSE", // Track reason for audit
               },
             });
 
@@ -3135,6 +3136,7 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                     depleted_at: new Date().toISOString(),
                     depleted_by: user.id,
                     depleted_shift_id: validatedShiftId,
+                    depletion_reason: "SHIFT_CLOSE",
                     closing_serial: validatedPack.closingSerial,
                   } as Record<string, any>,
                   ip_address: auditContext.ipAddress,

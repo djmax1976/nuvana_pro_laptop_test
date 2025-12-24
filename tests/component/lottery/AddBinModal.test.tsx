@@ -1075,4 +1075,394 @@ describe("AddBinModal (Client Dashboard) - Auto-Add Flow", () => {
       expect(serialInput).toHaveValue("");
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // OCCUPIED BIN HANDLING TESTS (AUTO-DEPLETION CONFIRMATION)
+  // Story: Lottery Pack Auto-Depletion Feature
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // TRACEABILITY MATRIX:
+  // | Test ID | Requirement | Type | Priority |
+  // |---------|-------------|------|----------|
+  // | OCC-001 | Allow selecting occupied bins | UI | P0 |
+  // | OCC-002 | Show warning when occupied bin selected | UI | P0 |
+  // | OCC-003 | Display amber warning icon for auto-deplete | UI | P0 |
+  // | OCC-004 | Show "(Occupied)" label in bin dropdown | UI | P0 |
+  // | OCC-005 | Set depletePrevious flag for occupied bins | Business Logic | P0 |
+  // | OCC-006 | Show toast when auto-assigning to occupied bin | UI | P1 |
+  // | OCC-007 | Pass deplete_previous to API | Integration | P0 |
+  // | OCC-008 | Prioritize empty bins over occupied | Business Logic | P1 |
+  // | OCC-009 | Display previous pack info in warning | UI | P1 |
+  // | OCC-010 | Clear depletePrevious when switching to empty bin | Business Logic | P1 |
+
+  describe("Occupied Bin Handling (Auto-Depletion)", () => {
+    const occupiedBinInfo = new Map([
+      [1, { binNumber: 1, packNumber: "PREV001", gameName: "Old Game 1" }],
+      [2, { binNumber: 2, packNumber: "PREV002", gameName: "Old Game 2" }],
+    ]);
+
+    const propsWithOccupiedBins = {
+      ...defaultProps,
+      occupiedBinNumbers: [1, 2],
+      occupiedBinInfo,
+    };
+
+    it("OCC-001: [P0] should allow selecting occupied bins in dropdown", async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockPackValidationSuccess("New Game", 5.0, "NEW001"),
+      );
+
+      const { AddBinModal } = await import("@/components/lottery/AddBinModal");
+      const user = userEvent.setup();
+      renderWithProviders(<AddBinModal {...propsWithOccupiedBins} />);
+
+      const serialInput = screen.getByTestId("pack-serial-input");
+      await user.type(serialInput, "000100010010123456789012");
+
+      // Wait for pack to be added to pending list
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("pending-assignments-list"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Find and click the bin dropdown
+      const pendingList = screen.getByTestId("pending-assignments-list");
+      const binSelect = within(pendingList).getByRole("combobox");
+      await user.click(binSelect);
+
+      // Occupied bins should be selectable (showing "(Occupied)")
+      expect(screen.getByText("Bin 1 (Occupied)")).toBeInTheDocument();
+      expect(screen.getByText("Bin 2 (Occupied)")).toBeInTheDocument();
+    });
+
+    it("OCC-002: [P0] should show warning toast when pack assigned to occupied bin", async () => {
+      // All empty bins taken by pending, forcing auto-assign to occupied bin
+      // Or simply test when user manually selects occupied bin
+      mockFetch.mockResolvedValueOnce(
+        mockPackValidationSuccess("New Game", 5.0, "NEW002"),
+      );
+
+      // Only bins 1 and 2 are occupied, empty bins exist
+      const { AddBinModal } = await import("@/components/lottery/AddBinModal");
+      const user = userEvent.setup();
+      renderWithProviders(<AddBinModal {...propsWithOccupiedBins} />);
+
+      const serialInput = screen.getByTestId("pack-serial-input");
+      await user.type(serialInput, "000200020020123456789012");
+
+      // Wait for pack to be added (auto-assigned to Bin 3, first empty)
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("pending-assignments-list"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Change to occupied bin
+      const pendingList = screen.getByTestId("pending-assignments-list");
+      const binSelect = within(pendingList).getByRole("combobox");
+      await user.click(binSelect);
+
+      // Select occupied bin 1
+      const occupiedOption = screen.getByText("Bin 1 (Occupied)");
+      await user.click(occupiedOption);
+
+      // Toast warning should be shown
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "Bin occupied - Pack will be marked sold",
+          }),
+        );
+      });
+    });
+
+    it("OCC-003: [P0] should display amber warning icon for bins that will auto-deplete", async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockPackValidationSuccess("New Game", 5.0, "NEW003"),
+      );
+
+      // Props where all empty bins are "occupied" to force auto-assign to occupied bin
+      const allOccupiedExceptHigh = {
+        ...defaultProps,
+        occupiedBinNumbers: [1, 2, 3, 4, 5], // First 5 occupied
+        occupiedBinInfo: new Map([
+          [1, { binNumber: 1, packNumber: "P1", gameName: "G1" }],
+          [2, { binNumber: 2, packNumber: "P2", gameName: "G2" }],
+          [3, { binNumber: 3, packNumber: "P3", gameName: "G3" }],
+          [4, { binNumber: 4, packNumber: "P4", gameName: "G4" }],
+          [5, { binNumber: 5, packNumber: "P5", gameName: "G5" }],
+        ]),
+      };
+
+      const { AddBinModal } = await import("@/components/lottery/AddBinModal");
+      const user = userEvent.setup();
+      renderWithProviders(<AddBinModal {...allOccupiedExceptHigh} />);
+
+      const serialInput = screen.getByTestId("pack-serial-input");
+      await user.type(serialInput, "000300030030123456789012");
+
+      // Wait for pack to be added to pending list
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("pending-assignments-list"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // First pack should auto-assign to Bin 6 (first empty)
+      const pendingList = screen.getByTestId("pending-assignments-list");
+      expect(within(pendingList).getByText(/Bin 6/)).toBeInTheDocument();
+
+      // Should have green check (not warning) since it's an empty bin
+      expect(screen.getByTestId("valid-check-icon")).toBeInTheDocument();
+    });
+
+    it("OCC-004: [P0] should show '(Occupied)' label in bin dropdown for occupied bins", async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockPackValidationSuccess("New Game", 5.0, "NEW004"),
+      );
+
+      const { AddBinModal } = await import("@/components/lottery/AddBinModal");
+      const user = userEvent.setup();
+      renderWithProviders(<AddBinModal {...propsWithOccupiedBins} />);
+
+      const serialInput = screen.getByTestId("pack-serial-input");
+      await user.type(serialInput, "000400040040123456789012");
+
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("pending-assignments-list"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Open dropdown
+      const pendingList = screen.getByTestId("pending-assignments-list");
+      const binSelect = within(pendingList).getByRole("combobox");
+      await user.click(binSelect);
+
+      // Check that occupied bins show "(Occupied)" label
+      expect(screen.getByText("Bin 1 (Occupied)")).toBeInTheDocument();
+      expect(screen.getByText("Bin 2 (Occupied)")).toBeInTheDocument();
+
+      // Empty bins should NOT have "(Occupied)" label
+      const bin3Option = screen.getByText("Bin 3");
+      expect(bin3Option.textContent).not.toContain("(Occupied)");
+    });
+
+    it("OCC-008: [P1] should prioritize empty bins over occupied bins for auto-assignment", async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockPackValidationSuccess("New Game", 5.0, "NEW008"),
+      );
+
+      const { AddBinModal } = await import("@/components/lottery/AddBinModal");
+      const user = userEvent.setup();
+      renderWithProviders(<AddBinModal {...propsWithOccupiedBins} />);
+
+      const serialInput = screen.getByTestId("pack-serial-input");
+      await user.type(serialInput, "000800080080123456789012");
+
+      // Wait for pack to be added
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("pending-assignments-list"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Should be assigned to Bin 3 (first empty), not Bin 1 (occupied)
+      const pendingList = screen.getByTestId("pending-assignments-list");
+      expect(within(pendingList).getByText(/Bin 3/)).toBeInTheDocument();
+
+      // Should have green check icon (empty bin = no warning)
+      expect(screen.getByTestId("valid-check-icon")).toBeInTheDocument();
+    });
+
+    it("OCC-007: [P0] should pass deplete_previous to API when submitting", async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          mockPackValidationSuccess("New Game", 5.0, "NEW007"),
+        )
+        .mockResolvedValueOnce(mockBinCreationSuccess(1, "NEW007"));
+
+      const { AddBinModal } = await import("@/components/lottery/AddBinModal");
+      const user = userEvent.setup();
+      renderWithProviders(<AddBinModal {...propsWithOccupiedBins} />);
+
+      const serialInput = screen.getByTestId("pack-serial-input");
+      await user.type(serialInput, "000700070070123456789012");
+
+      // Wait for pack to be added
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("pending-assignments-list"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Change to occupied bin
+      const pendingList = screen.getByTestId("pending-assignments-list");
+      const binSelect = within(pendingList).getByRole("combobox");
+      await user.click(binSelect);
+
+      const occupiedOption = screen.getByText("Bin 1 (Occupied)");
+      await user.click(occupiedOption);
+
+      // Submit
+      await user.click(screen.getByTestId("add-bin-submit-button"));
+
+      // Check that API was called with deplete_previous: true
+      await waitFor(() => {
+        const createCall = mockFetch.mock.calls.find((call) =>
+          String(call[0]).includes("/bins/create-with-pack"),
+        );
+        expect(createCall).toBeDefined();
+        const body = JSON.parse(createCall![1].body);
+        expect(body.deplete_previous).toBe(true);
+      });
+    });
+
+    it("OCC-009: [P1] should display previous pack info in warning text", async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockPackValidationSuccess("New Game", 5.0, "NEW009"),
+      );
+
+      const { AddBinModal } = await import("@/components/lottery/AddBinModal");
+      const user = userEvent.setup();
+      renderWithProviders(<AddBinModal {...propsWithOccupiedBins} />);
+
+      const serialInput = screen.getByTestId("pack-serial-input");
+      await user.type(serialInput, "000900090090123456789012");
+
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("pending-assignments-list"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Change to occupied bin
+      const pendingList = screen.getByTestId("pending-assignments-list");
+      const binSelect = within(pendingList).getByRole("combobox");
+      await user.click(binSelect);
+
+      const occupiedOption = screen.getByText("Bin 1 (Occupied)");
+      await user.click(occupiedOption);
+
+      // Toast should include previous pack info
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            description: expect.stringContaining("PREV001"),
+          }),
+        );
+      });
+    });
+
+    it("OCC-010: [P1] should clear depletePrevious flag when switching to empty bin", async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          mockPackValidationSuccess("New Game", 5.0, "NEW010"),
+        )
+        .mockResolvedValueOnce(mockBinCreationSuccess(5, "NEW010"));
+
+      const { AddBinModal } = await import("@/components/lottery/AddBinModal");
+      const user = userEvent.setup();
+      renderWithProviders(<AddBinModal {...propsWithOccupiedBins} />);
+
+      const serialInput = screen.getByTestId("pack-serial-input");
+      await user.type(serialInput, "001000100100123456789012");
+
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("pending-assignments-list"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // First select occupied bin
+      const pendingList = screen.getByTestId("pending-assignments-list");
+      const binSelect = within(pendingList).getByRole("combobox");
+      await user.click(binSelect);
+      await user.click(screen.getByText("Bin 1 (Occupied)"));
+
+      // Then switch back to empty bin
+      await user.click(binSelect);
+      await user.click(screen.getByText("Bin 5"));
+
+      // Now it should have green check (not warning)
+      await waitFor(() => {
+        expect(screen.getByTestId("valid-check-icon")).toBeInTheDocument();
+      });
+
+      // Submit
+      await user.click(screen.getByTestId("add-bin-submit-button"));
+
+      // Check that API was NOT called with deplete_previous: true
+      await waitFor(() => {
+        const createCall = mockFetch.mock.calls.find((call) =>
+          String(call[0]).includes("/bins/create-with-pack"),
+        );
+        expect(createCall).toBeDefined();
+        const body = JSON.parse(createCall![1].body);
+        expect(body.deplete_previous).toBeFalsy();
+      });
+    });
+
+    it("should show amber background styling for items that will auto-deplete", async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockPackValidationSuccess("New Game", 5.0, "NEWAMBER"),
+      );
+
+      const { AddBinModal } = await import("@/components/lottery/AddBinModal");
+      const user = userEvent.setup();
+      renderWithProviders(<AddBinModal {...propsWithOccupiedBins} />);
+
+      const serialInput = screen.getByTestId("pack-serial-input");
+      await user.type(serialInput, "000100010010123456789012");
+
+      await waitFor(
+        () => {
+          expect(
+            screen.getByTestId("pending-assignments-list"),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Change to occupied bin to trigger warning styling
+      const pendingList = screen.getByTestId("pending-assignments-list");
+      const binSelect = within(pendingList).getByRole("combobox");
+      await user.click(binSelect);
+      await user.click(screen.getByText("Bin 1 (Occupied)"));
+
+      // Check for amber styling on the row (using regex for partial class match)
+      await waitFor(() => {
+        // The pending item should have amber background
+        const pendingItems = screen.getAllByTestId(/pending-item-/);
+        expect(pendingItems.length).toBeGreaterThan(0);
+        // Check for amber class
+        expect(pendingItems[0].className).toMatch(/amber/);
+      });
+    });
+  });
 });

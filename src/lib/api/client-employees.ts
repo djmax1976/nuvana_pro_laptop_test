@@ -4,13 +4,17 @@
  * All functions require CLIENT_EMPLOYEE permissions (Client Users only)
  *
  * Story: 2.91 - Client Employee Management
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { clientDashboardKeys } from "./client-dashboard";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 // ============ Types ============
 
@@ -112,54 +116,6 @@ export interface RolesResponse {
   data: StoreRole[];
 }
 
-/**
- * API error response
- */
-export interface ApiError {
-  error: string;
-  message: string;
-}
-
-// ============ API Request Helper ============
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    throw new Error(
-      errorData.message || errorData.error || "API request failed",
-    );
-  }
-
-  return response.json();
-}
-
 // ============ API Functions ============
 
 /**
@@ -170,23 +126,11 @@ async function apiRequest<T>(
 export async function getEmployees(
   params?: ListEmployeesParams,
 ): Promise<ListEmployeesResponse> {
-  const queryParams = new URLSearchParams();
-
-  if (params?.page) {
-    queryParams.append("page", params.page.toString());
-  }
-  if (params?.limit) {
-    queryParams.append("limit", params.limit.toString());
-  }
-  if (params?.search) {
-    queryParams.append("search", params.search);
-  }
-  if (params?.store_id) {
-    queryParams.append("store_id", params.store_id);
-  }
-
-  const endpoint = `/api/client/employees${queryParams.toString() ? `?${queryParams}` : ""}`;
-  return apiRequest<ListEmployeesResponse>(endpoint, { method: "GET" });
+  const response = await apiClient.get<ListEmployeesResponse>(
+    "/api/client/employees",
+    { params },
+  );
+  return response.data;
 }
 
 /**
@@ -211,10 +155,11 @@ export async function createEmployee(
     throw new Error("Role is required");
   }
 
-  return apiRequest<EmployeeResponse>("/api/client/employees", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.post<EmployeeResponse>(
+    "/api/client/employees",
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -229,9 +174,10 @@ export async function deleteEmployee(
     throw new Error("User ID is required");
   }
 
-  return apiRequest<DeleteEmployeeResponse>(`/api/client/employees/${userId}`, {
-    method: "DELETE",
-  });
+  const response = await apiClient.delete<DeleteEmployeeResponse>(
+    `/api/client/employees/${userId}`,
+  );
+  return response.data;
 }
 
 /**
@@ -239,9 +185,10 @@ export async function deleteEmployee(
  * @returns List of STORE scope roles
  */
 export async function getStoreRoles(): Promise<RolesResponse> {
-  return apiRequest<RolesResponse>("/api/client/employees/roles", {
-    method: "GET",
-  });
+  const response = await apiClient.get<RolesResponse>(
+    "/api/client/employees/roles",
+  );
+  return response.data;
 }
 
 /**
@@ -261,10 +208,11 @@ export async function updateEmployeeEmail(
     throw new Error("Email is required");
   }
 
-  return apiRequest<EmployeeResponse>(`/api/client/employees/${userId}/email`, {
-    method: "PUT",
-    body: JSON.stringify({ email }),
-  });
+  const response = await apiClient.put<EmployeeResponse>(
+    `/api/client/employees/${userId}/email`,
+    { email },
+  );
+  return response.data;
 }
 
 /**
@@ -284,13 +232,11 @@ export async function resetEmployeePassword(
     throw new Error("Password is required");
   }
 
-  return apiRequest<{ success: boolean }>(
+  const response = await apiClient.put<{ success: boolean }>(
     `/api/client/employees/${userId}/password`,
-    {
-      method: "PUT",
-      body: JSON.stringify({ password }),
-    },
+    { password },
   );
+  return response.data;
 }
 
 // ============ TanStack Query Keys ============

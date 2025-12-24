@@ -793,6 +793,11 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               format: "uuid",
               description: "Shift UUID where pack is being activated",
             },
+            deplete_previous: {
+              type: "boolean",
+              description:
+                "If true and bin has an ACTIVE pack, auto-deplete it with reason AUTO_REPLACED",
+            },
           },
         },
         response: {
@@ -827,8 +832,23 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
                     type: ["object", "null"],
                     properties: {
                       pack_id: { type: "string", format: "uuid" },
+                      pack_number: { type: "string" },
                       game_name: { type: "string" },
                       game_price: { type: "number" },
+                    },
+                  },
+                  depletedPack: {
+                    type: ["object", "null"],
+                    description:
+                      "Previous pack that was auto-depleted (only present if deplete_previous was true)",
+                    properties: {
+                      pack_id: { type: "string", format: "uuid" },
+                      pack_number: { type: "string" },
+                      game_name: { type: "string" },
+                      depletion_reason: {
+                        type: "string",
+                        enum: ["AUTO_REPLACED"],
+                      },
                     },
                   },
                 },
@@ -892,6 +912,7 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
         serial_start: string;
         activated_by: string;
         activated_shift_id: string;
+        deplete_previous?: boolean;
       };
 
       try {
@@ -1040,6 +1061,9 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
             },
             select: {
               pack_id: true,
+              pack_number: true,
+              serial_start: true,
+              serial_end: true,
               game: {
                 select: {
                   name: true,
@@ -1048,6 +1072,15 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               },
             },
           });
+
+          // Track depleted pack info for response
+          let depletedPackInfo:
+            | {
+                pack_id: string;
+                pack_number: string;
+                game_name: string;
+              }
+            | undefined;
 
           // 2. Update pack: status = ACTIVE, set current_bin_id, activated_at, activated_by, activated_shift_id
           await tx.lotteryPack.update({
@@ -1061,11 +1094,64 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
             },
           });
 
-          // 3. Handle previous pack in bin (mark for closing if exists)
+          // 3. Handle previous pack in bin
           if (previousPack) {
-            // Mark previous pack as needing closing (status remains ACTIVE but will need ending number)
-            // The pack will appear in "Sold Packs" section needing ending number
-            // No status change here - it's handled during shift closing
+            if (body.deplete_previous) {
+              // Auto-deplete the previous pack when activating new pack in same bin
+              // MCP: SEC-009 - Using transaction for atomicity
+              await tx.lotteryPack.update({
+                where: { pack_id: previousPack.pack_id },
+                data: {
+                  status: LotteryPackStatus.DEPLETED,
+                  depleted_at: new Date(),
+                  depleted_by: body.activated_by,
+                  depleted_shift_id: body.activated_shift_id,
+                  depletion_reason: "AUTO_REPLACED",
+                  current_bin_id: null, // Remove from bin since new pack is taking over
+                },
+              });
+
+              // Create closing record for depleted pack (use serial_end as closing serial)
+              await tx.lotteryShiftClosing.create({
+                data: {
+                  shift_id: body.activated_shift_id,
+                  pack_id: previousPack.pack_id,
+                  closing_serial: previousPack.serial_end,
+                },
+              });
+
+              // Create audit log for auto-depletion
+              await tx.auditLog.create({
+                data: {
+                  user_id: body.activated_by,
+                  action: "UPDATE",
+                  table_name: "lottery_packs",
+                  record_id: previousPack.pack_id,
+                  old_values: {
+                    status: LotteryPackStatus.ACTIVE,
+                    current_bin_id: body.bin_id,
+                  },
+                  new_values: {
+                    status: LotteryPackStatus.DEPLETED,
+                    depleted_at: new Date().toISOString(),
+                    depleted_by: body.activated_by,
+                    depleted_shift_id: body.activated_shift_id,
+                    depletion_reason: "AUTO_REPLACED",
+                    current_bin_id: null,
+                    auto_replaced_by_pack: pack.pack_id,
+                  },
+                },
+              });
+
+              // Set depleted pack info for response
+              depletedPackInfo = {
+                pack_id: previousPack.pack_id,
+                pack_number: previousPack.pack_number,
+                game_name: previousPack.game.name,
+              };
+            }
+            // If deplete_previous is false/undefined, the previous pack remains ACTIVE
+            // but will be orphaned (no bin) - this is the legacy behavior for shift closing
           }
 
           // 4. Create LotteryShiftOpening record
@@ -1129,18 +1215,20 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
             },
           };
 
-          // 8. Build previous pack info if exists
-          const previousPackInfo = previousPack
-            ? {
-                pack_id: previousPack.pack_id,
-                game_name: previousPack.game.name,
-                game_price: previousPack.game.price.toNumber(),
-              }
-            : undefined;
+          // 8. Build previous pack info if exists (not depleted - still in bin)
+          const previousPackInfo =
+            previousPack && !depletedPackInfo
+              ? {
+                  pack_id: previousPack.pack_id,
+                  game_name: previousPack.game.name,
+                  game_price: previousPack.game.price.toNumber(),
+                }
+              : undefined;
 
           return {
             updatedBin,
             previousPack: previousPackInfo,
+            depletedPack: depletedPackInfo, // New: info about auto-depleted pack
           };
         });
 

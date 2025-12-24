@@ -2,12 +2,16 @@
  * Store API client functions
  * Provides functions for interacting with the store management API
  * All functions require STORE_* permissions and enforce company isolation
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 /**
  * Store status values
@@ -158,15 +162,6 @@ export interface ListStoresResponse {
 }
 
 /**
- * API error response - supports both flat and nested error structures
- */
-export interface ApiError {
-  error?: string | { code?: string; message?: string };
-  message?: string;
-  success?: boolean;
-}
-
-/**
  * List stores query parameters
  */
 export interface ListStoresParams {
@@ -217,50 +212,6 @@ function validateLocationJson(location: LocationJson): void {
 }
 
 /**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    // Extract error message from various possible response structures
-    // Backend may return: { message: "..." } or { error: { message: "..." } }
-    const errorMessage =
-      errorData.message ||
-      (typeof errorData.error === "object" && errorData.error?.message) ||
-      (typeof errorData.error === "string" && errorData.error) ||
-      "API request failed";
-
-    throw new Error(errorMessage);
-  }
-
-  return response.json();
-}
-
-/**
  * Get all stores (System Admin only)
  * @param params - Query parameters for pagination
  * @returns List of all stores with company info
@@ -269,23 +220,11 @@ export async function getAllStores(params?: ListStoresParams): Promise<{
   data: StoreWithCompany[];
   meta: { total: number; limit: number; offset: number };
 }> {
-  const queryParams = new URLSearchParams();
-  if (params?.limit) {
-    queryParams.append("limit", params.limit.toString());
-  }
-  if (params?.offset) {
-    queryParams.append("offset", params.offset.toString());
-  }
-
-  const queryString = queryParams.toString();
-  const endpoint = `/api/stores${queryString ? `?${queryString}` : ""}`;
-
-  return apiRequest<{
+  const response = await apiClient.get<{
     data: StoreWithCompany[];
     meta: { total: number; limit: number; offset: number };
-  }>(endpoint, {
-    method: "GET",
-  });
+  }>("/api/stores", { params });
+  return response.data;
 }
 
 /**
@@ -299,24 +238,12 @@ export async function getClientStores(params?: ListStoresParams): Promise<{
   data: StoreWithCompany[];
   meta: { total: number; limit: number; offset: number };
 }> {
-  const queryParams = new URLSearchParams();
-  if (params?.limit) {
-    queryParams.append("limit", params.limit.toString());
-  }
-  if (params?.offset) {
-    queryParams.append("offset", params.offset.toString());
-  }
-
-  const queryString = queryParams.toString();
-  const endpoint = `/api/client/stores${queryString ? `?${queryString}` : ""}`;
-
-  return apiRequest<{
+  const response = await apiClient.get<{
     success: boolean;
     data: StoreWithCompany[];
     meta: { total: number; limit: number; offset: number };
-  }>(endpoint, {
-    method: "GET",
-  });
+  }>("/api/client/stores", { params });
+  return response.data;
 }
 
 /**
@@ -333,22 +260,11 @@ export async function getStoresByCompany(
     throw new Error("Company ID is required");
   }
 
-  const queryParams = new URLSearchParams();
-  if (params?.limit) {
-    queryParams.append("limit", params.limit.toString());
-  }
-  if (params?.offset) {
-    queryParams.append("offset", params.offset.toString());
-  }
-
-  const queryString = queryParams.toString();
-  const endpoint = `/api/companies/${companyId}/stores${
-    queryString ? `?${queryString}` : ""
-  }`;
-
-  return apiRequest<ListStoresResponse>(endpoint, {
-    method: "GET",
-  });
+  const response = await apiClient.get<ListStoresResponse>(
+    `/api/companies/${companyId}/stores`,
+    { params },
+  );
+  return response.data;
 }
 
 /**
@@ -361,9 +277,8 @@ export async function getStoreById(storeId: string): Promise<Store> {
     throw new Error("Store ID is required");
   }
 
-  return apiRequest<Store>(`/api/stores/${storeId}`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<Store>(`/api/stores/${storeId}`);
+  return response.data;
 }
 
 /**
@@ -398,10 +313,11 @@ export async function createStore(
     validateLocationJson(data.location_json);
   }
 
-  return apiRequest<Store>(`/api/companies/${companyId}/stores`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.post<Store>(
+    `/api/companies/${companyId}/stores`,
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -436,10 +352,8 @@ export async function updateStore(
     validateLocationJson(data.location_json);
   }
 
-  return apiRequest<Store>(`/api/stores/${storeId}`, {
-    method: "PUT",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.put<Store>(`/api/stores/${storeId}`, data);
+  return response.data;
 }
 
 /**
@@ -451,9 +365,7 @@ export async function deleteStore(storeId: string): Promise<void> {
     throw new Error("Store ID is required");
   }
 
-  await apiRequest<void>(`/api/stores/${storeId}`, {
-    method: "DELETE",
-  });
+  await apiClient.delete(`/api/stores/${storeId}`);
 }
 
 // ============ TanStack Query Hooks ============
@@ -659,10 +571,11 @@ export async function updateStoreConfiguration(
     validateLocationJson(config.location);
   }
 
-  return apiRequest<Store>(`/api/stores/${storeId}/configuration`, {
-    method: "PUT",
-    body: JSON.stringify(config),
-  });
+  const response = await apiClient.put<Store>(
+    `/api/stores/${storeId}/configuration`,
+    config,
+  );
+  return response.data;
 }
 
 /**
@@ -756,9 +669,10 @@ export async function getStoreTerminals(
     throw new Error("Store ID is required");
   }
 
-  return apiRequest<TerminalWithStatus[]>(`/api/stores/${storeId}/terminals`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<TerminalWithStatus[]>(
+    `/api/stores/${storeId}/terminals`,
+  );
+  return response.data;
 }
 
 /**
@@ -852,10 +766,11 @@ export async function createTerminal(
     throw new Error("Terminal name must be 100 characters or less");
   }
 
-  return apiRequest<Terminal>(`/api/stores/${storeId}/terminals`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.post<Terminal>(
+    `/api/stores/${storeId}/terminals`,
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -886,13 +801,11 @@ export async function updateTerminal(
     throw new Error("Terminal name must be 100 characters or less");
   }
 
-  return apiRequest<Terminal>(
+  const response = await apiClient.put<Terminal>(
     `/api/stores/${storeId}/terminals/${terminalId}`,
-    {
-      method: "PUT",
-      body: JSON.stringify(data),
-    },
+    data,
   );
+  return response.data;
 }
 
 /**
@@ -912,9 +825,7 @@ export async function deleteTerminal(
     throw new Error("Terminal ID is required");
   }
 
-  return apiRequest<void>(`/api/stores/${storeId}/terminals/${terminalId}`, {
-    method: "DELETE",
-  });
+  await apiClient.delete(`/api/stores/${storeId}/terminals/${terminalId}`);
 }
 
 /**
@@ -1019,9 +930,10 @@ export async function getStoreLogin(
   }
 
   try {
-    return await apiRequest<StoreLogin>(`/api/stores/${storeId}/login`, {
-      method: "GET",
-    });
+    const response = await apiClient.get<StoreLogin>(
+      `/api/stores/${storeId}/login`,
+    );
+    return response.data;
   } catch (error: any) {
     // Return null if no login found (404)
     if (error.message?.includes("does not have a login")) {
@@ -1058,10 +970,11 @@ export async function createStoreLogin(
     throw new Error("Password must be at least 8 characters");
   }
 
-  return apiRequest<StoreLogin>(`/api/stores/${storeId}/login`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.post<StoreLogin>(
+    `/api/stores/${storeId}/login`,
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -1087,10 +1000,11 @@ export async function updateStoreLogin(
     throw new Error("At least one of email or password must be provided");
   }
 
-  return apiRequest<StoreLogin>(`/api/stores/${storeId}/login`, {
-    method: "PUT",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.put<StoreLogin>(
+    `/api/stores/${storeId}/login`,
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -1220,13 +1134,11 @@ export async function createStoreWithLogin(
     validateLocationJson(data.location_json);
   }
 
-  return apiRequest<CreateStoreWithLoginResponse>(
+  const response = await apiClient.post<CreateStoreWithLoginResponse>(
     `/api/companies/${companyId}/stores`,
-    {
-      method: "POST",
-      body: JSON.stringify(data),
-    },
+    data,
   );
+  return response.data;
 }
 
 /**

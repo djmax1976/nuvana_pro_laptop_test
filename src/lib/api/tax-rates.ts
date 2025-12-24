@@ -8,12 +8,16 @@
  * - API-001: Schema validation using TypeScript types
  * - FE-001: HttpOnly cookies for auth tokens
  * - API-003: Error handling with typed responses
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 // ============ Types ============
 
@@ -118,67 +122,6 @@ interface ApiResponse<T> {
   message?: string;
 }
 
-/**
- * API error response
- */
-interface ApiError {
-  success: false;
-  error: string | { code: string; message: string };
-  message?: string;
-}
-
-// ============ API Request Helper ============
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    let errorMessage: string;
-    if (errorData.message) {
-      errorMessage = errorData.message;
-    } else if (typeof errorData.error === "string") {
-      errorMessage = errorData.error;
-    } else if (
-      typeof errorData.error === "object" &&
-      errorData.error?.message
-    ) {
-      errorMessage = errorData.error.message;
-    } else {
-      errorMessage = "API request failed";
-    }
-
-    throw new Error(errorMessage);
-  }
-
-  return response.json();
-}
-
 // ============ API Functions ============
 
 /**
@@ -214,7 +157,8 @@ export async function getTaxRates(
   const queryString = searchParams.toString();
   const endpoint = `/api/config/tax-rates${queryString ? `?${queryString}` : ""}`;
 
-  return apiRequest<ApiResponse<TaxRate[]>>(endpoint, { method: "GET" });
+  const response = await apiClient.get<ApiResponse<TaxRate[]>>(endpoint);
+  return response.data;
 }
 
 /**
@@ -223,9 +167,10 @@ export async function getTaxRates(
 export async function getTaxRateById(
   id: string,
 ): Promise<ApiResponse<TaxRate>> {
-  return apiRequest<ApiResponse<TaxRate>>(`/api/config/tax-rates/${id}`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<ApiResponse<TaxRate>>(
+    `/api/config/tax-rates/${id}`,
+  );
+  return response.data;
 }
 
 /**
@@ -234,10 +179,11 @@ export async function getTaxRateById(
 export async function createTaxRate(
   data: CreateTaxRateInput,
 ): Promise<ApiResponse<TaxRate>> {
-  return apiRequest<ApiResponse<TaxRate>>("/api/config/tax-rates", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.post<ApiResponse<TaxRate>>(
+    "/api/config/tax-rates",
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -247,19 +193,21 @@ export async function updateTaxRate(
   id: string,
   data: UpdateTaxRateInput,
 ): Promise<ApiResponse<TaxRate>> {
-  return apiRequest<ApiResponse<TaxRate>>(`/api/config/tax-rates/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.patch<ApiResponse<TaxRate>>(
+    `/api/config/tax-rates/${id}`,
+    data,
+  );
+  return response.data;
 }
 
 /**
  * Deactivate (soft delete) a tax rate
  */
 export async function deleteTaxRate(id: string): Promise<ApiResponse<TaxRate>> {
-  return apiRequest<ApiResponse<TaxRate>>(`/api/config/tax-rates/${id}`, {
-    method: "DELETE",
-  });
+  const response = await apiClient.delete<ApiResponse<TaxRate>>(
+    `/api/config/tax-rates/${id}`,
+  );
+  return response.data;
 }
 
 // ============ TanStack Query Keys ============
@@ -371,5 +319,7 @@ export function getJurisdictionLevelDisplay(
     DISTRICT: "District",
     COMBINED: "Combined",
   };
-  return displayNames[level] || level;
+  return Object.prototype.hasOwnProperty.call(displayNames, level)
+    ? displayNames[level as keyof typeof displayNames]
+    : level;
 }
