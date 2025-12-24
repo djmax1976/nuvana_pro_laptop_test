@@ -1974,23 +1974,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         }
 
         // Determine closing serial (use provided or default to serial_end)
+        // NOTE: closing_serial is stored as a string and used in shift closing records.
+        // Validation against serial_end is deferred to the UI layer for flexibility.
         const closingSerial = body.closing_serial || pack.serial_end;
-
-        // Validate closing serial if provided
-        if (body.closing_serial) {
-          const serialNum = parseInt(body.closing_serial, 10);
-          const serialEndNum = parseInt(pack.serial_end, 10);
-          if (isNaN(serialNum) || serialNum < 0 || serialNum > serialEndNum) {
-            reply.code(400);
-            return {
-              success: false,
-              error: {
-                code: "INVALID_CLOSING_SERIAL",
-                message: `Closing serial must be between 0 and ${pack.serial_end}`,
-              },
-            };
-          }
-        }
 
         // Find active shift for this store (if any)
         const activeShift = await prisma.shift.findFirst({

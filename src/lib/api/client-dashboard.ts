@@ -11,7 +11,7 @@
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import apiClient from "./client";
+import apiClient, { extractData, ApiResponse } from "./client";
 
 /**
  * Company status values
@@ -83,10 +83,10 @@ export interface ClientDashboardResponse {
  * @returns Client dashboard data
  */
 export async function getClientDashboard(): Promise<ClientDashboardResponse> {
-  const response = await apiClient.get<ClientDashboardResponse>(
+  const response = await apiClient.get<ApiResponse<ClientDashboardResponse>>(
     "/api/client/dashboard",
   );
-  return response.data;
+  return extractData(response);
 }
 
 /**

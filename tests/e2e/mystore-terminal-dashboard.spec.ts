@@ -27,6 +27,7 @@ import { createTerminal } from "../support/factories/terminal.factory";
 
 /**
  * Helper function to perform login and wait for /mystore redirect.
+ * Uses robust waits to handle React hydration and slow CI environments.
  */
 async function loginAndWaitForMyStore(
   page: Page,
@@ -34,13 +35,27 @@ async function loginAndWaitForMyStore(
   password: string,
 ): Promise<void> {
   await page.goto("/login");
-  await page.fill('input[name="email"], input[type="email"]', email);
+
+  // Wait for the page to be fully loaded (React hydration)
+  await page.waitForLoadState("domcontentloaded");
+
+  // Wait for login form to be visible and interactive
+  const emailInput = page.locator('input[name="email"], input[type="email"]');
+  await emailInput.waitFor({ state: "visible", timeout: 30000 });
+  await expect(emailInput).toBeEditable({ timeout: 15000 });
+
+  // Fill credentials
+  await emailInput.fill(email);
   await page.fill('input[name="password"], input[type="password"]', password);
+
+  // Get submit button and ensure it's ready
+  const submitButton = page.locator('button[type="submit"]');
+  await submitButton.waitFor({ state: "visible", timeout: 10000 });
 
   // Wait for navigation to /mystore after form submission
   await Promise.all([
-    page.waitForURL(/.*mystore.*/, { timeout: 15000 }),
-    page.click('button[type="submit"]'),
+    page.waitForURL(/.*mystore.*/, { timeout: 30000 }),
+    submitButton.click(),
   ]);
 }
 

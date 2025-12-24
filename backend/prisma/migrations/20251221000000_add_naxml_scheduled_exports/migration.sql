@@ -64,13 +64,13 @@ CREATE TABLE IF NOT EXISTS "naxml_scheduled_export" (
   "status" "ScheduledExportStatus" NOT NULL DEFAULT 'ACTIVE',
   "last_run_at" TIMESTAMPTZ,
   "next_run_at" TIMESTAMPTZ,
-  "last_status" "NAXMLFileStatus",
-  "last_error" TEXT,
+  "last_run_status" "NAXMLFileStatus",
+  "last_run_error" TEXT,
 
   -- Statistics
-  "run_count" INTEGER NOT NULL DEFAULT 0,
-  "success_count" INTEGER NOT NULL DEFAULT 0,
-  "failure_count" INTEGER NOT NULL DEFAULT 0,
+  "total_runs" INTEGER NOT NULL DEFAULT 0,
+  "successful_runs" INTEGER NOT NULL DEFAULT 0,
+  "failed_runs" INTEGER NOT NULL DEFAULT 0,
 
   -- Metadata
   "created_by" UUID REFERENCES "users"("user_id") ON DELETE SET NULL,

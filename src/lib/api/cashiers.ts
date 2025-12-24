@@ -16,7 +16,7 @@ import {
   useQueryClient,
   useQueries,
 } from "@tanstack/react-query";
-import apiClient from "./client";
+import apiClient, { extractData, ApiResponse } from "./client";
 
 /**
  * Cashier entity type
@@ -88,7 +88,7 @@ export async function getCashiers(
     throw new Error("Store ID is required");
   }
 
-  const response = await apiClient.get<Cashier[]>(
+  const response = await apiClient.get<ApiResponse<Cashier[]>>(
     `/api/stores/${storeId}/cashiers`,
     {
       params:
@@ -97,7 +97,7 @@ export async function getCashiers(
           : undefined,
     },
   );
-  return response.data;
+  return extractData(response);
 }
 
 /**
@@ -117,10 +117,10 @@ export async function getCashierById(
     throw new Error("Cashier ID is required");
   }
 
-  const response = await apiClient.get<Cashier>(
+  const response = await apiClient.get<ApiResponse<Cashier>>(
     `/api/stores/${storeId}/cashiers/${cashierId}`,
   );
-  return response.data;
+  return extractData(response);
 }
 
 /**
@@ -137,11 +137,11 @@ export async function createCashier(
     throw new Error("Store ID is required");
   }
 
-  const response = await apiClient.post<Cashier>(
+  const response = await apiClient.post<ApiResponse<Cashier>>(
     `/api/stores/${storeId}/cashiers`,
     data,
   );
-  return response.data;
+  return extractData(response);
 }
 
 /**
@@ -163,11 +163,11 @@ export async function updateCashier(
     throw new Error("Cashier ID is required");
   }
 
-  const response = await apiClient.put<Cashier>(
+  const response = await apiClient.put<ApiResponse<Cashier>>(
     `/api/stores/${storeId}/cashiers/${cashierId}`,
     data,
   );
-  return response.data;
+  return extractData(response);
 }
 
 /**
@@ -220,7 +220,7 @@ export async function authenticateCashier(
     throw new Error("PIN must be exactly 4 numeric digits");
   }
 
-  const response = await apiClient.post<CashierAuthResult>(
+  const response = await apiClient.post<ApiResponse<CashierAuthResult>>(
     `/api/stores/${storeId}/cashiers/authenticate`,
     {
       name: identifier.name,
@@ -229,7 +229,7 @@ export async function authenticateCashier(
       terminal_id: terminalId,
     },
   );
-  return response.data;
+  return extractData(response);
 }
 
 /**
