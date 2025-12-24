@@ -2,6 +2,12 @@
  * Cashier API client functions
  * Provides functions for interacting with the cashier management API
  * All functions require CASHIER_* permissions (except authenticate)
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import {
@@ -10,9 +16,7 @@ import {
   useQueryClient,
   useQueries,
 } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient, { extractData, ApiResponse } from "./client";
 
 /**
  * Cashier entity type
@@ -51,129 +55,6 @@ export interface CashierAuthResult {
 }
 
 /**
- * API error response
- * Note: error can be a string OR an object with code/message
- */
-interface ApiError {
-  success: false;
-  error: string | { code: string; message: string };
-  message?: string;
-}
-
-/**
- * API success response
- */
-interface ApiSuccessResponse<T> {
-  success: true;
-  data: T;
-}
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    // Handle nested error object: { error: { code, message } }
-    const errorMessage =
-      errorData.message ||
-      (typeof errorData.error === "object"
-        ? errorData.error.message
-        : errorData.error) ||
-      "API request failed";
-
-    throw new Error(errorMessage);
-  }
-
-  const result: ApiSuccessResponse<T> = await response.json();
-  return result.data;
-}
-
-/**
- * Make authenticated API request that returns void (for 204 No Content responses)
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequestVoid(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<void> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    // Handle nested error object: { error: { code, message } }
-    const errorMessage =
-      errorData.message ||
-      (typeof errorData.error === "object"
-        ? errorData.error.message
-        : errorData.error) ||
-      "API request failed";
-
-    throw new Error(errorMessage);
-  }
-
-  // 204 No Content responses have no body, so we just return void
-  if (response.status === 204) {
-    return;
-  }
-
-  // For other successful responses, verify they're empty or parse if needed
-  const contentType = response.headers.get("Content-Type");
-  if (contentType && contentType.includes("application/json")) {
-    const result: ApiSuccessResponse<never> = await response.json();
-    // If we get here, the response had data but we expected void
-    // This shouldn't happen, but we'll return void anyway
-    return;
-  }
-
-  return;
-}
-
-/**
  * Input type for creating a cashier
  */
 export interface CreateCashierInput {
@@ -207,17 +88,16 @@ export async function getCashiers(
     throw new Error("Store ID is required");
   }
 
-  const queryParams = new URLSearchParams();
-  if (filters?.is_active !== undefined) {
-    queryParams.append("is_active", filters.is_active.toString());
-  }
-
-  const queryString = queryParams.toString();
-  const endpoint = `/api/stores/${storeId}/cashiers${queryString ? `?${queryString}` : ""}`;
-
-  return apiRequest<Cashier[]>(endpoint, {
-    method: "GET",
-  });
+  const response = await apiClient.get<ApiResponse<Cashier[]>>(
+    `/api/stores/${storeId}/cashiers`,
+    {
+      params:
+        filters?.is_active !== undefined
+          ? { is_active: filters.is_active }
+          : undefined,
+    },
+  );
+  return extractData(response);
 }
 
 /**
@@ -237,9 +117,10 @@ export async function getCashierById(
     throw new Error("Cashier ID is required");
   }
 
-  return apiRequest<Cashier>(`/api/stores/${storeId}/cashiers/${cashierId}`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<ApiResponse<Cashier>>(
+    `/api/stores/${storeId}/cashiers/${cashierId}`,
+  );
+  return extractData(response);
 }
 
 /**
@@ -256,10 +137,11 @@ export async function createCashier(
     throw new Error("Store ID is required");
   }
 
-  return apiRequest<Cashier>(`/api/stores/${storeId}/cashiers`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.post<ApiResponse<Cashier>>(
+    `/api/stores/${storeId}/cashiers`,
+    data,
+  );
+  return extractData(response);
 }
 
 /**
@@ -281,10 +163,11 @@ export async function updateCashier(
     throw new Error("Cashier ID is required");
   }
 
-  return apiRequest<Cashier>(`/api/stores/${storeId}/cashiers/${cashierId}`, {
-    method: "PUT",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.put<ApiResponse<Cashier>>(
+    `/api/stores/${storeId}/cashiers/${cashierId}`,
+    data,
+  );
+  return extractData(response);
 }
 
 /**
@@ -303,9 +186,7 @@ export async function deleteCashier(
     throw new Error("Cashier ID is required");
   }
 
-  await apiRequestVoid(`/api/stores/${storeId}/cashiers/${cashierId}`, {
-    method: "DELETE",
-  });
+  await apiClient.delete(`/api/stores/${storeId}/cashiers/${cashierId}`);
 }
 
 /**
@@ -339,18 +220,16 @@ export async function authenticateCashier(
     throw new Error("PIN must be exactly 4 numeric digits");
   }
 
-  return apiRequest<CashierAuthResult>(
+  const response = await apiClient.post<ApiResponse<CashierAuthResult>>(
     `/api/stores/${storeId}/cashiers/authenticate`,
     {
-      method: "POST",
-      body: JSON.stringify({
-        name: identifier.name,
-        employee_id: identifier.employee_id,
-        pin,
-        terminal_id: terminalId,
-      }),
+      name: identifier.name,
+      employee_id: identifier.employee_id,
+      pin,
+      terminal_id: terminalId,
     },
   );
+  return extractData(response);
 }
 
 /**

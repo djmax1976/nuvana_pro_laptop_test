@@ -4,10 +4,15 @@
  * All functions require appropriate lottery permissions
  *
  * Story: 6.10 - Lottery Management UI
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 // ============ Types ============
 
@@ -223,86 +228,7 @@ export interface ApiError {
   message?: string;
 }
 
-// ============ API Request Helper ============
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies (JWT token)
- * Follows API-004: AUTHENTICATION pattern - uses secure, stateless auth
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include", // Sends httpOnly cookies (JWT token)
-    headers,
-  });
-
-  if (!response.ok) {
-    // API-003: ERROR_HANDLING - Return generic error responses, never leak stack traces
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    // Extract error message - handle both string and object error formats
-    let errorMessage: string;
-    if (errorData.message) {
-      errorMessage = errorData.message;
-    } else if (typeof errorData.error === "string") {
-      errorMessage = errorData.error;
-    } else if (
-      typeof errorData.error === "object" &&
-      errorData.error?.message
-    ) {
-      errorMessage = errorData.error.message;
-    } else {
-      errorMessage = "API request failed";
-    }
-
-    // Include status code in error for better detection
-    const error = new Error(errorMessage);
-    (error as any).status = response.status;
-    throw error;
-  }
-
-  return response.json();
-}
-
 // ============ API Functions ============
-
-/**
- * Build query string from filters
- */
-function buildQueryString(
-  filters?: Record<string, string | undefined>,
-): string {
-  const params = new URLSearchParams();
-
-  if (filters) {
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        params.append(key, value);
-      }
-    });
-  }
-
-  const queryString = params.toString();
-  return queryString ? `?${queryString}` : "";
-}
 
 /**
  * Receive a new lottery pack
@@ -313,13 +239,11 @@ function buildQueryString(
 export async function receivePack(
   data: ReceivePackInput,
 ): Promise<ApiResponse<ReceivePackResponse>> {
-  return apiRequest<ApiResponse<ReceivePackResponse>>(
+  const response = await apiClient.post<ApiResponse<ReceivePackResponse>>(
     "/api/lottery/packs/receive",
-    {
-      method: "POST",
-      body: JSON.stringify(data),
-    },
+    data,
   );
+  return response.data;
 }
 
 /**
@@ -363,13 +287,11 @@ export interface BatchReceivePackResponse {
 export async function receivePackBatch(
   data: BatchReceivePackInput,
 ): Promise<ApiResponse<BatchReceivePackResponse>> {
-  return apiRequest<ApiResponse<BatchReceivePackResponse>>(
+  const response = await apiClient.post<ApiResponse<BatchReceivePackResponse>>(
     "/api/lottery/packs/receive/batch",
-    {
-      method: "POST",
-      body: JSON.stringify(data),
-    },
+    data,
   );
+  return response.data;
 }
 
 /**
@@ -394,9 +316,11 @@ export interface LotteryGameResponse {
  * @returns List of active lottery games
  */
 export async function getGames(): Promise<ApiResponse<LotteryGameResponse[]>> {
-  return apiRequest<ApiResponse<LotteryGameResponse[]>>("/api/lottery/games", {
-    method: "GET",
-  });
+  const response =
+    await apiClient.get<ApiResponse<LotteryGameResponse[]>>(
+      "/api/lottery/games",
+    );
+  return response.data;
 }
 
 /**
@@ -427,10 +351,11 @@ export interface CreateGameResponse {
 export async function createGame(
   data: CreateGameInput,
 ): Promise<ApiResponse<CreateGameResponse>> {
-  return apiRequest<ApiResponse<CreateGameResponse>>("/api/lottery/games", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.post<ApiResponse<CreateGameResponse>>(
+    "/api/lottery/games",
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -442,12 +367,10 @@ export async function createGame(
 export async function activatePack(
   packId: string,
 ): Promise<ApiResponse<ActivatePackResponse>> {
-  return apiRequest<ApiResponse<ActivatePackResponse>>(
+  const response = await apiClient.put<ApiResponse<ActivatePackResponse>>(
     `/api/lottery/packs/${packId}/activate`,
-    {
-      method: "PUT",
-    },
   );
+  return response.data;
 }
 
 /**
@@ -461,13 +384,11 @@ export async function updatePack(
   packId: string,
   data: UpdatePackInput,
 ): Promise<ApiResponse<LotteryPackResponse>> {
-  return apiRequest<ApiResponse<LotteryPackResponse>>(
+  const response = await apiClient.put<ApiResponse<LotteryPackResponse>>(
     `/api/lottery/packs/${packId}`,
-    {
-      method: "PUT",
-      body: JSON.stringify(data),
-    },
+    data,
   );
+  return response.data;
 }
 
 /**
@@ -479,12 +400,10 @@ export async function updatePack(
 export async function deletePack(
   packId: string,
 ): Promise<ApiResponse<{ pack_id: string; message: string }>> {
-  return apiRequest<ApiResponse<{ pack_id: string; message: string }>>(
-    `/api/lottery/packs/${packId}`,
-    {
-      method: "DELETE",
-    },
-  );
+  const response = await apiClient.delete<
+    ApiResponse<{ pack_id: string; message: string }>
+  >(`/api/lottery/packs/${packId}`);
+  return response.data;
 }
 
 /**
@@ -497,21 +416,18 @@ export async function deletePack(
 export async function getPacks(
   filters?: LotteryPackQueryFilters,
 ): Promise<ApiResponse<LotteryPackResponse[]>> {
-  const queryString = buildQueryString(
-    filters as Record<string, string | undefined>,
-  );
   try {
-    return await apiRequest<ApiResponse<LotteryPackResponse[]>>(
-      `/api/lottery/packs${queryString}`,
-      {
-        method: "GET",
-      },
+    const response = await apiClient.get<ApiResponse<LotteryPackResponse[]>>(
+      "/api/lottery/packs",
+      { params: filters },
     );
+    return response.data;
   } catch (error) {
     // Handle 404 gracefully - endpoint not implemented yet
     if (
       error instanceof Error &&
-      ((error as any).status === 404 || error.message.includes("404"))
+      "status" in error &&
+      (error as any).status === 404
     ) {
       return {
         success: true,
@@ -545,12 +461,10 @@ export async function checkPackExists(
   storeId: string,
   packNumber: string,
 ): Promise<ApiResponse<CheckPackExistsResponse>> {
-  return apiRequest<ApiResponse<CheckPackExistsResponse>>(
+  const response = await apiClient.get<ApiResponse<CheckPackExistsResponse>>(
     `/api/lottery/packs/check/${storeId}/${packNumber}`,
-    {
-      method: "GET",
-    },
   );
+  return response.data;
 }
 
 /**
@@ -563,12 +477,10 @@ export async function checkPackExists(
 export async function getPackDetails(
   packId: string,
 ): Promise<ApiResponse<LotteryPackDetailResponse>> {
-  return apiRequest<ApiResponse<LotteryPackDetailResponse>>(
+  const response = await apiClient.get<ApiResponse<LotteryPackDetailResponse>>(
     `/api/lottery/packs/${packId}`,
-    {
-      method: "GET",
-    },
   );
+  return response.data;
 }
 
 /**
@@ -582,21 +494,17 @@ export async function getPackDetails(
 export async function getVariances(
   filters?: VarianceQueryFilters,
 ): Promise<ApiResponse<LotteryVarianceResponse[]>> {
-  const queryString = buildQueryString(
-    filters as Record<string, string | undefined>,
-  );
   try {
-    return await apiRequest<ApiResponse<LotteryVarianceResponse[]>>(
-      `/api/lottery/variances${queryString}`,
-      {
-        method: "GET",
-      },
-    );
+    const response = await apiClient.get<
+      ApiResponse<LotteryVarianceResponse[]>
+    >("/api/lottery/variances", { params: filters });
+    return response.data;
   } catch (error) {
     // Handle 404 gracefully - endpoint not implemented yet
     if (
       error instanceof Error &&
-      ((error as any).status === 404 || error.message.includes("404"))
+      "status" in error &&
+      (error as any).status === 404
     ) {
       return {
         success: true,
@@ -627,7 +535,7 @@ export async function approveVariance(
     variance_percentage: number;
   }>
 > {
-  return apiRequest<
+  const response = await apiClient.put<
     ApiResponse<{
       shift_id: string;
       status: string;
@@ -636,12 +544,10 @@ export async function approveVariance(
       variance_percentage: number;
     }>
   >(`/api/shifts/${shiftId}/reconcile`, {
-    method: "PUT",
-    body: JSON.stringify({
-      variance_reason: data.variance_reason,
-      // Note: closing_cash is not required for variance approval (shift must be in VARIANCE_REVIEW status)
-    }),
+    variance_reason: data.variance_reason,
+    // Note: closing_cash is not required for variance approval (shift must be in VARIANCE_REVIEW status)
   });
+  return response.data;
 }
 
 // ============ Bin Configuration API ============
@@ -675,12 +581,10 @@ export interface BinConfigurationResponse {
 export async function getBinConfiguration(
   storeId: string,
 ): Promise<ApiResponse<BinConfigurationResponse>> {
-  return apiRequest<ApiResponse<BinConfigurationResponse>>(
+  const response = await apiClient.get<ApiResponse<BinConfigurationResponse>>(
     `/api/lottery/bins/configuration/${storeId}`,
-    {
-      method: "GET",
-    },
   );
+  return response.data;
 }
 
 /**
@@ -694,13 +598,11 @@ export async function createBinConfiguration(
   storeId: string,
   data: { bin_template: BinConfigurationItem[] },
 ): Promise<ApiResponse<BinConfigurationResponse>> {
-  return apiRequest<ApiResponse<BinConfigurationResponse>>(
+  const response = await apiClient.post<ApiResponse<BinConfigurationResponse>>(
     `/api/lottery/bins/configuration/${storeId}`,
-    {
-      method: "POST",
-      body: JSON.stringify(data),
-    },
+    data,
   );
+  return response.data;
 }
 
 /**
@@ -714,13 +616,11 @@ export async function updateBinConfiguration(
   storeId: string,
   data: { bin_template: BinConfigurationItem[] },
 ): Promise<ApiResponse<BinConfigurationResponse>> {
-  return apiRequest<ApiResponse<BinConfigurationResponse>>(
+  const response = await apiClient.put<ApiResponse<BinConfigurationResponse>>(
     `/api/lottery/bins/configuration/${storeId}`,
-    {
-      method: "PUT",
-      body: JSON.stringify(data),
-    },
+    data,
   );
+  return response.data;
 }
 
 // ============ Bin Display API ============
@@ -754,12 +654,10 @@ export interface BinDisplayItem {
 export async function getBinDisplay(
   storeId: string,
 ): Promise<ApiResponse<BinDisplayItem[]>> {
-  return apiRequest<ApiResponse<BinDisplayItem[]>>(
+  const response = await apiClient.get<ApiResponse<BinDisplayItem[]>>(
     `/api/lottery/bins/display/${storeId}`,
-    {
-      method: "GET",
-    },
   );
+  return response.data;
 }
 
 // ============ Configuration Values API ============
@@ -794,13 +692,10 @@ export interface LotteryConfigValuesResponse {
 export async function getLotteryConfigValues(
   type?: "PACK_VALUE" | "TICKET_PRICE",
 ): Promise<ApiResponse<LotteryConfigValuesResponse>> {
-  const queryParams = type ? `?type=${type}` : "";
-  return apiRequest<ApiResponse<LotteryConfigValuesResponse>>(
-    `/api/lottery/config-values${queryParams}`,
-    {
-      method: "GET",
-    },
-  );
+  const response = await apiClient.get<
+    ApiResponse<LotteryConfigValuesResponse>
+  >("/api/lottery/config-values", { params: type ? { type } : undefined });
+  return response.data;
 }
 
 // ============ Day Bins API (MyStore Lottery Page) ============
@@ -874,13 +769,11 @@ export async function getLotteryDayBins(
   storeId: string,
   date?: string,
 ): Promise<ApiResponse<DayBinsResponse>> {
-  const queryParams = date ? `?date=${date}` : "";
-  return apiRequest<ApiResponse<DayBinsResponse>>(
-    `/api/lottery/bins/day/${storeId}${queryParams}`,
-    {
-      method: "GET",
-    },
+  const response = await apiClient.get<ApiResponse<DayBinsResponse>>(
+    `/api/lottery/bins/day/${storeId}`,
+    { params: date ? { date } : undefined },
   );
+  return response.data;
 }
 
 // ============ Day Closing API ============
@@ -929,11 +822,51 @@ export async function closeLotteryDay(
   storeId: string,
   data: CloseLotteryDayInput,
 ): Promise<ApiResponse<CloseLotteryDayResponse>> {
-  return apiRequest<ApiResponse<CloseLotteryDayResponse>>(
+  const response = await apiClient.post<ApiResponse<CloseLotteryDayResponse>>(
     `/api/lottery/bins/day/${storeId}/close`,
-    {
-      method: "POST",
-      body: JSON.stringify(data),
-    },
+    data,
   );
+  return response.data;
+}
+
+/**
+ * Response from marking pack as sold out
+ */
+export interface MarkPackAsSoldOutResponse {
+  pack_id: string;
+  status: "DEPLETED";
+  depleted_at: string;
+  depletion_reason: "MANUAL_SOLD_OUT";
+}
+
+/**
+ * Input for marking pack as sold out
+ * closing_serial is optional - defaults to pack's serial_end on the server
+ */
+export interface MarkPackAsSoldOutInput {
+  closing_serial?: string;
+}
+
+/**
+ * Mark a pack as sold out (manually deplete)
+ * POST /api/lottery/packs/:packId/deplete
+ * Story: Lottery Pack Auto-Depletion Feature
+ *
+ * MCP Guidance Applied:
+ * - API-001: VALIDATION - Always send valid JSON body for POST requests
+ * - FE-002: FORM_VALIDATION - Optional closing_serial validated on backend
+ *
+ * @param packId - Pack UUID to mark as sold out
+ * @param data - Optional closing serial (defaults to pack's serial_end)
+ * @returns Response with depleted pack info
+ */
+export async function markPackAsSoldOut(
+  packId: string,
+  data: MarkPackAsSoldOutInput = {},
+): Promise<ApiResponse<MarkPackAsSoldOutResponse>> {
+  const response = await apiClient.post<ApiResponse<MarkPackAsSoldOutResponse>>(
+    `/api/lottery/packs/${packId}/deplete`,
+    data,
+  );
+  return response.data;
 }

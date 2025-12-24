@@ -8,12 +8,16 @@
  * - API-001: Schema validation using TypeScript types
  * - FE-001: HttpOnly cookies for auth tokens
  * - API-003: Error handling with typed responses
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 // ============ Types ============
 
@@ -178,63 +182,6 @@ interface ApiResponse<T> {
   };
 }
 
-/**
- * API error response
- */
-interface ApiError {
-  success: false;
-  error: string | { code: string; message: string };
-  message?: string;
-}
-
-// ============ API Request Helper ============
-
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    let errorMessage: string;
-    if (errorData.message) {
-      errorMessage = errorData.message;
-    } else if (typeof errorData.error === "string") {
-      errorMessage = errorData.error;
-    } else if (
-      typeof errorData.error === "object" &&
-      errorData.error?.message
-    ) {
-      errorMessage = errorData.error.message;
-    } else {
-      errorMessage = "API request failed";
-    }
-
-    throw new Error(errorMessage);
-  }
-
-  return response.json();
-}
-
 // ============ X Report API Functions ============
 
 /**
@@ -243,10 +190,10 @@ async function apiRequest<T>(
 export async function getXReportsByShift(
   shiftId: string,
 ): Promise<ApiResponse<XReport[]>> {
-  return apiRequest<ApiResponse<XReport[]>>(
+  const response = await apiClient.get<ApiResponse<XReport[]>>(
     `/api/shifts/${shiftId}/x-reports`,
-    { method: "GET" },
   );
+  return response.data;
 }
 
 /**
@@ -274,7 +221,8 @@ export async function getXReportsByStore(
   const queryString = searchParams.toString();
   const endpoint = `/api/stores/${storeId}/x-reports${queryString ? `?${queryString}` : ""}`;
 
-  return apiRequest<ApiResponse<XReport[]>>(endpoint, { method: "GET" });
+  const response = await apiClient.get<ApiResponse<XReport[]>>(endpoint);
+  return response.data;
 }
 
 /**
@@ -283,9 +231,10 @@ export async function getXReportsByStore(
 export async function getXReportById(
   xReportId: string,
 ): Promise<ApiResponse<XReport>> {
-  return apiRequest<ApiResponse<XReport>>(`/api/x-reports/${xReportId}`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<ApiResponse<XReport>>(
+    `/api/x-reports/${xReportId}`,
+  );
+  return response.data;
 }
 
 /**
@@ -294,9 +243,11 @@ export async function getXReportById(
 export async function generateXReport(
   shiftId: string,
 ): Promise<ApiResponse<XReport>> {
-  return apiRequest<ApiResponse<XReport>>(`/api/shifts/${shiftId}/x-reports`, {
-    method: "POST",
-  });
+  const response = await apiClient.post<ApiResponse<XReport>>(
+    `/api/shifts/${shiftId}/x-reports`,
+    {},
+  );
+  return response.data;
 }
 
 /**
@@ -306,13 +257,11 @@ export async function markXReportPrinted(
   xReportId: string,
   printCountIncrement?: number,
 ): Promise<ApiResponse<XReport>> {
-  return apiRequest<ApiResponse<XReport>>(
+  const response = await apiClient.post<ApiResponse<XReport>>(
     `/api/x-reports/${xReportId}/printed`,
-    {
-      method: "POST",
-      body: JSON.stringify({ print_count_increment: printCountIncrement || 1 }),
-    },
+    { print_count_increment: printCountIncrement || 1 },
   );
+  return response.data;
 }
 
 // ============ Z Report API Functions ============
@@ -323,9 +272,10 @@ export async function markXReportPrinted(
 export async function getZReportByShift(
   shiftId: string,
 ): Promise<ApiResponse<ZReport>> {
-  return apiRequest<ApiResponse<ZReport>>(`/api/shifts/${shiftId}/z-report`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<ApiResponse<ZReport>>(
+    `/api/shifts/${shiftId}/z-report`,
+  );
+  return response.data;
 }
 
 /**
@@ -362,7 +312,8 @@ export async function getZReportsByStore(
   const queryString = searchParams.toString();
   const endpoint = `/api/stores/${storeId}/z-reports${queryString ? `?${queryString}` : ""}`;
 
-  return apiRequest<ApiResponse<ZReport[]>>(endpoint, { method: "GET" });
+  const response = await apiClient.get<ApiResponse<ZReport[]>>(endpoint);
+  return response.data;
 }
 
 /**
@@ -371,9 +322,10 @@ export async function getZReportsByStore(
 export async function getZReportById(
   zReportId: string,
 ): Promise<ApiResponse<ZReport>> {
-  return apiRequest<ApiResponse<ZReport>>(`/api/z-reports/${zReportId}`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<ApiResponse<ZReport>>(
+    `/api/z-reports/${zReportId}`,
+  );
+  return response.data;
 }
 
 /**
@@ -383,10 +335,10 @@ export async function getZReportByNumber(
   storeId: string,
   zNumber: number,
 ): Promise<ApiResponse<ZReport>> {
-  return apiRequest<ApiResponse<ZReport>>(
+  const response = await apiClient.get<ApiResponse<ZReport>>(
     `/api/stores/${storeId}/z-reports/${zNumber}`,
-    { method: "GET" },
   );
+  return response.data;
 }
 
 /**
@@ -395,10 +347,10 @@ export async function getZReportByNumber(
 export async function getZReportSequence(
   storeId: string,
 ): Promise<ApiResponse<ZReportSequenceSummary>> {
-  return apiRequest<ApiResponse<ZReportSequenceSummary>>(
+  const response = await apiClient.get<ApiResponse<ZReportSequenceSummary>>(
     `/api/stores/${storeId}/z-reports/sequence`,
-    { method: "GET" },
   );
+  return response.data;
 }
 
 /**
@@ -411,13 +363,14 @@ export async function verifyZReportIntegrity(zReportId: string): Promise<
     verified_at: string;
   }>
 > {
-  return apiRequest<
+  const response = await apiClient.get<
     ApiResponse<{
       z_report_id: string;
       integrity_valid: boolean;
       verified_at: string;
     }>
-  >(`/api/z-reports/${zReportId}/verify`, { method: "GET" });
+  >(`/api/z-reports/${zReportId}/verify`);
+  return response.data;
 }
 
 /**
@@ -427,13 +380,11 @@ export async function markZReportPrinted(
   zReportId: string,
   printCountIncrement?: number,
 ): Promise<ApiResponse<ZReport>> {
-  return apiRequest<ApiResponse<ZReport>>(
+  const response = await apiClient.post<ApiResponse<ZReport>>(
     `/api/z-reports/${zReportId}/printed`,
-    {
-      method: "POST",
-      body: JSON.stringify({ print_count_increment: printCountIncrement || 1 }),
-    },
+    { print_count_increment: printCountIncrement || 1 },
   );
+  return response.data;
 }
 
 /**
@@ -443,13 +394,11 @@ export async function markZReportExported(
   zReportId: string,
   exportFormat: string,
 ): Promise<ApiResponse<ZReport>> {
-  return apiRequest<ApiResponse<ZReport>>(
+  const response = await apiClient.post<ApiResponse<ZReport>>(
     `/api/z-reports/${zReportId}/exported`,
-    {
-      method: "POST",
-      body: JSON.stringify({ export_format: exportFormat }),
-    },
+    { export_format: exportFormat },
   );
+  return response.data;
 }
 
 // ============ TanStack Query Keys ============

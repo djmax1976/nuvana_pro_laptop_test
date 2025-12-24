@@ -8,12 +8,16 @@
  * - API-001: Schema validation using TypeScript types
  * - FE-001: HttpOnly cookies for auth tokens
  * - API-003: Error handling with typed responses
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 // ============ Types ============
 
@@ -223,63 +227,6 @@ interface ApiResponse<T> {
   };
 }
 
-/**
- * API error response
- */
-interface ApiError {
-  success: false;
-  error: string | { code: string; message: string };
-  message?: string;
-}
-
-// ============ API Request Helper ============
-
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    let errorMessage: string;
-    if (errorData.message) {
-      errorMessage = errorData.message;
-    } else if (typeof errorData.error === "string") {
-      errorMessage = errorData.error;
-    } else if (
-      typeof errorData.error === "object" &&
-      errorData.error?.message
-    ) {
-      errorMessage = errorData.error.message;
-    } else {
-      errorMessage = "API request failed";
-    }
-
-    throw new Error(errorMessage);
-  }
-
-  return response.json();
-}
-
 // ============ API Functions ============
 
 /**
@@ -316,7 +263,8 @@ export async function getDaySummaries(
   const queryString = searchParams.toString();
   const endpoint = `/api/stores/${storeId}/day-summaries${queryString ? `?${queryString}` : ""}`;
 
-  return apiRequest<ApiResponse<DaySummary[]>>(endpoint, { method: "GET" });
+  const response = await apiClient.get<ApiResponse<DaySummary[]>>(endpoint);
+  return response.data;
 }
 
 /**
@@ -350,7 +298,8 @@ export async function getDaySummaryByDate(
   const queryString = searchParams.toString();
   const endpoint = `/api/stores/${storeId}/day-summary/${date}${queryString ? `?${queryString}` : ""}`;
 
-  return apiRequest<ApiResponse<DaySummary>>(endpoint, { method: "GET" });
+  const response = await apiClient.get<ApiResponse<DaySummary>>(endpoint);
+  return response.data;
 }
 
 /**
@@ -383,7 +332,8 @@ export async function getDaySummaryById(
   const queryString = searchParams.toString();
   const endpoint = `/api/day-summaries/${daySummaryId}${queryString ? `?${queryString}` : ""}`;
 
-  return apiRequest<ApiResponse<DaySummary>>(endpoint, { method: "GET" });
+  const response = await apiClient.get<ApiResponse<DaySummary>>(endpoint);
+  return response.data;
 }
 
 /**
@@ -394,13 +344,11 @@ export async function closeDay(
   date: string,
   notes?: string,
 ): Promise<ApiResponse<DaySummary>> {
-  return apiRequest<ApiResponse<DaySummary>>(
+  const response = await apiClient.post<ApiResponse<DaySummary>>(
     `/api/stores/${storeId}/day-summary/${date}/close`,
-    {
-      method: "POST",
-      body: JSON.stringify({ notes }),
-    },
+    { notes },
   );
+  return response.data;
 }
 
 /**
@@ -411,13 +359,11 @@ export async function updateDayNotes(
   date: string,
   notes: string,
 ): Promise<ApiResponse<DaySummary>> {
-  return apiRequest<ApiResponse<DaySummary>>(
+  const response = await apiClient.patch<ApiResponse<DaySummary>>(
     `/api/stores/${storeId}/day-summary/${date}/notes`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({ notes }),
-    },
+    { notes },
   );
+  return response.data;
 }
 
 /**
@@ -435,7 +381,8 @@ export async function getWeeklyReport(
   const queryString = searchParams.toString();
   const endpoint = `/api/stores/${storeId}/reports/weekly${queryString ? `?${queryString}` : ""}`;
 
-  return apiRequest<ApiResponse<WeeklyReport>>(endpoint, { method: "GET" });
+  const response = await apiClient.get<ApiResponse<WeeklyReport>>(endpoint);
+  return response.data;
 }
 
 /**
@@ -447,7 +394,8 @@ export async function getMonthlyReport(
   month: number,
 ): Promise<ApiResponse<MonthlyReport>> {
   const endpoint = `/api/stores/${storeId}/reports/monthly?year=${year}&month=${month}`;
-  return apiRequest<ApiResponse<MonthlyReport>>(endpoint, { method: "GET" });
+  const response = await apiClient.get<ApiResponse<MonthlyReport>>(endpoint);
+  return response.data;
 }
 
 /**
@@ -478,7 +426,8 @@ export async function getDateRangeReport(
   }
 
   const endpoint = `/api/stores/${storeId}/reports/date-range?${searchParams.toString()}`;
-  return apiRequest<ApiResponse<DateRangeReport>>(endpoint, { method: "GET" });
+  const response = await apiClient.get<ApiResponse<DateRangeReport>>(endpoint);
+  return response.data;
 }
 
 /**
@@ -488,10 +437,11 @@ export async function refreshDaySummary(
   storeId: string,
   date: string,
 ): Promise<ApiResponse<DaySummary>> {
-  return apiRequest<ApiResponse<DaySummary>>(
+  const response = await apiClient.post<ApiResponse<DaySummary>>(
     `/api/stores/${storeId}/day-summary/${date}/refresh`,
-    { method: "POST" },
+    {},
   );
+  return response.data;
 }
 
 // ============ TanStack Query Keys ============

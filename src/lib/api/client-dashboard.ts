@@ -2,12 +2,16 @@
  * Client Dashboard API client functions
  * Provides functions for interacting with the client dashboard API
  * All functions require CLIENT_DASHBOARD_ACCESS permission (Client Users only)
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient, { extractData, ApiResponse } from "./client";
 
 /**
  * Company status values
@@ -74,102 +78,15 @@ export interface ClientDashboardResponse {
 }
 
 /**
- * API error response
- */
-interface ApiError {
-  success: false;
-  error: {
-    code: string;
-    message: string;
-  };
-}
-
-/**
- * API success response
- */
-interface ApiSuccessResponse<T> {
-  success: true;
-  data: T;
-}
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  // Capture status before consuming response
-  const status = response.status;
-  const statusText = response.statusText;
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: {
-        code: "UNKNOWN_ERROR",
-        message: `HTTP ${status}: ${statusText}`,
-      },
-    }));
-
-    throw new Error(
-      errorData.error?.message || errorData.error?.code || "API request failed",
-    );
-  }
-
-  const result = await response.json();
-
-  // Runtime validation of response payload
-  if (
-    !result ||
-    typeof result !== "object" ||
-    Array.isArray(result) ||
-    result.success !== true ||
-    !("data" in result) ||
-    result.data === undefined
-  ) {
-    // Only include payload preview in development/test to prevent information leakage in production
-    // Truncate to 500 chars to prevent huge error messages
-    // In test environment, we need the payload for debugging test failures
-    const payloadPreview =
-      process.env.NODE_ENV !== "production"
-        ? ` Payload: ${JSON.stringify(result, null, 2).slice(0, 500)}`
-        : "";
-    throw new Error(
-      `Invalid API response format: Expected { success: true, data: T }. ` +
-        `HTTP Status: ${status} ${statusText}.${payloadPreview}`,
-    );
-  }
-
-  return result.data;
-}
-
-/**
  * Get client dashboard data
  * Returns user info, owned companies, stores, and stats
  * @returns Client dashboard data
  */
 export async function getClientDashboard(): Promise<ClientDashboardResponse> {
-  return apiRequest<ClientDashboardResponse>("/api/client/dashboard", {
-    method: "GET",
-  });
+  const response = await apiClient.get<ApiResponse<ClientDashboardResponse>>(
+    "/api/client/dashboard",
+  );
+  return extractData(response);
 }
 
 /**
@@ -184,9 +101,10 @@ export async function getOwnedCompanyStores(
     throw new Error("Company ID is required");
   }
 
-  return apiRequest<OwnedStore[]>(`/api/client/companies/${companyId}/stores`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<OwnedStore[]>(
+    `/api/client/companies/${companyId}/stores`,
+  );
+  return response.data;
 }
 
 /**
@@ -201,9 +119,10 @@ export async function getOwnedCompany(
     throw new Error("Company ID is required");
   }
 
-  return apiRequest<OwnedCompany>(`/api/client/companies/${companyId}`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<OwnedCompany>(
+    `/api/client/companies/${companyId}`,
+  );
+  return response.data;
 }
 
 /**
@@ -216,9 +135,10 @@ export async function getOwnedStore(storeId: string): Promise<OwnedStore> {
     throw new Error("Store ID is required");
   }
 
-  return apiRequest<OwnedStore>(`/api/client/stores/${storeId}`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<OwnedStore>(
+    `/api/client/stores/${storeId}`,
+  );
+  return response.data;
 }
 
 // ============ TanStack Query Hooks ============

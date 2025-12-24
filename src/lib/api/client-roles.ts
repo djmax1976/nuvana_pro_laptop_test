@@ -4,12 +4,16 @@
  * All functions require CLIENT_ROLE_MANAGE permission (Client Owners only)
  *
  * Story: 2.92 - Client Role Permission Management
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 // ============ Types ============
 
@@ -63,56 +67,6 @@ export interface ApiResponse<T> {
   message?: string;
 }
 
-/**
- * API error response
- */
-export interface ApiError {
-  success: false;
-  error: string;
-  message: string;
-}
-
-// ============ API Request Helper ============
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    throw new Error(
-      errorData.message || errorData.error || "API request failed",
-    );
-  }
-
-  return response.json();
-}
-
 // ============ API Functions ============
 
 /**
@@ -122,9 +76,11 @@ async function apiRequest<T>(
 export async function getClientRoles(): Promise<
   ApiResponse<RoleWithPermissions[]>
 > {
-  return apiRequest<ApiResponse<RoleWithPermissions[]>>("/api/client/roles", {
-    method: "GET",
-  });
+  const response =
+    await apiClient.get<ApiResponse<RoleWithPermissions[]>>(
+      "/api/client/roles",
+    );
+  return response.data;
 }
 
 /**
@@ -139,10 +95,10 @@ export async function getRolePermissions(
     throw new Error("Role ID is required");
   }
 
-  return apiRequest<ApiResponse<RoleWithPermissions>>(
+  const response = await apiClient.get<ApiResponse<RoleWithPermissions>>(
     `/api/client/roles/${roleId}/permissions`,
-    { method: "GET" },
   );
+  return response.data;
 }
 
 /**
@@ -163,13 +119,11 @@ export async function updateRolePermissions(
     throw new Error("At least one permission update is required");
   }
 
-  return apiRequest<ApiResponse<RoleWithPermissions>>(
+  const response = await apiClient.put<ApiResponse<RoleWithPermissions>>(
     `/api/client/roles/${roleId}/permissions`,
-    {
-      method: "PUT",
-      body: JSON.stringify({ permissions }),
-    },
+    { permissions },
   );
+  return response.data;
 }
 
 /**
@@ -185,10 +139,10 @@ export async function resetRoleDefaults(
     throw new Error("Role ID is required");
   }
 
-  return apiRequest<ApiResponse<RoleWithPermissions>>(
+  const response = await apiClient.post<ApiResponse<RoleWithPermissions>>(
     `/api/client/roles/${roleId}/reset`,
-    { method: "POST" },
   );
+  return response.data;
 }
 
 // ============ TanStack Query Keys ============

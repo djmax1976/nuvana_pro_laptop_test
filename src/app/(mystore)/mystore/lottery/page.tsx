@@ -22,7 +22,11 @@ import {
   useInvalidateLottery,
   useLotteryDayBins,
 } from "@/hooks/useLottery";
-import { DayBinsTable } from "@/components/lottery/DayBinsTable";
+import {
+  DayBinsTable,
+  type BinValidationError,
+} from "@/components/lottery/DayBinsTable";
+import { validateManualEntryEnding } from "@/lib/services/lottery-closing-validation";
 import { DepletedPacksSection } from "@/components/lottery/DepletedPacksSection";
 import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
 import {
@@ -38,6 +42,7 @@ import {
   type PackDetailsData,
 } from "@/components/lottery/PackDetailsModal";
 import { ManualEntryAuthModal } from "@/components/lottery/ManualEntryAuthModal";
+import { MarkSoldOutDialog } from "@/components/lottery/MarkSoldOutDialog";
 import { ManualEntryIndicator } from "@/components/lottery/ManualEntryIndicator";
 import { receivePack, closeLotteryDay } from "@/lib/api/lottery";
 import { useToast } from "@/hooks/use-toast";
@@ -105,6 +110,11 @@ export default function LotteryManagementPage() {
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  // Mark Sold Out dialog state
+  const [markSoldOutDialogOpen, setMarkSoldOutDialogOpen] = useState(false);
+  const [packIdToMarkSoldOut, setPackIdToMarkSoldOut] = useState<string | null>(
+    null,
+  );
 
   // Manual entry state management
   const [manualEntryAuthModalOpen, setManualEntryAuthModalOpen] =
@@ -118,6 +128,11 @@ export default function LotteryManagementPage() {
   // Manual entry values - keyed by bin_id
   const [manualEndingValues, setManualEndingValues] = useState<
     Record<string, string>
+  >({});
+
+  // Validation errors for manual entry - keyed by bin_id
+  const [validationErrors, setValidationErrors] = useState<
+    Record<string, BinValidationError>
   >({});
 
   // Submission state for manual entry close day
@@ -170,6 +185,25 @@ export default function LotteryManagementPage() {
     setDetailsDialogOpen(true);
   };
 
+  /**
+   * Handle Mark Sold button click
+   * Opens the MarkSoldOutDialog for confirmation
+   */
+  const handleMarkSoldOutClick = useCallback((packId: string) => {
+    setPackIdToMarkSoldOut(packId);
+    setMarkSoldOutDialogOpen(true);
+  }, []);
+
+  /**
+   * Handle successful mark sold out
+   * Refreshes data and shows success message
+   */
+  const handleMarkSoldOutSuccess = useCallback(() => {
+    invalidateAll(); // Refresh all lottery data including day bins
+    setSuccessMessage("Pack marked as sold out successfully");
+    setTimeout(() => setSuccessMessage(null), 5000);
+  }, [invalidateAll]);
+
   const handlePackReception = async (
     data: Parameters<typeof receivePack>[0],
   ) => {
@@ -217,8 +251,9 @@ export default function LotteryManagementPage() {
       });
       setManualEntryAuthModalOpen(false);
 
-      // Clear any previous manual entry values
+      // Clear any previous manual entry values and validation errors
       setManualEndingValues({});
+      setValidationErrors({});
 
       toast({
         title: "Manual Entry Enabled",
@@ -230,7 +265,7 @@ export default function LotteryManagementPage() {
 
   /**
    * Handle cancel/exit manual entry mode
-   * Clears authorization and entered values
+   * Clears authorization, entered values, and validation errors
    */
   const handleCancelManualEntry = useCallback(() => {
     setManualEntryState({
@@ -239,6 +274,7 @@ export default function LotteryManagementPage() {
       authorizedAt: null,
     });
     setManualEndingValues({});
+    setValidationErrors({});
 
     toast({
       title: "Manual Entry Cancelled",
@@ -270,11 +306,44 @@ export default function LotteryManagementPage() {
   }, []);
 
   /**
-   * Check if all active bins have valid 3-digit ending values
+   * Handle validation of ending serial on blur
+   * Validates the 3-digit ending against pack's serial range
+   * MCP: FE-002 FORM_VALIDATION - Real-time validation for immediate feedback
+   */
+  const handleValidateEnding = useCallback(
+    async (
+      binId: string,
+      value: string,
+      packData: { starting_serial: string; serial_end: string },
+    ) => {
+      const result = await validateManualEntryEnding(value, packData);
+
+      setValidationErrors((prev) => {
+        if (result.valid) {
+          // Clear error for this bin if valid
+          const { [binId]: _, ...rest } = prev;
+          return rest;
+        } else {
+          // Set error for this bin
+          return {
+            ...prev,
+            [binId]: { message: result.error || "Invalid ending number" },
+          };
+        }
+      });
+    },
+    [],
+  );
+
+  /**
+   * Check if all active bins have valid 3-digit ending values and no validation errors
    * Used to enable/disable the Close Day button in manual entry mode
    */
   const canCloseManualEntry = useMemo(() => {
     if (!manualEntryState.isActive || !dayBinsData?.bins) return false;
+
+    // Cannot close if there are any validation errors
+    if (Object.keys(validationErrors).length > 0) return false;
 
     const activeBins = dayBinsData.bins.filter((bin) => bin.pack !== null);
     if (activeBins.length === 0) return false;
@@ -283,7 +352,12 @@ export default function LotteryManagementPage() {
       const value = manualEndingValues[bin.bin_id];
       return value && /^\d{3}$/.test(value);
     });
-  }, [manualEntryState.isActive, dayBinsData?.bins, manualEndingValues]);
+  }, [
+    manualEntryState.isActive,
+    dayBinsData?.bins,
+    manualEndingValues,
+    validationErrors,
+  ]);
 
   /**
    * Handle Close Day in manual entry mode
@@ -311,13 +385,14 @@ export default function LotteryManagementPage() {
       });
 
       if (response.success && response.data) {
-        // Reset manual entry state
+        // Reset manual entry state and clear all validation errors
         setManualEntryState({
           isActive: false,
           authorizedBy: null,
           authorizedAt: null,
         });
         setManualEndingValues({});
+        setValidationErrors({});
 
         // Invalidate data to refresh the table
         invalidateAll();
@@ -650,6 +725,9 @@ export default function LotteryManagementPage() {
             endingValues={manualEndingValues}
             onEndingChange={handleEndingValueChange}
             onInputComplete={handleInputComplete}
+            validationErrors={validationErrors}
+            onValidateEnding={handleValidateEnding}
+            onMarkSoldOut={handleMarkSoldOutClick}
           />
 
           {/* Depleted Packs Section (Collapsible) */}
@@ -725,6 +803,14 @@ export default function LotteryManagementPage() {
           onAuthorized={handleManualEntryAuthorized}
         />
       )}
+
+      {/* Mark Sold Out Dialog */}
+      <MarkSoldOutDialog
+        open={markSoldOutDialogOpen}
+        onOpenChange={setMarkSoldOutDialogOpen}
+        packId={packIdToMarkSoldOut}
+        onSuccess={handleMarkSoldOutSuccess}
+      />
     </div>
   );
 }

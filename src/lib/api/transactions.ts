@@ -4,12 +4,16 @@
  * All functions require TRANSACTION_READ permission
  *
  * Story: 3.5 - Transaction Display UI
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 // ============ Types ============
 
@@ -119,56 +123,6 @@ export interface ApiResponse<T> {
   message?: string;
 }
 
-/**
- * API error response
- */
-export interface ApiError {
-  success: false;
-  error: string;
-  message: string;
-}
-
-// ============ API Request Helper ============
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    throw new Error(
-      errorData.message || errorData.error || "API request failed",
-    );
-  }
-
-  return response.json();
-}
-
 // ============ API Functions ============
 
 /**
@@ -228,12 +182,10 @@ export async function getTransactions(
   include?: IncludeOptions,
 ): Promise<ApiResponse<TransactionQueryResult>> {
   const queryString = buildQueryString(filters, pagination, include);
-  return apiRequest<ApiResponse<TransactionQueryResult>>(
+  const response = await apiClient.get<ApiResponse<TransactionQueryResult>>(
     `/api/transactions${queryString}`,
-    {
-      method: "GET",
-    },
   );
+  return response.data;
 }
 
 /**
@@ -255,12 +207,10 @@ export async function getTransactionsByStore(
   }
 
   const queryString = buildQueryString(filters, pagination, include);
-  return apiRequest<ApiResponse<TransactionQueryResult>>(
+  const response = await apiClient.get<ApiResponse<TransactionQueryResult>>(
     `/api/stores/${storeId}/transactions${queryString}`,
-    {
-      method: "GET",
-    },
   );
+  return response.data;
 }
 
 // ============ TanStack Query Keys ============

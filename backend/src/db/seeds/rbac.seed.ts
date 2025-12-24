@@ -1,6 +1,6 @@
-// NOTE: Do NOT load dotenv here - DATABASE_URL should come from the environment
-// The CI passes DATABASE_URL=nuvana_test and dotenv.config() would override it
-// with .env's nuvana_dev value, breaking CI tests.
+// NOTE: Do NOT load dotenv here - DATABASE_URL must come from the environment.
+// CI and test scripts set DATABASE_URL=nuvana_test via cross-env.
+// Loading dotenv would override with .env's nuvana_dev, breaking test isolation.
 
 import { PrismaClient } from "@prisma/client";
 import {

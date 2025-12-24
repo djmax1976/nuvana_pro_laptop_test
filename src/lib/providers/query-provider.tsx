@@ -7,69 +7,11 @@ import {
   MutationCache,
 } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-
-/**
- * Handle 401 errors globally - redirect to login
- * This catches expired sessions during any API call
- */
-function handleUnauthorizedError() {
-  // Only redirect if not already on login page
-  if (
-    typeof window !== "undefined" &&
-    !window.location.pathname.includes("/login")
-  ) {
-    // Store current path for redirect after re-login
-    try {
-      sessionStorage.setItem("redirect_after_login", window.location.pathname);
-    } catch {
-      // Ignore storage errors
-    }
-
-    // Clear auth data
-    try {
-      localStorage.removeItem("auth_session");
-      localStorage.removeItem("client_auth_session");
-    } catch {
-      // Ignore storage errors
-    }
-
-    // Broadcast to other tabs
-    try {
-      const channel = new BroadcastChannel("nuvana_session_sync");
-      channel.postMessage({ type: "session_expired", reason: "api_401" });
-      channel.close();
-    } catch {
-      // BroadcastChannel not supported
-    }
-
-    // Redirect to login with session expired reason
-    window.location.href = "/login?reason=session_expired";
-  }
-}
-
-/**
- * Check if an error is a 401 Unauthorized error
- */
-function isUnauthorizedError(error: unknown): boolean {
-  if (error && typeof error === "object") {
-    // Check for various 401 error shapes
-    if ("status" in error && error.status === 401) return true;
-    if ("response" in error) {
-      const response = (error as { response?: { status?: number } }).response;
-      if (response?.status === 401) return true;
-    }
-    if ("message" in error) {
-      const message = (error as { message?: string }).message;
-      if (
-        message?.includes("401") ||
-        message?.toLowerCase().includes("unauthorized")
-      ) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
+import {
+  handleUnauthorizedError,
+  isUnauthorizedError,
+  SESSION_EXPIRED_EVENT,
+} from "@/lib/auth-error-handler";
 
 /**
  * QueryClient provider component
@@ -134,12 +76,9 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
       queryClient.clear();
     };
 
-    window.addEventListener("nuvana:session_expired", handleSessionExpired);
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
     return () => {
-      window.removeEventListener(
-        "nuvana:session_expired",
-        handleSessionExpired,
-      );
+      window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
     };
   }, [queryClient]);
 

@@ -2,12 +2,16 @@
  * Admin Role Management API client functions
  * Provides functions for interacting with the role management API
  * All functions require ADMIN_SYSTEM_CONFIG permission (Super Admin only)
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 // ============ Types ============
 
@@ -119,93 +123,6 @@ export interface ApiResponse<T> {
   message?: string;
 }
 
-/**
- * API error response
- */
-export interface ApiError {
-  success: false;
-  error: string;
-  message: string;
-}
-
-// ============ API Request Helper ============
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  // Handle empty responses (204 No Content, 205 Reset Content)
-  if (response.status === 204 || response.status === 205) {
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    return null as T;
-  }
-
-  // Check Content-Type header to detect empty or non-JSON responses
-  const contentType = response.headers.get("Content-Type");
-  const contentLength = response.headers.get("Content-Length");
-
-  // If no Content-Type or Content-Length is 0, and response is OK, return empty value
-  if ((!contentType || contentLength === "0") && response.ok) {
-    return null as T;
-  }
-
-  // If Content-Type exists but is not JSON, handle as empty if response is OK
-  if (contentType && !contentType.includes("application/json") && response.ok) {
-    return null as T;
-  }
-
-  // Parse JSON response
-  let data: any;
-  try {
-    const text = await response.text();
-    // If body is empty and response is OK, return empty value
-    if (!text.trim() && response.ok) {
-      return null as T;
-    }
-    // Parse JSON if there's content
-    data = text ? JSON.parse(text) : null;
-  } catch (parseError) {
-    // If parsing fails but response is OK, return empty value
-    if (response.ok) {
-      return null as T;
-    }
-    // If parsing fails and response is not OK, throw error
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  }
-
-  if (!response.ok || data?.success === false) {
-    throw new Error(
-      data?.message ||
-        data?.error ||
-        `HTTP ${response.status}: ${response.statusText}`,
-    );
-  }
-
-  return data;
-}
-
 // ============ Role CRUD API Functions ============
 
 /**
@@ -216,11 +133,11 @@ async function apiRequest<T>(
 export async function getRoles(
   includeDeleted = false,
 ): Promise<ApiResponse<RoleWithDetails[]>> {
-  const queryParams = includeDeleted ? "?include_deleted=true" : "";
-  return apiRequest<ApiResponse<RoleWithDetails[]>>(
-    `/api/admin/roles${queryParams}`,
-    { method: "GET" },
+  const response = await apiClient.get<ApiResponse<RoleWithDetails[]>>(
+    "/api/admin/roles",
+    { params: includeDeleted ? { include_deleted: true } : undefined },
   );
+  return response.data;
 }
 
 /**
@@ -230,12 +147,10 @@ export async function getRoles(
 export async function getDeletedRoles(): Promise<
   ApiResponse<RoleWithDetails[]>
 > {
-  return apiRequest<ApiResponse<RoleWithDetails[]>>(
+  const response = await apiClient.get<ApiResponse<RoleWithDetails[]>>(
     "/api/admin/roles/deleted",
-    {
-      method: "GET",
-    },
   );
+  return response.data;
 }
 
 /**
@@ -243,9 +158,10 @@ export async function getDeletedRoles(): Promise<
  * @returns Array of all permissions
  */
 export async function getAllPermissions(): Promise<ApiResponse<Permission[]>> {
-  return apiRequest<ApiResponse<Permission[]>>("/api/admin/roles/permissions", {
-    method: "GET",
-  });
+  const response = await apiClient.get<ApiResponse<Permission[]>>(
+    "/api/admin/roles/permissions",
+  );
+  return response.data;
 }
 
 /**
@@ -259,12 +175,10 @@ export async function getRoleById(
   if (!roleId) {
     throw new Error("Role ID is required");
   }
-  return apiRequest<ApiResponse<RoleWithDetails>>(
+  const response = await apiClient.get<ApiResponse<RoleWithDetails>>(
     `/api/admin/roles/${roleId}`,
-    {
-      method: "GET",
-    },
   );
+  return response.data;
 }
 
 /**
@@ -282,10 +196,11 @@ export async function createRole(
     throw new Error("Role scope is required");
   }
 
-  return apiRequest<ApiResponse<RoleWithDetails>>("/api/admin/roles", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.post<ApiResponse<RoleWithDetails>>(
+    "/api/admin/roles",
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -302,13 +217,11 @@ export async function updateRole(
     throw new Error("Role ID is required");
   }
 
-  return apiRequest<ApiResponse<RoleWithDetails>>(
+  const response = await apiClient.put<ApiResponse<RoleWithDetails>>(
     `/api/admin/roles/${roleId}`,
-    {
-      method: "PUT",
-      body: JSON.stringify(data),
-    },
+    data,
   );
+  return response.data;
 }
 
 /**
@@ -325,13 +238,11 @@ export async function updateRolePermissions(
     throw new Error("Role ID is required");
   }
 
-  return apiRequest<ApiResponse<RoleWithDetails>>(
+  const response = await apiClient.put<ApiResponse<RoleWithDetails>>(
     `/api/admin/roles/${roleId}/permissions`,
-    {
-      method: "PUT",
-      body: JSON.stringify(data),
-    },
+    data,
   );
+  return response.data;
 }
 
 /**
@@ -346,10 +257,10 @@ export async function deleteRole(
     throw new Error("Role ID is required");
   }
 
-  return apiRequest<ApiResponse<{ message: string }>>(
+  const response = await apiClient.delete<ApiResponse<{ message: string }>>(
     `/api/admin/roles/${roleId}`,
-    { method: "DELETE" },
   );
+  return response.data;
 }
 
 /**
@@ -364,10 +275,10 @@ export async function restoreRole(
     throw new Error("Role ID is required");
   }
 
-  return apiRequest<ApiResponse<RoleWithDetails>>(
+  const response = await apiClient.post<ApiResponse<RoleWithDetails>>(
     `/api/admin/roles/${roleId}/restore`,
-    { method: "POST" },
   );
+  return response.data;
 }
 
 /**
@@ -382,10 +293,10 @@ export async function purgeRole(
     throw new Error("Role ID is required");
   }
 
-  return apiRequest<ApiResponse<{ message: string }>>(
+  const response = await apiClient.delete<ApiResponse<{ message: string }>>(
     `/api/admin/roles/${roleId}/purge`,
-    { method: "DELETE" },
   );
+  return response.data;
 }
 
 // ============ Company Role Access API Functions ============
@@ -397,10 +308,10 @@ export async function purgeRole(
 export async function getCompaniesWithRoles(): Promise<
   ApiResponse<CompanyWithAllowedRoles[]>
 > {
-  return apiRequest<ApiResponse<CompanyWithAllowedRoles[]>>(
+  const response = await apiClient.get<ApiResponse<CompanyWithAllowedRoles[]>>(
     "/api/admin/companies/roles",
-    { method: "GET" },
   );
+  return response.data;
 }
 
 /**
@@ -415,10 +326,10 @@ export async function getCompanyRoles(
     throw new Error("Company ID is required");
   }
 
-  return apiRequest<ApiResponse<CompanyWithAllowedRoles>>(
+  const response = await apiClient.get<ApiResponse<CompanyWithAllowedRoles>>(
     `/api/admin/companies/${companyId}/roles`,
-    { method: "GET" },
   );
+  return response.data;
 }
 
 /**
@@ -435,13 +346,11 @@ export async function setCompanyRoles(
     throw new Error("Company ID is required");
   }
 
-  return apiRequest<ApiResponse<CompanyWithAllowedRoles>>(
+  const response = await apiClient.put<ApiResponse<CompanyWithAllowedRoles>>(
     `/api/admin/companies/${companyId}/roles`,
-    {
-      method: "PUT",
-      body: JSON.stringify({ role_ids: roleIds }),
-    },
+    { role_ids: roleIds },
   );
+  return response.data;
 }
 
 /**
@@ -461,13 +370,11 @@ export async function addRoleToCompany(
     throw new Error("Role ID is required");
   }
 
-  return apiRequest<ApiResponse<{ message: string }>>(
+  const response = await apiClient.post<ApiResponse<{ message: string }>>(
     `/api/admin/companies/${companyId}/roles`,
-    {
-      method: "POST",
-      body: JSON.stringify({ role_id: roleId }),
-    },
+    { role_id: roleId },
   );
+  return response.data;
 }
 
 /**
@@ -487,10 +394,10 @@ export async function removeRoleFromCompany(
     throw new Error("Role ID is required");
   }
 
-  return apiRequest<ApiResponse<{ message: string }>>(
+  const response = await apiClient.delete<ApiResponse<{ message: string }>>(
     `/api/admin/companies/${companyId}/roles/${roleId}`,
-    { method: "DELETE" },
   );
+  return response.data;
 }
 
 /**
@@ -505,10 +412,10 @@ export async function getRoleCompanyAccess(
     throw new Error("Role ID is required");
   }
 
-  return apiRequest<ApiResponse<RoleWithCompanyAccess>>(
+  const response = await apiClient.get<ApiResponse<RoleWithCompanyAccess>>(
     `/api/admin/roles/${roleId}/companies`,
-    { method: "GET" },
   );
+  return response.data;
 }
 
 // ============ TanStack Query Keys ============

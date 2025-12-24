@@ -4,12 +4,16 @@
  * All functions require appropriate shift permissions
  *
  * Story: 4.7 - Shift Management UI
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 // ============ Types ============
 
@@ -110,70 +114,6 @@ export interface ApiResponse<T> {
   message?: string;
 }
 
-/**
- * API error response
- * The error field can be a string or an object with code and message
- */
-export interface ApiError {
-  success: false;
-  error: string | { code: string; message: string };
-  message?: string;
-}
-
-// ============ API Request Helper ============
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    // Extract error message - handle both string and object error formats
-    let errorMessage: string;
-    if (errorData.message) {
-      errorMessage = errorData.message;
-    } else if (typeof errorData.error === "string") {
-      errorMessage = errorData.error;
-    } else if (
-      typeof errorData.error === "object" &&
-      errorData.error?.message
-    ) {
-      errorMessage = errorData.error.message;
-    } else {
-      errorMessage = "API request failed";
-    }
-
-    throw new Error(errorMessage);
-  }
-
-  return response.json();
-}
-
 // ============ API Functions ============
 
 /**
@@ -220,12 +160,10 @@ export async function getShifts(
   pagination?: PaginationOptions,
 ): Promise<ApiResponse<ShiftQueryResult>> {
   const queryString = buildQueryString(filters, pagination);
-  return apiRequest<ApiResponse<ShiftQueryResult>>(
+  const response = await apiClient.get<ApiResponse<ShiftQueryResult>>(
     `/api/shifts${queryString}`,
-    {
-      method: "GET",
-    },
   );
+  return response.data;
 }
 
 /**
@@ -237,12 +175,10 @@ export async function getShifts(
 export async function getShiftById(
   shiftId: string,
 ): Promise<ApiResponse<ShiftDetailResponse>> {
-  return apiRequest<ApiResponse<ShiftDetailResponse>>(
+  const response = await apiClient.get<ApiResponse<ShiftDetailResponse>>(
     `/api/shifts/${shiftId}`,
-    {
-      method: "GET",
-    },
   );
+  return response.data;
 }
 
 /**
@@ -316,10 +252,11 @@ export interface ReconcileCashResponse {
 export async function openShift(
   data: OpenShiftInput,
 ): Promise<ApiResponse<OpenShiftResponse>> {
-  return apiRequest<ApiResponse<OpenShiftResponse>>("/api/shifts/open", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.post<ApiResponse<OpenShiftResponse>>(
+    "/api/shifts/open",
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -344,13 +281,11 @@ export async function closeShift(
   shiftId: string,
   closingCash: number,
 ): Promise<ApiResponse<CloseShiftResponse>> {
-  return apiRequest<ApiResponse<CloseShiftResponse>>(
+  const response = await apiClient.post<ApiResponse<CloseShiftResponse>>(
     `/api/shifts/${shiftId}/close`,
-    {
-      method: "POST",
-      body: JSON.stringify({ closing_cash: closingCash }),
-    },
+    { closing_cash: closingCash },
   );
+  return response.data;
 }
 
 /**
@@ -363,13 +298,11 @@ export async function reconcileCash(
   shiftId: string,
   data: ReconcileCashInput,
 ): Promise<ApiResponse<ReconcileCashResponse>> {
-  return apiRequest<ApiResponse<ReconcileCashResponse>>(
+  const response = await apiClient.put<ApiResponse<ReconcileCashResponse>>(
     `/api/shifts/${shiftId}/reconcile`,
-    {
-      method: "PUT",
-      body: JSON.stringify(data),
-    },
+    data,
   );
+  return response.data;
 }
 
 /**
@@ -387,43 +320,18 @@ export async function startShift(
   terminalId: string,
   sessionToken: string,
 ): Promise<ApiResponse<ShiftResponse & { shift_number: number | null }>> {
-  const url = `${API_BASE_URL}/api/terminals/${terminalId}/shifts/start`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Cashier-Session": sessionToken,
+  const response = await apiClient.post<
+    ApiResponse<ShiftResponse & { shift_number: number | null }>
+  >(
+    `/api/terminals/${terminalId}/shifts/start`,
+    {}, // No body needed - cashier_id from session
+    {
+      headers: {
+        "X-Cashier-Session": sessionToken,
+      },
     },
-    body: JSON.stringify({}), // No body needed - cashier_id from session
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    let errorMessage: string;
-    if (errorData.message) {
-      errorMessage = errorData.message;
-    } else if (typeof errorData.error === "string") {
-      errorMessage = errorData.error;
-    } else if (
-      typeof errorData.error === "object" &&
-      errorData.error?.message
-    ) {
-      errorMessage = errorData.error.message;
-    } else {
-      errorMessage = "API request failed";
-    }
-
-    throw new Error(errorMessage);
-  }
-
-  return response.json();
+  );
+  return response.data;
 }
 
 /**
@@ -435,11 +343,10 @@ export async function getActiveShift(
 ): Promise<
   ApiResponse<(ShiftResponse & { shift_number: number | null }) | null>
 > {
-  return apiRequest<
+  const response = await apiClient.get<
     ApiResponse<(ShiftResponse & { shift_number: number | null }) | null>
-  >(`/api/terminals/${terminalId}/shifts/active`, {
-    method: "GET",
-  });
+  >(`/api/terminals/${terminalId}/shifts/active`);
+  return response.data;
 }
 
 /**
@@ -459,45 +366,18 @@ export async function updateStartingCash(
   startingCash: number,
   sessionToken: string,
 ): Promise<ApiResponse<ShiftResponse & { shift_number: number | null }>> {
-  const url = `${API_BASE_URL}/api/shifts/${shiftId}/starting-cash`;
-
-  const response = await fetch(url, {
-    method: "PUT",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Cashier-Session": sessionToken,
+  const response = await apiClient.put<
+    ApiResponse<ShiftResponse & { shift_number: number | null }>
+  >(
+    `/api/shifts/${shiftId}/starting-cash`,
+    { starting_cash: startingCash },
+    {
+      headers: {
+        "X-Cashier-Session": sessionToken,
+      },
     },
-    body: JSON.stringify({
-      starting_cash: startingCash,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    let errorMessage: string;
-    if (errorData.message) {
-      errorMessage = errorData.message;
-    } else if (typeof errorData.error === "string") {
-      errorMessage = errorData.error;
-    } else if (
-      typeof errorData.error === "object" &&
-      errorData.error?.message
-    ) {
-      errorMessage = errorData.error.message;
-    } else {
-      errorMessage = "API request failed";
-    }
-
-    throw new Error(errorMessage);
-  }
-
-  return response.json();
+  );
+  return response.data;
 }
 
 // ============ TanStack Query Keys ============

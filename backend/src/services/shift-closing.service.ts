@@ -389,6 +389,7 @@ export async function closeLotteryForShift(
               depleted_at: new Date(),
               depleted_by: closedBy,
               depleted_shift_id: shiftId,
+              depletion_reason: "SHIFT_CLOSE",
             },
           });
           result.packs_depleted++;

@@ -2,12 +2,16 @@
  * Company API client functions
  * Provides functions for interacting with the company management API
  * All functions require ADMIN_SYSTEM_CONFIG permission (System Admin only)
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 /**
  * Company status values
@@ -66,14 +70,6 @@ export interface ListCompaniesResponse {
 }
 
 /**
- * API error response
- */
-export interface ApiError {
-  error: string;
-  message: string;
-}
-
-/**
  * List companies query parameters
  */
 export interface ListCompaniesParams {
@@ -85,44 +81,6 @@ export interface ListCompaniesParams {
 }
 
 /**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    throw new Error(
-      errorData.message || errorData.error || "API request failed",
-    );
-  }
-
-  return response.json();
-}
-
-/**
  * Get all companies with pagination (System Admin only)
  * @param params - Query parameters for pagination and filtering
  * @returns List of companies with pagination metadata
@@ -130,29 +88,13 @@ async function apiRequest<T>(
 export async function getCompanies(
   params?: ListCompaniesParams,
 ): Promise<ListCompaniesResponse> {
-  const queryParams = new URLSearchParams();
-  if (params?.page) {
-    queryParams.append("page", params.page.toString());
-  }
-  if (params?.limit) {
-    queryParams.append("limit", params.limit.toString());
-  }
-  if (params?.status) {
-    queryParams.append("status", params.status);
-  }
-  if (params?.ownerUserId) {
-    queryParams.append("ownerUserId", params.ownerUserId);
-  }
-  if (params?.search) {
-    queryParams.append("search", params.search);
-  }
-
-  const queryString = queryParams.toString();
-  const endpoint = `/api/companies${queryString ? `?${queryString}` : ""}`;
-
-  return apiRequest<ListCompaniesResponse>(endpoint, {
-    method: "GET",
-  });
+  const response = await apiClient.get<ListCompaniesResponse>(
+    "/api/companies",
+    {
+      params,
+    },
+  );
+  return response.data;
 }
 
 /**
@@ -165,9 +107,8 @@ export async function getCompanyById(companyId: string): Promise<Company> {
     throw new Error("Company ID is required");
   }
 
-  return apiRequest<Company>(`/api/companies/${companyId}`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<Company>(`/api/companies/${companyId}`);
+  return response.data;
 }
 
 // Note: createCompany has been removed - companies are now created
@@ -199,10 +140,11 @@ export async function updateCompany(
     throw new Error("Address must be 500 characters or less");
   }
 
-  return apiRequest<Company>(`/api/companies/${companyId}`, {
-    method: "PUT",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.put<Company>(
+    `/api/companies/${companyId}`,
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -214,9 +156,7 @@ export async function deleteCompany(companyId: string): Promise<void> {
     throw new Error("Company ID is required");
   }
 
-  await apiRequest<void>(`/api/companies/${companyId}`, {
-    method: "DELETE",
-  });
+  await apiClient.delete(`/api/companies/${companyId}`);
 }
 
 // ============ TanStack Query Hooks ============

@@ -8,12 +8,16 @@
  * - API-001: VALIDATION - Uses typed responses
  * - API-004: AUTHENTICATION - Requires authenticated session with SHIFT_READ permission
  * - FE-001: STATE_MANAGEMENT - Uses httpOnly cookies for auth
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery } from "@tanstack/react-query";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import apiClient from "./client";
 
 // ============ Types ============
 
@@ -45,63 +49,6 @@ interface ApiResponse<T> {
   message?: string;
 }
 
-/**
- * API error response
- */
-interface ApiError {
-  success: false;
-  error: string | { code: string; message: string };
-  message?: string;
-}
-
-// ============ API Request Helper ============
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers: {
-      ...((options.headers as Record<string, string>) || {}),
-    },
-  });
-
-  if (!response.ok) {
-    const errorData: ApiError = await response.json().catch(() => ({
-      success: false,
-      error: "Unknown error",
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-
-    // Extract error message
-    let errorMessage: string;
-    if (errorData.message) {
-      errorMessage = errorData.message;
-    } else if (typeof errorData.error === "string") {
-      errorMessage = errorData.error;
-    } else if (
-      typeof errorData.error === "object" &&
-      errorData.error?.message
-    ) {
-      errorMessage = errorData.error.message;
-    } else {
-      errorMessage = "API request failed";
-    }
-
-    throw new Error(errorMessage);
-  }
-
-  return response.json();
-}
-
 // ============ API Functions ============
 
 /**
@@ -112,12 +59,10 @@ async function apiRequest<T>(
 export async function getShiftSummary(
   shiftId: string,
 ): Promise<ApiResponse<ShiftSummaryResponse>> {
-  return apiRequest<ApiResponse<ShiftSummaryResponse>>(
+  const response = await apiClient.get<ApiResponse<ShiftSummaryResponse>>(
     `/api/shifts/${shiftId}/summary`,
-    {
-      method: "GET",
-    },
   );
+  return response.data;
 }
 
 // ============ TanStack Query Keys ============

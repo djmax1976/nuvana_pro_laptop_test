@@ -2,6 +2,12 @@
  * Admin Users API client functions
  * Provides functions for interacting with the user management API
  * All functions require ADMIN_SYSTEM_CONFIG permission (System Admin only)
+ *
+ * Uses shared API client for consistent:
+ * - 401/session expiration handling (automatic redirect to login)
+ * - Error formatting with ApiError class
+ * - Timeout configuration (30s default)
+ * - Credential handling (httpOnly cookies)
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -19,59 +25,7 @@ import {
   RolesResponse,
   UserRoleDetail,
 } from "@/types/admin-user";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
-
-/**
- * API error response
- */
-export interface ApiError {
-  success: false;
-  error: string;
-  message: string;
-}
-
-/**
- * Make authenticated API request
- * Uses credentials: "include" to send httpOnly cookies
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  // Only set Content-Type header if there's a body
-  const headers: Record<string, string> = {
-    ...((options.headers as Record<string, string>) || {}),
-  };
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
-
-  const data = await response.json();
-
-  if (!response.ok || data.success === false) {
-    // Handle error object format: { error: { code: "...", message: "..." } }
-    // or simple error string: { error: "..." }
-    const errorMessage =
-      data.message ||
-      (typeof data.error === "object" && data.error?.message
-        ? data.error.message
-        : data.error) ||
-      `HTTP ${response.status}: ${response.statusText}`;
-    throw new Error(errorMessage);
-  }
-
-  return data;
-}
+import apiClient from "./client";
 
 // ============ API Functions ============
 
@@ -83,26 +37,10 @@ async function apiRequest<T>(
 export async function getUsers(
   params?: ListUsersParams,
 ): Promise<ListUsersResponse> {
-  const queryParams = new URLSearchParams();
-  if (params?.page) {
-    queryParams.append("page", params.page.toString());
-  }
-  if (params?.limit) {
-    queryParams.append("limit", params.limit.toString());
-  }
-  if (params?.search) {
-    queryParams.append("search", params.search);
-  }
-  if (params?.status) {
-    queryParams.append("status", params.status);
-  }
-
-  const queryString = queryParams.toString();
-  const endpoint = `/api/admin/users${queryString ? `?${queryString}` : ""}`;
-
-  return apiRequest<ListUsersResponse>(endpoint, {
-    method: "GET",
+  const response = await apiClient.get<ListUsersResponse>("/api/admin/users", {
+    params,
   });
+  return response.data;
 }
 
 /**
@@ -115,9 +53,10 @@ export async function getUserById(userId: string): Promise<UserResponse> {
     throw new Error("User ID is required");
   }
 
-  return apiRequest<UserResponse>(`/api/admin/users/${userId}`, {
-    method: "GET",
-  });
+  const response = await apiClient.get<UserResponse>(
+    `/api/admin/users/${userId}`,
+  );
+  return response.data;
 }
 
 /**
@@ -134,10 +73,8 @@ export async function createUser(data: CreateUserInput): Promise<UserResponse> {
     throw new Error("Name is required");
   }
 
-  return apiRequest<UserResponse>("/api/admin/users", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.post<UserResponse>("/api/admin/users", data);
+  return response.data;
 }
 
 /**
@@ -154,10 +91,11 @@ export async function updateUserStatus(
     throw new Error("User ID is required");
   }
 
-  return apiRequest<UserResponse>(`/api/admin/users/${userId}/status`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.patch<UserResponse>(
+    `/api/admin/users/${userId}/status`,
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -181,10 +119,11 @@ export async function updateUserProfile(
     );
   }
 
-  return apiRequest<UserResponse>(`/api/admin/users/${userId}`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
-  });
+  const response = await apiClient.patch<UserResponse>(
+    `/api/admin/users/${userId}`,
+    data,
+  );
+  return response.data;
 }
 
 /**
@@ -205,10 +144,11 @@ export async function assignRole(
     throw new Error("Role ID is required");
   }
 
-  return apiRequest<UserRoleResponse>(`/api/admin/users/${userId}/roles`, {
-    method: "POST",
-    body: JSON.stringify(roleAssignment),
-  });
+  const response = await apiClient.post<UserRoleResponse>(
+    `/api/admin/users/${userId}/roles`,
+    roleAssignment,
+  );
+  return response.data;
 }
 
 /**
@@ -229,12 +169,10 @@ export async function revokeRole(
     throw new Error("User role ID is required");
   }
 
-  return apiRequest<{ success: true; message: string }>(
+  const response = await apiClient.delete<{ success: true; message: string }>(
     `/api/admin/users/${userId}/roles/${userRoleId}`,
-    {
-      method: "DELETE",
-    },
   );
+  return response.data;
 }
 
 /**
@@ -248,9 +186,10 @@ export async function deleteUser(userId: string): Promise<UserResponse> {
     throw new Error("User ID is required");
   }
 
-  return apiRequest<UserResponse>(`/api/admin/users/${userId}`, {
-    method: "DELETE",
-  });
+  const response = await apiClient.delete<UserResponse>(
+    `/api/admin/users/${userId}`,
+  );
+  return response.data;
 }
 
 /**
@@ -258,9 +197,8 @@ export async function deleteUser(userId: string): Promise<UserResponse> {
  * @returns List of roles with scope information
  */
 export async function getRoles(): Promise<RolesResponse> {
-  return apiRequest<RolesResponse>("/api/admin/roles", {
-    method: "GET",
-  });
+  const response = await apiClient.get<RolesResponse>("/api/admin/roles");
+  return response.data;
 }
 
 // ============ TanStack Query Hooks ============
