@@ -28,6 +28,7 @@ import {
   getWeek,
 } from "date-fns";
 import { cacheService } from "./cache.service";
+// Note: timezone utilities removed - day close now checks ALL open shifts regardless of date
 import {
   DaySummaryWithDetails,
   DaySummaryResponse,
@@ -84,6 +85,61 @@ export class StoreNotFoundError extends Error {
   constructor(storeId: string) {
     super(`Store not found: ${storeId}`);
     this.name = "StoreNotFoundError";
+  }
+}
+
+/**
+ * Error when lottery day is not closed
+ * SEC-006/API-003: Structured error with tenant-scoped context, no sensitive data exposed
+ */
+export class LotteryNotClosedError extends Error {
+  public readonly storeId: string;
+  public readonly businessDate: string;
+
+  constructor(storeId: string, businessDate: string) {
+    super(
+      `Lottery must be closed before day can be closed. Store: ${storeId}, Date: ${businessDate}`,
+    );
+    this.name = "LotteryNotClosedError";
+    this.storeId = storeId;
+    this.businessDate = businessDate;
+  }
+}
+
+/**
+ * Open shift detail for error reporting
+ * DB-006: Tenant-scoped data structure for RLS-compliant responses
+ */
+export interface OpenShiftDetail {
+  shift_id: string;
+  terminal_name: string | null;
+  cashier_name: string;
+  status: string;
+  opened_at: string;
+}
+
+/**
+ * Error when shifts are still open (with actionable details)
+ * API-003: Machine-readable error with structured details for client consumption
+ * SEC-014: Only includes necessary fields, no sensitive data exposure
+ */
+export class ShiftsStillOpenError extends Error {
+  public readonly openShifts: OpenShiftDetail[];
+  public readonly storeId: string;
+  public readonly businessDate: string;
+
+  constructor(
+    storeId: string,
+    businessDate: string,
+    openShifts: OpenShiftDetail[],
+  ) {
+    super(
+      `All shifts must be closed before proceeding. ${openShifts.length} shift(s) still open.`,
+    );
+    this.name = "ShiftsStillOpenError";
+    this.openShifts = openShifts;
+    this.storeId = storeId;
+    this.businessDate = businessDate;
   }
 }
 
@@ -385,13 +441,19 @@ class DaySummaryService {
   /**
    * Close the business day for a store.
    *
-   * Prerequisites:
-   * - All shifts for the day must be closed
+   * Prerequisites (defense-in-depth validation):
+   * 1. All shifts for the day must be closed
+   * 2. Lottery day must be closed (if lottery exists for the day)
+   *
+   * API-003: Centralized error handling with structured responses
+   * DB-006: Tenant isolation via store_id scoping
+   * SEC-014: Input validation before processing
    *
    * @param storeId - The store ID
    * @param businessDate - The business date
    * @param closedByUserId - The user closing the day
    * @param notes - Optional manager notes
+   * @param currentShiftId - Optional current shift ID to exclude from open shifts check
    * @returns The closed day summary
    */
   async closeDaySummary(
@@ -399,10 +461,21 @@ class DaySummaryService {
     businessDate: Date,
     closedByUserId: string,
     notes?: string,
+    currentShiftId?: string,
   ): Promise<DaySummaryWithDetails> {
     const normalizedDate = new Date(businessDate);
     normalizedDate.setHours(0, 0, 0, 0);
     const dateStr = format(normalizedDate, "yyyy-MM-dd");
+
+    // Validate store exists - DB-006: Tenant isolation
+    const store = await prisma.store.findUnique({
+      where: { store_id: storeId },
+      select: { store_id: true },
+    });
+
+    if (!store) {
+      throw new StoreNotFoundError(storeId);
+    }
 
     // Get current day summary
     const daySummary = await prisma.daySummary.findUnique({
@@ -422,24 +495,63 @@ class DaySummaryService {
       throw new DayAlreadyClosedError(storeId, dateStr);
     }
 
-    // Check for open shifts
-    const openShiftsCount = await prisma.shift.count({
+    // VALIDATION 1: Check for OTHER open shifts with detailed information
+    // BUSINESS RULE: Any open shift (except the current cashier's) blocks day close.
+    // The currentShiftId is excluded because the cashier closing the day is doing so
+    // from their own shift - they will close it as part of the day close flow.
+    // DB-001: Using ORM query builder for safe parameterized queries
+    // Includes OPEN status in addition to ACTIVE, CLOSING, RECONCILING
+    const openShifts = await prisma.shift.findMany({
       where: {
         store_id: storeId,
-        status: { in: ["ACTIVE", "CLOSING", "RECONCILING"] },
-        opened_at: {
-          gte: normalizedDate,
-          lt: new Date(normalizedDate.getTime() + 24 * 60 * 60 * 1000),
+        status: { in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"] },
+        // Exclude the current shift if provided
+        ...(currentShiftId && { shift_id: { not: currentShiftId } }),
+      },
+      select: {
+        shift_id: true,
+        status: true,
+        opened_at: true,
+        pos_terminal: {
+          select: { name: true }, // Correct field name per Prisma schema
+        },
+        cashier: {
+          select: { name: true }, // Cashier model has single 'name' field
         },
       },
     });
 
-    if (openShiftsCount > 0) {
-      throw new DayNotReadyError(
+    if (openShifts.length > 0) {
+      // API-003: Structured error with actionable details
+      throw new ShiftsStillOpenError(
         storeId,
         dateStr,
-        `${openShiftsCount} shift(s) still open or pending close`,
+        openShifts.map((s) => ({
+          shift_id: s.shift_id,
+          terminal_name: s.pos_terminal?.name || null,
+          cashier_name: s.cashier.name,
+          status: s.status,
+          opened_at: s.opened_at.toISOString(),
+        })),
       );
+    }
+
+    // VALIDATION 2: Check if lottery day is closed (if lottery exists)
+    // DB-006: Tenant-scoped query with store_id
+    const lotteryDay = await prisma.lotteryBusinessDay.findUnique({
+      where: {
+        store_id_business_date: {
+          store_id: storeId,
+          business_date: normalizedDate,
+        },
+      },
+      select: { status: true },
+    });
+
+    // If lottery day exists and is not closed, block the day close
+    // This enforces the business rule: lottery must be closed before day close
+    if (lotteryDay && lotteryDay.status !== "CLOSED") {
+      throw new LotteryNotClosedError(storeId, dateStr);
     }
 
     // Update day summary to refresh aggregates and close

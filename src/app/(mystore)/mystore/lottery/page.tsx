@@ -8,7 +8,6 @@ import {
   AlertCircle,
   Plus,
   Zap,
-  Moon,
   PenLine,
   X,
   Save,
@@ -29,10 +28,8 @@ import {
 import { validateManualEntryEnding } from "@/lib/services/lottery-closing-validation";
 import { DepletedPacksSection } from "@/components/lottery/DepletedPacksSection";
 import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
-import {
-  CloseDayModal,
-  type ScannedBin,
-} from "@/components/lottery/CloseDayModal";
+// CloseDayModal removed from lottery page - lottery close now only available via day-close page
+// This ensures lottery closing is part of the proper day close workflow
 import {
   PackActivationForm,
   type PackOption,
@@ -104,9 +101,6 @@ export default function LotteryManagementPage() {
   // Dialog state management
   const [receptionDialogOpen, setReceptionDialogOpen] = useState(false);
   const [activationDialogOpen, setActivationDialogOpen] = useState(false);
-  const [closeDayDialogOpen, setCloseDayDialogOpen] = useState(false);
-  // Scanned bins state - persists when modal is closed until day is closed
-  const [scannedBins, setScannedBins] = useState<ScannedBin[]>([]);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -398,20 +392,20 @@ export default function LotteryManagementPage() {
         invalidateAll();
 
         toast({
-          title: "Day Closed Successfully",
+          title: "Lottery Closed Successfully",
           description: `Closed ${response.data.closings_created} pack(s) for business day ${response.data.business_day}`,
         });
 
-        setSuccessMessage("Lottery day closed successfully via manual entry");
+        setSuccessMessage("Lottery closed successfully via manual entry");
         setTimeout(() => setSuccessMessage(null), 5000);
       } else {
-        throw new Error("Failed to close lottery day");
+        throw new Error("Failed to close lottery");
       }
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : "Failed to close lottery day";
+        error instanceof Error ? error.message : "Failed to close lottery";
       toast({
-        title: "Close Day Failed",
+        title: "Close Lottery Failed",
         description: errorMessage,
         variant: "destructive",
       });
@@ -426,18 +420,6 @@ export default function LotteryManagementPage() {
     invalidateAll,
     toast,
   ]);
-
-  /**
-   * Handle Close Day button click
-   * Routes to either manual close (if in manual entry mode) or opens scan modal
-   */
-  const handleCloseDayClick = useCallback(() => {
-    if (manualEntryState.isActive) {
-      handleManualCloseDay();
-    } else {
-      setCloseDayDialogOpen(true);
-    }
-  }, [manualEntryState.isActive, handleManualCloseDay]);
 
   // Loading state - waiting for auth or dashboard data
   if (authLoading || dashboardLoading) {
@@ -635,26 +617,22 @@ export default function LotteryManagementPage() {
             </Button>
           )}
 
-          {/* Close Day Button - Different behavior based on manual entry mode */}
-          <Button
-            onClick={handleCloseDayClick}
-            variant={manualEntryState.isActive ? "default" : "outline"}
-            data-testid="close-day-button"
-            disabled={
-              manualEntryState.isActive
-                ? !canCloseManualEntry || isSubmittingManualClose
-                : !dayBinsData?.bins.some((bin) => bin.pack !== null)
-            }
-          >
-            {isSubmittingManualClose ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : manualEntryState.isActive ? (
-              <Save className="mr-2 h-4 w-4" />
-            ) : (
-              <Moon className="mr-2 h-4 w-4" />
-            )}
-            {manualEntryState.isActive ? "Save & Close Day" : "Close Day"}
-          </Button>
+          {/* Save & Close Lottery Button - Only shown in manual entry mode */}
+          {manualEntryState.isActive && (
+            <Button
+              onClick={handleManualCloseDay}
+              variant="default"
+              data-testid="save-close-lottery-button"
+              disabled={!canCloseManualEntry || isSubmittingManualClose}
+            >
+              {isSubmittingManualClose ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              Save & Close Lottery
+            </Button>
+          )}
 
           <Button
             onClick={() => setActivationDialogOpen(true)}
@@ -776,23 +754,6 @@ export default function LotteryManagementPage() {
         onOpenChange={setDetailsDialogOpen}
         isLoading={packDetailsLoading}
       />
-
-      {/* Close Day Modal - Only used for scan mode */}
-      {dayBinsData && !manualEntryState.isActive && (
-        <CloseDayModal
-          storeId={storeId}
-          bins={dayBinsData.bins}
-          open={closeDayDialogOpen}
-          onOpenChange={setCloseDayDialogOpen}
-          onSuccess={() => {
-            invalidateAll();
-            setSuccessMessage("Lottery day closed successfully");
-            setTimeout(() => setSuccessMessage(null), 5000);
-          }}
-          scannedBins={scannedBins}
-          onScannedBinsChange={setScannedBins}
-        />
-      )}
 
       {/* Manual Entry Auth Modal */}
       {storeId && (

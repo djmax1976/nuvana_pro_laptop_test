@@ -30,6 +30,8 @@ import {
   DayNotReadyError,
   DayAlreadyClosedError,
   StoreNotFoundError,
+  LotteryNotClosedError,
+  ShiftsStillOpenError,
 } from "../services/day-summary.service";
 import {
   DaySummaryStoreParamsSchema,
@@ -48,6 +50,9 @@ import { authMiddleware } from "../middleware/auth.middleware";
 
 /**
  * Error handler for day summary routes
+ *
+ * API-003: Centralized error handling with structured responses
+ * SEC-014: Sanitized error messages - no stack traces or sensitive data exposed
  */
 const handleError = (error: unknown, reply: any) => {
   if (error instanceof ZodError) {
@@ -70,6 +75,33 @@ const handleError = (error: unknown, reply: any) => {
       error: {
         code: "NOT_FOUND",
         message: error.message,
+      },
+    });
+  }
+
+  // NEW: Handle shifts still open error with actionable details
+  // Provides structured data for frontend to display which shifts need closing
+  if (error instanceof ShiftsStillOpenError) {
+    return reply.status(400).send({
+      success: false,
+      error: {
+        code: "SHIFTS_STILL_OPEN",
+        message: error.message,
+        details: {
+          open_shifts: error.openShifts,
+        },
+      },
+    });
+  }
+
+  // NEW: Handle lottery not closed error
+  // Informs user that lottery must be closed before day close
+  if (error instanceof LotteryNotClosedError) {
+    return reply.status(400).send({
+      success: false,
+      error: {
+        code: "LOTTERY_NOT_CLOSED",
+        message: "Lottery must be closed before day can be closed.",
       },
     });
   }
@@ -104,7 +136,7 @@ const handleError = (error: unknown, reply: any) => {
     });
   }
 
-  // Log unexpected errors
+  // Log unexpected errors server-side only (API-003: no stack traces to client)
   console.error("Day summary route error:", error);
 
   return reply.status(500).send({

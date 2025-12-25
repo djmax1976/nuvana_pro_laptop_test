@@ -71,6 +71,8 @@ interface CloseDayModalProps {
   scannedBins?: ScannedBin[];
   /** Callback to update external scanned bins state */
   onScannedBinsChange?: (bins: ScannedBin[]) => void;
+  /** Current shift ID - excluded from open shifts check when closing lottery */
+  currentShiftId?: string;
 }
 
 /**
@@ -99,6 +101,7 @@ export function CloseDayModal({
   onSuccessWithData,
   scannedBins: externalScannedBins,
   onScannedBinsChange,
+  currentShiftId,
 }: CloseDayModalProps) {
   const { toast } = useToast();
   const { playSuccess, playError, isMuted, toggleMute } =
@@ -372,7 +375,7 @@ export function CloseDayModal({
     if (!allBinsScanned) {
       toast({
         title: "Incomplete scan",
-        description: "Please scan all active bins before closing the day",
+        description: "Please scan all active bins before closing lottery",
         variant: "destructive",
       });
       return;
@@ -387,15 +390,17 @@ export function CloseDayModal({
       }));
 
       // Submit to API
+      // Pass current_shift_id so backend excludes it from open shifts check
       const response = await closeLotteryDay(storeId, {
         closings,
         entry_method: "SCAN", // Default to SCAN for now
+        current_shift_id: currentShiftId,
       });
 
       if (response.success && response.data) {
         playSuccess();
         toast({
-          title: "Day closed successfully",
+          title: "Lottery closed successfully",
           description: `Closed ${response.data.closings_created} pack(s) for business day ${response.data.business_day}`,
         });
 
@@ -415,17 +420,37 @@ export function CloseDayModal({
           bins_closed: response.data.bins_closed,
         });
       } else {
-        throw new Error("Failed to close lottery day");
+        throw new Error("Failed to close lottery");
       }
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Failed to close lottery day";
       playError();
-      toast({
-        title: "Error",
-        description: errorMessage,
-        variant: "destructive",
-      });
+
+      // API-003: Structured error handling with user-friendly messages
+      // Check for specific error codes to provide actionable feedback
+      const apiError = error as {
+        code?: string;
+        message?: string;
+        status?: number;
+      };
+
+      if (apiError.code === "SHIFTS_STILL_OPEN") {
+        // Defense-in-depth: Backend rejected because shifts are open
+        toast({
+          title: "Cannot Close Lottery",
+          description:
+            "All shifts must be closed before lottery can be closed. Please close all open shifts first.",
+          variant: "destructive",
+        });
+      } else {
+        // Generic error handling for other cases
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to close lottery";
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -434,6 +459,7 @@ export function CloseDayModal({
     scannedBins,
     setScannedBins,
     storeId,
+    currentShiftId,
     toast,
     onOpenChange,
     onSuccess,
@@ -456,7 +482,7 @@ export function CloseDayModal({
       >
         <DialogHeader>
           <div className="flex items-center justify-between">
-            <DialogTitle>Close Lottery Day</DialogTitle>
+            <DialogTitle>Close Lottery</DialogTitle>
             <button
               type="button"
               onClick={toggleMute}
@@ -606,7 +632,7 @@ export function CloseDayModal({
             data-testid="save-button"
           >
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Close Day
+            Close Lottery
             {scannedBins.length > 0 && ` (${scannedBins.length} bins)`}
           </Button>
         </DialogFooter>

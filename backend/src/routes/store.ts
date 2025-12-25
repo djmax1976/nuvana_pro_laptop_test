@@ -12,6 +12,10 @@ import {
 } from "../schemas/terminal.schema";
 import { prisma } from "../utils/db";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
+import {
+  getCalendarDayBoundaries,
+  DEFAULT_STORE_TIMEZONE,
+} from "../utils/timezone.utils";
 
 /**
  * Validate IANA timezone using Intl.DateTimeFormat
@@ -4001,6 +4005,233 @@ export async function storeRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to update store login",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/stores/:storeId/shifts/open-check
+   * Check if there are open shifts for a business date
+   *
+   * Defense-in-depth: Frontend uses this to show blocking UI before day/lottery close
+   * Backend validation still enforces the rule - this is for UX only
+   *
+   * DB-006: Tenant isolation via store_id scoping
+   * API-003: Structured response format
+   * SEC-014: Only returns necessary shift information
+   *
+   * Protected route - requires SHIFT_CLOSE permission (same as day close operations)
+   */
+  fastify.get(
+    "/api/stores/:storeId/shifts/open-check",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.SHIFT_CLOSE),
+      ],
+      schema: {
+        description: "Check if there are open shifts for a business date",
+        tags: ["stores", "shifts"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        querystring: {
+          type: "object",
+          properties: {
+            business_date: {
+              type: "string",
+              format: "date",
+              description: "Business date (YYYY-MM-DD). Defaults to today.",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  has_open_shifts: { type: "boolean" },
+                  open_shift_count: { type: "integer" },
+                  open_shifts: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        shift_id: { type: "string", format: "uuid" },
+                        terminal_name: { type: ["string", "null"] },
+                        cashier_name: { type: "string" },
+                        status: { type: "string" },
+                        opened_at: { type: "string", format: "date-time" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = request.params as { storeId: string };
+      const query = request.query as { business_date?: string };
+      const user = (request as any).user as UserIdentity;
+
+      try {
+        // Validate store exists and get timezone for date calculations
+        // DB-006: Tenant isolation - fetch store to validate access and get timezone
+        const store = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+          select: { store_id: true, company_id: true, timezone: true },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Store not found",
+            },
+          };
+        }
+
+        // Validate user access to this store (company isolation)
+        // SEC-014: RLS enforcement via company_id check
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        if (!hasSystemScope) {
+          const userCompanyId = await getUserCompanyId(user.id);
+          if (!userCompanyId || userCompanyId !== store.company_id) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message: "You do not have access to this store",
+              },
+            };
+          }
+        }
+
+        // BUSINESS RULE: For day close blocking, we need to find ALL open shifts
+        // regardless of when they were opened. A shift that started yesterday
+        // but is still open MUST block today's day close.
+        //
+        // The optional business_date filter is for reporting purposes only,
+        // not for the blocking check. When no date is provided, we find ALL open shifts.
+
+        // DB-001: Using ORM query builder for safe parameterized queries
+        // DB-006: Tenant isolation via store_id scoping
+        let openShifts;
+
+        if (query.business_date) {
+          // Date filter requested - for reporting use cases
+          const storeTimezone = store.timezone || DEFAULT_STORE_TIMEZONE;
+          const { startUTC, endUTC } = getCalendarDayBoundaries(
+            query.business_date,
+            storeTimezone,
+          );
+          openShifts = await prisma.shift.findMany({
+            where: {
+              store_id: params.storeId,
+              status: { in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"] },
+              opened_at: { gte: startUTC, lte: endUTC },
+            },
+            select: {
+              shift_id: true,
+              status: true,
+              opened_at: true,
+              pos_terminal: { select: { name: true } },
+              cashier: { select: { name: true } },
+            },
+          });
+        } else {
+          // No date filter - find ALL open shifts for day close blocking
+          openShifts = await prisma.shift.findMany({
+            where: {
+              store_id: params.storeId,
+              status: { in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"] },
+            },
+            select: {
+              shift_id: true,
+              status: true,
+              opened_at: true,
+              pos_terminal: { select: { name: true } },
+              cashier: { select: { name: true } },
+            },
+          });
+        }
+
+        // API-003: Structured response format with consistent field names
+        return reply.send({
+          success: true,
+          data: {
+            has_open_shifts: openShifts.length > 0,
+            open_shift_count: openShifts.length,
+            open_shifts: openShifts.map((s) => ({
+              shift_id: s.shift_id,
+              terminal_name: s.pos_terminal?.name || null,
+              cashier_name: s.cashier.name,
+              status: s.status,
+              opened_at: s.opened_at.toISOString(),
+            })),
+          },
+        });
+      } catch (error: any) {
+        // LM-001: Structured logging with context
+        fastify.log.error(
+          { error, storeId: params.storeId },
+          "Error checking open shifts",
+        );
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to check open shifts",
           },
         };
       }

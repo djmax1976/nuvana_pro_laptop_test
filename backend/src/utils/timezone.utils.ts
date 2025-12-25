@@ -307,3 +307,86 @@ export function isValidTimezone(timezone: string): boolean {
     return false;
   }
 }
+
+/**
+ * Get current calendar date in store's timezone
+ *
+ * Returns today's date string (YYYY-MM-DD) according to the store's local timezone.
+ * This is essential for day-close operations where "today" must match the store's
+ * wall clock, not the server's timezone.
+ *
+ * @param storeTimezone - IANA timezone string (e.g., "America/New_York")
+ * @returns Date string in YYYY-MM-DD format
+ *
+ * @example
+ * // At 11 PM EST on Dec 24:
+ * // Server in UTC sees Dec 25 04:00 UTC
+ * // But store in EST should see Dec 24
+ * getCurrentStoreDate('America/New_York');
+ * // Returns: "2024-12-24" (correct store date)
+ */
+export function getCurrentStoreDate(storeTimezone: string): string {
+  const now = new Date();
+  return getStoreDate(now, storeTimezone);
+}
+
+/**
+ * Get calendar day boundaries (midnight to midnight) in UTC
+ *
+ * Unlike getBusinessDayBoundaries which uses a configurable business day start hour,
+ * this function returns simple calendar day boundaries (00:00:00 to 23:59:59.999)
+ * in the store's timezone, converted to UTC.
+ *
+ * Use this for queries that need to find all shifts opened on a specific calendar date
+ * in the store's local timezone.
+ *
+ * DB-006: Used for tenant-scoped date range queries
+ *
+ * @param dateString - Date string in YYYY-MM-DD format (in store timezone)
+ * @param storeTimezone - IANA timezone string
+ * @returns Object with startUTC (midnight) and endUTC (end of day) Date objects
+ *
+ * @example
+ * // Get boundaries for Dec 24, 2024 in New York (EST = UTC-5)
+ * getCalendarDayBoundaries('2024-12-24', 'America/New_York');
+ * // Returns:
+ * // {
+ * //   startUTC: 2024-12-24T05:00:00.000Z (midnight EST in UTC)
+ * //   endUTC:   2024-12-25T04:59:59.999Z (11:59:59.999 PM EST in UTC)
+ * // }
+ *
+ * @example
+ * // Get boundaries for Dec 24, 2024 in Los Angeles (PST = UTC-8)
+ * getCalendarDayBoundaries('2024-12-24', 'America/Los_Angeles');
+ * // Returns:
+ * // {
+ * //   startUTC: 2024-12-24T08:00:00.000Z (midnight PST in UTC)
+ * //   endUTC:   2024-12-25T07:59:59.999Z (11:59:59.999 PM PST in UTC)
+ * // }
+ */
+export function getCalendarDayBoundaries(
+  dateString: string,
+  storeTimezone: string,
+): { startUTC: Date; endUTC: Date } {
+  // Midnight (00:00:00) on the given date in store timezone
+  const startLocal = `${dateString} 00:00:00`;
+  const startUTC = toUTC(startLocal, storeTimezone);
+
+  // End of day (23:59:59.999) on the given date in store timezone
+  const endLocal = `${dateString} 23:59:59`;
+  const endUTC = toUTC(endLocal, storeTimezone);
+  // Add 999ms to get 23:59:59.999
+  endUTC.setMilliseconds(999);
+
+  return { startUTC, endUTC };
+}
+
+/**
+ * Default timezone constant
+ *
+ * Used when store timezone is not configured. Eastern Time is the default
+ * because most US convenience stores operate in Eastern timezone.
+ *
+ * SEC-014: Documented default to avoid ambiguity
+ */
+export const DEFAULT_STORE_TIMEZONE = "America/New_York";

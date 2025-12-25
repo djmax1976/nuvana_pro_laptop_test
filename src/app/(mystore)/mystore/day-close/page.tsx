@@ -48,7 +48,7 @@ import {
   type ScannedBin,
 } from "@/components/lottery/CloseDayModal";
 import { ShiftClosingForm } from "@/components/shifts/ShiftClosingForm";
-import { useShiftDetail } from "@/lib/api/shifts";
+import { useShiftDetail, useOpenShiftsCheck } from "@/lib/api/shifts";
 
 // Import shared shift-closing components
 import {
@@ -108,6 +108,27 @@ export default function DayClosePage() {
   const { data: dayBinsData, isLoading: dayBinsLoading } =
     useLotteryDayBins(storeId);
 
+  // Open shifts check - defense-in-depth UX (backend still enforces)
+  // BUSINESS RULE: Check ALL open shifts, not just today's
+  // A shift opened yesterday that's still open must block day close
+  const {
+    data: openShiftsData,
+    isLoading: openShiftsLoading,
+    isFetched: openShiftsFetched,
+  } = useOpenShiftsCheck(storeId); // No date filter = check ALL open shifts
+
+  // Determine if blocked by open shifts (from OTHER terminals/cashiers)
+  // IMPORTANT: Exclude the CURRENT shift (shiftId from URL) - the cashier closing the day
+  // from their own shift should NOT be blocked by their own shift!
+  // Only count OTHER open shifts as blocking.
+  const otherOpenShifts =
+    openShiftsData?.open_shifts?.filter((s) => s.shift_id !== shiftId) ?? [];
+  const hasOtherOpenShifts = otherOpenShifts.length > 0;
+
+  // Track if open shifts check has actually completed (not just not loading)
+  // Query is only enabled when storeId exists, so we need to wait for both
+  const openShiftsCheckComplete = !!storeId && openShiftsFetched;
+
   // Lottery modal state
   const [closeDayModalOpen, setCloseDayModalOpen] = useState(false);
   const [lotteryCompleted, setLotteryCompleted] = useState(false);
@@ -143,15 +164,18 @@ export default function DayClosePage() {
 
   // Auto-open lottery modal when page loads and lottery not closed
   // This is the KEY DIFFERENCE from Shift End - lottery is REQUIRED
+  // DEFENSE-IN-DEPTH: Don't open lottery modal if shifts are still open
   useEffect(() => {
     if (
       !authLoading &&
       !dashboardLoading &&
       !dayBinsLoading &&
+      openShiftsCheckComplete && // Wait for open shifts check to COMPLETE (not just not loading)
       storeId &&
       dayBinsData &&
       !isLotteryAlreadyClosed &&
-      !lotteryCompleted
+      !lotteryCompleted &&
+      !hasOtherOpenShifts // Don't open lottery modal if shifts are open
     ) {
       // Small delay to ensure UI is ready
       const timer = setTimeout(() => {
@@ -163,10 +187,12 @@ export default function DayClosePage() {
     authLoading,
     dashboardLoading,
     dayBinsLoading,
+    openShiftsCheckComplete,
     storeId,
     dayBinsData,
     isLotteryAlreadyClosed,
     lotteryCompleted,
+    hasOtherOpenShifts,
   ]);
 
   // Handle lottery close success
@@ -316,8 +342,81 @@ export default function DayClosePage() {
         </div>
       </div>
 
+      {/* Open Shifts Check Loading State */}
+      {storeId && !openShiftsCheckComplete && (
+        <Card className="border-muted" data-testid="open-shifts-checking">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3">
+              <Loader2
+                className="h-5 w-5 animate-spin text-muted-foreground"
+                aria-hidden="true"
+              />
+              <p className="text-sm text-muted-foreground">
+                Checking for open shifts...
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Open Shifts Blocking Banner - Defense-in-Depth UX */}
+      {/* Only show OTHER open shifts (excluding current cashier's shift) */}
+      {openShiftsCheckComplete && hasOtherOpenShifts && (
+        <Card
+          className="border-destructive bg-destructive/5"
+          data-testid="open-shifts-blocking-banner"
+        >
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-4">
+              <AlertCircle
+                className="h-6 w-6 text-destructive flex-shrink-0 mt-0.5"
+                aria-hidden="true"
+              />
+              <div className="space-y-3">
+                <div>
+                  <h3 className="font-semibold text-destructive">
+                    Cannot Close Day – Open Shifts Found
+                  </h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    All shifts must be closed before the day can be closed. The
+                    following {otherOpenShifts.length} shift
+                    {otherOpenShifts.length !== 1 ? "s are" : " is"} still open:
+                  </p>
+                </div>
+                <ul className="space-y-2">
+                  {otherOpenShifts.map((shift) => (
+                    <li
+                      key={shift.shift_id}
+                      className="text-sm flex items-center gap-2"
+                    >
+                      <Badge
+                        variant="outline"
+                        className="text-amber-600 border-amber-300"
+                      >
+                        {shift.status}
+                      </Badge>
+                      <span className="font-medium">
+                        {shift.terminal_name || "Unknown Terminal"}
+                      </span>
+                      <span className="text-muted-foreground">•</span>
+                      <span>{shift.cashier_name}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-sm text-muted-foreground">
+                  Please ask other cashiers to close their shifts first, or
+                  close them from the Shift Management page.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Lottery Status Banner - Required for Day Close */}
-      {!dayBinsLoading && (
+      {/* Only show lottery banner if no open shifts are blocking */}
+      {/* IMPORTANT: Wait for openShiftsCheckComplete to prevent showing banner before query returns */}
+      {!dayBinsLoading && openShiftsCheckComplete && !hasOtherOpenShifts && (
         <LotteryStatusBanner
           status={lotteryStatus}
           lotteryData={lotteryData}
@@ -382,6 +481,7 @@ export default function DayClosePage() {
           onSuccessWithData={handleLotterySuccess}
           scannedBins={scannedBins}
           onScannedBinsChange={setScannedBins}
+          currentShiftId={shiftId || undefined}
         />
       )}
 
