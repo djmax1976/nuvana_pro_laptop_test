@@ -282,12 +282,10 @@ test.describe.serial("2.9-E2E: Client Dashboard User Journey", () => {
         page.locator('[data-testid="client-dashboard-page"]'),
       ).toBeVisible({ timeout: 10000 });
 
-      // AND: Dashboard shows welcome message
-      await expect(
-        page
-          .locator('[data-testid="client-dashboard-page"]')
-          .getByText(/welcome back/i),
-      ).toBeVisible({ timeout: 10000 });
+      // AND: Dashboard KPI section is visible (indicates successful data load)
+      await expect(page.locator('[data-testid="kpi-section"]')).toBeVisible({
+        timeout: 10000,
+      });
 
       // AND: No API errors occurred
       expect(

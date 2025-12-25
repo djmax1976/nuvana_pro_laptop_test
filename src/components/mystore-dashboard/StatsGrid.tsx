@@ -227,7 +227,7 @@ function SparklineChart({
         >
           <XAxis
             dataKey="day"
-            axisLine={false}
+            axisLine={{ stroke: "#e5e7eb", strokeWidth: 1 }}
             tickLine={false}
             tick={{ fontSize: 8, fill: "#6b7280" }}
             interval={0}

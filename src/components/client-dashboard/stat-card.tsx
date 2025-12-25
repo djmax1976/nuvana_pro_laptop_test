@@ -323,7 +323,7 @@ export function StatCard({
             >
               <XAxis
                 dataKey="label"
-                axisLine={false}
+                axisLine={{ stroke: "hsl(var(--border))", strokeWidth: 1 }}
                 tickLine={false}
                 tick={{
                   fontSize: 9,
