@@ -254,25 +254,32 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
   }) => {
     // GIVEN: Store Manager is on lottery page
     await loginAndWaitForMyStore(page, storeManager.email, password);
-    await page.goto("/mystore/lottery");
+    await page.goto("/mystore/lottery", { waitUntil: "domcontentloaded" });
     await expect(
       page.locator('[data-testid="lottery-management-page"]'),
     ).toBeVisible({
-      timeout: 10000,
+      timeout: 15000,
     });
 
+    // Wait for the receive pack button to be ready (not just visible, but clickable)
+    const receivePackButton = page.locator(
+      '[data-testid="receive-pack-button"]',
+    );
+    await expect(receivePackButton).toBeVisible({ timeout: 15000 });
+    await expect(receivePackButton).toBeEnabled({ timeout: 10000 });
+
     // WHEN: User clicks Receive Pack button
-    await page.click('[data-testid="receive-pack-button"]');
+    await receivePackButton.click();
 
     // THEN: Pack reception dialog opens with serialized number input
     // The form uses 24-digit serialized number input (Story 6.12)
     await expect(page.locator('[data-testid="serial-input"]')).toBeVisible({
-      timeout: 5000,
+      timeout: 10000,
     });
 
     // AND: Serial input should be editable and have correct placeholder
     const serialInput = page.locator('[data-testid="serial-input"]');
-    await expect(serialInput).toBeEditable();
+    await expect(serialInput).toBeEditable({ timeout: 5000 });
     await expect(serialInput).toHaveAttribute(
       "placeholder",
       "000000000000000000000000",
@@ -281,7 +288,7 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
 
     // AND: Submit button should be visible but disabled (no packs added yet)
     const submitButton = page.locator('[data-testid="submit-batch-reception"]');
-    await expect(submitButton).toBeVisible();
+    await expect(submitButton).toBeVisible({ timeout: 5000 });
     await expect(submitButton).toBeDisabled();
   });
 
@@ -381,15 +388,14 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
 
       // Set up API response promise BEFORE navigation to avoid race conditions
       // The packs API uses query parameters: /api/lottery/packs?store_id=...
+      // Match the packs list endpoint (not sub-paths like /packs/:id/activate)
       const packsResponsePromise = page.waitForResponse(
         (resp) => {
           const url = resp.url();
-          return (
-            url.includes("/api/lottery/packs") &&
-            (url.includes(store.store_id) ||
-              url.includes(encodeURIComponent(store.store_id))) &&
-            resp.status() === 200
-          );
+          // Match /api/lottery/packs with query params but not sub-endpoints
+          // URL format: /api/lottery/packs?store_id=<uuid>
+          const packsMatch = /\/api\/lottery\/packs(\?|$)/.test(url);
+          return packsMatch && resp.status() === 200;
         },
         { timeout: 30000 },
       );
@@ -398,34 +404,39 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
       await expect(
         page.locator('[data-testid="lottery-management-page"]'),
       ).toBeVisible({
-        timeout: 10000,
+        timeout: 15000,
       });
 
       // Wait for packs API response to complete (deterministic waiting)
-      await packsResponsePromise;
+      const packsResponse = await packsResponsePromise;
+
+      // Verify the response is successful and contains data
+      const responseJson = await packsResponse.json().catch(() => null);
+      expect(responseJson?.success).toBe(true);
 
       // Wait for the activate button to be visible
       const activateButton = page.locator(
         '[data-testid="activate-pack-button"]',
       );
-      await expect(activateButton).toBeVisible({ timeout: 10000 });
+      await expect(activateButton).toBeVisible({ timeout: 15000 });
 
       // THEN: Activate Pack button should be enabled (we have a RECEIVED pack)
-      // Wait for button to become enabled - this happens after packs data loads
-      await expect(activateButton).toBeEnabled({ timeout: 15000 });
+      // Wait for button to become enabled - this happens after React processes the response
+      // Use longer timeout for CI environments where React re-render may be slow
+      await expect(activateButton).toBeEnabled({ timeout: 25000 });
 
       // WHEN: User clicks Activate Pack button
       await activateButton.click();
 
       // THEN: Pack activation dialog opens with pack select
       await expect(page.locator('[data-testid="pack-select"]')).toBeVisible({
-        timeout: 5000,
+        timeout: 10000,
       });
 
       // AND: Submit button is visible
       await expect(
         page.locator('[data-testid="submit-pack-activation"]'),
-      ).toBeVisible({ timeout: 5000 });
+      ).toBeVisible({ timeout: 10000 });
 
       // AND: The pack select dropdown should contain our RECEIVED pack
       // Open the select dropdown to verify pack is listed
@@ -437,7 +448,7 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
       const packOption = page.locator(
         `[data-testid="pack-option-${pack.pack_id}"]`,
       );
-      await expect(packOption).toBeVisible({ timeout: 5000 });
+      await expect(packOption).toBeVisible({ timeout: 10000 });
 
       // Verify the pack number appears in the dropdown options
       // The pack number is displayed as "pack_number - game_name (serial_start - serial_end)"

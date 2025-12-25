@@ -222,13 +222,15 @@ describe("CloseDayModal Component", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("CLOSE-003: [P0] should display title 'Close Lottery Day'", () => {
+  it("CLOSE-003: [P0] should display title 'Close Lottery'", () => {
     // GIVEN: CloseDayModal component
     // WHEN: Component is rendered
     render(<CloseDayModal {...defaultProps} />);
 
-    // THEN: Modal title is displayed
-    expect(screen.getByText(/close lottery day/i)).toBeInTheDocument();
+    // THEN: Modal title is displayed (use heading role to distinguish from button)
+    expect(
+      screen.getByRole("heading", { name: /close lottery/i }),
+    ).toBeInTheDocument();
   });
 
   it("CLOSE-004: [P0] should show input field with correct placeholder", () => {
@@ -586,8 +588,8 @@ describe("CloseDayModal Component", () => {
     // THEN: Loading state is shown (button disabled with spinner)
     await waitFor(() => {
       expect(saveButton).toBeDisabled();
-      // Button text still says "Close Day" but has spinner icon
-      expect(saveButton).toHaveTextContent(/close day/i);
+      // Button text still says "Close Lottery" but has spinner icon
+      expect(saveButton).toHaveTextContent(/close lottery/i);
     });
 
     // Cleanup

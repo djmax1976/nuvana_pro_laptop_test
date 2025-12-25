@@ -17,6 +17,11 @@ import {
   validateStoreId,
 } from "../utils/lottery-bin-configuration-validator";
 import type { UserRole } from "../services/rbac.service";
+import {
+  getCalendarDayBoundaries,
+  getCurrentStoreDate,
+  DEFAULT_STORE_TIMEZONE,
+} from "../utils/timezone.utils";
 
 /**
  * Validate user has access to a store via SYSTEM, COMPANY, or STORE scope
@@ -6532,7 +6537,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
 
         // Determine the target date in store timezone
         // If date param provided, parse it; otherwise use current date in store timezone
-        const storeTimezone = store.timezone || "America/New_York";
+        const storeTimezone = store.timezone || DEFAULT_STORE_TIMEZONE;
         let targetDate: Date;
         let targetDateStr: string;
 
@@ -6553,29 +6558,15 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           // Parse the date string as the start of day in store timezone
           targetDate = new Date(query.date + "T00:00:00");
         } else {
-          // Get current date in store timezone
-          const now = new Date();
-          const formatter = new Intl.DateTimeFormat("en-CA", {
-            timeZone: storeTimezone,
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-          });
-          targetDateStr = formatter.format(now); // Returns YYYY-MM-DD
+          // Get current date in store timezone using shared utility
+          targetDateStr = getCurrentStoreDate(storeTimezone);
           targetDate = new Date(targetDateStr + "T00:00:00");
         }
 
-        // Calculate day boundaries in UTC for database queries
-        // We need to find shifts where opened_at falls on the target date in store timezone
-        const dayStartLocal = new Date(targetDateStr + "T00:00:00");
-        const dayEndLocal = new Date(targetDateStr + "T23:59:59.999");
-
-        // Convert to UTC bounds by getting the offset
-        // Note: This is an approximation - for precise timezone handling,
-        // we would need a library like luxon or date-fns-tz
-        const utcOffset = getTimezoneOffset(storeTimezone, targetDate);
-        const dayStartUtc = new Date(dayStartLocal.getTime() - utcOffset);
-        const dayEndUtc = new Date(dayEndLocal.getTime() - utcOffset);
+        // Calculate day boundaries in UTC using shared timezone utility
+        // This correctly handles timezone offsets and DST transitions
+        const { startUTC: dayStartUtc, endUTC: dayEndUtc } =
+          getCalendarDayBoundaries(targetDateStr, storeTimezone);
 
         // Check for LotteryBusinessDay record for this date
         const lotteryBusinessDay = await prisma.lotteryBusinessDay.findUnique({
@@ -7057,7 +7048,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 properties: {
                   code: { type: "string" },
                   message: { type: "string" },
-                  details: { type: "object" },
+                  details: { type: "object", additionalProperties: true },
                 },
               },
             },
@@ -7123,6 +7114,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       const body = request.body as {
         closings: Array<{ pack_id: string; closing_serial: string }>;
         entry_method?: "SCAN" | "MANUAL";
+        current_shift_id?: string; // Exclude this shift from open shifts check
       };
 
       try {
@@ -7169,33 +7161,70 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Get current date in store timezone
-        const storeTimezone = store.timezone || "America/New_York";
-        const now = new Date();
-        const formatter = new Intl.DateTimeFormat("en-CA", {
-          timeZone: storeTimezone,
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-        });
-        const businessDayStr = formatter.format(now); // Returns YYYY-MM-DD
+        // Get store timezone for accurate date calculations
+        // Uses shared timezone utility for consistency with open-check endpoint
+        const storeTimezone = store.timezone || DEFAULT_STORE_TIMEZONE;
+
+        // Get current business day in store's timezone
+        const businessDayStr = getCurrentStoreDate(storeTimezone);
 
         // targetDate is the business date in the store's timezone (used for LotteryBusinessDay lookup)
         // Parse as midnight UTC (the date component is what matters for the unique constraint)
         const targetDate = new Date(businessDayStr + "T00:00:00Z");
 
-        // Calculate day boundaries in UTC for database queries
-        // We need to find midnight and end of day in the store's timezone, then convert to UTC
-        // The businessDayStr is already in the store's local date (e.g., "2025-12-16" for Dec 16 in NY)
-        // We need to find what UTC time corresponds to midnight Dec 16 in NY
-        const utcOffset = getTimezoneOffset(storeTimezone, now);
+        // Calculate day boundaries in UTC for eligible shift query
+        // Still needed for finding shifts opened today (for day-pack recording)
+        const { startUTC: dayStartUtc, endUTC: dayEndUtc } =
+          getCalendarDayBoundaries(businessDayStr, storeTimezone);
 
-        // Parse the date string as midnight UTC, then adjust by the timezone offset
-        // to get the correct UTC time for midnight in the store's timezone
-        const dayStartUtc = new Date(targetDate.getTime() + utcOffset);
-        const dayEndUtc = new Date(
-          dayStartUtc.getTime() + 24 * 60 * 60 * 1000 - 1,
-        );
+        // VALIDATION: Check for OTHER open shifts before allowing lottery close
+        // BUSINESS RULE: Any open shift (other than the current cashier's) blocks lottery close.
+        // The current_shift_id is excluded because the cashier closing lottery is doing so
+        // from their own shift - they can't close their shift before closing lottery!
+        // DB-001: Using ORM query builder for safe parameterized queries
+        // DB-006: Tenant isolation via store_id scoping
+        const openShifts = await prisma.shift.findMany({
+          where: {
+            store_id: params.storeId,
+            status: { in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"] },
+            // Exclude the current shift if provided
+            ...(body.current_shift_id && {
+              shift_id: { not: body.current_shift_id },
+            }),
+          },
+          select: {
+            shift_id: true,
+            status: true,
+            opened_at: true,
+            pos_terminal: {
+              select: { name: true }, // Correct field name per Prisma schema
+            },
+            cashier: {
+              select: { name: true }, // Cashier model has single 'name' field
+            },
+          },
+        });
+
+        if (openShifts.length > 0) {
+          // API-003: Structured error with actionable details
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "SHIFTS_STILL_OPEN",
+              message: `All shifts must be closed before lottery can be closed. ${openShifts.length} shift(s) still open.`,
+              details: {
+                open_shifts: openShifts.map((s) => ({
+                  shift_id: s.shift_id,
+                  terminal_name: s.pos_terminal?.name || "Unknown Terminal",
+                  cashier_name: s.cashier.name,
+                  status: s.status,
+                  opened_at: s.opened_at.toISOString(),
+                })),
+              },
+            },
+          };
+        }
 
         // Find eligible shifts: either opened today OR currently open (regardless of when opened)
         // This handles cases where a shift opened yesterday is still active
@@ -7664,43 +7693,4 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       }
     },
   );
-}
-
-/**
- * Helper function to get timezone offset in milliseconds
- * Positive offset means timezone is behind UTC (e.g., America/New_York is UTC-5 = +5 hours offset)
- * @param timezone - IANA timezone string (e.g., "America/New_York")
- * @param date - Date to calculate offset for (handles DST)
- * @returns Offset in milliseconds
- */
-function getTimezoneOffset(timezone: string, date: Date): number {
-  // Get the date parts in the target timezone
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-
-  const parts = formatter.formatToParts(date);
-  const getPart = (type: string) =>
-    parts.find((p) => p.type === type)?.value || "0";
-
-  // Construct a date string from the parts
-  const year = parseInt(getPart("year"));
-  const month = parseInt(getPart("month")) - 1;
-  const day = parseInt(getPart("day"));
-  const hour = parseInt(getPart("hour"));
-  const minute = parseInt(getPart("minute"));
-  const second = parseInt(getPart("second"));
-
-  // Create a date in UTC with the same values
-  const utcDate = Date.UTC(year, month, day, hour, minute, second);
-
-  // The difference is the timezone offset
-  return date.getTime() - utcDate;
 }

@@ -300,11 +300,13 @@ test.describe("Lottery Day Bins - Serial Carry-Forward", () => {
     );
 
     // Close the lottery day
+    // Note: current_shift_id is passed to exclude the current shift from open shifts check
     const closeResponse = await clientUserApiRequest.post(
       `/api/lottery/bins/day/${store.store_id}/close`,
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "030" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
     expect(closeResponse.status()).toBe(200);
@@ -388,6 +390,7 @@ test.describe("Lottery Day Bins - Serial Carry-Forward", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "035" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
     expect(closeResponse.status()).toBe(200);
@@ -572,6 +575,7 @@ test.describe("Lottery Day Bins - Serial Carry-Forward", () => {
           { pack_id: setup2.pack.pack_id, closing_serial: "040" },
         ],
         entry_method: "SCAN",
+        current_shift_id: setup1.shift.shift_id,
       },
     );
     expect(closeResponse.status()).toBe(200);
@@ -680,6 +684,7 @@ test.describe("Lottery Day Bins - Serial Carry-Forward", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "045" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
     expect(closeResponse.status()).toBe(200);

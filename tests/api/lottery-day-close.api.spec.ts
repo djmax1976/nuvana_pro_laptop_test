@@ -151,6 +151,7 @@ async function cleanupTestData(entities: {
   gameIds?: string[];
   dayPackIds?: string[];
   dayIds?: string[];
+  terminalIds?: string[];
 }) {
   await withBypassClient(async (tx) => {
     // Delete day packs first (foreign key constraint)
@@ -178,6 +179,12 @@ async function cleanupTestData(entities: {
     if (entities.cashierIds) {
       await tx.cashier.deleteMany({
         where: { cashier_id: { in: entities.cashierIds } },
+      });
+    }
+    // Delete terminals after shifts (shifts have FK to terminals)
+    if (entities.terminalIds) {
+      await tx.pOSTerminal.deleteMany({
+        where: { pos_terminal_id: { in: entities.terminalIds } },
       });
     }
     if (entities.packIds) {
@@ -249,6 +256,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     );
 
     // WHEN: I close the day with all active packs
+    // Note: current_shift_id is passed to exclude the current shift from open shifts check
     const response = await clientUserApiRequest.post(
       `/api/lottery/bins/day/${store.store_id}/close`,
       {
@@ -258,6 +266,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
           { pack_id: pack3.pack_id, closing_serial: "025" },
         ],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -332,11 +341,13 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     );
 
     // WHEN: I close the day
+    // Note: current_shift_id is passed to exclude the current shift from open shifts check
     await clientUserApiRequest.post(
       `/api/lottery/bins/day/${store.store_id}/close`,
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "030" }],
         entry_method: "MANUAL",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -412,6 +423,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
           { pack_id: pack2.pack_id, closing_serial: "012" },
         ],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -491,6 +503,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "035" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -583,6 +596,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack1.pack_id, closing_serial: "015" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -634,6 +648,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: fakePackId, closing_serial: "015" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -709,6 +724,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
           price: 5.0,
           pack_value: 150,
           status: "ACTIVE",
+          store_id: otherStore.store_id, // Store-scoped to avoid unique constraint conflicts
         },
       });
       const otherBin = await tx.lotteryBin.create({
@@ -753,6 +769,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: otherPack.pack_id, closing_serial: "015" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -824,6 +841,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "015" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -885,6 +903,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "055" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -939,6 +958,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "1" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -998,6 +1018,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
           { pack_id: pack.pack_id, closing_serial: "020" }, // Duplicate
         ],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1176,6 +1197,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1237,6 +1259,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "020" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1302,6 +1325,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "050" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1364,12 +1388,13 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       "OPEN",
     );
 
-    // WHEN: I close the day
+    // WHEN: I close the day (passing shift2 as current shift to exclude it from open shifts check)
     const response = await clientUserApiRequest.post(
       `/api/lottery/bins/day/${store.store_id}/close`,
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "025" }],
         entry_method: "SCAN",
+        current_shift_id: shift2.shift_id,
       },
     );
 
@@ -1449,6 +1474,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "025" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1549,6 +1575,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "020" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1558,6 +1585,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "025" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1636,6 +1664,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "025" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1731,6 +1760,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
           { pack_id: pack2.pack_id, closing_serial: "030" },
         ],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1835,6 +1865,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "040" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1918,6 +1949,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "025" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1951,6 +1983,382 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       dayIds: businessDay ? [businessDay.day_id] : [],
       shiftIds: [shift.shift_id],
       cashierIds: [cashier.cashier_id],
+      packIds: [pack.pack_id],
+      binIds: [bin.bin_id],
+      gameIds: [game.game_id],
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Defense-in-Depth: Open Shift Blocking (P0)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  test("DAY-CLOSE-SHIFT-001: [P0] Should reject lottery close when shifts are OPEN", async ({
+    clientUserApiRequest,
+    clientUser,
+  }) => {
+    // GIVEN: A store with an OPEN shift today
+    const store = await withBypassClient(async (tx) => {
+      return await tx.store.findFirst({
+        where: { company_id: clientUser.company_id },
+      });
+    });
+
+    if (!store) {
+      test.skip();
+      return;
+    }
+
+    // Create test data: bin with active pack
+    const gameCode = generateUniqueGameCode();
+    const { game, bin, pack } = await createTestBinWithPack(
+      store,
+      gameCode,
+      200,
+    );
+
+    // Create an OPEN shift (not closed)
+    const { shift, cashier } = await createTodayShift(
+      store,
+      clientUser.user_id,
+      "OPEN",
+    );
+
+    // WHEN: I try to close the lottery day
+    const response = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/close`,
+      {
+        closings: [{ pack_id: pack.pack_id, closing_serial: "015" }],
+        entry_method: "SCAN",
+      },
+    );
+
+    // THEN: I receive a 400 error with SHIFTS_STILL_OPEN code
+    expect(response.status(), "Expected 400 Bad Request").toBe(400);
+    const body = await response.json();
+    expect(body.success, "Response should indicate failure").toBe(false);
+    expect(body.error, "Response should contain error object").toBeDefined();
+    expect(body.error.code, "Error code should be SHIFTS_STILL_OPEN").toBe(
+      "SHIFTS_STILL_OPEN",
+    );
+    expect(
+      body.error.message,
+      "Error message should mention open shifts",
+    ).toContain("shifts must be closed");
+    expect(
+      body.error.details?.open_shifts,
+      "Should include open shifts details",
+    ).toBeDefined();
+    expect(
+      body.error.details.open_shifts.length,
+      "Should have 1 open shift",
+    ).toBe(1);
+
+    // Cleanup
+    await cleanupTestData({
+      shiftIds: [shift.shift_id],
+      cashierIds: [cashier.cashier_id],
+      packIds: [pack.pack_id],
+      binIds: [bin.bin_id],
+      gameIds: [game.game_id],
+    });
+  });
+
+  test("DAY-CLOSE-SHIFT-002: [P0] Should reject lottery close when shifts are ACTIVE", async ({
+    clientUserApiRequest,
+    clientUser,
+  }) => {
+    // GIVEN: A store with an ACTIVE shift today
+    const store = await withBypassClient(async (tx) => {
+      return await tx.store.findFirst({
+        where: { company_id: clientUser.company_id },
+      });
+    });
+
+    if (!store) {
+      test.skip();
+      return;
+    }
+
+    // Create test data
+    const gameCode = generateUniqueGameCode();
+    const { game, bin, pack } = await createTestBinWithPack(
+      store,
+      gameCode,
+      201,
+    );
+
+    // Create an ACTIVE shift (using ACTIVE instead of OPEN)
+    const { shift, cashier } = await withBypassClient(async (tx) => {
+      const cashierRecord = await tx.cashier.create({
+        data: {
+          store_id: store.store_id,
+          employee_id: `${Math.floor(1000 + Math.random() * 9000)}`,
+          name: "Test Cashier Active",
+          pin_hash: generateUniquePinHash(),
+          hired_on: new Date(),
+          created_by: clientUser.user_id,
+        },
+      });
+
+      const shiftRecord = await tx.shift.create({
+        data: {
+          store_id: store.store_id,
+          cashier_id: cashierRecord.cashier_id,
+          opened_by: clientUser.user_id,
+          status: "ACTIVE", // Explicitly ACTIVE
+          opened_at: new Date(),
+          opening_cash: 100.0,
+        },
+      });
+
+      return { shift: shiftRecord, cashier: cashierRecord };
+    });
+
+    // WHEN: I try to close the lottery day
+    const response = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/close`,
+      {
+        closings: [{ pack_id: pack.pack_id, closing_serial: "015" }],
+        entry_method: "SCAN",
+      },
+    );
+
+    // THEN: I receive a 400 error with SHIFTS_STILL_OPEN code
+    expect(response.status(), "Expected 400 Bad Request").toBe(400);
+    const body = await response.json();
+    expect(body.error.code, "Error code should be SHIFTS_STILL_OPEN").toBe(
+      "SHIFTS_STILL_OPEN",
+    );
+
+    // Cleanup
+    await cleanupTestData({
+      shiftIds: [shift.shift_id],
+      cashierIds: [cashier.cashier_id],
+      packIds: [pack.pack_id],
+      binIds: [bin.bin_id],
+      gameIds: [game.game_id],
+    });
+  });
+
+  test("DAY-CLOSE-SHIFT-003: [P0] Should allow lottery close when all shifts are CLOSED", async ({
+    clientUserApiRequest,
+    clientUser,
+  }) => {
+    // GIVEN: A store where all today's shifts are CLOSED
+    const store = await withBypassClient(async (tx) => {
+      return await tx.store.findFirst({
+        where: { company_id: clientUser.company_id },
+      });
+    });
+
+    if (!store) {
+      test.skip();
+      return;
+    }
+
+    // Create test data
+    const gameCode = generateUniqueGameCode();
+    const { game, bin, pack } = await createTestBinWithPack(
+      store,
+      gameCode,
+      202,
+    );
+
+    // Create a CLOSED shift
+    const { shift, cashier } = await createTodayShift(
+      store,
+      clientUser.user_id,
+      "CLOSED",
+    );
+
+    // WHEN: I close the lottery day
+    const response = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/close`,
+      {
+        closings: [{ pack_id: pack.pack_id, closing_serial: "015" }],
+        entry_method: "SCAN",
+      },
+    );
+
+    // THEN: I receive a success response (no shift blocking)
+    if (response.status() !== 200) {
+      const errorBody = await response.json();
+      console.log("Unexpected error:", JSON.stringify(errorBody, null, 2));
+    }
+    expect(response.status(), "Expected 200 OK").toBe(200);
+    const body = await response.json();
+    expect(body.success, "Response should indicate success").toBe(true);
+
+    // Get the closing for cleanup
+    const closing = await withBypassClient(async (tx) => {
+      return await tx.lotteryShiftClosing.findFirst({
+        where: { pack_id: pack.pack_id },
+      });
+    });
+    const businessDay = await withBypassClient(async (tx) => {
+      return await tx.lotteryBusinessDay.findFirst({
+        where: { store_id: store.store_id },
+      });
+    });
+    const dayPack = await withBypassClient(async (tx) => {
+      return await tx.lotteryDayPack.findFirst({
+        where: { pack_id: pack.pack_id },
+      });
+    });
+
+    // Cleanup
+    await cleanupTestData({
+      closingIds: closing ? [closing.closing_id] : [],
+      dayPackIds: dayPack ? [dayPack.day_pack_id] : [],
+      dayIds: businessDay ? [businessDay.day_id] : [],
+      shiftIds: [shift.shift_id],
+      cashierIds: [cashier.cashier_id],
+      packIds: [pack.pack_id],
+      binIds: [bin.bin_id],
+      gameIds: [game.game_id],
+    });
+  });
+
+  test("DAY-CLOSE-SHIFT-004: [P0] Should include open shift details in error response", async ({
+    clientUserApiRequest,
+    clientUser,
+  }) => {
+    // GIVEN: A store with multiple open shifts
+    const store = await withBypassClient(async (tx) => {
+      return await tx.store.findFirst({
+        where: { company_id: clientUser.company_id },
+      });
+    });
+
+    if (!store) {
+      test.skip();
+      return;
+    }
+
+    // Create test data
+    const gameCode = generateUniqueGameCode();
+    const { game, bin, pack } = await createTestBinWithPack(
+      store,
+      gameCode,
+      203,
+    );
+
+    // Create two OPEN shifts with terminals
+    const terminal1 = await withBypassClient(async (tx) => {
+      return await tx.pOSTerminal.create({
+        data: {
+          store_id: store.store_id,
+          name: "Terminal A",
+          device_id: `TERM-A-${Date.now()}`,
+        },
+      });
+    });
+
+    const terminal2 = await withBypassClient(async (tx) => {
+      return await tx.pOSTerminal.create({
+        data: {
+          store_id: store.store_id,
+          name: "Terminal B",
+          device_id: `TERM-B-${Date.now()}`,
+        },
+      });
+    });
+
+    const cashier1 = await withBypassClient(async (tx) => {
+      return await tx.cashier.create({
+        data: {
+          store_id: store.store_id,
+          employee_id: `${Math.floor(1000 + Math.random() * 9000)}`,
+          name: "John Doe",
+          pin_hash: generateUniquePinHash(),
+          hired_on: new Date(),
+          created_by: clientUser.user_id,
+        },
+      });
+    });
+
+    const cashier2 = await withBypassClient(async (tx) => {
+      return await tx.cashier.create({
+        data: {
+          store_id: store.store_id,
+          employee_id: `${Math.floor(1000 + Math.random() * 9000)}`,
+          name: "Jane Smith",
+          pin_hash: generateUniquePinHash(),
+          hired_on: new Date(),
+          created_by: clientUser.user_id,
+        },
+      });
+    });
+
+    const shift1 = await withBypassClient(async (tx) => {
+      return await tx.shift.create({
+        data: {
+          store_id: store.store_id,
+          cashier_id: cashier1.cashier_id,
+          pos_terminal_id: terminal1.pos_terminal_id,
+          opened_by: clientUser.user_id,
+          status: "OPEN",
+          opened_at: new Date(),
+          opening_cash: 100.0,
+        },
+      });
+    });
+
+    const shift2 = await withBypassClient(async (tx) => {
+      return await tx.shift.create({
+        data: {
+          store_id: store.store_id,
+          cashier_id: cashier2.cashier_id,
+          pos_terminal_id: terminal2.pos_terminal_id,
+          opened_by: clientUser.user_id,
+          status: "ACTIVE",
+          opened_at: new Date(),
+          opening_cash: 150.0,
+        },
+      });
+    });
+
+    // WHEN: I try to close the lottery day
+    const response = await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/close`,
+      {
+        closings: [{ pack_id: pack.pack_id, closing_serial: "015" }],
+        entry_method: "SCAN",
+      },
+    );
+
+    // THEN: Error details should include information about both open shifts
+    expect(response.status(), "Expected 400 Bad Request").toBe(400);
+    const body = await response.json();
+    expect(body.error.code, "Error code should be SHIFTS_STILL_OPEN").toBe(
+      "SHIFTS_STILL_OPEN",
+    );
+    expect(
+      body.error.details.open_shifts.length,
+      "Should have 2 open shifts",
+    ).toBe(2);
+
+    // Verify each open shift has required details
+    for (const shift of body.error.details.open_shifts) {
+      expect(shift.shift_id, "Shift should have shift_id").toBeDefined();
+      expect(
+        shift.terminal_name,
+        "Shift should have terminal_name",
+      ).toBeDefined();
+      expect(
+        shift.cashier_name,
+        "Shift should have cashier_name",
+      ).toBeDefined();
+      expect(shift.status, "Shift should have status").toBeDefined();
+      expect(shift.opened_at, "Shift should have opened_at").toBeDefined();
+    }
+
+    // Cleanup
+    await cleanupTestData({
+      shiftIds: [shift1.shift_id, shift2.shift_id],
+      cashierIds: [cashier1.cashier_id, cashier2.cashier_id],
+      terminalIds: [terminal1.pos_terminal_id, terminal2.pos_terminal_id],
       packIds: [pack.pack_id],
       binIds: [bin.bin_id],
       gameIds: [game.game_id],

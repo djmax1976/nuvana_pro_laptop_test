@@ -1012,8 +1012,8 @@ test.describe("DAY-SUMMARY-API: Business Logic - Close Day", () => {
       expect(response.status(), "Should return 400 for open shifts").toBe(400);
       const body = await response.json();
       expect(body.success, "Response should indicate failure").toBe(false);
-      expect(body.error.code, "Error code should be DAY_NOT_READY").toBe(
-        "DAY_NOT_READY",
+      expect(body.error.code, "Error code should be SHIFTS_STILL_OPEN").toBe(
+        "SHIFTS_STILL_OPEN",
       );
     } finally {
       await cleanupStoreData(prismaClient, store.store_id);
@@ -1135,6 +1135,276 @@ test.describe("DAY-SUMMARY-API: Business Logic - Close Day", () => {
       expect(body.data.closed_at, "Should have closed_at").toBeDefined();
       expect(body.data.closed_by, "Should have closed_by").toBeDefined();
     } finally {
+      await cleanupStoreData(prismaClient, store.store_id);
+      await prismaClient.cashier.delete({
+        where: { cashier_id: cashier.cashier_id },
+      });
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+      await prismaClient.store.delete({ where: { store_id: store.store_id } });
+      await prismaClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await prismaClient.user.delete({ where: { user_id: owner.user_id } });
+    }
+  });
+
+  test("DAY-SUMMARY-053: [P0] should return SHIFTS_STILL_OPEN with shift details when closing day with open shifts", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Store with an OPEN shift (defense-in-depth validation)
+    const owner = await prismaClient.user.create({
+      data: createUser({ name: "Store Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: owner.user_id }),
+    });
+    const store = await prismaClient.store.create({
+      data: createStore({ company_id: company.company_id }),
+    });
+    const terminal = await createPOSTerminal(prismaClient, store.store_id);
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
+
+    const today = new Date();
+    const shift = await prismaClient.shift.create({
+      data: createShift({
+        store_id: store.store_id,
+        cashier_id: cashier.cashier_id,
+        pos_terminal_id: terminal.pos_terminal_id,
+        opened_by: owner.user_id,
+        status: "OPEN", // Explicitly OPEN
+        opened_at: today,
+      }),
+    });
+
+    // Create day summary
+    await createDaySummary(prismaClient, store.store_id, today, "OPEN");
+
+    try {
+      // WHEN: Attempting to close the day
+      const response = await superadminApiRequest.post(
+        `/api/stores/${store.store_id}/day-summary/${formatDate(today)}/close`,
+        {},
+      );
+
+      // THEN: Should return 400 with SHIFTS_STILL_OPEN and open shift details
+      expect(response.status(), "Should return 400 for open shifts").toBe(400);
+      const body = await response.json();
+      expect(body.success, "Response should indicate failure").toBe(false);
+      expect(body.error.code, "Error code should be SHIFTS_STILL_OPEN").toBe(
+        "SHIFTS_STILL_OPEN",
+      );
+      expect(
+        body.error.details?.open_shifts,
+        "Should include open_shifts array",
+      ).toBeDefined();
+      expect(
+        body.error.details.open_shifts.length,
+        "Should have at least 1 open shift",
+      ).toBeGreaterThan(0);
+
+      // Verify shift details are included for actionable UX
+      const openShift = body.error.details.open_shifts[0];
+      expect(
+        openShift.shift_id,
+        "Open shift should have shift_id",
+      ).toBeDefined();
+      expect(openShift.status, "Open shift should have status").toBeDefined();
+      expect(
+        openShift.cashier_name,
+        "Open shift should have cashier_name",
+      ).toBeDefined();
+      expect(
+        openShift.opened_at,
+        "Open shift should have opened_at",
+      ).toBeDefined();
+    } finally {
+      await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+      await cleanupStoreData(prismaClient, store.store_id);
+      await prismaClient.cashier.delete({
+        where: { cashier_id: cashier.cashier_id },
+      });
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+      await prismaClient.store.delete({ where: { store_id: store.store_id } });
+      await prismaClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await prismaClient.user.delete({ where: { user_id: owner.user_id } });
+    }
+  });
+
+  test("DAY-SUMMARY-054: [P0] should return LOTTERY_NOT_CLOSED when lottery day is open", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Store with all shifts closed but lottery day NOT closed
+    const owner = await prismaClient.user.create({
+      data: createUser({ name: "Store Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: owner.user_id }),
+    });
+    const store = await prismaClient.store.create({
+      data: createStore({ company_id: company.company_id }),
+    });
+    const terminal = await createPOSTerminal(prismaClient, store.store_id);
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Create CLOSED shift
+    const shift = await prismaClient.shift.create({
+      data: createShift({
+        store_id: store.store_id,
+        cashier_id: cashier.cashier_id,
+        pos_terminal_id: terminal.pos_terminal_id,
+        opened_by: owner.user_id,
+        status: "CLOSED",
+        opened_at: today,
+        closed_at: new Date(),
+        closing_cash: new Prisma.Decimal(150),
+      }),
+    });
+
+    // Create day summary
+    await createDaySummary(prismaClient, store.store_id, today, "OPEN");
+
+    // Create lottery business day that is NOT closed (status OPEN)
+    const lotteryDay = await prismaClient.lotteryBusinessDay.create({
+      data: {
+        store_id: store.store_id,
+        business_date: today,
+        status: "OPEN", // Lottery NOT closed
+      },
+    });
+
+    try {
+      // WHEN: Attempting to close the day
+      const response = await superadminApiRequest.post(
+        `/api/stores/${store.store_id}/day-summary/${formatDate(today)}/close`,
+        {},
+      );
+
+      // THEN: Should return 400 with LOTTERY_NOT_CLOSED
+      expect(
+        response.status(),
+        "Should return 400 for lottery not closed",
+      ).toBe(400);
+      const body = await response.json();
+      expect(body.success, "Response should indicate failure").toBe(false);
+      expect(body.error.code, "Error code should be LOTTERY_NOT_CLOSED").toBe(
+        "LOTTERY_NOT_CLOSED",
+      );
+      expect(
+        body.error.message,
+        "Error message should mention lottery",
+      ).toContain("Lottery");
+    } finally {
+      await prismaClient.lotteryBusinessDay.delete({
+        where: { day_id: lotteryDay.day_id },
+      });
+      await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
+      await cleanupStoreData(prismaClient, store.store_id);
+      await prismaClient.cashier.delete({
+        where: { cashier_id: cashier.cashier_id },
+      });
+      await prismaClient.pOSTerminal.delete({
+        where: { pos_terminal_id: terminal.pos_terminal_id },
+      });
+      await prismaClient.store.delete({ where: { store_id: store.store_id } });
+      await prismaClient.company.delete({
+        where: { company_id: company.company_id },
+      });
+      await prismaClient.user.delete({ where: { user_id: owner.user_id } });
+    }
+  });
+
+  test("DAY-SUMMARY-055: [P0] should allow close when lottery day is CLOSED", async ({
+    superadminApiRequest,
+    prismaClient,
+  }) => {
+    // GIVEN: Store with all shifts closed AND lottery day closed
+    const owner = await prismaClient.user.create({
+      data: createUser({ name: "Store Owner" }),
+    });
+    const company = await prismaClient.company.create({
+      data: createCompany({ owner_user_id: owner.user_id }),
+    });
+    const store = await prismaClient.store.create({
+      data: createStore({ company_id: company.company_id }),
+    });
+    const terminal = await createPOSTerminal(prismaClient, store.store_id);
+    const cashier = await createTestCashier(
+      prismaClient,
+      store.store_id,
+      owner.user_id,
+    );
+
+    const businessDate = new Date("2024-01-15");
+    businessDate.setHours(0, 0, 0, 0);
+
+    // Create CLOSED shift
+    const shift = await prismaClient.shift.create({
+      data: createShift({
+        store_id: store.store_id,
+        cashier_id: cashier.cashier_id,
+        pos_terminal_id: terminal.pos_terminal_id,
+        opened_by: owner.user_id,
+        status: "CLOSED",
+        opened_at: businessDate,
+        closed_at: new Date(),
+        closing_cash: new Prisma.Decimal(150),
+      }),
+    });
+
+    // Create day summary
+    await createDaySummary(
+      prismaClient,
+      store.store_id,
+      businessDate,
+      "PENDING_CLOSE",
+    );
+
+    // Create lottery business day that IS closed
+    const lotteryDay = await prismaClient.lotteryBusinessDay.create({
+      data: {
+        store_id: store.store_id,
+        business_date: businessDate,
+        status: "CLOSED", // Lottery IS closed
+        closed_at: new Date(),
+      },
+    });
+
+    try {
+      // WHEN: Attempting to close the day
+      const response = await superadminApiRequest.post(
+        `/api/stores/${store.store_id}/day-summary/2024-01-15/close`,
+        { notes: "Day closed with lottery completed" },
+      );
+
+      // THEN: Should return 200 success
+      expect(response.status(), "Should return 200").toBe(200);
+      const body = await response.json();
+      expect(body.success, "Response should indicate success").toBe(true);
+      expect(body.data.status, "Status should be CLOSED").toBe("CLOSED");
+    } finally {
+      await prismaClient.lotteryBusinessDay.delete({
+        where: { day_id: lotteryDay.day_id },
+      });
+      await prismaClient.shift.delete({ where: { shift_id: shift.shift_id } });
       await cleanupStoreData(prismaClient, store.store_id);
       await prismaClient.cashier.delete({
         where: { cashier_id: cashier.cashier_id },

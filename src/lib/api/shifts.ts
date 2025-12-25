@@ -624,3 +624,86 @@ export function useUpdateStartingCash() {
     },
   });
 }
+
+// ============ Open Shifts Check API ============
+
+/**
+ * Open shift detail for UX display
+ * SEC-014: Only contains necessary fields for display
+ */
+export interface OpenShiftDetail {
+  shift_id: string;
+  terminal_name: string | null;
+  cashier_name: string;
+  status: string;
+  opened_at: string;
+}
+
+/**
+ * Response type for open shifts check
+ * FE-002: Structured response for form validation/display
+ */
+export interface OpenShiftsCheckResponse {
+  has_open_shifts: boolean;
+  open_shift_count: number;
+  open_shifts: OpenShiftDetail[];
+}
+
+/**
+ * Check for open shifts on a given business date
+ * @param storeId - Store UUID
+ * @param businessDate - Business date (YYYY-MM-DD), defaults to today
+ * @returns Open shifts check response
+ */
+export async function checkOpenShifts(
+  storeId: string,
+  businessDate?: string,
+): Promise<ApiResponse<OpenShiftsCheckResponse>> {
+  const params = businessDate ? { business_date: businessDate } : {};
+  const response = await apiClient.get<ApiResponse<OpenShiftsCheckResponse>>(
+    `/api/stores/${storeId}/shifts/open-check`,
+    { params },
+  );
+  return response.data;
+}
+
+/**
+ * Query key for open shifts check
+ */
+export const openShiftsCheckKeys = {
+  all: ["open-shifts-check"] as const,
+  check: (storeId: string | undefined, businessDate: string | undefined) =>
+    [...openShiftsCheckKeys.all, storeId, businessDate] as const,
+};
+
+/**
+ * Hook to check for open shifts on a given business date
+ *
+ * Defense-in-depth: Frontend uses this to show blocking UI
+ * Backend still enforces the rule - this is for UX only
+ *
+ * FE-002: Form validation - disable day close when shifts are open
+ *
+ * @param storeId - Store UUID
+ * @param businessDate - Business date (YYYY-MM-DD), defaults to today
+ * @param options - Query options (enabled, etc.)
+ */
+export function useOpenShiftsCheck(
+  storeId: string | undefined,
+  businessDate?: string,
+  options?: { enabled?: boolean },
+) {
+  // BUSINESS RULE: For day close blocking, we check ALL open shifts (no date filter)
+  // Only pass businessDate if explicitly provided for reporting use cases
+  // When businessDate is undefined, backend returns ALL open shifts regardless of when opened
+
+  return useQuery({
+    queryKey: openShiftsCheckKeys.check(storeId, businessDate),
+    queryFn: () => checkOpenShifts(storeId!, businessDate),
+    enabled: options?.enabled !== false && !!storeId,
+    staleTime: 10000, // 10 seconds - refresh frequently during day close flow
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    select: (response) => response.data,
+  });
+}

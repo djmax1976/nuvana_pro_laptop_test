@@ -787,6 +787,9 @@ export interface CloseLotteryDayInput {
     closing_serial: string;
   }>;
   entry_method?: "SCAN" | "MANUAL";
+  /** Current shift ID - this shift will be excluded from open shifts check
+   * because the cashier closing the day is doing so from their own shift */
+  current_shift_id?: string;
 }
 
 /**
