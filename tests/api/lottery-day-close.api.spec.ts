@@ -256,6 +256,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     );
 
     // WHEN: I close the day with all active packs
+    // Note: current_shift_id is passed to exclude the current shift from open shifts check
     const response = await clientUserApiRequest.post(
       `/api/lottery/bins/day/${store.store_id}/close`,
       {
@@ -265,6 +266,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
           { pack_id: pack3.pack_id, closing_serial: "025" },
         ],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -339,11 +341,13 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     );
 
     // WHEN: I close the day
+    // Note: current_shift_id is passed to exclude the current shift from open shifts check
     await clientUserApiRequest.post(
       `/api/lottery/bins/day/${store.store_id}/close`,
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "030" }],
         entry_method: "MANUAL",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -419,6 +423,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
           { pack_id: pack2.pack_id, closing_serial: "012" },
         ],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -498,6 +503,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "035" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -590,6 +596,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack1.pack_id, closing_serial: "015" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -641,6 +648,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: fakePackId, closing_serial: "015" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -716,6 +724,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
           price: 5.0,
           pack_value: 150,
           status: "ACTIVE",
+          store_id: otherStore.store_id, // Store-scoped to avoid unique constraint conflicts
         },
       });
       const otherBin = await tx.lotteryBin.create({
@@ -760,6 +769,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: otherPack.pack_id, closing_serial: "015" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -831,6 +841,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "015" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -892,6 +903,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "055" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -946,6 +958,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "1" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1005,6 +1018,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
           { pack_id: pack.pack_id, closing_serial: "020" }, // Duplicate
         ],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1183,6 +1197,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1244,6 +1259,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "020" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1309,6 +1325,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "050" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1371,12 +1388,13 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       "OPEN",
     );
 
-    // WHEN: I close the day
+    // WHEN: I close the day (passing shift2 as current shift to exclude it from open shifts check)
     const response = await clientUserApiRequest.post(
       `/api/lottery/bins/day/${store.store_id}/close`,
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "025" }],
         entry_method: "SCAN",
+        current_shift_id: shift2.shift_id,
       },
     );
 
@@ -1456,6 +1474,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "025" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1556,6 +1575,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "020" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1565,6 +1585,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "025" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1643,6 +1664,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "025" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1738,6 +1760,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
           { pack_id: pack2.pack_id, closing_serial: "030" },
         ],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1842,6 +1865,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "040" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -1925,6 +1949,7 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "025" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 

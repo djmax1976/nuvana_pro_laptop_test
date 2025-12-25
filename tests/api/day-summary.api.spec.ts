@@ -1012,8 +1012,8 @@ test.describe("DAY-SUMMARY-API: Business Logic - Close Day", () => {
       expect(response.status(), "Should return 400 for open shifts").toBe(400);
       const body = await response.json();
       expect(body.success, "Response should indicate failure").toBe(false);
-      expect(body.error.code, "Error code should be DAY_NOT_READY").toBe(
-        "DAY_NOT_READY",
+      expect(body.error.code, "Error code should be SHIFTS_STILL_OPEN").toBe(
+        "SHIFTS_STILL_OPEN",
       );
     } finally {
       await cleanupStoreData(prismaClient, store.store_id);

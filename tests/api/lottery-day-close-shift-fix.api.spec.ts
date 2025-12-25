@@ -225,11 +225,13 @@ test.describe("Lottery Day Close - Shift Query Fix", () => {
     });
 
     // WHEN: I close the lottery day
+    // Note: current_shift_id is passed to exclude the current shift from open shifts check
     const response = await clientUserApiRequest.post(
       `/api/lottery/bins/day/${store.store_id}/close`,
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "020" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -305,11 +307,13 @@ test.describe("Lottery Day Close - Shift Query Fix", () => {
     });
 
     // WHEN: I close the lottery day
+    // Note: current_shift_id is passed to exclude the current shift from open shifts check
     const response = await clientUserApiRequest.post(
       `/api/lottery/bins/day/${store.store_id}/close`,
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "025" }],
         entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
       },
     );
 
@@ -387,7 +391,7 @@ test.describe("Lottery Day Close - Shift Query Fix", () => {
       302,
     );
 
-    // Create yesterday's shift (still open)
+    // Create yesterday's shift (CLOSED - must be closed for lottery close to work)
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(8, 0, 0, 0);
@@ -395,10 +399,11 @@ test.describe("Lottery Day Close - Shift Query Fix", () => {
     const { shift: yesterdayShift, cashier: yesterdayCashier } =
       await createShift(store, clientUser.user_id, {
         openedAt: yesterday,
-        status: "OPEN",
+        status: "CLOSED",
+        closedAt: new Date(yesterday.getTime() + 8 * 60 * 60 * 1000), // 8 hours later
       });
 
-    // Create today's shift
+    // Create today's shift (currently open - this is the cashier's current shift)
     const today = new Date();
     today.setHours(9, 0, 0, 0);
 
@@ -412,15 +417,17 @@ test.describe("Lottery Day Close - Shift Query Fix", () => {
     );
 
     // WHEN: I close the lottery day
+    // Pass today's shift as current_shift_id to exclude it from open shifts check
     const response = await clientUserApiRequest.post(
       `/api/lottery/bins/day/${store.store_id}/close`,
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "030" }],
         entry_method: "SCAN",
+        current_shift_id: todayShift.shift_id,
       },
     );
 
-    // THEN: Day close should succeed and use TODAY's shift (not yesterday's)
+    // THEN: Day close should succeed and use TODAY's shift (not yesterday's closed one)
     expect(response.status(), "Should return 200 OK").toBe(200);
     const body = await response.json();
     expect(body.success, "Response should indicate success").toBe(true);
@@ -583,12 +590,13 @@ test.describe("Lottery Day Close - Shift Query Fix", () => {
         status: "OPEN",
       });
 
-    // WHEN: I close the lottery day
+    // WHEN: I close the lottery day (passing current shift to exclude it from open shifts check)
     const response = await clientUserApiRequest.post(
       `/api/lottery/bins/day/${store.store_id}/close`,
       {
         closings: [{ pack_id: pack.pack_id, closing_serial: "035" }],
         entry_method: "SCAN",
+        current_shift_id: afternoonShift.shift_id,
       },
     );
 
