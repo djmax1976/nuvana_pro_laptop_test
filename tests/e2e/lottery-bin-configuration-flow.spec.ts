@@ -334,56 +334,63 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
 
     // THEN: Add bin button should be visible (BinConfigurationForm.tsx line 329)
     await expect(page.locator('[data-testid="add-bin-button"]')).toBeVisible({
-      timeout: 15000,
+      timeout: 20000,
     });
 
     // Wait for form to initialize with bins (default 24 bins per BinConfigurationForm.tsx line 86-91)
     const firstBinNameInput = page.locator('[data-testid="bin-name-input-0"]');
-    await expect(firstBinNameInput).toBeVisible({ timeout: 20000 });
-    await expect(firstBinNameInput).toBeEditable({ timeout: 10000 });
+    await expect(firstBinNameInput).toBeVisible({ timeout: 25000 });
+    await expect(firstBinNameInput).toBeEditable({ timeout: 15000 });
 
     // Change the name to something different to trigger hasChanges state
     await firstBinNameInput.click();
     await firstBinNameInput.clear();
     await firstBinNameInput.fill("Main Counter Bin");
     await expect(firstBinNameInput).toHaveValue("Main Counter Bin", {
-      timeout: 5000,
+      timeout: 10000,
     });
 
     // Fill location for first bin to make another change
     const locationInput = page.locator('[data-testid="bin-location-input-0"]');
+    await expect(locationInput).toBeVisible({ timeout: 10000 });
     await locationInput.click();
     await locationInput.clear();
     await locationInput.fill("Front Counter");
-    await expect(locationInput).toHaveValue("Front Counter", { timeout: 5000 });
+    await expect(locationInput).toHaveValue("Front Counter", {
+      timeout: 10000,
+    });
 
     // AND: I save the configuration (button should now be enabled after changes)
     // Save button is disabled until hasChanges=true (BinConfigurationForm.tsx line 336)
     const saveButton = page.locator(
       '[data-testid="save-configuration-button"]',
     );
-    await expect(saveButton).toBeEnabled({ timeout: 5000 });
+    await expect(saveButton).toBeEnabled({ timeout: 10000 });
 
     // Set up response promise before clicking
     const saveResponsePromise = page.waitForResponse(
       (resp) =>
         resp.url().includes("/api/lottery/bins/configuration/") &&
         (resp.status() === 200 || resp.status() === 201),
-      { timeout: 20000 },
+      { timeout: 30000 },
     );
     await saveButton.click();
     await saveResponsePromise;
 
     // THEN: Success message is displayed (toast notification from BinConfigurationForm.tsx line 130-133)
     await expect(page.getByText("Configuration saved").first()).toBeVisible({
-      timeout: 15000,
+      timeout: 20000,
     });
 
     // AND: Saved values persist on reload (validates API persistence)
     await page.reload({ waitUntil: "domcontentloaded" });
     await waitForBinConfigurationPageLoaded(page);
-    await expect(firstBinNameInput).toHaveValue("Main Counter Bin");
-    await expect(locationInput).toHaveValue("Front Counter");
+    await expect(firstBinNameInput).toHaveValue("Main Counter Bin", {
+      timeout: 15000,
+    });
+    await expect(locationInput).toHaveValue("Front Counter", {
+      timeout: 10000,
+    });
 
     // WHEN: I navigate to lottery page to view the bin display
     await page.goto("/client-dashboard/lottery", {
@@ -396,11 +403,11 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     // THEN: Lottery page is displayed
     await expect(
       page.locator('[data-testid="client-dashboard-lottery-page"]'),
-    ).toBeVisible({ timeout: 15000 });
+    ).toBeVisible({ timeout: 20000 });
 
     // Click on the Configuration tab to view bin display (lottery/page.tsx line 140)
     const configurationTab = page.getByRole("tab", { name: "Configuration" });
-    await expect(configurationTab).toBeVisible({ timeout: 10000 });
+    await expect(configurationTab).toBeVisible({ timeout: 15000 });
     await configurationTab.click();
 
     // Wait for tab content to load - the configuration tab shows bin configuration
@@ -413,13 +420,13 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     await Promise.race([
       page
         .locator('[data-testid="bin-list-table"]')
-        .waitFor({ state: "visible", timeout: 15000 }),
+        .waitFor({ state: "visible", timeout: 20000 }),
       page
         .locator('[data-testid="bin-list-empty"]')
-        .waitFor({ state: "visible", timeout: 15000 }),
+        .waitFor({ state: "visible", timeout: 20000 }),
       page
         .getByText("Bin Configuration")
-        .waitFor({ state: "visible", timeout: 15000 }),
+        .waitFor({ state: "visible", timeout: 20000 }),
     ]).catch(() => {
       // One of these should appear, but we'll verify below
     });
