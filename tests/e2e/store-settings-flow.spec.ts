@@ -19,7 +19,7 @@
  * - Web-first assertions: Auto-waiting with increased CI timeouts
  */
 
-import { test, expect, Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 import { v4 as uuidv4 } from "uuid";
@@ -28,6 +28,8 @@ import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
+import { loginAsClientOwner, addStaggerDelay } from "../support/auth.helper";
+import { TEST_TIMEOUTS, TEST_CONSTANTS } from "../support/test-config";
 
 // ============================================================================
 // TEST FIXTURE INTERFACE
@@ -72,16 +74,13 @@ async function createTestFixture(
   testId: string,
   options: { withEmployee?: boolean; withCashier?: boolean } = {},
 ): Promise<StoreSettingsTestFixture> {
-  // Add random delay (0-3s) to prevent thundering herd when tests run in parallel
-  // With 4 workers running 199 tests, we need more spread to avoid database and
-  // Next.js server contention in CI environments
-  const staggerDelay = Math.floor(Math.random() * 3000);
-  await new Promise((resolve) => setTimeout(resolve, staggerDelay));
+  // Stagger parallel test starts to prevent thundering herd
+  await addStaggerDelay();
 
   const prisma = new PrismaClient();
   await prisma.$connect();
 
-  const password = "TestPassword123!";
+  const password = TEST_CONSTANTS.TEST_PASSWORD;
   const passwordHash = await bcrypt.hash(password, 10);
   const timestamp = Date.now();
   const userId = uuidv4();
@@ -269,82 +268,13 @@ async function cleanupTestFixture(
 }
 
 /**
- * Network-first login helper that waits for actual API response.
- */
-async function loginAsClientOwner(
-  page: Page,
-  email: string,
-  password: string,
-): Promise<void> {
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
-
-  const emailInput = page.locator('input[type="email"]');
-  const passwordInput = page.locator('input[type="password"]');
-  const submitButton = page.locator('button[type="submit"]');
-
-  await expect(emailInput).toBeEditable({ timeout: 30000 });
-  await page.waitForLoadState("networkidle").catch(() => {});
-
-  await emailInput.click();
-  await emailInput.fill(email);
-  await passwordInput.click();
-  await passwordInput.fill(password);
-
-  await expect(emailInput).toHaveValue(email);
-  await expect(passwordInput).toHaveValue(password);
-
-  const [loginResponse] = await Promise.all([
-    page.waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/auth/login") &&
-        resp.request().method() === "POST",
-      { timeout: 45000 },
-    ),
-    submitButton.click(),
-  ]);
-
-  if (loginResponse.status() !== 200) {
-    const body = await loginResponse.json().catch(() => ({}));
-    throw new Error(
-      `Login failed: ${body.message || body.error?.message || `HTTP ${loginResponse.status()}`}`,
-    );
-  }
-
-  await page.waitForURL(/.*client-dashboard.*/, { timeout: 45000 });
-
-  // CRITICAL: Wait for authenticated content to render before returning
-  // This ensures the React auth context is fully populated before navigating
-  // to other pages. Without this, navigation to subpages may fail because
-  // the auth context hasn't initialized yet.
-  await page
-    .locator('[data-testid="client-dashboard-page"]')
-    .waitFor({ state: "visible", timeout: 30000 });
-
-  // Wait for dashboard API call to complete (provides stores/user data)
-  await page
-    .waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/client/dashboard") && resp.status() === 200,
-      { timeout: 30000 },
-    )
-    .catch(() => {
-      // API might already have completed before we started listening
-    });
-
-  // Wait for network idle to ensure all React context updates are complete
-  await page
-    .waitForLoadState("networkidle", { timeout: 15000 })
-    .catch(() => {});
-}
-
-/**
  * Navigate to settings page and wait for it to load using network-first pattern.
  */
 async function navigateToSettingsPage(page: Page): Promise<void> {
   const dashboardApiPromise = page.waitForResponse(
     (resp) =>
       resp.url().includes("/api/client/dashboard") && resp.status() === 200,
-    { timeout: 30000 },
+    { timeout: TEST_TIMEOUTS.DASHBOARD_API_RESPONSE },
   );
 
   await page.goto("/client-dashboard/settings", {
@@ -354,7 +284,7 @@ async function navigateToSettingsPage(page: Page): Promise<void> {
   await dashboardApiPromise;
 
   await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
-    timeout: 30000,
+    timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
   });
 }
 

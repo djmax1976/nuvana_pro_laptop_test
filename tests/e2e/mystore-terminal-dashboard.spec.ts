@@ -23,7 +23,7 @@
  * - Security validation for role-based access
  */
 
-import { test, expect, Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -38,23 +38,8 @@ import {
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
 import { createTerminal } from "../support/factories/terminal.factory";
-
-/**
- * Test configuration constants
- * Centralized timeouts for maintainability and CI environment adjustments
- */
-const TEST_CONFIG = {
-  /** Timeout for page navigation and URL changes */
-  NAVIGATION_TIMEOUT: 30000,
-  /** Timeout for element visibility checks */
-  ELEMENT_TIMEOUT: 15000,
-  /** Timeout for form inputs to become editable */
-  EDITABLE_TIMEOUT: 15000,
-  /** Timeout for submit button visibility */
-  SUBMIT_TIMEOUT: 10000,
-  /** Test password meeting security requirements */
-  TEST_PASSWORD: "TestPassword123!",
-} as const;
+import { loginAsClientOwner, loginAsClientUser } from "../support/auth.helper";
+import { TEST_TIMEOUTS, TEST_CONSTANTS } from "../support/test-config";
 
 /**
  * Type-safe test user interface
@@ -88,125 +73,6 @@ interface TestTerminal extends POSTerminal {
 }
 
 /**
- * Helper function to perform login and wait for /mystore redirect.
- * Uses enterprise-grade network-first patterns for React hydration reliability.
- *
- * Pattern: Network-First Login Flow
- * 1. Wait for DOM content to be fully loaded
- * 2. Wait for form elements to be interactive (React hydration complete)
- * 3. Fill credentials with explicit element references
- * 4. Use Promise.all for atomic navigation + click
- *
- * @param page - Playwright Page instance
- * @param email - User email for authentication
- * @param password - User password for authentication
- */
-async function loginAndWaitForMyStore(
-  page: Page,
-  email: string,
-  password: string,
-): Promise<void> {
-  await page.goto("/login");
-
-  // Wait for the page to be fully loaded (React hydration)
-  await page.waitForLoadState("domcontentloaded");
-
-  // Wait for login form to be visible and interactive
-  const emailInput = page.locator('input[name="email"], input[type="email"]');
-  await emailInput.waitFor({
-    state: "visible",
-    timeout: TEST_CONFIG.NAVIGATION_TIMEOUT,
-  });
-  await expect(emailInput).toBeEditable({
-    timeout: TEST_CONFIG.EDITABLE_TIMEOUT,
-  });
-
-  // Fill credentials
-  await emailInput.fill(email);
-  await page.fill('input[name="password"], input[type="password"]', password);
-
-  // Get submit button and ensure it's ready
-  const submitButton = page.locator('button[type="submit"]');
-  await submitButton.waitFor({
-    state: "visible",
-    timeout: TEST_CONFIG.SUBMIT_TIMEOUT,
-  });
-
-  // Wait for navigation to /mystore after form submission
-  // Using Promise.all ensures atomic click + navigation wait
-  await Promise.all([
-    page.waitForURL(/.*mystore.*/, { timeout: TEST_CONFIG.NAVIGATION_TIMEOUT }),
-    submitButton.click(),
-  ]);
-}
-
-/**
- * Helper function to perform login and wait for /client-dashboard redirect.
- * Used for CLIENT_OWNER role testing.
- *
- * @param page - Playwright Page instance
- * @param email - User email for authentication
- * @param password - User password for authentication
- */
-async function loginAndWaitForClientDashboard(
-  page: Page,
-  email: string,
-  password: string,
-): Promise<void> {
-  await page.goto("/login");
-  await page.waitForLoadState("domcontentloaded");
-
-  const emailInput = page.locator('input[name="email"], input[type="email"]');
-  await emailInput.waitFor({
-    state: "visible",
-    timeout: TEST_CONFIG.NAVIGATION_TIMEOUT,
-  });
-  await expect(emailInput).toBeEditable({
-    timeout: TEST_CONFIG.EDITABLE_TIMEOUT,
-  });
-
-  await emailInput.fill(email);
-  await page.fill('input[name="password"], input[type="password"]', password);
-
-  const submitButton = page.locator('button[type="submit"]');
-  await submitButton.waitFor({
-    state: "visible",
-    timeout: TEST_CONFIG.SUBMIT_TIMEOUT,
-  });
-
-  await Promise.all([
-    page.waitForURL(/.*client-dashboard.*/, {
-      timeout: TEST_CONFIG.NAVIGATION_TIMEOUT,
-    }),
-    submitButton.click(),
-  ]);
-
-  // CRITICAL: Wait for authenticated content to render before returning
-  // This ensures the React auth context is fully populated before navigating
-  // to other pages. Without this, navigation to subpages may fail because
-  // the auth context hasn't initialized yet.
-  await page
-    .locator('[data-testid="client-dashboard-page"]')
-    .waitFor({ state: "visible", timeout: 30000 });
-
-  // Wait for dashboard API call to complete (provides stores/user data)
-  await page
-    .waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/client/dashboard") && resp.status() === 200,
-      { timeout: 30000 },
-    )
-    .catch(() => {
-      // API might already have completed before we started listening
-    });
-
-  // Wait for network idle to ensure all React context updates are complete
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
-    // networkidle might timeout if there are long-polling requests
-  });
-}
-
-/**
  * Generates a unique test identifier with timestamp and random suffix
  * Ensures test data isolation in parallel test execution
  */
@@ -225,7 +91,7 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
   let store: TestStore;
   let terminal1: TestTerminal;
   let terminal2: TestTerminal;
-  const password = TEST_CONFIG.TEST_PASSWORD;
+  const password = TEST_CONSTANTS.TEST_PASSWORD;
 
   test.beforeAll(async () => {
     prisma = new PrismaClient();
@@ -407,7 +273,7 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: CLIENT_USER logs in
-    await loginAndWaitForMyStore(page, clientUser.email, password);
+    await loginAsClientUser(page, clientUser.email, password);
 
     // THEN: User should be redirected to /mystore dashboard
     expect(page.url()).toContain("/mystore");
@@ -417,36 +283,38 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: User is logged in and on /mystore dashboard
-    await loginAndWaitForMyStore(page, clientUser.email, password);
+    await loginAsClientUser(page, clientUser.email, password);
 
     // Get sidebar element for scoped assertions
     const sidebar = page.getByTestId("mystore-sidebar");
-    await expect(sidebar).toBeVisible({ timeout: TEST_CONFIG.ELEMENT_TIMEOUT });
+    await expect(sidebar).toBeVisible({
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
+    });
 
     // THEN: Dashboard link should be visible (exact match for "/mystore")
     await expect(page.getByTestId("dashboard-link")).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
 
     // THEN: Clock In/Out link should be visible
     await expect(page.getByTestId("clock-in-out-link")).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
 
     // THEN: Terminal links should be visible (API loading may take time)
     await expect(
       page.getByTestId(`terminal-link-${terminal1.pos_terminal_id}`),
-    ).toBeVisible({ timeout: TEST_CONFIG.ELEMENT_TIMEOUT });
+    ).toBeVisible({ timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE });
     await expect(
       page.getByTestId(`terminal-link-${terminal2.pos_terminal_id}`),
-    ).toBeVisible({ timeout: TEST_CONFIG.ELEMENT_TIMEOUT });
+    ).toBeVisible({ timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE });
 
     // THEN: CLIENT_USER role CAN see Lottery link in sidebar
     // Menu visibility uses canAccessMenuByKey("lottery") which checks for ANY of:
     // LOTTERY_PACK_RECEIVE, LOTTERY_SHIFT_RECONCILE, or LOTTERY_REPORT
     // CLIENT_USER has LOTTERY_REPORT permission per rbac.seed.ts
     await expect(page.getByTestId("lottery-link")).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
 
     // THEN: Excluded navigation items should NOT be present in the sidebar
@@ -463,14 +331,14 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: User is logged in and on /mystore dashboard
-    await loginAndWaitForMyStore(page, clientUser.email, password);
+    await loginAsClientUser(page, clientUser.email, password);
 
     // Wait for terminal link to be visible before clicking
     const terminalLink = page.getByTestId(
       `terminal-link-${terminal1.pos_terminal_id}`,
     );
     await expect(terminalLink).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
 
     // WHEN: User clicks on a terminal
@@ -478,7 +346,7 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
 
     // THEN: TerminalAuthModal should be visible
     const modal = page.getByTestId("terminal-auth-modal");
-    await expect(modal).toBeVisible({ timeout: TEST_CONFIG.ELEMENT_TIMEOUT });
+    await expect(modal).toBeVisible({ timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE });
     await expect(page.getByText(/terminal authentication/i)).toBeVisible();
 
     // THEN: Modal description should mention the terminal name
@@ -502,14 +370,14 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: User is logged in and on /mystore dashboard
-    await loginAndWaitForMyStore(page, clientUser.email, password);
+    await loginAsClientUser(page, clientUser.email, password);
 
     // Wait for terminal link to be visible
     const terminalLink = page.getByTestId(
       `terminal-link-${terminal1.pos_terminal_id}`,
     );
     await expect(terminalLink).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
 
     // WHEN: User clicks on a terminal to open modal
@@ -517,20 +385,20 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
 
     // Wait for modal to appear
     const modal = page.getByTestId("terminal-auth-modal");
-    await expect(modal).toBeVisible({ timeout: TEST_CONFIG.ELEMENT_TIMEOUT });
+    await expect(modal).toBeVisible({ timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE });
 
     // THEN: Form fields should be visible (new shift mode shows cashier dropdown)
     // Verify cashier name select with accessibility label
     const cashierSelect = page.getByTestId("cashier-name-select");
     await expect(cashierSelect).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
     await expect(page.getByLabel(/cashier name/i)).toBeVisible();
 
     // Verify PIN input with accessibility label
     const pinInput = page.getByTestId("pin-number-input");
     await expect(pinInput).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
     await expect(page.getByLabel(/pin number/i)).toBeVisible();
 
@@ -548,14 +416,14 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: User is logged in and on /mystore dashboard
-    await loginAndWaitForMyStore(page, clientUser.email, password);
+    await loginAsClientUser(page, clientUser.email, password);
 
     // Wait for terminal link to be visible
     const terminalLink = page.getByTestId(
       `terminal-link-${terminal1.pos_terminal_id}`,
     );
     await expect(terminalLink).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
 
     // WHEN: User clicks on a terminal to open modal
@@ -563,7 +431,7 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
 
     // Wait for modal to appear
     const modal = page.getByTestId("terminal-auth-modal");
-    await expect(modal).toBeVisible({ timeout: TEST_CONFIG.ELEMENT_TIMEOUT });
+    await expect(modal).toBeVisible({ timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE });
 
     // WHEN: User clicks Cancel button
     const cancelButton = page.getByTestId("terminal-auth-cancel-button");
@@ -572,7 +440,7 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
 
     // THEN: Modal should be closed (wait for animation to complete)
     await expect(modal).not.toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
   });
 
@@ -580,12 +448,12 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: User is logged in and on /mystore dashboard
-    await loginAndWaitForMyStore(page, clientUser.email, password);
+    await loginAsClientUser(page, clientUser.email, password);
 
     // Wait for Clock In/Out link to be visible
     const clockLink = page.getByTestId("clock-in-out-link");
     await expect(clockLink).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
 
     // WHEN: User clicks Clock In/Out link
@@ -593,13 +461,13 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
 
     // THEN: Page should navigate to /mystore/clock-in-out
     await expect(page).toHaveURL(/.*mystore\/clock-in-out.*/, {
-      timeout: TEST_CONFIG.NAVIGATION_TIMEOUT,
+      timeout: TEST_TIMEOUTS.URL_CHANGE,
     });
 
     // THEN: "Coming Soon" message container should be visible
     const comingSoonContainer = page.getByTestId("coming-soon-message");
     await expect(comingSoonContainer).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
 
     // THEN: Text content should match implementation
@@ -615,28 +483,28 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: User is logged in and on /mystore/clock-in-out page
-    await loginAndWaitForMyStore(page, clientUser.email, password);
+    await loginAsClientUser(page, clientUser.email, password);
 
     // Navigate to Clock In/Out page
     const clockLink = page.getByTestId("clock-in-out-link");
     await expect(clockLink).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
     await clockLink.click();
     await expect(page).toHaveURL(/.*mystore\/clock-in-out.*/, {
-      timeout: TEST_CONFIG.NAVIGATION_TIMEOUT,
+      timeout: TEST_TIMEOUTS.URL_CHANGE,
     });
 
     // WHEN: User clicks Dashboard link
     const dashboardLink = page.getByTestId("dashboard-link");
     await expect(dashboardLink).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
     await dashboardLink.click();
 
     // THEN: Page should navigate back to /mystore (exact path)
     await expect(page).toHaveURL(/.*\/mystore$/, {
-      timeout: TEST_CONFIG.NAVIGATION_TIMEOUT,
+      timeout: TEST_TIMEOUTS.URL_CHANGE,
     });
   });
 
@@ -644,12 +512,12 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: User is logged in and on /mystore dashboard
-    await loginAndWaitForMyStore(page, clientUser.email, password);
+    await loginAsClientUser(page, clientUser.email, password);
 
     // Wait for Lottery link to be visible (permission-gated)
     const lotteryLink = page.getByTestId("lottery-link");
     await expect(lotteryLink).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
 
     // WHEN: User clicks Lottery link
@@ -657,7 +525,7 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
 
     // THEN: Page should navigate to /mystore/lottery
     await expect(page).toHaveURL(/.*mystore\/lottery.*/, {
-      timeout: TEST_CONFIG.NAVIGATION_TIMEOUT,
+      timeout: TEST_TIMEOUTS.URL_CHANGE,
     });
   });
 
@@ -665,7 +533,7 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: Store Manager logs in
-    await loginAndWaitForMyStore(page, storeManager.email, password);
+    await loginAsClientUser(page, storeManager.email, password);
 
     // THEN: User should be redirected to /mystore dashboard
     expect(page.url()).toContain("/mystore");
@@ -679,10 +547,10 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     );
 
     await expect(terminal1Link).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
     await expect(terminal2Link).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
   });
 
@@ -690,14 +558,14 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
     page,
   }) => {
     // GIVEN: User is logged in and on /mystore dashboard
-    await loginAndWaitForMyStore(page, clientUser.email, password);
+    await loginAsClientUser(page, clientUser.email, password);
 
     // Wait for terminals to load
     const terminal1Link = page.getByTestId(
       `terminal-link-${terminal1.pos_terminal_id}`,
     );
     await expect(terminal1Link).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
 
     // THEN: Terminal names should be visible
@@ -715,21 +583,23 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
   }) => {
     // GIVEN: User is not logged in
     // WHEN: User logs in as CLIENT_USER using the helper function
-    await loginAndWaitForMyStore(page, clientUser.email, password);
+    await loginAsClientUser(page, clientUser.email, password);
 
     // THEN: User should be on /mystore dashboard
     expect(page.url()).toContain("/mystore");
 
     // THEN: Sidebar should be visible with terminals
     const sidebar = page.getByTestId("mystore-sidebar");
-    await expect(sidebar).toBeVisible({ timeout: TEST_CONFIG.ELEMENT_TIMEOUT });
+    await expect(sidebar).toBeVisible({
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
+    });
 
     // THEN: Terminal links should be visible
     const terminalLink = page.getByTestId(
       `terminal-link-${terminal1.pos_terminal_id}`,
     );
     await expect(terminalLink).toBeVisible({
-      timeout: TEST_CONFIG.ELEMENT_TIMEOUT,
+      timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
     });
 
     // WHEN: User clicks on a terminal
@@ -737,7 +607,7 @@ test.describe("4.9-E2E: MyStore Terminal Dashboard User Journey", () => {
 
     // THEN: TerminalAuthModal should open with proper title
     const modal = page.getByTestId("terminal-auth-modal");
-    await expect(modal).toBeVisible({ timeout: TEST_CONFIG.ELEMENT_TIMEOUT });
+    await expect(modal).toBeVisible({ timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE });
     await expect(page.getByText(/terminal authentication/i)).toBeVisible();
 
     // THEN: Modal should show "Start Shift" button (new shift mode, no active shift)
@@ -762,7 +632,7 @@ test.describe("4.9-E2E: CLIENT_OWNER Access Control", () => {
   let prisma: PrismaClient;
   let clientOwner: TestUser;
   let company: TestCompany;
-  const password = TEST_CONFIG.TEST_PASSWORD;
+  const password = TEST_CONSTANTS.TEST_PASSWORD;
 
   test.beforeAll(async () => {
     prisma = new PrismaClient();
@@ -846,7 +716,7 @@ test.describe("4.9-E2E: CLIENT_OWNER Access Control", () => {
     page,
   }) => {
     // GIVEN: CLIENT_OWNER logs in using the helper function
-    await loginAndWaitForClientDashboard(page, clientOwner.email, password);
+    await loginAsClientOwner(page, clientOwner.email, password);
 
     // THEN: User should be redirected to /client-dashboard (NOT /mystore or /dashboard)
     expect(page.url()).toContain("/client-dashboard");
@@ -857,14 +727,14 @@ test.describe("4.9-E2E: CLIENT_OWNER Access Control", () => {
     page,
   }) => {
     // GIVEN: CLIENT_OWNER logs in first
-    await loginAndWaitForClientDashboard(page, clientOwner.email, password);
+    await loginAsClientOwner(page, clientOwner.email, password);
 
     // WHEN: CLIENT_OWNER tries to access /mystore directly
     await page.goto("/mystore");
 
     // Wait for redirect to occur (layout protection redirects to /client-dashboard)
     await page.waitForURL(/.*client-dashboard.*/, {
-      timeout: TEST_CONFIG.NAVIGATION_TIMEOUT,
+      timeout: TEST_TIMEOUTS.URL_CHANGE,
     });
 
     // THEN: User should be redirected to /client-dashboard (NOT /mystore)
