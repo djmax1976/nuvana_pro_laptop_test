@@ -1,5 +1,5 @@
 /**
- * CSP Security Headers API Tests
+ * CSP Security Headers E2E Tests
  *
  * CRITICAL: These tests ensure the Content-Security-Policy header is correctly
  * configured at RUNTIME to include the backend URL.
@@ -14,13 +14,17 @@
  * FIX: CSP is now generated in src/middleware.ts at RUNTIME, reading env vars
  * on every request.
  *
+ * NOTE: These tests are in the E2E suite because they require the Next.js
+ * frontend to be running to verify middleware-applied security headers.
+ * The E2E test suite starts both frontend and backend servers.
+ *
  * Security Standards Covered:
  * - OWASP Security Headers Project recommendations
  * - SEC-009: HEADERS - HSTS, X-Content-Type-Options, X-Frame-Options, CSP
  * - FE-004: CSP - Content Security Policy for XSS prevention
  * - SEC-004: XSS - Output encoding and CSP enforcement
  *
- * @test-level API
+ * @test-level E2E
  * @justification Prevents production outages from misconfigured CSP
  * @priority P0 (Critical - Production outage prevention)
  */
