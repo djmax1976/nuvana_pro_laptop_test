@@ -21,6 +21,14 @@
  *
  * IMPORTANT: Uses bcryptjs (not bcrypt) for password hashing to match backend
  * Uses withBypassClient for role creation to avoid RLS restrictions
+ *
+ * Enterprise Best Practices Applied:
+ * - Network-first wait patterns for CI/CD reliability
+ * - Retry patterns for flaky network conditions
+ * - Proper test isolation with unique data per test run
+ * - Comprehensive cleanup in afterAll
+ * - ARIA and accessibility attribute verification
+ * - Security-conscious test patterns (RLS verification)
  */
 
 import { config } from "dotenv";
@@ -48,6 +56,12 @@ import { createCompany, createStore } from "../support/helpers";
  * Helper function to perform login and wait for client dashboard.
  * Uses network-first pattern for reliable test stability in CI/CD.
  * Handles backend restarts by retrying on connection errors.
+ *
+ * Enterprise-grade implementation with:
+ * - Configurable retry logic for resilience
+ * - Network response validation before proceeding
+ * - Proper timeout management for slow CI environments
+ * - Detailed error messages for debugging
  */
 async function loginAndWaitForClientDashboard(
   page: Page,
@@ -56,6 +70,10 @@ async function loginAndWaitForClientDashboard(
   retryCount = 0,
 ): Promise<void> {
   const MAX_RETRIES = 2;
+  const FORM_VISIBILITY_TIMEOUT = 30000; // Increased for slow CI
+  const INPUT_EDITABLE_TIMEOUT = 15000;
+  const LOGIN_API_TIMEOUT = 45000;
+  const NAVIGATION_TIMEOUT = 45000;
 
   try {
     // Navigate to login page
@@ -63,10 +81,13 @@ async function loginAndWaitForClientDashboard(
 
     // Wait for login form to be visible and ready for input
     const emailInput = page.locator("#email");
-    await emailInput.waitFor({ state: "visible", timeout: 15000 });
+    await emailInput.waitFor({
+      state: "visible",
+      timeout: FORM_VISIBILITY_TIMEOUT,
+    });
 
     // Wait for input to be editable (ensures React hydration is complete)
-    await expect(emailInput).toBeEditable({ timeout: 10000 });
+    await expect(emailInput).toBeEditable({ timeout: INPUT_EDITABLE_TIMEOUT });
 
     // Fill credentials using locator and verify the values are entered
     await emailInput.fill(email);
@@ -76,10 +97,10 @@ async function loginAndWaitForClientDashboard(
     await expect(emailInput).toHaveValue(email);
     await expect(page.locator("#password")).toHaveValue(password);
 
-    // Set up response promise - wait for any login response (success or error)
+    // Set up response promise BEFORE clicking to avoid race conditions
     const loginResponsePromise = page.waitForResponse(
       (resp) => resp.url().includes("/api/auth/login"),
-      { timeout: 30000 },
+      { timeout: LOGIN_API_TIMEOUT },
     );
 
     // Click submit button
@@ -100,7 +121,7 @@ async function loginAndWaitForClientDashboard(
 
     // Wait for navigation to client dashboard
     await page.waitForURL(/.*client-dashboard.*/, {
-      timeout: 30000,
+      timeout: NAVIGATION_TIMEOUT,
       waitUntil: "domcontentloaded",
     });
 
@@ -133,12 +154,16 @@ async function loginAndWaitForClientDashboard(
 
 /**
  * Helper function to wait for lottery page data to load
+ * Implements comprehensive wait strategy for stable test execution
  */
 async function waitForLotteryPageLoaded(page: Page): Promise<void> {
+  const PAGE_CONTAINER_TIMEOUT = 20000;
+  const STORE_TABS_TIMEOUT = 20000;
+
   // Wait for the lottery page container
   await page
     .locator('[data-testid="client-dashboard-lottery-page"]')
-    .waitFor({ state: "visible", timeout: 15000 });
+    .waitFor({ state: "visible", timeout: PAGE_CONTAINER_TIMEOUT });
 
   // Wait for network to be idle
   await page
@@ -149,11 +174,11 @@ async function waitForLotteryPageLoaded(page: Page): Promise<void> {
   await Promise.race([
     page
       .locator('[data-testid="store-tabs"]')
-      .waitFor({ state: "visible", timeout: 15000 })
+      .waitFor({ state: "visible", timeout: STORE_TABS_TIMEOUT })
       .catch(() => null),
     page
       .getByText(/no stores available/i)
-      .waitFor({ state: "visible", timeout: 15000 })
+      .waitFor({ state: "visible", timeout: STORE_TABS_TIMEOUT })
       .catch(() => null),
   ]);
 }
@@ -447,8 +472,10 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     );
     if (await store2Tab.isVisible()) {
       await store2Tab.click();
-      // Wait for store selection to take effect
-      await page.waitForTimeout(500);
+      // Wait for store selection to be reflected in aria-selected
+      await expect(store2Tab).toHaveAttribute("aria-selected", "true", {
+        timeout: 5000,
+      });
     }
 
     // Wait for empty state or table (store 2 has no packs, so should show empty state)
@@ -849,23 +876,28 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     const store1Tab = page.locator(
       `[data-testid="store-tab-${store1.store_id}"]`,
     );
-    await store1Tab.waitFor({ state: "visible", timeout: 10000 });
+    await store1Tab.waitFor({ state: "visible", timeout: 15000 });
     await store1Tab.focus();
 
     // Verify first tab is focused
-    await expect(store1Tab).toBeFocused({ timeout: 2000 });
+    await expect(store1Tab).toBeFocused({ timeout: 5000 });
 
     // WHEN: Pressing ArrowRight key
     await page.keyboard.press("ArrowRight");
 
     // THEN: Focus moves to next tab (store 2) and it becomes selected
+    // The StoreTabs component uses onStoreSelect which triggers a useEffect
+    // that focuses the new tab after React state update
     const store2Tab = page.locator(
       `[data-testid="store-tab-${store2.store_id}"]`,
     );
-    await expect(store2Tab).toBeFocused({ timeout: 3000 });
-    // Verify the tab is also selected (aria-selected should be true)
+
+    // Wait for the aria-selected attribute to change first (state update)
     await expect(store2Tab).toHaveAttribute("aria-selected", "true", {
-      timeout: 2000,
+      timeout: 5000,
     });
+
+    // Then verify focus moved (happens after state update via useEffect)
+    await expect(store2Tab).toBeFocused({ timeout: 5000 });
   });
 });

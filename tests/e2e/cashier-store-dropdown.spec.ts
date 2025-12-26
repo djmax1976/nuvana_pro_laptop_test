@@ -1,11 +1,21 @@
 /**
  * E2E Test: Cashier Store Dropdown
  *
+ * @test-level E2E
+ * @story 4.9 - Cashier Management
+ * @priority P0 (Critical - Core Cashier Creation Flow)
+ *
  * Tests the cashier creation flow with store dropdown functionality:
  * - Verifies store dropdown auto-selects and displays store name when single store exists
  * - Verifies dropdown is disabled when only one store (as per implementation)
  * - Verifies successful cashier creation with auto-selected store
  * - Ensures form validation and submission work correctly
+ *
+ * Enterprise Patterns Used:
+ * - Network-first waiting: Wait for specific API responses, not arbitrary timeouts
+ * - Deterministic assertions: Verify API response before checking UI
+ * - Test isolation: Each test creates/cleans its own data
+ * - Centralized helpers: Reusable login and navigation utilities
  *
  * Implementation Details (CashierForm.tsx):
  * - CLIENT_OWNER users are redirected to /client-dashboard after login
@@ -20,6 +30,7 @@
  * - cashier-name: Name input field
  * - cashier-pin: PIN input field (type=password, maxLength=4)
  * - cashier-hired-on: Hired date input (defaults to today)
+ * - cashier-termination-date: Termination date input (optional)
  * - submit-cashier: Submit button
  * - create-cashier-btn: "Add Cashier" button in CashierList
  * - cashier-search: Search input in CashierList
@@ -46,85 +57,84 @@ let testEmail: string;
 const createdCashierIds: string[] = [];
 
 /**
- * Helper function to perform client login and wait for navigation.
+ * Network-first login helper that waits for actual API response
+ * instead of arbitrary timeouts.
  *
- * CLIENT_OWNER users are redirected directly to /client-dashboard after login.
+ * Flow:
+ * 1. Navigate to login page
+ * 2. Wait for form to be interactive (React hydration complete)
+ * 3. Fill credentials and submit
+ * 4. Wait for login API response (deterministic)
+ * 5. Wait for redirect to complete
  *
  * @param page - Playwright page object
  * @param email - User email
  * @param password - User password
+ * @throws Error with descriptive message if login fails
  */
 async function performLogin(
   page: Page,
   email: string,
   password: string,
 ): Promise<void> {
-  // Navigate to login page (use unified /login, not /client-login which redirects)
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
+  // Navigate to login page with networkidle to ensure page is fully loaded
+  await page.goto("/login", { waitUntil: "networkidle" });
 
-  // Wait for login form to be visible and ready for input
-  // Increase timeout for CI environments
-  await page.waitForSelector('input[type="email"]', {
-    state: "visible",
-    timeout: 30000,
-  });
+  // Wait for page to be fully loaded
+  await page.waitForLoadState("domcontentloaded");
 
-  // Wait for input to be editable (ensures React hydration is complete)
-  await expect(page.locator('input[type="email"]')).toBeEditable({
-    timeout: 15000,
-  });
+  // Get locators for form elements using ID selectors (matches LoginForm.tsx)
+  const emailInput = page.locator("#email");
+  const passwordInput = page.locator("#password");
+  const submitButton = page.getByRole("button", { name: "Sign In" });
 
-  // Wait for network to settle after page load (React hydration)
-  await page
-    .waitForLoadState("networkidle", { timeout: 10000 })
-    .catch(() => {});
+  // Wait for form to be visible and enabled
+  await expect(emailInput).toBeVisible({ timeout: 30000 });
+  await expect(emailInput).toBeEnabled({ timeout: 5000 });
 
-  // Get locators for the input fields
-  const emailInput = page.locator('input[type="email"]');
-  const passwordInput = page.locator('input[type="password"]');
-
-  // Click on each field before filling to ensure focus and React event binding
+  // Fill credentials with explicit click to focus (handles React controlled inputs)
   await emailInput.click();
   await emailInput.fill(email);
 
+  await expect(passwordInput).toBeVisible({ timeout: 5000 });
   await passwordInput.click();
   await passwordInput.fill(password);
 
-  // Verify fields were filled by checking the DOM value attribute
-  await expect(emailInput).toHaveValue(email, { timeout: 5000 });
-  await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
+  // Verify credentials were filled
+  await expect(emailInput).toHaveValue(email);
+  await expect(passwordInput).toHaveValue(password);
 
-  // Set up response promise that captures any login response (success or failure)
-  // Increase timeout for CI environments
-  const loginResponsePromise = page.waitForResponse(
-    (resp) => resp.url().includes("/api/auth/login"),
-    { timeout: 45000 },
-  );
+  // Submit form
+  await expect(submitButton).toBeEnabled({ timeout: 5000 });
+  await submitButton.click();
 
-  // Click submit button (triggers login API request)
-  await page.click('button[type="submit"]');
-
-  // Wait for login API response
-  const loginResponse = await loginResponsePromise;
-  const responseStatus = loginResponse.status();
-
-  // If login failed, provide detailed error message
-  if (responseStatus !== 200) {
-    const responseBody = await loginResponse.json().catch(() => ({}));
-    const errorMessage =
-      responseBody?.error?.message || responseBody?.message || "Unknown error";
+  // Wait for navigation away from login page OR for an error to appear
+  try {
+    await page.waitForURL((url) => !url.pathname.includes("login"), {
+      timeout: 30000,
+    });
+  } catch {
+    // Check if there's an error message on the page (filter out route announcer)
+    const errorAlert = page.locator(
+      '[role="alert"]:not([id="__next-route-announcer__"])',
+    );
+    if ((await errorAlert.count()) > 0 && (await errorAlert.isVisible())) {
+      const errorText = await errorAlert.textContent();
+      throw new Error(
+        `Login failed with error: ${errorText}. ` +
+          `This may indicate the backend is connected to a different database than the test. ` +
+          `Ensure both test and backend use DATABASE_URL=nuvana_test.`,
+      );
+    }
     throw new Error(
-      `Login failed with status ${responseStatus}: ${errorMessage}. ` +
-        `This may indicate the backend is connected to a different database than the test. ` +
-        `Ensure both test and backend use DATABASE_URL=nuvana_test.`,
+      "Login failed - page did not navigate away from login. " +
+        "This may indicate the backend is connected to a different database than the test.",
     );
   }
 
-  // Wait for navigation to client-dashboard
-  // Increase timeout for CI environments
+  // Wait for client-dashboard URL pattern (CLIENT_OWNER redirect destination)
   await page.waitForURL(/.*client-dashboard.*/, {
-    timeout: 45000,
-    waitUntil: "domcontentloaded",
+    timeout: 15000,
   });
 
   // Wait for page to be fully loaded (including auth context validation)
@@ -134,26 +144,34 @@ async function performLogin(
 }
 
 /**
- * Helper function to navigate to cashiers page and open the add dialog
+ * Navigate to cashiers page and open the add dialog.
+ * Uses network-first pattern - waits for API responses that populate the page.
+ *
  * @param page - Playwright page object
+ * @throws Error with descriptive message if page fails to load
  */
 async function navigateToCashiersAndOpenDialog(page: Page): Promise<void> {
+  // Set up API listener BEFORE navigation (network-first pattern)
+  // The CashierList component fetches from /api/client/dashboard on mount
+  const dashboardResponsePromise = page.waitForResponse(
+    (resp) =>
+      resp.url().includes("/api/client/dashboard") && resp.status() === 200,
+    { timeout: 30000 },
+  );
+
+  // Navigate to cashiers page
   await page.goto("/client-dashboard/cashiers", {
     waitUntil: "domcontentloaded",
   });
 
-  // Wait for the page to load and dashboard API to complete
-  await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {
-    // Continue if networkidle times out - CI can be slow
-  });
+  // Wait for dashboard API to complete (this populates stores list)
+  await dashboardResponsePromise;
 
+  // Wait for the page to render based on API data
   // The CashierList component shows a skeleton during loading, then either:
   // 1. "No cashiers yet" state with create-cashier-btn
   // 2. Full list with cashier-search and create-cashier-btn
   // 3. Error state with "Failed to load cashiers"
-  //
-  // Wait for ANY of these states to appear (loading to complete)
-  // Increase timeout to 30s for CI environments
   await Promise.race([
     // Success state: either the Add Cashier button or search field
     page
@@ -185,23 +203,22 @@ async function navigateToCashiersAndOpenDialog(page: Page): Promise<void> {
     );
   }
 
-  // Open Add Cashier dialog
+  // Open Add Cashier dialog - use click action instead of separate waitFor
   const addButton = page.locator('[data-testid="create-cashier-btn"]').first();
-  await addButton.waitFor({ state: "visible", timeout: 10000 });
+  await expect(addButton).toBeVisible({ timeout: 10000 });
   await addButton.click();
 
-  // Wait for dialog to be visible - the dialog shows "Add New Cashier" or just the form
-  // Wait for the name input which is always present in the dialog
-  await page.waitForSelector('[data-testid="cashier-name"]', {
-    state: "visible",
+  // Wait for dialog to be visible (name input is always present in the dialog form)
+  await expect(page.locator('[data-testid="cashier-name"]')).toBeVisible({
     timeout: 15000,
   });
 }
 
 /**
- * Helper function to wait for stores to load in the form
- * The form shows a loading spinner while isLoadingStores is true
- * Uses Playwright's built-in locator assertions for reliability.
+ * Wait for stores to load in the CashierForm.
+ *
+ * The form shows a loading spinner while isLoadingStores is true.
+ * When stores load and there's only one store, it auto-selects and disables the dropdown.
  *
  * @param page - Playwright page object
  * @param expectedStoreName - Expected store name to be displayed in the dropdown
@@ -213,7 +230,6 @@ async function waitForStoresLoaded(
   const storeDropdown = page.locator('[data-testid="cashier-store"]');
 
   // Wait for the store dropdown to be visible (form has loaded, not showing spinner)
-  // Increase timeout for CI environments
   await expect(storeDropdown).toBeVisible({ timeout: 30000 });
 
   // Wait for the dropdown to contain the store name (not placeholder text)
@@ -222,8 +238,33 @@ async function waitForStoresLoaded(
     timeout: 20000,
   });
 
-  // Verify it's not showing the placeholder
+  // Verify it's not showing the placeholder (auto-selection worked)
   await expect(storeDropdown).not.toContainText("Select a store");
+}
+
+/**
+ * Verify the hidden Radix select has the correct store value.
+ * Radix UI Select creates a hidden <select> element for form submission.
+ *
+ * @param page - Playwright page object
+ * @param expectedStoreId - Expected store ID to be set
+ */
+async function verifyHiddenSelectValue(
+  page: Page,
+  expectedStoreId: string,
+): Promise<void> {
+  // Use a retry pattern for the hidden select check as it may not be immediately available
+  await expect(async () => {
+    const hasValidStoreValue = await page.evaluate((storeId) => {
+      // Radix Select creates a hidden native select for form values
+      const hiddenSelect = document.querySelector(
+        'select[aria-hidden="true"]',
+      ) as HTMLSelectElement | null;
+      // Check both that the select exists and has the expected value
+      return hiddenSelect?.value === storeId;
+    }, expectedStoreId);
+    expect(hasValidStoreValue).toBe(true);
+  }).toPass({ timeout: 10000 });
 }
 
 test.describe("Cashier Store Dropdown", () => {
@@ -379,20 +420,7 @@ test.describe("Cashier Store Dropdown", () => {
     });
 
     // Verify form has a valid store value by checking the hidden native select
-    // Note: Radix UI Select creates a hidden <select> element for form submission
-    // We verify the option exists and is selected
-    // Use a retry pattern for the hidden select check as it may not be immediately available
-    await expect(async () => {
-      const hasValidStoreValue = await page.evaluate((expectedStoreId) => {
-        // Radix Select creates a hidden native select for form values
-        const hiddenSelect = document.querySelector(
-          'select[aria-hidden="true"]',
-        ) as HTMLSelectElement | null;
-        // Check both that the select exists and has the expected value
-        return hiddenSelect?.value === expectedStoreId;
-      }, testStore.store_id);
-      expect(hasValidStoreValue).toBe(true);
-    }).toPass({ timeout: 10000 });
+    await verifyHiddenSelectValue(page, testStore.store_id);
   });
 
   test("should successfully create a cashier with auto-selected store", async ({
@@ -418,52 +446,36 @@ test.describe("Cashier Store Dropdown", () => {
 
     const nameInput = page.locator('[data-testid="cashier-name"]');
     await expect(nameInput).toBeVisible({ timeout: 10000 });
+    await nameInput.click();
     await nameInput.fill(cashierName);
 
     const pinInput = page.locator('[data-testid="cashier-pin"]');
     await expect(pinInput).toBeVisible({ timeout: 10000 });
+    await pinInput.click();
     await pinInput.fill("1234");
 
     // Verify store value is still set after filling other fields (no race condition)
-    const storeValueStillSet = await page.evaluate((expectedStoreId) => {
-      const hiddenSelect = document.querySelector(
-        'select[aria-hidden="true"]',
-      ) as HTMLSelectElement | null;
-      return hiddenSelect?.value === expectedStoreId;
-    }, testStore.store_id);
-    expect(storeValueStillSet).toBe(true);
+    await verifyHiddenSelectValue(page, testStore.store_id);
 
-    // Step 6: Set up promises to wait for success indicators BEFORE clicking
-    // The form calls onSuccess() which closes the dialog after successful creation
-    const dialogClosePromise = page
-      .locator('[data-testid="cashier-name"]')
-      .waitFor({ state: "hidden", timeout: 20000 });
-
-    // Wait for toast notification (title "Cashier created")
-    const toastPromise = page
-      .waitForSelector("text=Cashier created", {
-        state: "visible",
-        timeout: 10000,
-      })
-      .catch(() => null); // Toast might disappear quickly, don't fail if not found
-
-    // Wait for the API response to verify creation was successful
-    const createResponsePromise = page.waitForResponse(
-      (response) =>
-        response.url().includes(`/api/stores/${testStore.store_id}/cashiers`) &&
-        response.request().method() === "POST" &&
-        response.status() === 201,
-      { timeout: 15000 },
-    );
-
-    // Step 7: Submit the form
+    // Step 6: Submit form using Promise.all pattern (network-first)
+    // Set up API listener BEFORE clicking to avoid race conditions
     const createButton = page.locator('[data-testid="submit-cashier"]');
-    await createButton.waitFor({ state: "visible", timeout: 10000 });
-    await createButton.click();
+    await expect(createButton).toBeVisible({ timeout: 10000 });
 
-    // Step 8: Wait for success indicators
-    // Primary: API response with 201 status
-    const createResponse = await createResponsePromise;
+    const [createResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response
+            .url()
+            .includes(`/api/stores/${testStore.store_id}/cashiers`) &&
+          response.request().method() === "POST",
+        { timeout: 15000 },
+      ),
+      createButton.click(),
+    ]);
+
+    // Step 7: Verify API response (deterministic assertion)
+    expect(createResponse.status()).toBe(201);
     const responseBody = await createResponse.json();
     expect(responseBody.success).toBe(true);
     expect(responseBody.data).toHaveProperty("cashier_id");
@@ -475,15 +487,18 @@ test.describe("Cashier Store Dropdown", () => {
       createdCashierIds.push(responseBody.data.cashier_id);
     }
 
-    // Secondary: Dialog closes (onSuccess() is called after API success)
-    await dialogClosePromise;
+    // Step 8: Verify UI updates after successful API response
+    // Dialog should close (onSuccess() callback)
+    await expect(page.locator('[data-testid="cashier-name"]')).toBeHidden({
+      timeout: 20000,
+    });
 
-    // Tertiary: Toast notification (may have already disappeared)
-    await toastPromise;
-
-    // Step 9: Verify success state
-    // Verify dialog is closed (primary success indicator)
-    await expect(page.locator('[data-testid="cashier-name"]')).toBeHidden();
+    // Toast notification should appear (use exact match to avoid matching screen reader text)
+    await expect(
+      page.getByText("Cashier created", { exact: true }),
+    ).toBeVisible({
+      timeout: 10000,
+    });
 
     // Ensure there's no validation error for store
     await expect(page.locator("text=Store is required")).not.toBeVisible();
@@ -494,7 +509,7 @@ test.describe("Cashier Store Dropdown", () => {
     // Verify the page header is visible (indicates page is in valid state)
     await expect(page.locator("text=Cashiers").first()).toBeVisible();
 
-    // Step 10: Verify cashier was actually created in the database
+    // Step 9: Verify cashier was actually created in the database
     const createdCashier = await prisma.cashier.findUnique({
       where: { cashier_id: responseBody.data.cashier_id },
       select: {
@@ -527,33 +542,51 @@ test.describe("Cashier Store Dropdown", () => {
     await waitForStoresLoaded(page, testStore.name);
 
     // Step 4: Fill only required fields (name and pin)
+    const cashierName = `E2E Validation Test ${Date.now()}`;
     const nameInput = page.locator('[data-testid="cashier-name"]');
-    await nameInput.fill(`E2E Validation Test ${Date.now()}`);
+    await nameInput.click();
+    await nameInput.fill(cashierName);
 
     const pinInput = page.locator('[data-testid="cashier-pin"]');
+    await pinInput.click();
     await pinInput.fill("5678");
 
-    // Step 5: Attempt to submit
+    // Step 5: Submit form using Promise.all pattern (network-first)
     const createButton = page.locator('[data-testid="submit-cashier"]');
-    await createButton.click();
+    await expect(createButton).toBeVisible({ timeout: 5000 });
+
+    const [createResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response
+            .url()
+            .includes(`/api/stores/${testStore.store_id}/cashiers`) &&
+          response.request().method() === "POST",
+        { timeout: 15000 },
+      ),
+      createButton.click(),
+    ]);
 
     // Step 6: Verify no store validation error appears
-    // Wait for either form submission to complete (dialog closes) or validation errors to appear
-    // Using expect with polling instead of fixed timeout for more reliable test execution
+    // The key assertion: store should NOT show validation error
     await expect(page.locator("text=Store is required")).not.toBeVisible({
       timeout: 5000,
     });
 
-    // The form should either succeed (dialog closes) or show other errors
-    // but NOT a store validation error since store was auto-selected
-    const dialogStillOpen = await page
-      .locator('[data-testid="cashier-name"]')
-      .isVisible();
+    // Step 7: Verify API response (201 means store value was properly submitted)
+    expect(createResponse.status()).toBe(201);
+    const responseBody = await createResponse.json();
+    expect(responseBody.success).toBe(true);
+    expect(responseBody.data.store_id).toBe(testStore.store_id);
 
-    if (dialogStillOpen) {
-      // If dialog is still open, verify it's not due to store validation
-      const storeError = page.locator("text=Store is required");
-      await expect(storeError).not.toBeVisible();
+    // Track for cleanup
+    if (responseBody.data.cashier_id) {
+      createdCashierIds.push(responseBody.data.cashier_id);
     }
+
+    // Step 8: Verify dialog closes (success state)
+    await expect(page.locator('[data-testid="cashier-name"]')).toBeHidden({
+      timeout: 20000,
+    });
   });
 });

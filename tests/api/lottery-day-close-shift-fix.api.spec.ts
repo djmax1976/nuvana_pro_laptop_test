@@ -384,6 +384,20 @@ test.describe("Lottery Day Close - Shift Query Fix", () => {
       return;
     }
 
+    // Clean up any pre-existing shifts in this store to ensure test isolation
+    await withBypassClient(async (tx) => {
+      // First delete any lottery closings for shifts in this store
+      await tx.lotteryShiftClosing.deleteMany({
+        where: {
+          shift: { store_id: store.store_id },
+        },
+      });
+      // Then delete all shifts
+      await tx.shift.deleteMany({
+        where: { store_id: store.store_id },
+      });
+    });
+
     const gameCode = generateUniqueGameCode();
     const { game, bin, pack } = await createTestBinWithPack(
       store,
@@ -392,9 +406,10 @@ test.describe("Lottery Day Close - Shift Query Fix", () => {
     );
 
     // Create yesterday's shift (CLOSED - must be closed for lottery close to work)
+    // Use a timestamp clearly in yesterday (48 hours ago to avoid any timezone edge cases)
     const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    yesterday.setHours(8, 0, 0, 0);
+    yesterday.setDate(yesterday.getDate() - 2); // Use 2 days ago to be safe across timezones
+    yesterday.setHours(10, 0, 0, 0);
 
     const { shift: yesterdayShift, cashier: yesterdayCashier } =
       await createShift(store, clientUser.user_id, {
@@ -404,14 +419,14 @@ test.describe("Lottery Day Close - Shift Query Fix", () => {
       });
 
     // Create today's shift (currently open - this is the cashier's current shift)
-    const today = new Date();
-    today.setHours(9, 0, 0, 0);
+    // Use current time to ensure it's clearly "today" in any timezone
+    const now = new Date();
 
     const { shift: todayShift, cashier: todayCashier } = await createShift(
       store,
       clientUser.user_id,
       {
-        openedAt: today,
+        openedAt: now,
         status: "OPEN",
       },
     );
@@ -493,6 +508,26 @@ test.describe("Lottery Day Close - Shift Query Fix", () => {
       return;
     }
 
+    // CRITICAL: Clean up ALL existing shifts in this store to ensure test isolation
+    // Other tests may have left shifts that would make this test pass incorrectly
+    await withBypassClient(async (tx) => {
+      // First delete lottery shift closings/openings for shifts in this store
+      await tx.lotteryShiftClosing.deleteMany({
+        where: {
+          shift: { store_id: store.store_id },
+        },
+      });
+      await tx.lotteryShiftOpening.deleteMany({
+        where: {
+          shift: { store_id: store.store_id },
+        },
+      });
+      // Then delete all shifts
+      await tx.shift.deleteMany({
+        where: { store_id: store.store_id },
+      });
+    });
+
     const gameCode = generateUniqueGameCode();
     const { game, bin, pack } = await createTestBinWithPack(
       store,
@@ -501,9 +536,10 @@ test.describe("Lottery Day Close - Shift Query Fix", () => {
     );
 
     // Create yesterday's shift that is already CLOSED
+    // Use 2 days ago to be safe across all timezones
     const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    yesterday.setHours(8, 0, 0, 0);
+    yesterday.setDate(yesterday.getDate() - 2);
+    yesterday.setHours(10, 0, 0, 0);
 
     const { shift: closedShift, cashier } = await createShift(
       store,
@@ -511,7 +547,7 @@ test.describe("Lottery Day Close - Shift Query Fix", () => {
       {
         openedAt: yesterday,
         status: "CLOSED",
-        closedAt: yesterday,
+        closedAt: new Date(yesterday.getTime() + 8 * 60 * 60 * 1000),
       },
     );
 
