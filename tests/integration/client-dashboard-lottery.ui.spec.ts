@@ -83,9 +83,10 @@ async function createTestFixture(
     singleStore?: boolean;
   } = {},
 ): Promise<LotteryTestFixture> {
-  // Add small random delay to prevent thundering herd when tests run in parallel
-  // This staggers database connections across workers
-  const staggerDelay = Math.floor(Math.random() * 1000);
+  // Add random delay (0-3s) to prevent thundering herd when tests run in parallel
+  // With 4 workers running 199 tests, we need more spread to avoid database and
+  // Next.js server contention in CI environments
+  const staggerDelay = Math.floor(Math.random() * 3000);
   await new Promise((resolve) => setTimeout(resolve, staggerDelay));
 
   const prisma = new PrismaClient();
