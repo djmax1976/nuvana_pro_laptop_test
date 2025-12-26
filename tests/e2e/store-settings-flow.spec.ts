@@ -1,11 +1,4 @@
 /**
- * @test-level E2E
- * @justification Tests critical multi-page user journey requiring full system integration
- * @story 6-14-store-settings-page
- * @enhanced-by workflow-9 on 2025-01-28
- * @enhanced-by enterprise-audit on 2025-12-25
- */
-/**
  * E2E Tests: Store Settings Flow
  *
  * Tests critical end-to-end user journey:
@@ -16,21 +9,14 @@
  * @story 6-14 - Store Settings Page with Employee/Cashier Management
  * @priority P0 (Critical - Core User Journey)
  *
- * E2E tests are LAST in pyramid order (5-10% MAX - sparingly!)
+ * Architecture: Each test is fully isolated with its own test data to prevent
+ * cascade failures and enable parallel execution in CI/CD pipelines.
  *
- * ENHANCEMENTS APPLIED (Workflow 9):
- * - Test isolation: Proper setup/teardown
+ * ENTERPRISE PATTERNS:
+ * - Test isolation: Each test has own setup/teardown
+ * - Network-first: Wait for API responses before UI assertions
  * - Resilient selectors: data-testid attributes
- * - Web-first assertions: Auto-waiting assertions
- * - Network-first pattern: Already implemented
- * - Clear descriptions: Meaningful test names
- *
- * ENTERPRISE AUDIT (2025-12-25):
- * - Verified all data-testid selectors match implementation
- * - Verified API endpoints match frontend hooks
- * - Enhanced network-first patterns for dashboard API
- * - Improved timeout consistency (CI environments)
- * - Added comprehensive test isolation
+ * - Web-first assertions: Auto-waiting with increased CI timeouts
  */
 
 import { test, expect, Page } from "@playwright/test";
@@ -43,54 +29,270 @@ import {
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
 
+// ============================================================================
+// TEST FIXTURE INTERFACE
+// ============================================================================
+
+interface StoreSettingsTestFixture {
+  prisma: PrismaClient;
+  clientOwner: {
+    user_id: string;
+    email: string;
+    name: string;
+  };
+  company: {
+    company_id: string;
+    name: string;
+  };
+  store: {
+    store_id: string;
+    name: string;
+  };
+  employee?: {
+    user_id: string;
+    email: string;
+    name: string;
+  };
+  cashier?: {
+    cashier_id: string;
+    name: string;
+  };
+  password: string;
+}
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Creates isolated test data for a single test.
+ * Each test gets its own user, company, store to ensure complete isolation.
+ */
+async function createTestFixture(
+  testId: string,
+  options: { withEmployee?: boolean; withCashier?: boolean } = {},
+): Promise<StoreSettingsTestFixture> {
+  const prisma = new PrismaClient();
+  await prisma.$connect();
+
+  const password = "TestPassword123!";
+  const passwordHash = await bcrypt.hash(password, 10);
+  const timestamp = Date.now();
+  const userId = uuidv4();
+  const companyId = uuidv4();
+  const storeId = uuidv4();
+
+  // Create test user (Client Owner)
+  const clientOwner = await prisma.user.create({
+    data: {
+      user_id: userId,
+      email: `e2e-settings-${testId}-${timestamp}@test.com`,
+      name: `E2E Settings ${testId} Owner`,
+      status: "ACTIVE",
+      password_hash: passwordHash,
+      public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+      is_client_user: true,
+    },
+  });
+
+  // Create company
+  const company = await prisma.company.create({
+    data: {
+      company_id: companyId,
+      public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+      name: `E2E Settings ${testId} Company`,
+      status: "ACTIVE",
+      owner_user_id: clientOwner.user_id,
+    },
+  });
+
+  // Create store
+  const store = await prisma.store.create({
+    data: {
+      store_id: storeId,
+      public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+      company_id: company.company_id,
+      name: `E2E Settings ${testId} Store`,
+      timezone: "America/New_York",
+      status: "ACTIVE",
+      configuration: {
+        contact_email: "store@test.com",
+        timezone: "America/New_York",
+      },
+    },
+  });
+
+  // Assign CLIENT_OWNER role
+  const clientOwnerRole = await prisma.role.findUnique({
+    where: { code: "CLIENT_OWNER" },
+  });
+
+  if (!clientOwnerRole) {
+    throw new Error("CLIENT_OWNER role not found - run RBAC seed first");
+  }
+
+  await prisma.userRole.create({
+    data: {
+      user_id: clientOwner.user_id,
+      role_id: clientOwnerRole.role_id,
+      company_id: company.company_id,
+    },
+  });
+
+  const fixture: StoreSettingsTestFixture = {
+    prisma,
+    clientOwner: {
+      user_id: clientOwner.user_id,
+      email: clientOwner.email,
+      name: clientOwner.name || "",
+    },
+    company: {
+      company_id: company.company_id,
+      name: company.name,
+    },
+    store: {
+      store_id: store.store_id,
+      name: store.name,
+    },
+    password,
+  };
+
+  // Optionally create employee
+  if (options.withEmployee) {
+    const storeRole = await prisma.role.findFirst({
+      where: { scope: "STORE" },
+    });
+
+    if (!storeRole) {
+      throw new Error("No STORE scope role found - run RBAC seed first");
+    }
+
+    const employeePassword = await bcrypt.hash("EmployeePassword123!", 10);
+    const employeeUser = await prisma.user.create({
+      data: {
+        email: `e2e-employee-${testId}-${timestamp}@test.com`,
+        name: `Test Employee ${testId}`,
+        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+        password_hash: employeePassword,
+        status: "ACTIVE",
+        is_client_user: true,
+      },
+    });
+
+    await prisma.userRole.create({
+      data: {
+        user_id: employeeUser.user_id,
+        role_id: storeRole.role_id,
+        store_id: store.store_id,
+        company_id: company.company_id,
+        assigned_by: clientOwner.user_id,
+      },
+    });
+
+    fixture.employee = {
+      user_id: employeeUser.user_id,
+      email: employeeUser.email,
+      name: employeeUser.name || "",
+    };
+  }
+
+  // Optionally create cashier
+  if (options.withCashier) {
+    const cashier = await createCashier(
+      {
+        store_id: store.store_id,
+        created_by: clientOwner.user_id,
+        name: `Test Cashier ${testId}`,
+        pin: "1234",
+      },
+      prisma,
+    );
+
+    fixture.cashier = {
+      cashier_id: cashier.cashier_id,
+      name: cashier.name || "",
+    };
+  }
+
+  return fixture;
+}
+
+/**
+ * Cleans up test fixture data.
+ */
+async function cleanupTestFixture(
+  fixture: StoreSettingsTestFixture,
+): Promise<void> {
+  const { prisma, clientOwner, company, store, employee, cashier } = fixture;
+
+  try {
+    // Delete in reverse order of creation
+    if (cashier?.cashier_id) {
+      await prisma.cashier
+        .delete({ where: { cashier_id: cashier.cashier_id } })
+        .catch(() => {});
+    }
+
+    if (employee?.user_id) {
+      await prisma.userRole
+        .deleteMany({ where: { user_id: employee.user_id } })
+        .catch(() => {});
+      await prisma.user
+        .delete({ where: { user_id: employee.user_id } })
+        .catch(() => {});
+    }
+
+    await prisma.store
+      .delete({ where: { store_id: store.store_id } })
+      .catch(() => {});
+    await prisma.company
+      .delete({ where: { company_id: company.company_id } })
+      .catch(() => {});
+    await prisma.userRole
+      .deleteMany({ where: { user_id: clientOwner.user_id } })
+      .catch(() => {});
+    await prisma.auditLog
+      .deleteMany({ where: { user_id: clientOwner.user_id } })
+      .catch(() => {});
+    await prisma.user
+      .delete({ where: { user_id: clientOwner.user_id } })
+      .catch(() => {});
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 /**
  * Network-first login helper that waits for actual API response.
- *
- * Flow:
- * 1. Navigate to login page
- * 2. Wait for form to be interactive (React hydration complete)
- * 3. Fill credentials and submit
- * 4. Wait for login API response (deterministic)
- * 5. Wait for redirect to complete
- *
- * @throws Error with descriptive message if login fails
  */
 async function loginAsClientOwner(
   page: Page,
   email: string,
   password: string,
 ): Promise<void> {
-  // Navigate to login page
   await page.goto("/login", { waitUntil: "domcontentloaded" });
 
-  // Wait for form elements to be ready
   const emailInput = page.locator('input[type="email"]');
   const passwordInput = page.locator('input[type="password"]');
   const submitButton = page.locator('button[type="submit"]');
 
-  // Wait for React hydration - form should be interactive
   await expect(emailInput).toBeEditable({ timeout: 30000 });
-
-  // Wait for page to fully hydrate
   await page.waitForLoadState("networkidle").catch(() => {});
 
-  // Fill credentials with explicit click to focus
   await emailInput.click();
   await emailInput.fill(email);
   await passwordInput.click();
   await passwordInput.fill(password);
 
-  // Verify credentials were filled
   await expect(emailInput).toHaveValue(email);
   await expect(passwordInput).toHaveValue(password);
 
-  // Use Promise.all to set up response listener and click simultaneously
   const [loginResponse] = await Promise.all([
     page.waitForResponse(
       (resp) =>
         resp.url().includes("/api/auth/login") &&
         resp.request().method() === "POST",
-      { timeout: 30000 },
+      { timeout: 45000 },
     ),
     submitButton.click(),
   ]);
@@ -102,20 +304,13 @@ async function loginAsClientOwner(
     );
   }
 
-  // Wait for redirect to /client-dashboard
-  await page.waitForURL(/.*client-dashboard.*/, { timeout: 30000 });
+  await page.waitForURL(/.*client-dashboard.*/, { timeout: 45000 });
 }
 
 /**
  * Navigate to settings page and wait for it to load using network-first pattern.
- * Waits for the client dashboard API (which provides store data) before checking UI elements.
- *
- * Implementation note: Settings page uses useClientDashboard() hook which calls
- * /api/client/dashboard endpoint to fetch stores. This is the primary data source.
  */
 async function navigateToSettingsPage(page: Page): Promise<void> {
-  // Set up API listener BEFORE navigation (network-first pattern)
-  // The settings page uses useClientDashboard which calls /api/client/dashboard
   const dashboardApiPromise = page.waitForResponse(
     (resp) =>
       resp.url().includes("/api/client/dashboard") && resp.status() === 200,
@@ -126,404 +321,94 @@ async function navigateToSettingsPage(page: Page): Promise<void> {
     waitUntil: "domcontentloaded",
   });
 
-  // Wait for dashboard API to complete - this provides store data
   await dashboardApiPromise;
 
-  // Wait for settings page to be visible with extended timeout for CI
   await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
-    timeout: 20000,
+    timeout: 30000,
   });
 }
 
-test.describe.serial("Store Settings Flow (Critical Journey)", () => {
-  let prisma: PrismaClient;
-  let clientOwnerEmail: string;
-  let clientOwnerPassword: string;
-  let storeId: string;
-  let testCompanyId: string;
-  let employeeUserId: string;
-  let cashierId: string;
-  let testOwnerId: string;
+// ============================================================================
+// TEST SUITE
+// ============================================================================
 
-  test.beforeAll(async () => {
-    prisma = new PrismaClient();
-    // Setup test data
-    // GIVEN: A client owner with a store for testing
-    const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
-    const userId = uuidv4();
-    const companyId = uuidv4();
-    const storeIdGen = uuidv4();
-
-    const testOwner = await prisma.user.create({
-      data: {
-        user_id: userId,
-        email: `e2e-settings-owner-${Date.now()}@test.com`,
-        name: "Test Client Owner",
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-        password_hash: hashedPassword,
-        status: "ACTIVE",
-        is_client_user: true,
-      },
-    });
-    clientOwnerEmail = testOwner.email;
-    clientOwnerPassword = "TestPassword123!";
-    testOwnerId = testOwner.user_id;
-
-    const testCompany = await prisma.company.create({
-      data: {
-        company_id: companyId,
-        name: `Test Company ${Date.now()}`,
-        owner_user_id: testOwner.user_id,
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-        status: "ACTIVE",
-      },
-    });
-    testCompanyId = testCompany.company_id;
-
-    const testStore = await prisma.store.create({
-      data: {
-        store_id: storeIdGen,
-        company_id: testCompany.company_id,
-        name: `Test Store ${Date.now()}`,
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
-        timezone: "America/New_York",
-        status: "ACTIVE",
-        configuration: {
-          contact_email: "store@test.com",
-          timezone: "America/New_York",
-        },
-      },
-    });
-    storeId = testStore.store_id;
-
-    // CRITICAL: Assign CLIENT_OWNER role to the user for the company
-    // CLIENT_OWNER is required to access /client-dashboard
-    const clientOwnerRole = await prisma.role.findUnique({
-      where: { code: "CLIENT_OWNER" },
-    });
-    if (!clientOwnerRole) {
-      throw new Error("CLIENT_OWNER role not found - run RBAC seed first");
-    }
-    await prisma.userRole.create({
-      data: {
-        user_id: testOwner.user_id,
-        role_id: clientOwnerRole.role_id,
-        company_id: testCompany.company_id,
-      },
-    });
-
-    // Get a STORE scope role for employee assignment
-    const storeRole = await prisma.role.findFirst({
-      where: { scope: "STORE" },
-    });
-
-    if (!storeRole) {
-      throw new Error("No STORE scope role found - run RBAC seed first");
-    }
-
-    // Create an employee for testing email change functionality
-    const employeePassword = await bcrypt.hash("EmployeePassword123!", 10);
-    const employeeUser = await prisma.user.create({
-      data: {
-        email: `e2e-employee-${Date.now()}@test.com`,
-        name: "Test Employee",
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-        password_hash: employeePassword,
-        status: "ACTIVE",
-        is_client_user: true,
-      },
-    });
-    employeeUserId = employeeUser.user_id;
-
-    // Assign STORE scope role to employee
-    await prisma.userRole.create({
-      data: {
-        user_id: employeeUser.user_id,
-        role_id: storeRole.role_id,
-        store_id: testStore.store_id,
-        company_id: testCompany.company_id,
-        assigned_by: testOwner.user_id,
-      },
-    });
-
-    // Create a cashier for testing cashier tab
-    const cashier = await createCashier(
-      {
-        store_id: testStore.store_id,
-        created_by: testOwner.user_id,
-        name: "Test Cashier",
-        pin: "1234",
-      },
-      prisma,
-    );
-    cashierId = cashier.cashier_id;
-  });
-
-  test.afterAll(async () => {
-    // Cleanup test data in reverse order of dependencies
-    // Use try-catch for each deletion to ensure cleanup continues even if one fails
-    try {
-      // Delete cashier first
-      if (cashierId) {
-        await prisma.cashier
-          .delete({ where: { cashier_id: cashierId } })
-          .catch(() => {});
-      }
-
-      // Delete employee user roles and user
-      if (employeeUserId) {
-        await prisma.userRole
-          .deleteMany({ where: { user_id: employeeUserId } })
-          .catch(() => {});
-        await prisma.user
-          .delete({ where: { user_id: employeeUserId } })
-          .catch(() => {});
-      }
-
-      // Delete store
-      if (storeId) {
-        await prisma.store
-          .delete({ where: { store_id: storeId } })
-          .catch(() => {});
-      }
-
-      // Delete company
-      if (testCompanyId) {
-        await prisma.company
-          .delete({ where: { company_id: testCompanyId } })
-          .catch(() => {});
-      }
-
-      // Delete client owner user roles and user
-      if (testOwnerId) {
-        await prisma.userRole
-          .deleteMany({ where: { user_id: testOwnerId } })
-          .catch(() => {});
-        await prisma.auditLog
-          .deleteMany({ where: { user_id: testOwnerId } })
-          .catch(() => {});
-        await prisma.user
-          .delete({ where: { user_id: testOwnerId } })
-          .catch(() => {});
-      }
-    } finally {
-      // Always disconnect Prisma client
-      await prisma.$disconnect();
-    }
-  });
+test.describe("Store Settings Flow (Critical Journey)", () => {
+  // ---------------------------------------------------------------------------
+  // CORE WORKFLOW TESTS
+  // ---------------------------------------------------------------------------
 
   test("6.14-E2E-001: Client Owner can navigate to settings and view store info", async ({
     page,
   }) => {
-    // GIVEN: Client Owner is logged in
-    await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
+    const fixture = await createTestFixture("001");
 
-    // WHEN: User clicks "Settings" in sidebar navigation
-    // Note: ClientSidebar uses generateTestId("Settings") which converts to "settings"
-    const settingsLink = page.locator(
-      '[data-testid="client-nav-link-settings"]',
-    );
-    await expect(settingsLink).toBeVisible({ timeout: 20000 });
+    try {
+      // GIVEN: Client Owner is logged in
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
 
-    // Use Promise.all to ensure we wait for navigation after click
-    await Promise.all([
-      page.waitForURL(/.*\/client-dashboard\/settings.*/, { timeout: 30000 }),
-      settingsLink.click(),
-    ]);
+      // WHEN: User clicks "Settings" in sidebar navigation
+      const settingsLink = page.locator(
+        '[data-testid="client-nav-link-settings"]',
+      );
+      await expect(settingsLink).toBeVisible({ timeout: 20000 });
 
-    // THEN: User is navigated to /client-dashboard/settings
-    await expect(page).toHaveURL(/.*\/client-dashboard\/settings.*/, {
-      timeout: 10000,
-    });
+      await Promise.all([
+        page.waitForURL(/.*\/client-dashboard\/settings.*/, { timeout: 30000 }),
+        settingsLink.click(),
+      ]);
 
-    // AND: Settings page is displayed
-    await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
-      timeout: 30000,
-    });
+      // THEN: User is navigated to /client-dashboard/settings
+      await expect(page).toHaveURL(/.*\/client-dashboard\/settings.*/);
 
-    // NOTE: StoreTabs component only renders when stores.length > 1 (per page.tsx:119)
-    // For a single store, no store tabs are shown - the store is auto-selected
-    // This is correct behavior - we verify the internal tabs instead
+      // AND: Settings page is displayed
+      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
+        timeout: 30000,
+      });
 
-    // AND: Store Info tab button is visible and selected by default
-    // Note: There are two elements with store-info-tab testid - the TabsTrigger button and the content div
-    // We specifically check for the button using role="tab"
-    await expect(
-      page.locator('button[data-testid="store-info-tab"]'),
-    ).toBeVisible({
-      timeout: 20000,
-    });
+      // AND: Store Info tab button is visible
+      await expect(
+        page.locator('button[data-testid="store-info-tab"]'),
+      ).toBeVisible({
+        timeout: 20000,
+      });
 
-    // AND: Store configuration is displayed within StoreInfoTab component
-    await expect(page.locator('[data-testid="store-name"]')).toBeVisible({
-      timeout: 15000,
-    });
-    await expect(page.locator('[data-testid="timezone-select"]')).toBeVisible();
-    await expect(
-      page.locator('[data-testid="contact-email-input"]'),
-    ).toBeVisible();
+      // AND: Store configuration is displayed
+      await expect(page.locator('[data-testid="store-name"]')).toBeVisible({
+        timeout: 15000,
+      });
+      await expect(
+        page.locator('[data-testid="timezone-select"]'),
+      ).toBeVisible();
+      await expect(
+        page.locator('[data-testid="contact-email-input"]'),
+      ).toBeVisible();
+    } finally {
+      await cleanupTestFixture(fixture);
+    }
   });
 
   test("6.14-E2E-002: Client Owner can change employee email end-to-end", async ({
     page,
   }) => {
-    // GIVEN: Client Owner is logged in and on settings page
-    await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
-    await navigateToSettingsPage(page);
+    const fixture = await createTestFixture("002", { withEmployee: true });
 
-    // WHEN: User selects Employees tab
-    const employeesTab = page.locator('[data-testid="employees-tab"]');
-    await expect(employeesTab).toBeVisible({ timeout: 15000 });
-
-    // Set up API listener for employee data BEFORE clicking tab (network-first)
-    const employeesApiPromise = page.waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/client/employees") && resp.status() === 200,
-      { timeout: 30000 },
-    );
-
-    await employeesTab.click();
-
-    // Wait for employee API to complete
-    await employeesApiPromise;
-
-    // Wait for employee table to load (API-driven content)
-    await expect(page.locator('[data-testid="employee-table"]')).toBeVisible({
-      timeout: 15000,
-    });
-
-    // Verify at least one employee exists
-    const changeEmailButtons = page.locator(
-      '[data-testid^="change-email-button-"]',
-    );
-    await expect(changeEmailButtons.first()).toBeVisible({ timeout: 10000 });
-
-    // AND: User clicks "Change Email" for the first employee
-    // Wait for button to be clickable before clicking
-    const changeEmailButton = page.locator(
-      '[data-testid="change-email-button-0"]',
-    );
-    await expect(changeEmailButton).toBeEnabled({ timeout: 5000 });
-    await changeEmailButton.click();
-
-    // Wait for modal to open and email input to be visible
-    const emailInput = page.locator('[data-testid="email-input"]');
-    await expect(emailInput).toBeVisible({ timeout: 10000 });
-    await expect(emailInput).toBeEditable({ timeout: 5000 });
-
-    // AND: User enters new email and saves
-    const newEmail = `newemail-${Date.now()}@test.nuvana.local`;
-
-    // Clear existing email and enter new one with click to ensure focus
-    await emailInput.click();
-    await emailInput.clear();
-    await emailInput.fill(newEmail);
-
-    // Verify the input has the new value
-    await expect(emailInput).toHaveValue(newEmail, { timeout: 5000 });
-
-    // Set up network interception to wait for API call BEFORE clicking save
-    const updateEmailResponsePromise = page.waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/client/employees/") &&
-        resp.url().includes("/email") &&
-        resp.request().method() === "PUT" &&
-        resp.status() === 200,
-      { timeout: 20000 },
-    );
-
-    // Click save button
-    const saveButton = page.locator('[data-testid="save-button"]');
-    await expect(saveButton).toBeEnabled({ timeout: 5000 });
-    await saveButton.click();
-
-    // Wait for API response
-    await updateEmailResponsePromise;
-
-    // THEN: Success notification is displayed
-    // Toast message: "Email updated" (title) with description "Employee email has been updated successfully."
-    // Use .first() to handle case where toast content appears in multiple elements
-    // Wait for toast to appear - it may take a moment to render in the portal
-    await expect(
-      page.getByText("Email updated", { exact: true }).first(),
-    ).toBeVisible({
-      timeout: 15000,
-    });
-
-    // Wait for modal to close (modal closes after successful save)
-    // The modal closes after successful mutation, verify the email input is no longer visible
-    await expect(emailInput).not.toBeVisible({
-      timeout: 10000,
-    });
-
-    // AND: Employee email is updated in the table
-    // Wait for query invalidation and table refresh after mutation
-    // The mutation invalidates the employee list query, so we wait for the table to update
-    // Use a more specific wait to ensure the table has refreshed with the new data
-    await expect(page.locator('[data-testid="employee-email-0"]')).toHaveText(
-      newEmail,
-      { timeout: 20000 },
-    );
-
-    // Verify the table still shows the employee (ensures the update didn't break the list)
-    await expect(page.locator('[data-testid="employee-table"]')).toBeVisible();
-  });
-
-  // ============================================================================
-  // SECURITY TESTS (Mandatory - Applied Automatically)
-  // ============================================================================
-
-  test.describe("Security: Authentication Bypass", () => {
-    test("6.14-E2E-003: should redirect unauthenticated users to login", async ({
-      page,
-    }) => {
-      // GIVEN: User is not logged in
-      // WHEN: Attempting to access settings page directly
-      await page.goto("/client-dashboard/settings", {
-        waitUntil: "domcontentloaded",
-      });
-
-      // THEN: User is redirected to login page
-      await expect(page).toHaveURL(/.*\/login.*/);
-    });
-  });
-
-  // ============================================================================
-  // ADDITIONAL ASSERTIONS (Best Practices - Applied Automatically)
-  // ============================================================================
-
-  test.describe("Response Structure Assertions", () => {
-    test("6.14-E2E-004: should display store name as read-only field", async ({
-      page,
-    }) => {
-      // GIVEN: Client Owner is logged in
-      await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
-
-      // WHEN: Navigating to settings page (network-first)
-      await navigateToSettingsPage(page);
-
-      // THEN: Store name field is visible and read-only
-      const storeNameField = page.locator('[data-testid="store-name"]');
-      await expect(storeNameField).toBeVisible({ timeout: 5000 });
-      // Verify it's read-only (disabled attribute is set in the implementation)
-      const isDisabled = await storeNameField.isDisabled();
-      expect(isDisabled).toBe(true);
-    });
-  });
-
-  test.describe("AC-4: Employees Tab Display", () => {
-    test("6.14-E2E-005: [P1-AC-4] should display employee table with columns (Name, Email, Role, Status)", async ({
-      page,
-    }) => {
-      // GIVEN: Client Owner is logged in and on settings page (network-first)
-      await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
+    try {
+      // GIVEN: Client Owner is logged in and on settings page
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
       await navigateToSettingsPage(page);
 
       // WHEN: User selects Employees tab
       const employeesTab = page.locator('[data-testid="employees-tab"]');
       await expect(employeesTab).toBeVisible({ timeout: 15000 });
 
-      // Set up API listener for employee data BEFORE clicking tab (network-first)
       const employeesApiPromise = page.waitForResponse(
         (resp) =>
           resp.url().includes("/api/client/employees") && resp.status() === 200,
@@ -531,43 +416,6 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
       );
 
       await employeesTab.click();
-
-      // Wait for employee API to complete
-      await employeesApiPromise;
-
-      // THEN: Employee table is displayed with correct columns
-      const employeeTable = page.locator('[data-testid="employee-table"]');
-      await expect(employeeTable).toBeVisible({ timeout: 15000 });
-
-      // Verify column headers exist within the table header
-      const tableHeader = employeeTable.locator("thead");
-      await expect(tableHeader.locator("text=Name")).toBeVisible();
-      await expect(tableHeader.locator("text=Email")).toBeVisible();
-      await expect(tableHeader.locator("text=Role")).toBeVisible();
-      await expect(tableHeader.locator("text=Status")).toBeVisible();
-    });
-
-    test("6.14-E2E-006: [P1-AC-4] should display Change Email and Reset Password buttons for each employee", async ({
-      page,
-    }) => {
-      // GIVEN: Client Owner is logged in and on Employees tab (network-first)
-      await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
-      await navigateToSettingsPage(page);
-
-      // Navigate to Employees tab with network-first pattern
-      const employeesTab = page.locator('[data-testid="employees-tab"]');
-      await expect(employeesTab).toBeVisible({ timeout: 15000 });
-
-      // Set up API listener for employee data BEFORE clicking tab
-      const employeesApiPromise = page.waitForResponse(
-        (resp) =>
-          resp.url().includes("/api/client/employees") && resp.status() === 200,
-        { timeout: 30000 },
-      );
-
-      await employeesTab.click();
-
-      // Wait for employee API to complete
       await employeesApiPromise;
 
       // Wait for employee table to load
@@ -575,9 +423,194 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
         timeout: 15000,
       });
 
-      // WHEN: Employee data loads
-      // THEN: Each row has "Change Email" and "Reset Password" action buttons
-      // Use data-testid selectors for more reliable testing
+      // Verify at least one employee exists
+      const changeEmailButtons = page.locator(
+        '[data-testid^="change-email-button-"]',
+      );
+      await expect(changeEmailButtons.first()).toBeVisible({ timeout: 10000 });
+
+      // AND: User clicks "Change Email" for the first employee
+      const changeEmailButton = page.locator(
+        '[data-testid="change-email-button-0"]',
+      );
+      await expect(changeEmailButton).toBeEnabled({ timeout: 5000 });
+      await changeEmailButton.click();
+
+      // Wait for modal to open
+      const emailInput = page.locator('[data-testid="email-input"]');
+      await expect(emailInput).toBeVisible({ timeout: 10000 });
+      await expect(emailInput).toBeEditable({ timeout: 5000 });
+
+      // AND: User enters new email and saves
+      const newEmail = `newemail-${Date.now()}@test.nuvana.local`;
+
+      await emailInput.click();
+      await emailInput.clear();
+      await emailInput.fill(newEmail);
+      await expect(emailInput).toHaveValue(newEmail, { timeout: 5000 });
+
+      const updateEmailResponsePromise = page.waitForResponse(
+        (resp) =>
+          resp.url().includes("/api/client/employees/") &&
+          resp.url().includes("/email") &&
+          resp.request().method() === "PUT" &&
+          resp.status() === 200,
+        { timeout: 20000 },
+      );
+
+      const saveButton = page.locator('[data-testid="save-button"]');
+      await expect(saveButton).toBeEnabled({ timeout: 5000 });
+      await saveButton.click();
+
+      await updateEmailResponsePromise;
+
+      // THEN: Success notification is displayed
+      await expect(
+        page.getByText("Email updated", { exact: true }).first(),
+      ).toBeVisible({
+        timeout: 15000,
+      });
+
+      // Wait for modal to close
+      await expect(emailInput).not.toBeVisible({ timeout: 10000 });
+
+      // AND: Employee email is updated in the table
+      await expect(page.locator('[data-testid="employee-email-0"]')).toHaveText(
+        newEmail,
+        { timeout: 20000 },
+      );
+
+      await expect(
+        page.locator('[data-testid="employee-table"]'),
+      ).toBeVisible();
+    } finally {
+      await cleanupTestFixture(fixture);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // SECURITY TESTS
+  // ---------------------------------------------------------------------------
+
+  test("6.14-E2E-003: should redirect unauthenticated users to login", async ({
+    page,
+  }) => {
+    // GIVEN: User is not logged in
+    // WHEN: Attempting to access settings page directly
+    await page.goto("/client-dashboard/settings", {
+      waitUntil: "domcontentloaded",
+    });
+
+    // THEN: User is redirected to login page
+    await expect(page).toHaveURL(/.*\/login.*/);
+  });
+
+  // ---------------------------------------------------------------------------
+  // RESPONSE STRUCTURE ASSERTIONS
+  // ---------------------------------------------------------------------------
+
+  test("6.14-E2E-004: should display store name as read-only field", async ({
+    page,
+  }) => {
+    const fixture = await createTestFixture("004");
+
+    try {
+      // GIVEN: Client Owner is logged in
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
+
+      // WHEN: Navigating to settings page
+      await navigateToSettingsPage(page);
+
+      // THEN: Store name field is visible and read-only
+      const storeNameField = page.locator('[data-testid="store-name"]');
+      await expect(storeNameField).toBeVisible({ timeout: 10000 });
+      const isDisabled = await storeNameField.isDisabled();
+      expect(isDisabled).toBe(true);
+    } finally {
+      await cleanupTestFixture(fixture);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // EMPLOYEES TAB TESTS
+  // ---------------------------------------------------------------------------
+
+  test("6.14-E2E-005: [P1-AC-4] should display employee table with columns", async ({
+    page,
+  }) => {
+    const fixture = await createTestFixture("005", { withEmployee: true });
+
+    try {
+      // GIVEN: Client Owner is logged in and on settings page
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
+      await navigateToSettingsPage(page);
+
+      // WHEN: User selects Employees tab
+      const employeesTab = page.locator('[data-testid="employees-tab"]');
+      await expect(employeesTab).toBeVisible({ timeout: 15000 });
+
+      const employeesApiPromise = page.waitForResponse(
+        (resp) =>
+          resp.url().includes("/api/client/employees") && resp.status() === 200,
+        { timeout: 30000 },
+      );
+
+      await employeesTab.click();
+      await employeesApiPromise;
+
+      // THEN: Employee table is displayed with correct columns
+      const employeeTable = page.locator('[data-testid="employee-table"]');
+      await expect(employeeTable).toBeVisible({ timeout: 15000 });
+
+      const tableHeader = employeeTable.locator("thead");
+      await expect(tableHeader.locator("text=Name")).toBeVisible();
+      await expect(tableHeader.locator("text=Email")).toBeVisible();
+      await expect(tableHeader.locator("text=Role")).toBeVisible();
+      await expect(tableHeader.locator("text=Status")).toBeVisible();
+    } finally {
+      await cleanupTestFixture(fixture);
+    }
+  });
+
+  test("6.14-E2E-006: [P1-AC-4] should display action buttons for each employee", async ({
+    page,
+  }) => {
+    const fixture = await createTestFixture("006", { withEmployee: true });
+
+    try {
+      // GIVEN: Client Owner is logged in and on Employees tab
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
+      await navigateToSettingsPage(page);
+
+      const employeesTab = page.locator('[data-testid="employees-tab"]');
+      await expect(employeesTab).toBeVisible({ timeout: 15000 });
+
+      const employeesApiPromise = page.waitForResponse(
+        (resp) =>
+          resp.url().includes("/api/client/employees") && resp.status() === 200,
+        { timeout: 30000 },
+      );
+
+      await employeesTab.click();
+      await employeesApiPromise;
+
+      await expect(page.locator('[data-testid="employee-table"]')).toBeVisible({
+        timeout: 15000,
+      });
+
+      // THEN: Each row has action buttons
       const changeEmailButtons = page.locator(
         '[data-testid^="change-email-button-"]',
       );
@@ -585,7 +618,6 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
         '[data-testid^="reset-password-button-"]',
       );
 
-      // Wait for buttons to appear
       await expect(changeEmailButtons.first()).toBeVisible({ timeout: 15000 });
       await expect(resetPasswordButtons.first()).toBeVisible({
         timeout: 10000,
@@ -594,27 +626,36 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
       const changeEmailCount = await changeEmailButtons.count();
       const resetPasswordCount = await resetPasswordButtons.count();
 
-      // Verify buttons exist (at least one if employees exist)
       expect(changeEmailCount).toBeGreaterThan(0);
       expect(resetPasswordCount).toBeGreaterThan(0);
-      expect(changeEmailCount).toBe(resetPasswordCount); // Same count as employees
-    });
+      expect(changeEmailCount).toBe(resetPasswordCount);
+    } finally {
+      await cleanupTestFixture(fixture);
+    }
   });
 
-  test.describe("AC-7: Cashiers Tab Display", () => {
-    test("6.14-E2E-007: [P1-AC-7] should display cashier table with columns (Employee ID, Name, Hired On, Status)", async ({
-      page,
-    }) => {
-      // GIVEN: Client Owner is logged in and on settings page (network-first)
-      await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
+  // ---------------------------------------------------------------------------
+  // CASHIERS TAB TESTS
+  // ---------------------------------------------------------------------------
+
+  test("6.14-E2E-007: [P1-AC-7] should display cashier table with columns", async ({
+    page,
+  }) => {
+    const fixture = await createTestFixture("007", { withCashier: true });
+
+    try {
+      // GIVEN: Client Owner is logged in and on settings page
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
       await navigateToSettingsPage(page);
 
       // WHEN: User selects Cashiers tab
       const cashiersTab = page.locator('[data-testid="cashiers-tab"]');
       await expect(cashiersTab).toBeVisible({ timeout: 15000 });
 
-      // Set up API listener for cashier data BEFORE clicking tab (network-first)
-      // Cashiers API: /api/stores/:storeId/cashiers
       const cashiersApiPromise = page.waitForResponse(
         (resp) =>
           resp.url().includes("/api/stores/") &&
@@ -624,15 +665,12 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
       );
 
       await cashiersTab.click();
-
-      // Wait for cashiers API to complete
       await cashiersApiPromise;
 
       // THEN: Cashier table is displayed with correct columns
       const cashierTable = page.locator('[data-testid="cashier-table"]');
       await expect(cashierTable).toBeVisible({ timeout: 15000 });
 
-      // Verify column headers within the table header
       const tableHeader = cashierTable.locator("thead");
       await expect(tableHeader.getByText("Employee ID")).toBeVisible({
         timeout: 5000,
@@ -640,20 +678,28 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
       await expect(tableHeader.getByText("Name")).toBeVisible();
       await expect(tableHeader.getByText("Hired On")).toBeVisible();
       await expect(tableHeader.getByText("Status")).toBeVisible();
-    });
+    } finally {
+      await cleanupTestFixture(fixture);
+    }
+  });
 
-    test("6.14-E2E-008: [P1-AC-7] should display Reset PIN button for each cashier row", async ({
-      page,
-    }) => {
-      // GIVEN: Client Owner is logged in and on Cashiers tab (network-first)
-      await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
+  test("6.14-E2E-008: [P1-AC-7] should display Reset PIN button for each cashier", async ({
+    page,
+  }) => {
+    const fixture = await createTestFixture("008", { withCashier: true });
+
+    try {
+      // GIVEN: Client Owner is logged in and on Cashiers tab
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
       await navigateToSettingsPage(page);
 
-      // Navigate to Cashiers tab with network-first pattern
       const cashiersTab = page.locator('[data-testid="cashiers-tab"]');
       await expect(cashiersTab).toBeVisible({ timeout: 15000 });
 
-      // Set up API listener for cashier data BEFORE clicking tab
       const cashiersApiPromise = page.waitForResponse(
         (resp) =>
           resp.url().includes("/api/stores/") &&
@@ -663,29 +709,22 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
       );
 
       await cashiersTab.click();
-
-      // Wait for cashiers API to complete
       await cashiersApiPromise;
 
-      // Wait for cashier table to load
       await expect(page.locator('[data-testid="cashier-table"]')).toBeVisible({
         timeout: 15000,
       });
 
-      // WHEN: Cashier data loads
-      // THEN: Each row has a "Reset PIN" action button
-      // Use data-testid selector for more reliable testing
+      // THEN: Each row has a Reset PIN button
       const resetPINButtons = page.locator(
         '[data-testid^="reset-pin-button-"]',
       );
-
-      // Wait for at least one button to appear
       await expect(resetPINButtons.first()).toBeVisible({ timeout: 10000 });
 
       const resetPINCount = await resetPINButtons.count();
-
-      // Verify buttons exist (at least one if cashiers exist)
       expect(resetPINCount).toBeGreaterThan(0);
-    });
+    } finally {
+      await cleanupTestFixture(fixture);
+    }
   });
 });
