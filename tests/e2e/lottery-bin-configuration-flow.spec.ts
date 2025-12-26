@@ -76,6 +76,11 @@ interface TestFixtureData {
  * @returns TestFixtureData with all created entities
  */
 async function createTestFixture(testId: string): Promise<TestFixtureData> {
+  // Add small random delay to prevent thundering herd when tests run in parallel
+  // This staggers database connections across workers
+  const staggerDelay = Math.floor(Math.random() * 1000);
+  await new Promise((resolve) => setTimeout(resolve, staggerDelay));
+
   const prisma = new PrismaClient();
   await prisma.$connect();
 
