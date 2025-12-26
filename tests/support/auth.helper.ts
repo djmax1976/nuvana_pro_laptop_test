@@ -158,16 +158,35 @@ export async function loginAsClientUser(
  * @param page - Playwright Page instance
  * @param email - User email address
  * @param password - User password
+ * @param baseUrl - Optional base URL for staging/production testing
  */
 export async function loginAsSuperAdmin(
   page: Page,
   email: string,
   password: string,
+  baseUrl?: string,
 ): Promise<void> {
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
-  await page.waitForLoadState("domcontentloaded");
+  const loginUrl = baseUrl ? `${baseUrl}/login` : "/login";
+  await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
 
-  const emailInput = page.locator('input[name="email"], input[type="email"]');
+  // CRITICAL: Wait for React hydration to complete before interacting
+  // The form has server-rendered HTML, but JavaScript event handlers are attached
+  // during hydration. Without this wait, the form submits as a traditional GET request.
+
+  // First wait for network idle (catches most hydration)
+  await page
+    .waitForLoadState("networkidle", { timeout: TEST_TIMEOUTS.NETWORK_IDLE })
+    .catch(() => {
+      // networkidle might timeout if there are persistent connections, continue anyway
+    });
+
+  // Then add a small delay to ensure React has finished hydrating the form
+  // This is necessary because networkidle fires when network is quiet, but
+  // React may still be processing and attaching event handlers
+  await page.waitForTimeout(500);
+
+  // Use #email selector which matches the actual form input id
+  const emailInput = page.locator("#email");
   await emailInput.waitFor({
     state: "visible",
     timeout: TEST_TIMEOUTS.LOGIN_FORM_VISIBLE,
@@ -176,8 +195,24 @@ export async function loginAsSuperAdmin(
     timeout: TEST_TIMEOUTS.LOGIN_FORM_EDITABLE,
   });
 
+  // Click first, then fill - more reliable with React hydration
+  await emailInput.click();
   await emailInput.fill(email);
-  await page.fill('input[name="password"], input[type="password"]', password);
+
+  const passwordInput = page.locator("#password");
+  await expect(passwordInput).toBeVisible({
+    timeout: TEST_TIMEOUTS.LOGIN_FORM_EDITABLE,
+  });
+  await passwordInput.click();
+  await passwordInput.fill(password);
+
+  // Verify fields are filled before submitting (guards against hydration reset)
+  await expect(emailInput).toHaveValue(email, {
+    timeout: TEST_TIMEOUTS.ASSERTION_VALUE,
+  });
+  await expect(passwordInput).toHaveValue(password, {
+    timeout: TEST_TIMEOUTS.ASSERTION_VALUE,
+  });
 
   const submitButton = page.locator('button[type="submit"]');
   await submitButton.waitFor({
@@ -185,16 +220,32 @@ export async function loginAsSuperAdmin(
     timeout: TEST_TIMEOUTS.BUTTON_ENABLED,
   });
 
+  // Setup response listener before clicking
+  const loginResponsePromise = page
+    .waitForResponse((response) => response.url().includes("/api/auth/login"), {
+      timeout: TEST_TIMEOUTS.LOGIN_API_RESPONSE,
+    })
+    .catch((e) => {
+      console.error("[AUTH] No login API response received:", e.message);
+      return null;
+    });
+
+  // Click and wait for URL change
   await Promise.all([
     page.waitForURL(/.*dashboard.*/, { timeout: TEST_TIMEOUTS.URL_CHANGE }),
     submitButton.click(),
   ]);
 
+  // Log API response for debugging
+  const loginResponse = await loginResponsePromise;
+  if (loginResponse) {
+    console.log(`[AUTH] Login API response: ${loginResponse.status()}`);
+  }
+
   // Wait for admin dashboard to be visible
+  // The admin dashboard uses data-testid="dashboard-content" within "dashboard-layout"
   await page
-    .locator(
-      '[data-testid="admin-dashboard-page"], [data-testid="dashboard-page"]',
-    )
+    .locator('[data-testid="dashboard-content"]')
     .waitFor({ state: "visible", timeout: TEST_TIMEOUTS.AUTH_CONTEXT_READY });
 
   await page
