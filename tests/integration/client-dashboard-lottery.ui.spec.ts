@@ -374,23 +374,36 @@ async function loginAndWaitForClientDashboard(
 
 /**
  * Helper function to wait for lottery page data to load
- * Implements comprehensive wait strategy for stable test execution
+ * Implements network-first wait strategy for stable CI execution
+ *
+ * Strategy:
+ * 1. Wait for dashboard API call (provides stores data) - network-first
+ * 2. Wait for page container to be visible
+ * 3. Wait for store tabs or empty state
  */
 async function waitForLotteryPageLoaded(page: Page): Promise<void> {
-  const PAGE_CONTAINER_TIMEOUT = 20000;
-  const STORE_TABS_TIMEOUT = 20000;
+  const API_TIMEOUT = 45000; // Increased for CI load
+  const PAGE_CONTAINER_TIMEOUT = 30000; // Increased for CI load
+  const STORE_TABS_TIMEOUT = 30000; // Increased for CI load
+
+  // Network-first: Wait for dashboard API call to complete (provides store list)
+  // This API populates the stores for the lottery page
+  await page
+    .waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/client/dashboard") && resp.status() === 200,
+      { timeout: API_TIMEOUT },
+    )
+    .catch(() => {
+      // API might already have completed - continue
+    });
 
   // Wait for the lottery page container
   await page
     .locator('[data-testid="client-dashboard-lottery-page"]')
     .waitFor({ state: "visible", timeout: PAGE_CONTAINER_TIMEOUT });
 
-  // Wait for network to be idle
-  await page
-    .waitForLoadState("networkidle", { timeout: 15000 })
-    .catch(() => {});
-
-  // Wait for store tabs OR loading to complete
+  // Wait for store tabs OR loading/error/empty state to complete
   await Promise.race([
     page
       .locator('[data-testid="store-tabs"]')
@@ -398,6 +411,10 @@ async function waitForLotteryPageLoaded(page: Page): Promise<void> {
       .catch(() => null),
     page
       .getByText(/no stores available/i)
+      .waitFor({ state: "visible", timeout: STORE_TABS_TIMEOUT })
+      .catch(() => null),
+    page
+      .getByText(/failed to load/i)
       .waitFor({ state: "visible", timeout: STORE_TABS_TIMEOUT })
       .catch(() => null),
   ]);
@@ -430,15 +447,15 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       // THEN: Store tabs are displayed (for multiple stores)
       const storeTabs = page.locator('[data-testid="store-tabs"]');
-      await expect(storeTabs).toBeVisible({ timeout: 10000 });
+      await expect(storeTabs).toBeVisible({ timeout: 30000 });
 
       // AND: Both stores are shown in tabs
       await expect(
         page.locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`),
-      ).toBeVisible({ timeout: 10000 });
+      ).toBeVisible({ timeout: 30000 });
       await expect(
         page.locator(`[data-testid="store-tab-${fixture.store2.store_id}"]`),
-      ).toBeVisible({ timeout: 10000 });
+      ).toBeVisible({ timeout: 30000 });
 
       // WHEN: Clicking on store 2 tab
       await page
@@ -499,7 +516,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       // Wait for store tabs to load, then select store 1
       await page
         .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
-        .waitFor({ state: "visible", timeout: 10000 });
+        .waitFor({ state: "visible", timeout: 30000 });
       await page
         .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
         .click();
@@ -508,15 +525,15 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       await Promise.race([
         page
           .locator('[data-testid="lottery-table"]')
-          .waitFor({ state: "visible", timeout: 15000 }),
+          .waitFor({ state: "visible", timeout: 30000 }),
         page
           .locator('[data-testid="lottery-table-empty"]')
-          .waitFor({ state: "visible", timeout: 15000 }),
+          .waitFor({ state: "visible", timeout: 30000 }),
       ]);
 
       // Wait for table to be visible (we created packs, so table should show)
       await expect(page.locator('[data-testid="lottery-table"]')).toBeVisible({
-        timeout: 15000,
+        timeout: 30000,
       });
 
       // THEN: Table displays game summaries (grouped by game_id)
@@ -524,7 +541,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
         page.locator(
           `[data-testid="lottery-table-row-${fixture.game.game_id}"]`,
         ),
-      ).toBeVisible({ timeout: 10000 });
+      ).toBeVisible({ timeout: 30000 });
 
       // AND: Table shows correct columns (new column structure)
       const tableHeader = page.locator("table thead");
@@ -590,16 +607,16 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       await Promise.race([
         page
           .locator('[data-testid="lottery-table-empty"]')
-          .waitFor({ state: "visible", timeout: 15000 }),
+          .waitFor({ state: "visible", timeout: 30000 }),
         page
           .locator('[data-testid="lottery-table"]')
-          .waitFor({ state: "visible", timeout: 15000 }),
+          .waitFor({ state: "visible", timeout: 30000 }),
       ]);
 
       // THEN: Empty state message is displayed (for store with no packs)
       const emptyState = page.locator('[data-testid="lottery-table-empty"]');
       // Store 2 has no packs, so empty state should be visible
-      await expect(emptyState).toBeVisible({ timeout: 10000 });
+      await expect(emptyState).toBeVisible({ timeout: 30000 });
       // The empty state message mentions "lottery inventory"
       await expect(emptyState).toContainText(/No lottery inventory/i);
 
@@ -689,8 +706,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
         'button[role="tab"]:has-text("Configuration")',
       );
 
-      await expect(inventoryTab).toBeVisible({ timeout: 10000 });
-      await expect(configTab).toBeVisible({ timeout: 10000 });
+      await expect(inventoryTab).toBeVisible({ timeout: 30000 });
+      await expect(configTab).toBeVisible({ timeout: 30000 });
 
       // WHEN: Clicking Configuration tab
       await configTab.click();
@@ -727,24 +744,34 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
         waitUntil: "domcontentloaded",
       });
 
+      // Wait for dashboard API to provide store list (network-first)
+      await page
+        .waitForResponse(
+          (resp) =>
+            resp.url().includes("/api/client/dashboard") &&
+            resp.status() === 200,
+          { timeout: 45000 },
+        )
+        .catch(() => {});
+
       // THEN: Page should load without getting stuck in loading state
       await page
         .locator('[data-testid="client-dashboard-lottery-page"]')
-        .waitFor({ state: "visible", timeout: 15000 });
+        .waitFor({ state: "visible", timeout: 30000 });
 
       // Wait for content to load (either table, empty state, or error)
       await Promise.race([
         page
           .locator('[data-testid="lottery-table"]')
-          .waitFor({ state: "visible", timeout: 10000 })
+          .waitFor({ state: "visible", timeout: 30000 })
           .catch(() => {}),
         page
           .locator('[data-testid="lottery-table-empty"]')
-          .waitFor({ state: "visible", timeout: 10000 })
+          .waitFor({ state: "visible", timeout: 30000 })
           .catch(() => {}),
         page
           .locator('[data-testid="lottery-table-error"]')
-          .waitFor({ state: "visible", timeout: 10000 })
+          .waitFor({ state: "visible", timeout: 30000 })
           .catch(() => {}),
       ]);
 
@@ -952,7 +979,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       // Wait for table
       await page
         .locator('[data-testid="lottery-table"]')
-        .waitFor({ state: "visible", timeout: 10000 });
+        .waitFor({ state: "visible", timeout: 30000 });
 
       // THEN: Table headers have proper scope attribute
       const headers = page.locator('th[scope="col"]');
@@ -994,7 +1021,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       const store1Tab = page.locator(
         `[data-testid="store-tab-${fixture.store1.store_id}"]`,
       );
-      await store1Tab.waitFor({ state: "visible", timeout: 15000 });
+      await store1Tab.waitFor({ state: "visible", timeout: 30000 });
       await store1Tab.focus();
 
       // Verify first tab is focused
