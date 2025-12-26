@@ -127,7 +127,13 @@ async function navigateToLotteryPage(page: Page): Promise<void> {
   await packsResponsePromise;
 }
 
-test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
+// CRITICAL: Configure this describe block to run in a SINGLE worker
+// This ensures beforeAll runs once and all tests share the same fixtures.
+// Without this, parallel workers would each run beforeAll separately,
+// but the user created by one worker wouldn't exist for another worker.
+test.describe.configure({ mode: "serial" });
+
+test.describe("6.10-E2E: Lottery Management Flow", () => {
   let prisma: PrismaClient;
   let storeManager: { user_id: string; email: string };
   let company: { company_id: string };
