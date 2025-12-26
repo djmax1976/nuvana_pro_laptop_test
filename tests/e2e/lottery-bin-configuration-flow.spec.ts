@@ -30,93 +30,84 @@ import {
 import { createLotteryGame } from "../support/factories/lottery.factory";
 
 /**
- * Helper function to perform login and wait for redirect to client dashboard.
- * Uses simplified, reliable pattern for CI/CD environments.
- * Follows the proven pattern from lottery-management-flow.spec.ts.
+ * Network-first login helper that waits for actual API response.
  *
- * @param page - Playwright Page object
- * @param email - User email for login
- * @param password - User password for login
- * @throws Error if login fails or redirect doesn't occur
+ * Flow:
+ * 1. Navigate to login page
+ * 2. Wait for form to be interactive (React hydration complete)
+ * 3. Fill credentials and submit
+ * 4. Wait for login API response (deterministic)
+ * 5. Wait for redirect to complete
+ *
+ * @throws Error with descriptive message if login fails
  */
 async function loginAsClientOwner(
   page: Page,
   email: string,
   password: string,
 ): Promise<void> {
-  // Navigate to login page and wait for it to load
+  // Navigate to login page
   await page.goto("/login", { waitUntil: "domcontentloaded" });
 
-  // Wait for login form to be visible and editable
+  // Wait for form elements to be ready
   const emailInput = page.locator('input[type="email"]');
   const passwordInput = page.locator('input[type="password"]');
   const submitButton = page.locator('button[type="submit"]');
 
-  await expect(emailInput).toBeVisible({ timeout: 30000 });
-  await expect(emailInput).toBeEditable({ timeout: 15000 });
+  // Wait for React hydration - form should be interactive
+  await expect(emailInput).toBeEditable({ timeout: 30000 });
 
-  // Wait for React hydration to complete
-  await page.waitForLoadState("load").catch(() => {});
+  // Wait for page to fully hydrate
+  await page.waitForLoadState("networkidle").catch(() => {});
 
-  // Fill credentials using Playwright's fill() which properly triggers React onChange
+  // Fill credentials with explicit click to focus
   await emailInput.click();
   await emailInput.fill(email);
-
   await passwordInput.click();
   await passwordInput.fill(password);
 
-  // Verify fields were filled correctly
-  await expect(emailInput).toHaveValue(email, { timeout: 5000 });
-  await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
+  // Verify credentials were filled
+  await expect(emailInput).toHaveValue(email);
+  await expect(passwordInput).toHaveValue(password);
 
-  // Set up response promise to capture login response
-  const loginResponsePromise = page.waitForResponse(
-    (resp) => resp.url().includes("/api/auth/login"),
-    { timeout: 45000 },
-  );
+  // Use Promise.all to set up response listener and click simultaneously
+  const [loginResponse] = await Promise.all([
+    page.waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/auth/login") &&
+        resp.request().method() === "POST",
+      { timeout: 30000 },
+    ),
+    submitButton.click(),
+  ]);
 
-  // Click submit button
-  await submitButton.click();
-
-  // Wait for login API response
-  const loginResponse = await loginResponsePromise;
-  const responseStatus = loginResponse.status();
-
-  // Check if login was successful
-  if (responseStatus !== 200) {
-    const responseBody = await loginResponse.json().catch(() => ({}));
+  if (loginResponse.status() !== 200) {
+    const body = await loginResponse.json().catch(() => ({}));
     throw new Error(
-      `Login failed with status ${responseStatus}: ${responseBody.message || responseBody.error?.message || "Unknown error"}`,
+      `Login failed: ${body.message || body.error?.message || `HTTP ${loginResponse.status()}`}`,
     );
   }
 
-  // Wait for navigation to /client-dashboard
-  await page.waitForURL(/.*client-dashboard.*/, { timeout: 45000 });
-
-  // Wait for page to be fully loaded
-  await page.waitForLoadState("domcontentloaded");
+  // Wait for redirect to /client-dashboard
+  await page.waitForURL(/.*client-dashboard.*/, { timeout: 30000 });
 }
 
 /**
- * Helper function to wait for bin configuration page to fully load.
- * Handles multiple possible states: form loaded, no stores, or error.
+ * Network-first helper to wait for bin configuration page.
+ * Waits for API response before checking UI state.
  *
  * Implementation details:
- * - Settings page always has data-testid="lottery-bins-settings-page"
- * - BinConfigurationForm has data-testid="bin-configuration-form" when visible
- * - Default state shows 24 bins if no configuration exists (404 response)
- *
- * @param page - Playwright Page object
+ * - API: GET /api/lottery/bins/configuration/:storeId
+ * - Settings page: data-testid="lottery-bins-settings-page"
+ * - Form: data-testid="bin-configuration-form" when visible
  */
 async function waitForBinConfigurationPageLoaded(page: Page): Promise<void> {
-  // Wait for the settings page container (always present in all states)
-  // Increase timeout to 30s for CI environments
+  // Wait for the settings page container
   await page
     .locator('[data-testid="lottery-bins-settings-page"]')
     .waitFor({ state: "visible", timeout: 30000 });
 
   // Wait for either the form OR an empty/error state
-  // Increase timeout to 30s for CI environments
   await Promise.race([
     page
       .locator('[data-testid="bin-configuration-form"]')
@@ -130,11 +121,6 @@ async function waitForBinConfigurationPageLoaded(page: Page): Promise<void> {
   ]).catch(() => {
     // Continue - we'll handle the state in the test
   });
-
-  // Wait for network to settle - increase timeout for CI
-  await page
-    .waitForLoadState("networkidle", { timeout: 15000 })
-    .catch(() => {});
 }
 
 /**
@@ -500,7 +486,7 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
 
     // Wait for form to load with bins
     await expect(page.locator('[data-testid="bin-name-input-0"]')).toBeVisible({
-      timeout: 15000,
+      timeout: 30000,
     });
 
     // AND: I attempt to enter XSS payload in bin name

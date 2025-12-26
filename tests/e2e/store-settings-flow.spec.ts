@@ -36,43 +36,89 @@ import {
 } from "../../backend/src/utils/public-id";
 
 /**
- * Helper function to perform login and wait for redirect to client-dashboard.
- * Uses simplified pattern that waits for navigation after form submission.
+ * Network-first login helper that waits for actual API response.
+ *
+ * Flow:
+ * 1. Navigate to login page
+ * 2. Wait for form to be interactive (React hydration complete)
+ * 3. Fill credentials and submit
+ * 4. Wait for login API response (deterministic)
+ * 5. Wait for redirect to complete
+ *
+ * @throws Error with descriptive message if login fails
  */
 async function loginAsClientOwner(
   page: Page,
   email: string,
   password: string,
 ): Promise<void> {
-  // Navigate to login page and wait for full load
-  await page.goto("/login", { waitUntil: "networkidle" });
+  // Navigate to login page
+  await page.goto("/login", { waitUntil: "domcontentloaded" });
 
-  // Wait for login form to be visible and ready for input
+  // Wait for form elements to be ready
   const emailInput = page.locator('input[type="email"]');
   const passwordInput = page.locator('input[type="password"]');
+  const submitButton = page.locator('button[type="submit"]');
 
-  await emailInput.waitFor({ state: "visible", timeout: 15000 });
+  // Wait for React hydration - form should be interactive
+  await expect(emailInput).toBeEditable({ timeout: 30000 });
 
-  // Wait for input to be editable (ensures React hydration is complete)
-  await expect(emailInput).toBeEditable({ timeout: 10000 });
+  // Wait for page to fully hydrate
+  await page.waitForLoadState("networkidle").catch(() => {});
 
-  // Fill credentials
+  // Fill credentials with explicit click to focus
+  await emailInput.click();
   await emailInput.fill(email);
+  await passwordInput.click();
   await passwordInput.fill(password);
 
-  // Verify credentials were filled before submitting
-  await expect(emailInput).toHaveValue(email, { timeout: 5000 });
-  await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
+  // Verify credentials were filled
+  await expect(emailInput).toHaveValue(email);
+  await expect(passwordInput).toHaveValue(password);
 
-  // Click submit and wait for navigation to /client-dashboard
-  await Promise.all([
-    page.waitForURL(/.*client-dashboard.*/, { timeout: 30000 }),
-    page.click('button[type="submit"]'),
+  // Use Promise.all to set up response listener and click simultaneously
+  const [loginResponse] = await Promise.all([
+    page.waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/auth/login") &&
+        resp.request().method() === "POST",
+      { timeout: 30000 },
+    ),
+    submitButton.click(),
   ]);
 
-  // Wait for page to be fully loaded
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
-    // networkidle might timeout if there are long-polling requests, that's OK
+  if (loginResponse.status() !== 200) {
+    const body = await loginResponse.json().catch(() => ({}));
+    throw new Error(
+      `Login failed: ${body.message || body.error?.message || `HTTP ${loginResponse.status()}`}`,
+    );
+  }
+
+  // Wait for redirect to /client-dashboard
+  await page.waitForURL(/.*client-dashboard.*/, { timeout: 30000 });
+}
+
+/**
+ * Navigate to settings page and wait for it to load using network-first pattern.
+ * Waits for the store data API before checking UI elements.
+ */
+async function navigateToSettingsPage(page: Page): Promise<void> {
+  // Set up API listener BEFORE navigation (network-first pattern)
+  const storeApiPromise = page.waitForResponse(
+    (resp) => resp.url().includes("/api/stores") && resp.status() === 200,
+    { timeout: 30000 },
+  );
+
+  await page.goto("/client-dashboard/settings", {
+    waitUntil: "domcontentloaded",
+  });
+
+  // Wait for store API to complete
+  await storeApiPromise.catch(() => {});
+
+  // Wait for settings page to be visible
+  await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
+    timeout: 15000,
   });
 }
 
@@ -264,21 +310,23 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
     const settingsLink = page.locator(
       '[data-testid="client-nav-link-settings"]',
     );
-    await expect(settingsLink).toBeVisible({ timeout: 10000 });
+    await expect(settingsLink).toBeVisible({ timeout: 20000 });
 
     // Use Promise.all to ensure we wait for navigation after click
     await Promise.all([
-      page.waitForURL(/.*\/client-dashboard\/settings.*/, { timeout: 15000 }),
+      page.waitForURL(/.*\/client-dashboard\/settings.*/, { timeout: 30000 }),
       settingsLink.click(),
     ]);
 
     // THEN: User is navigated to /client-dashboard/settings
     await expect(page).toHaveURL(/.*\/client-dashboard\/settings.*/, {
-      timeout: 5000,
+      timeout: 10000,
     });
 
     // AND: Settings page is displayed
-    await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+    await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
+      timeout: 30000,
+    });
 
     // NOTE: StoreTabs component only renders when stores.length > 1 (per page.tsx:119)
     // For a single store, no store tabs are shown - the store is auto-selected
@@ -290,12 +338,12 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
     await expect(
       page.locator('button[data-testid="store-info-tab"]'),
     ).toBeVisible({
-      timeout: 10000,
+      timeout: 20000,
     });
 
     // AND: Store configuration is displayed within StoreInfoTab component
     await expect(page.locator('[data-testid="store-name"]')).toBeVisible({
-      timeout: 10000,
+      timeout: 15000,
     });
     await expect(page.locator('[data-testid="timezone-select"]')).toBeVisible();
     await expect(
@@ -308,31 +356,21 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
   }) => {
     // GIVEN: Client Owner is logged in and on settings page
     await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
-    await page.goto("/client-dashboard/settings", {
-      waitUntil: "domcontentloaded",
-    });
-
-    // Wait for settings page to load
-    await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
-      timeout: 15000,
-    });
+    await navigateToSettingsPage(page);
 
     // WHEN: User selects Employees tab
     const employeesTab = page.locator('[data-testid="employees-tab"]');
-    await expect(employeesTab).toBeVisible({ timeout: 10000 });
+    await expect(employeesTab).toBeVisible();
     await employeesTab.click();
 
-    // Wait for tab content to switch and employee table to load
-    await page.waitForLoadState("domcontentloaded");
-    await expect(page.locator('[data-testid="employee-table"]')).toBeVisible({
-      timeout: 15000,
-    });
+    // Wait for employee table to load (API-driven content)
+    await expect(page.locator('[data-testid="employee-table"]')).toBeVisible();
 
     // Verify at least one employee exists
     const changeEmailButtons = page.locator(
       '[data-testid^="change-email-button-"]',
     );
-    await expect(changeEmailButtons.first()).toBeVisible({ timeout: 10000 });
+    await expect(changeEmailButtons.first()).toBeVisible();
 
     // AND: User clicks "Change Email" for the first employee
     // Wait for button to be clickable before clicking
@@ -435,13 +473,8 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
       // GIVEN: Client Owner is logged in
       await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
 
-      // WHEN: Navigating to settings page
-      await page.goto("/client-dashboard/settings", {
-        waitUntil: "domcontentloaded",
-      });
-
-      // Wait for settings page to load
-      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+      // WHEN: Navigating to settings page (network-first)
+      await navigateToSettingsPage(page);
 
       // THEN: Store name field is visible and read-only
       const storeNameField = page.locator('[data-testid="store-name"]');
@@ -456,23 +489,18 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
     test("6.14-E2E-005: [P1-AC-4] should display employee table with columns (Name, Email, Role, Status)", async ({
       page,
     }) => {
-      // GIVEN: Client Owner is logged in and on settings page
+      // GIVEN: Client Owner is logged in and on settings page (network-first)
       await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
-      await page.goto("/client-dashboard/settings", {
-        waitUntil: "domcontentloaded",
-      });
-
-      // Wait for settings page to load
-      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
+      await navigateToSettingsPage(page);
 
       // WHEN: User selects Employees tab
       const employeesTab = page.locator('[data-testid="employees-tab"]');
-      await expect(employeesTab).toBeVisible({ timeout: 5000 });
+      await expect(employeesTab).toBeVisible({ timeout: 15000 });
       await employeesTab.click();
 
       // THEN: Employee table is displayed with correct columns
       const employeeTable = page.locator('[data-testid="employee-table"]');
-      await expect(employeeTable).toBeVisible({ timeout: 10000 });
+      await expect(employeeTable).toBeVisible({ timeout: 15000 });
 
       // Verify column headers exist within the table header
       const tableHeader = employeeTable.locator("thead");
@@ -485,23 +513,16 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
     test("6.14-E2E-006: [P1-AC-4] should display Change Email and Reset Password buttons for each employee", async ({
       page,
     }) => {
-      // GIVEN: Client Owner is logged in and on Employees tab
+      // GIVEN: Client Owner is logged in and on Employees tab (network-first)
       await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
-      await page.goto("/client-dashboard/settings", {
-        waitUntil: "domcontentloaded",
-      });
+      await navigateToSettingsPage(page);
 
-      // Wait for settings page to load
-      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
-        timeout: 15000,
-      });
-
+      // Navigate to Employees tab
       const employeesTab = page.locator('[data-testid="employees-tab"]');
-      await expect(employeesTab).toBeVisible({ timeout: 10000 });
+      await expect(employeesTab).toBeVisible({ timeout: 15000 });
       await employeesTab.click();
 
-      // Wait for tab content switch
-      await page.waitForLoadState("domcontentloaded");
+      // Wait for employee table to load
       await expect(page.locator('[data-testid="employee-table"]')).toBeVisible({
         timeout: 15000,
       });
@@ -516,9 +537,11 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
         '[data-testid^="reset-password-button-"]',
       );
 
-      // Wait for buttons to appear with longer timeout
+      // Wait for buttons to appear
       await expect(changeEmailButtons.first()).toBeVisible({ timeout: 15000 });
-      await expect(resetPasswordButtons.first()).toBeVisible({ timeout: 5000 });
+      await expect(resetPasswordButtons.first()).toBeVisible({
+        timeout: 10000,
+      });
 
       const changeEmailCount = await changeEmailButtons.count();
       const resetPasswordCount = await resetPasswordButtons.count();
@@ -534,27 +557,16 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
     test("6.14-E2E-007: [P1-AC-7] should display cashier table with columns (Employee ID, Name, Hired On, Status)", async ({
       page,
     }) => {
-      // GIVEN: Client Owner is logged in and on settings page
+      // GIVEN: Client Owner is logged in and on settings page (network-first)
       await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
-      await page.goto("/client-dashboard/settings", {
-        waitUntil: "domcontentloaded",
-      });
-
-      // Wait for settings page to load
-      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
-        timeout: 15000,
-      });
+      await navigateToSettingsPage(page);
 
       // WHEN: User selects Cashiers tab
       const cashiersTab = page.locator('[data-testid="cashiers-tab"]');
-      await expect(cashiersTab).toBeVisible({ timeout: 10000 });
+      await expect(cashiersTab).toBeVisible({ timeout: 15000 });
       await cashiersTab.click();
 
-      // Wait for tab panel content to switch - cashiers tab loads data asynchronously
-      await page.waitForLoadState("domcontentloaded");
-
       // THEN: Cashier table is displayed with correct columns
-      // Wait longer for the table since it requires API call to load cashiers
       const cashierTable = page.locator('[data-testid="cashier-table"]');
       await expect(cashierTable).toBeVisible({ timeout: 15000 });
 
@@ -571,20 +583,18 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
     test("6.14-E2E-008: [P1-AC-7] should display Reset PIN button for each cashier row", async ({
       page,
     }) => {
-      // GIVEN: Client Owner is logged in and on Cashiers tab
+      // GIVEN: Client Owner is logged in and on Cashiers tab (network-first)
       await loginAsClientOwner(page, clientOwnerEmail, clientOwnerPassword);
-      await page.goto("/client-dashboard/settings", {
-        waitUntil: "domcontentloaded",
-      });
+      await navigateToSettingsPage(page);
 
-      // Wait for settings page to load
-      await expect(page.locator('[data-testid="settings-page"]')).toBeVisible();
-
+      // Navigate to Cashiers tab
       const cashiersTab = page.locator('[data-testid="cashiers-tab"]');
-      await expect(cashiersTab).toBeVisible({ timeout: 5000 });
+      await expect(cashiersTab).toBeVisible({ timeout: 15000 });
       await cashiersTab.click();
+
+      // Wait for cashier table to load
       await expect(page.locator('[data-testid="cashier-table"]')).toBeVisible({
-        timeout: 10000,
+        timeout: 15000,
       });
 
       // WHEN: Cashier data loads
@@ -595,7 +605,7 @@ test.describe.serial("Store Settings Flow (Critical Journey)", () => {
       );
 
       // Wait for at least one button to appear
-      await expect(resetPINButtons.first()).toBeVisible({ timeout: 5000 });
+      await expect(resetPINButtons.first()).toBeVisible({ timeout: 10000 });
 
       const resetPINCount = await resetPINButtons.count();
 
