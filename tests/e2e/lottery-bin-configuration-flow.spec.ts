@@ -259,6 +259,30 @@ async function loginAsClientOwner(
 
   // Wait for redirect to /client-dashboard
   await page.waitForURL(/.*client-dashboard.*/, { timeout: 45000 });
+
+  // CRITICAL: Wait for authenticated content to render before returning
+  // This ensures the React auth context is fully populated before navigating
+  // to other pages. Without this, navigation to subpages may fail because
+  // the auth context hasn't initialized yet.
+  await page
+    .locator('[data-testid="client-dashboard-page"]')
+    .waitFor({ state: "visible", timeout: 30000 });
+
+  // Wait for dashboard API call to complete (provides stores/user data)
+  await page
+    .waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/client/dashboard") && resp.status() === 200,
+      { timeout: 30000 },
+    )
+    .catch(() => {
+      // API might already have completed before we started listening
+    });
+
+  // Wait for network idle to ensure all React context updates are complete
+  await page
+    .waitForLoadState("networkidle", { timeout: 15000 })
+    .catch(() => {});
 }
 
 /**
