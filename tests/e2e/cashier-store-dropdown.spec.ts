@@ -137,7 +137,26 @@ async function performLogin(
     timeout: 15000,
   });
 
-  // Wait for page to be fully loaded (including auth context validation)
+  // CRITICAL: Wait for authenticated content to render before returning
+  // This ensures the React auth context is fully populated before navigating
+  // to other pages. Without this, navigation to subpages may fail because
+  // the auth context hasn't initialized yet.
+  await page
+    .locator('[data-testid="client-dashboard-page"]')
+    .waitFor({ state: "visible", timeout: 30000 });
+
+  // Wait for dashboard API call to complete (provides stores/user data)
+  await page
+    .waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/client/dashboard") && resp.status() === 200,
+      { timeout: 30000 },
+    )
+    .catch(() => {
+      // API might already have completed before we started listening
+    });
+
+  // Wait for network idle to ensure all React context updates are complete
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
     // networkidle might timeout if there are long-polling requests, that's OK
   });
@@ -151,21 +170,15 @@ async function performLogin(
  * @throws Error with descriptive message if page fails to load
  */
 async function navigateToCashiersAndOpenDialog(page: Page): Promise<void> {
-  // Set up API listener BEFORE navigation (network-first pattern)
-  // The CashierList component fetches from /api/client/dashboard on mount
-  const dashboardResponsePromise = page.waitForResponse(
-    (resp) =>
-      resp.url().includes("/api/client/dashboard") && resp.status() === 200,
-    { timeout: 30000 },
-  );
-
   // Navigate to cashiers page
   await page.goto("/client-dashboard/cashiers", {
     waitUntil: "domcontentloaded",
   });
 
-  // Wait for dashboard API to complete (this populates stores list)
-  await dashboardResponsePromise;
+  // Wait for network idle to ensure API calls complete
+  await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {
+    // networkidle might timeout if there are long-polling requests
+  });
 
   // Wait for the page to render based on API data
   // The CashierList component shows a skeleton during loading, then either:
