@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 /**
- * Next.js Middleware - Server-Side Authentication Gate
+ * Next.js Middleware - Server-Side Authentication Gate & Security Headers
  *
  * This middleware runs on EVERY request before any page loads.
  * It enforces authentication at the edge/server level, preventing
  * unauthorized users from accessing any protected content.
  *
  * Key Features:
+ * - Runtime CSP headers (reads env vars at request time, not build time)
  * - Blocks ALL routes except explicit public paths
  * - Validates JWT access token from cookies
  * - Redirects unauthenticated users to /login
@@ -16,6 +17,99 @@ import type { NextRequest } from "next/server";
  *
  * @see https://nextjs.org/docs/app/building-your-application/routing/middleware
  */
+
+/**
+ * Generate Content Security Policy header at runtime
+ *
+ * CRITICAL: This MUST be in middleware, not next.config.js
+ * next.config.js headers() evaluates at BUILD TIME, not runtime.
+ * Environment variables would be baked in during the Docker build,
+ * which breaks deployments where backend URL isn't known at build time.
+ */
+function generateCSP(): string {
+  // Read backend URL at RUNTIME (every request), not build time
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+
+  // Build connect-src dynamically
+  const connectSources = [
+    "'self'",
+    backendUrl,
+    apiUrl,
+    "https://fonts.googleapis.com",
+    "https://fonts.gstatic.com",
+  ]
+    .filter(Boolean) // Remove empty strings
+    .join(" ");
+
+  return [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' data: blob: https:",
+    `connect-src ${connectSources}`,
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "upgrade-insecure-requests",
+  ].join("; ");
+}
+
+/**
+ * Apply security headers to a response
+ *
+ * Implements OWASP security best practices:
+ * - SEC-009: HEADERS - HSTS, X-Content-Type-Options, X-Frame-Options, CSP
+ * - FE-004: CSP - Content Security Policy for XSS prevention
+ * - SEC-004: XSS - Output encoding and CSP enforcement
+ */
+function applySecurityHeaders(response: NextResponse): NextResponse {
+  // Content Security Policy - Primary XSS defense (RUNTIME)
+  response.headers.set("Content-Security-Policy", generateCSP());
+
+  // Strict Transport Security - Force HTTPS for 1 year
+  response.headers.set(
+    "Strict-Transport-Security",
+    "max-age=31536000; includeSubDomains; preload",
+  );
+
+  // Prevent MIME type sniffing attacks
+  response.headers.set("X-Content-Type-Options", "nosniff");
+
+  // Prevent clickjacking attacks
+  response.headers.set("X-Frame-Options", "DENY");
+
+  // Control referrer information leakage
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+
+  // Disable browser features not needed
+  response.headers.set(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+  );
+
+  // Prevent cross-origin isolation attacks
+  response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+
+  // Prevent cross-origin embedding
+  response.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+
+  // Cross-Origin Resource Policy
+  response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
+
+  // Legacy XSS filter (for older browsers)
+  response.headers.set("X-XSS-Protection", "1; mode=block");
+
+  // Prevent DNS prefetch to external domains
+  response.headers.set("X-DNS-Prefetch-Control", "off");
+
+  // Prevent Adobe Flash and PDF embedding
+  response.headers.set("X-Permitted-Cross-Domain-Policies", "none");
+
+  return response;
+}
 
 // Routes that don't require authentication
 const PUBLIC_ROUTES = [
@@ -171,9 +265,10 @@ function hasValidToken(request: NextRequest): boolean {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 1. Bypass static assets and system paths
+  // 1. Bypass static assets and system paths (but still apply security headers)
   if (shouldBypass(pathname)) {
-    return NextResponse.next();
+    const response = NextResponse.next();
+    return applySecurityHeaders(response);
   }
 
   // 2. Allow public routes
@@ -182,15 +277,18 @@ export function middleware(request: NextRequest) {
     if (pathname === "/login" && hasValidToken(request)) {
       // Let the login page handle the redirect based on user role
       // (client-side will check role and redirect appropriately)
-      return NextResponse.next();
+      const response = NextResponse.next();
+      return applySecurityHeaders(response);
     }
-    return NextResponse.next();
+    const response = NextResponse.next();
+    return applySecurityHeaders(response);
   }
 
   // 3. For client-auth routes, allow through - client-side AuthContext handles auth
   // This is needed for cross-origin deployments where cookies are on a different domain
   if (isClientAuthRoute(pathname)) {
-    return NextResponse.next();
+    const response = NextResponse.next();
+    return applySecurityHeaders(response);
   }
 
   // 4. Check authentication for all other routes
@@ -199,11 +297,13 @@ export function middleware(request: NextRequest) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("returnUrl", pathname);
 
-    return NextResponse.redirect(loginUrl);
+    const response = NextResponse.redirect(loginUrl);
+    return applySecurityHeaders(response);
   }
 
-  // 4. User is authenticated, allow access
-  return NextResponse.next();
+  // 5. User is authenticated, allow access
+  const response = NextResponse.next();
+  return applySecurityHeaders(response);
 }
 
 /**
