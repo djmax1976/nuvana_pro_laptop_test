@@ -12,11 +12,25 @@
  * @story 6-13 - Lottery Database Enhancements & Bin Management
  * @priority P1 (High - Core User Journey)
  *
+ * Architecture: Each test is fully isolated with its own test data to prevent
+ * cascade failures and enable parallel execution in CI/CD pipelines.
+ *
  * Implementation References:
  * - Settings Page: src/app/(client-dashboard)/client-dashboard/settings/lottery-bins/page.tsx
  * - BinConfigurationForm: src/components/lottery/BinConfigurationForm.tsx
+ *   - data-testid="bin-configuration-form" - main form container
+ *   - data-testid="add-bin-button" - add new bin button
+ *   - data-testid="save-configuration-button" - save configuration button
+ *   - data-testid="bin-name-input-{index}" - bin name inputs
+ *   - data-testid="bin-location-input-{index}" - bin location inputs
+ *   - data-testid="bin-move-up-{index}" / "bin-move-down-{index}" - reorder buttons
+ *   - data-testid="bin-remove-{index}" - remove bin buttons
  * - BinListDisplay: src/components/lottery/BinListDisplay.tsx
- * - API Routes: backend/src/routes/lottery.ts (lines 3795-4582)
+ *   - data-testid="bin-list-table" - table display
+ *   - data-testid="bin-list-empty" - empty state
+ * - API Routes: backend/src/routes/lottery.ts
+ *   - GET/POST/PUT /api/lottery/bins/configuration/:storeId
+ *   - GET /api/lottery/bins/:storeId
  */
 
 import { test, expect, Page } from "@playwright/test";
@@ -27,96 +41,275 @@ import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../backend/src/utils/public-id";
-import { createLotteryGame } from "../support/factories/lottery.factory";
+
+// ============================================================================
+// TEST FIXTURE INTERFACE
+// ============================================================================
+
+interface TestFixtureData {
+  prisma: PrismaClient;
+  clientOwner: {
+    user_id: string;
+    email: string;
+    name: string;
+  };
+  company: {
+    company_id: string;
+    name: string;
+  };
+  store: {
+    store_id: string;
+    name: string;
+  };
+  password: string;
+}
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
 
 /**
- * Helper function to perform login and wait for redirect to client dashboard.
- * Uses simplified, reliable pattern for CI/CD environments.
- * Follows the proven pattern from lottery-management-flow.spec.ts.
+ * Creates isolated test data for a single test.
+ * Each test gets its own user, company, store to ensure complete isolation.
  *
- * @param page - Playwright Page object
- * @param email - User email for login
- * @param password - User password for login
- * @throws Error if login fails or redirect doesn't occur
+ * @param testId - Unique identifier for this test's data (e.g., "001", "sec-001")
+ * @returns TestFixtureData with all created entities
+ */
+async function createTestFixture(testId: string): Promise<TestFixtureData> {
+  // Add random delay (0-3s) to prevent thundering herd when tests run in parallel
+  // With 4 workers running 199 tests, we need more spread to avoid database and
+  // Next.js server contention in CI environments
+  const staggerDelay = Math.floor(Math.random() * 3000);
+  await new Promise((resolve) => setTimeout(resolve, staggerDelay));
+
+  const prisma = new PrismaClient();
+  await prisma.$connect();
+
+  const password = "TestPassword123!";
+  const passwordHash = await bcrypt.hash(password, 10);
+  const timestamp = Date.now();
+  const userId = uuidv4();
+  const companyId = uuidv4();
+  const storeId = uuidv4();
+
+  // Create test user
+  const clientOwner = await prisma.user.create({
+    data: {
+      user_id: userId,
+      email: `e2e-bin-${testId}-${timestamp}@test.com`,
+      name: `E2E Bin ${testId} Owner`,
+      status: "ACTIVE",
+      password_hash: passwordHash,
+      public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+      is_client_user: true,
+    },
+  });
+
+  // Create company
+  const company = await prisma.company.create({
+    data: {
+      company_id: companyId,
+      public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
+      name: `E2E Bin ${testId} Company`,
+      address: `123 Bin ${testId} Street`,
+      status: "ACTIVE",
+      owner_user_id: clientOwner.user_id,
+    },
+  });
+
+  // Create store
+  const store = await prisma.store.create({
+    data: {
+      store_id: storeId,
+      public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
+      company_id: company.company_id,
+      name: `E2E Bin ${testId} Store`,
+      location_json: { address: `456 Bin ${testId} Avenue` },
+      status: "ACTIVE",
+    },
+  });
+
+  // Assign CLIENT_OWNER role
+  const clientOwnerRole = await prisma.role.findUnique({
+    where: { code: "CLIENT_OWNER" },
+  });
+
+  if (clientOwnerRole) {
+    await prisma.userRole.create({
+      data: {
+        user_id: clientOwner.user_id,
+        role_id: clientOwnerRole.role_id,
+        company_id: company.company_id,
+      },
+    });
+  }
+
+  return {
+    prisma,
+    clientOwner: {
+      user_id: clientOwner.user_id,
+      email: clientOwner.email,
+      name: clientOwner.name || "",
+    },
+    company: {
+      company_id: company.company_id,
+      name: company.name,
+    },
+    store: {
+      store_id: store.store_id,
+      name: store.name,
+    },
+    password,
+  };
+}
+
+/**
+ * Cleans up test fixture data.
+ * Removes all entities created by createTestFixture in reverse order.
+ */
+async function cleanupTestFixture(fixture: TestFixtureData): Promise<void> {
+  const { prisma, clientOwner, company, store } = fixture;
+
+  try {
+    // Delete in reverse order of creation
+    await prisma.lotteryBinConfiguration
+      .deleteMany({ where: { store_id: store.store_id } })
+      .catch(() => {});
+    await prisma.lotteryBin
+      .deleteMany({ where: { store_id: store.store_id } })
+      .catch(() => {});
+    await prisma.userRole
+      .deleteMany({ where: { user_id: clientOwner.user_id } })
+      .catch(() => {});
+    await prisma.auditLog
+      .deleteMany({ where: { user_id: clientOwner.user_id } })
+      .catch(() => {});
+    await prisma.store
+      .delete({ where: { store_id: store.store_id } })
+      .catch(() => {});
+    await prisma.company
+      .delete({ where: { company_id: company.company_id } })
+      .catch(() => {});
+    await prisma.user
+      .delete({ where: { user_id: clientOwner.user_id } })
+      .catch(() => {});
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/**
+ * Network-first login helper that waits for actual API response.
+ *
+ * Flow:
+ * 1. Navigate to login page
+ * 2. Wait for form to be interactive (React hydration complete)
+ * 3. Fill credentials and submit
+ * 4. Wait for login API response (deterministic)
+ * 5. Wait for redirect to complete
+ *
+ * @throws Error with descriptive message if login fails
  */
 async function loginAsClientOwner(
   page: Page,
   email: string,
   password: string,
 ): Promise<void> {
-  // Navigate to login page and wait for it to load
+  // Navigate to login page
   await page.goto("/login", { waitUntil: "domcontentloaded" });
 
-  // Wait for login form to be visible and editable
+  // Wait for form elements to be ready
   const emailInput = page.locator('input[type="email"]');
   const passwordInput = page.locator('input[type="password"]');
   const submitButton = page.locator('button[type="submit"]');
 
-  await expect(emailInput).toBeVisible({ timeout: 30000 });
-  await expect(emailInput).toBeEditable({ timeout: 15000 });
+  // Wait for React hydration - form should be interactive
+  await expect(emailInput).toBeEditable({ timeout: 30000 });
 
-  // Wait for React hydration to complete
-  await page.waitForLoadState("load").catch(() => {});
+  // Wait for page to fully hydrate
+  await page.waitForLoadState("networkidle").catch(() => {});
 
-  // Fill credentials using Playwright's fill() which properly triggers React onChange
+  // Fill credentials with explicit click to focus
   await emailInput.click();
   await emailInput.fill(email);
-
   await passwordInput.click();
   await passwordInput.fill(password);
 
-  // Verify fields were filled correctly
-  await expect(emailInput).toHaveValue(email, { timeout: 5000 });
-  await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
+  // Verify credentials were filled
+  await expect(emailInput).toHaveValue(email);
+  await expect(passwordInput).toHaveValue(password);
 
-  // Set up response promise to capture login response
-  const loginResponsePromise = page.waitForResponse(
-    (resp) => resp.url().includes("/api/auth/login"),
-    { timeout: 45000 },
-  );
+  // Use Promise.all to set up response listener and click simultaneously
+  const [loginResponse] = await Promise.all([
+    page.waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/auth/login") &&
+        resp.request().method() === "POST",
+      { timeout: 45000 },
+    ),
+    submitButton.click(),
+  ]);
 
-  // Click submit button
-  await submitButton.click();
-
-  // Wait for login API response
-  const loginResponse = await loginResponsePromise;
-  const responseStatus = loginResponse.status();
-
-  // Check if login was successful
-  if (responseStatus !== 200) {
-    const responseBody = await loginResponse.json().catch(() => ({}));
+  if (loginResponse.status() !== 200) {
+    const body = await loginResponse.json().catch(() => ({}));
     throw new Error(
-      `Login failed with status ${responseStatus}: ${responseBody.message || responseBody.error?.message || "Unknown error"}`,
+      `Login failed: ${body.message || body.error?.message || `HTTP ${loginResponse.status()}`}`,
     );
   }
 
-  // Wait for navigation to /client-dashboard
+  // Wait for redirect to /client-dashboard
   await page.waitForURL(/.*client-dashboard.*/, { timeout: 45000 });
 
-  // Wait for page to be fully loaded
-  await page.waitForLoadState("domcontentloaded");
+  // CRITICAL: Wait for authenticated content to render before returning
+  // This ensures the React auth context is fully populated before navigating
+  // to other pages. Without this, navigation to subpages may fail because
+  // the auth context hasn't initialized yet.
+  await page
+    .locator('[data-testid="client-dashboard-page"]')
+    .waitFor({ state: "visible", timeout: 30000 });
+
+  // Wait for dashboard API call to complete (provides stores/user data)
+  await page
+    .waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/client/dashboard") && resp.status() === 200,
+      { timeout: 30000 },
+    )
+    .catch(() => {
+      // API might already have completed before we started listening
+    });
+
+  // Wait for network idle to ensure all React context updates are complete
+  await page
+    .waitForLoadState("networkidle", { timeout: 15000 })
+    .catch(() => {});
 }
 
 /**
- * Helper function to wait for bin configuration page to fully load.
- * Handles multiple possible states: form loaded, no stores, or error.
+ * Network-first helper to wait for bin configuration page.
+ * Waits for dashboard API and page container to be visible.
  *
  * Implementation details:
- * - Settings page always has data-testid="lottery-bins-settings-page"
- * - BinConfigurationForm has data-testid="bin-configuration-form" when visible
- * - Default state shows 24 bins if no configuration exists (404 response)
- *
- * @param page - Playwright Page object
+ * - Page first calls GET /api/client/dashboard to get stores
+ * - Then renders lottery-bins-settings-page container
+ * - Form loads after stores are available
  */
 async function waitForBinConfigurationPageLoaded(page: Page): Promise<void> {
-  // Wait for the settings page container (always present in all states)
-  // Increase timeout to 30s for CI environments
+  // Wait for dashboard API call to complete (provides store list)
+  await page
+    .waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/client/dashboard") && resp.status() === 200,
+      { timeout: 30000 },
+    )
+    .catch(() => {});
+
+  // Wait for the settings page container
   await page
     .locator('[data-testid="lottery-bins-settings-page"]')
     .waitFor({ state: "visible", timeout: 30000 });
 
   // Wait for either the form OR an empty/error state
-  // Increase timeout to 30s for CI environments
   await Promise.race([
     page
       .locator('[data-testid="bin-configuration-form"]')
@@ -130,32 +323,28 @@ async function waitForBinConfigurationPageLoaded(page: Page): Promise<void> {
   ]).catch(() => {
     // Continue - we'll handle the state in the test
   });
-
-  // Wait for network to settle - increase timeout for CI
-  await page
-    .waitForLoadState("networkidle", { timeout: 15000 })
-    .catch(() => {});
 }
 
 /**
  * Helper function to wait for lottery page to fully load.
  * The lottery page has two tabs: Inventory and Configuration.
- *
- * Implementation details:
- * - Page container: data-testid="client-dashboard-lottery-page"
- * - Tabs: "Inventory" (default) and "Configuration" (bin display)
- * - BinListDisplay shows bins on Configuration tab
- *
- * @param page - Playwright Page object
  */
 async function waitForLotteryPageLoaded(page: Page): Promise<void> {
+  // Wait for dashboard API call to complete
+  await page
+    .waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/client/dashboard") && resp.status() === 200,
+      { timeout: 30000 },
+    )
+    .catch(() => {});
+
   // Wait for the lottery page container
-  // Increase timeout to 30s for CI environments
   await page
     .locator('[data-testid="client-dashboard-lottery-page"]')
     .waitFor({ state: "visible", timeout: 30000 });
 
-  // Wait for tabs to be visible - use text content selector for reliability
+  // Wait for tabs to be visible
   await expect(page.getByRole("tab", { name: "Inventory" })).toBeVisible({
     timeout: 15000,
   });
@@ -164,126 +353,14 @@ async function waitForLotteryPageLoaded(page: Page): Promise<void> {
   await page.waitForLoadState("domcontentloaded");
 }
 
-test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
-  let prisma: PrismaClient;
-  let clientOwner: any;
-  let company: any;
-  let store: any;
-  let game: any;
-  const password = "TestPassword123!";
+// ============================================================================
+// TEST SUITE
+// ============================================================================
 
-  test.beforeAll(async () => {
-    prisma = new PrismaClient();
-    await prisma.$connect();
-
-    // Create test client owner with company and store
-    const passwordHash = await bcrypt.hash(password, 10);
-    const userId = uuidv4();
-    const companyId = uuidv4();
-    const storeId = uuidv4();
-
-    clientOwner = await prisma.user.create({
-      data: {
-        user_id: userId,
-        email: `e2e-bin-config-${Date.now()}@test.com`,
-        name: "E2E Bin Config Owner",
-        status: "ACTIVE",
-        password_hash: passwordHash,
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-        is_client_user: true,
-      },
-    });
-
-    company = await prisma.company.create({
-      data: {
-        company_id: companyId,
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
-        name: "E2E Bin Config Company",
-        address: "123 Bin Config Street",
-        status: "ACTIVE",
-        owner_user_id: clientOwner.user_id,
-      },
-    });
-
-    store = await prisma.store.create({
-      data: {
-        store_id: storeId,
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
-        company_id: company.company_id,
-        name: "E2E Bin Config Store",
-        location_json: { address: "456 Bin Config Avenue" },
-        status: "ACTIVE",
-      },
-    });
-
-    // Assign CLIENT_OWNER role to the user for the company
-    const clientOwnerRole = await prisma.role.findUnique({
-      where: { code: "CLIENT_OWNER" },
-    });
-
-    if (clientOwnerRole) {
-      await prisma.userRole.create({
-        data: {
-          user_id: clientOwner.user_id,
-          role_id: clientOwnerRole.role_id,
-          company_id: company.company_id,
-        },
-      });
-    }
-
-    // Create lottery game with unique code to avoid conflicts
-    game = await createLotteryGame(prisma, {
-      name: "E2E Bin Config Test Game",
-      // Let factory generate unique game_code to avoid conflicts
-    });
-  });
-
-  test.afterAll(async () => {
-    // Cleanup in reverse order of creation
-    if (prisma) {
-      // Delete any bin configurations created during tests
-      await prisma.lotteryBinConfiguration
-        .deleteMany({ where: { store_id: store?.store_id } })
-        .catch(() => {});
-      // Delete lottery bins
-      await prisma.lotteryBin
-        .deleteMany({ where: { store_id: store?.store_id } })
-        .catch(() => {});
-      // Delete user roles first
-      await prisma.userRole
-        .deleteMany({ where: { user_id: clientOwner?.user_id } })
-        .catch(() => {});
-      // Delete audit logs
-      await prisma.auditLog
-        .deleteMany({ where: { user_id: clientOwner?.user_id } })
-        .catch(() => {});
-      // Delete lottery game
-      if (game) {
-        await prisma.lotteryGame
-          .delete({ where: { game_id: game.game_id } })
-          .catch(() => {});
-      }
-      // Delete store
-      if (store) {
-        await prisma.store
-          .delete({ where: { store_id: store.store_id } })
-          .catch(() => {});
-      }
-      // Delete company
-      if (company) {
-        await prisma.company
-          .delete({ where: { company_id: company.company_id } })
-          .catch(() => {});
-      }
-      // Delete user
-      if (clientOwner) {
-        await prisma.user
-          .delete({ where: { user_id: clientOwner.user_id } })
-          .catch(() => {});
-      }
-      await prisma.$disconnect();
-    }
-  });
+test.describe("6.13-E2E: Lottery Bin Configuration Flow", () => {
+  // ---------------------------------------------------------------------------
+  // CORE WORKFLOW TEST
+  // ---------------------------------------------------------------------------
 
   test("6.13-E2E-001: [P1] Client Owner can configure bins and view bin display (AC #1, #2)", async ({
     page,
@@ -297,157 +374,155 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
      * 5. Navigate to lottery page and view Configuration tab
      *
      * API Endpoints:
-     * - GET/POST/PUT /api/lottery/bins/configuration/:storeId
-     * - GET /api/lottery/bins/:storeId (for BinListDisplay)
+     * - GET /api/lottery/bins/configuration/:storeId - Fetch existing config
+     * - POST /api/lottery/bins/configuration/:storeId - Create new config
+     * - PUT /api/lottery/bins/configuration/:storeId - Update existing config
+     * - GET /api/lottery/bins/:storeId - Fetch bin list for display
      */
 
-    // GIVEN: I am authenticated as a Client Owner
-    await loginAsClientOwner(page, clientOwner.email, password);
+    // Create isolated test fixture
+    const fixture = await createTestFixture("001");
 
-    // WHEN: I navigate to bin configuration settings page
-    await page.goto("/client-dashboard/settings/lottery-bins", {
-      waitUntil: "domcontentloaded",
-    });
+    try {
+      // GIVEN: I am authenticated as a Client Owner
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
 
-    // Wait for the page to fully load
-    await waitForBinConfigurationPageLoaded(page);
+      // WHEN: I navigate to bin configuration settings page
+      await page.goto("/client-dashboard/settings/lottery-bins", {
+        waitUntil: "domcontentloaded",
+      });
 
-    // THEN: Bin configuration form should be displayed
-    const formVisible = await page
-      .locator('[data-testid="bin-configuration-form"]')
-      .isVisible()
-      .catch(() => false);
+      // Wait for the page to fully load
+      await waitForBinConfigurationPageLoaded(page);
 
-    if (!formVisible) {
-      // Check if we have an error or empty state
-      const noStores = await page.getByText(/no stores available/i).isVisible();
-      if (noStores) {
-        test.skip(true, "No stores available for bin configuration");
-        return;
+      // THEN: Bin configuration form should be displayed
+      const formVisible = await page
+        .locator('[data-testid="bin-configuration-form"]')
+        .isVisible()
+        .catch(() => false);
+
+      if (!formVisible) {
+        const noStores = await page
+          .getByText(/no stores available/i)
+          .isVisible();
+        if (noStores) {
+          test.skip(true, "No stores available for bin configuration");
+          return;
+        }
       }
-    }
 
-    // Wait for bin configuration form to load with bins
-    await page
-      .locator('[data-testid="bin-configuration-form"]')
-      .waitFor({ state: "visible", timeout: 30000 });
+      // Wait for bin configuration form to load with bins
+      await page
+        .locator('[data-testid="bin-configuration-form"]')
+        .waitFor({ state: "visible", timeout: 30000 });
 
-    // THEN: Add bin button should be visible (BinConfigurationForm.tsx line 329)
-    await expect(page.locator('[data-testid="add-bin-button"]')).toBeVisible({
-      timeout: 20000,
-    });
+      // THEN: Add bin button should be visible
+      await expect(page.locator('[data-testid="add-bin-button"]')).toBeVisible({
+        timeout: 20000,
+      });
 
-    // Wait for form to initialize with bins (default 24 bins per BinConfigurationForm.tsx line 86-91)
-    const firstBinNameInput = page.locator('[data-testid="bin-name-input-0"]');
-    await expect(firstBinNameInput).toBeVisible({ timeout: 25000 });
-    await expect(firstBinNameInput).toBeEditable({ timeout: 15000 });
+      // Wait for form to initialize with bins (default 24 bins when no config exists)
+      const firstBinNameInput = page.locator(
+        '[data-testid="bin-name-input-0"]',
+      );
+      await expect(firstBinNameInput).toBeVisible({ timeout: 25000 });
+      await expect(firstBinNameInput).toBeEditable({ timeout: 15000 });
 
-    // Change the name to something different to trigger hasChanges state
-    await firstBinNameInput.click();
-    await firstBinNameInput.clear();
-    await firstBinNameInput.fill("Main Counter Bin");
-    await expect(firstBinNameInput).toHaveValue("Main Counter Bin", {
-      timeout: 10000,
-    });
+      // Change the name to something different to trigger hasChanges state
+      await firstBinNameInput.click();
+      await firstBinNameInput.clear();
+      await firstBinNameInput.fill("Main Counter Bin");
+      await expect(firstBinNameInput).toHaveValue("Main Counter Bin", {
+        timeout: 10000,
+      });
 
-    // Fill location for first bin to make another change
-    const locationInput = page.locator('[data-testid="bin-location-input-0"]');
-    await expect(locationInput).toBeVisible({ timeout: 10000 });
-    await locationInput.click();
-    await locationInput.clear();
-    await locationInput.fill("Front Counter");
-    await expect(locationInput).toHaveValue("Front Counter", {
-      timeout: 10000,
-    });
+      // Fill location for first bin to make another change
+      const locationInput = page.locator(
+        '[data-testid="bin-location-input-0"]',
+      );
+      await expect(locationInput).toBeVisible({ timeout: 10000 });
+      await locationInput.click();
+      await locationInput.clear();
+      await locationInput.fill("Front Counter");
+      await expect(locationInput).toHaveValue("Front Counter", {
+        timeout: 10000,
+      });
 
-    // AND: I save the configuration (button should now be enabled after changes)
-    // Save button is disabled until hasChanges=true (BinConfigurationForm.tsx line 336)
-    const saveButton = page.locator(
-      '[data-testid="save-configuration-button"]',
-    );
-    await expect(saveButton).toBeEnabled({ timeout: 10000 });
+      // AND: I save the configuration
+      const saveButton = page.locator(
+        '[data-testid="save-configuration-button"]',
+      );
+      await expect(saveButton).toBeEnabled({ timeout: 10000 });
 
-    // Set up response promise before clicking
-    const saveResponsePromise = page.waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/lottery/bins/configuration/") &&
-        (resp.status() === 200 || resp.status() === 201),
-      { timeout: 30000 },
-    );
-    await saveButton.click();
-    await saveResponsePromise;
+      // Set up response promise before clicking - network-first pattern
+      const saveResponsePromise = page.waitForResponse(
+        (resp) =>
+          resp.url().includes("/api/lottery/bins/configuration/") &&
+          (resp.status() === 200 || resp.status() === 201),
+        { timeout: 30000 },
+      );
+      await saveButton.click();
+      await saveResponsePromise;
 
-    // THEN: Success message is displayed (toast notification from BinConfigurationForm.tsx line 130-133)
-    await expect(page.getByText("Configuration saved").first()).toBeVisible({
-      timeout: 20000,
-    });
+      // THEN: Success message is displayed (toast notification)
+      await expect(page.getByText("Configuration saved").first()).toBeVisible({
+        timeout: 20000,
+      });
 
-    // AND: Saved values persist on reload (validates API persistence)
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await waitForBinConfigurationPageLoaded(page);
-    await expect(firstBinNameInput).toHaveValue("Main Counter Bin", {
-      timeout: 15000,
-    });
-    await expect(locationInput).toHaveValue("Front Counter", {
-      timeout: 10000,
-    });
+      // AND: Saved values persist on reload
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await waitForBinConfigurationPageLoaded(page);
+      await expect(firstBinNameInput).toHaveValue("Main Counter Bin", {
+        timeout: 15000,
+      });
+      await expect(locationInput).toHaveValue("Front Counter", {
+        timeout: 10000,
+      });
 
-    // WHEN: I navigate to lottery page to view the bin display
-    await page.goto("/client-dashboard/lottery", {
-      waitUntil: "domcontentloaded",
-    });
+      // WHEN: I navigate to lottery page to view the bin display
+      await page.goto("/client-dashboard/lottery", {
+        waitUntil: "domcontentloaded",
+      });
 
-    // Wait for lottery page to load
-    await waitForLotteryPageLoaded(page);
+      // Wait for lottery page to load
+      await waitForLotteryPageLoaded(page);
 
-    // THEN: Lottery page is displayed
-    await expect(
-      page.locator('[data-testid="client-dashboard-lottery-page"]'),
-    ).toBeVisible({ timeout: 20000 });
+      // THEN: Lottery page is displayed
+      await expect(
+        page.locator('[data-testid="client-dashboard-lottery-page"]'),
+      ).toBeVisible({ timeout: 20000 });
 
-    // Click on the Configuration tab to view bin display (lottery/page.tsx line 140)
-    const configurationTab = page.getByRole("tab", { name: "Configuration" });
-    await expect(configurationTab).toBeVisible({ timeout: 15000 });
-    await configurationTab.click();
+      // Click on the Configuration tab to view bin display
+      const configurationTab = page.getByRole("tab", { name: "Configuration" });
+      await expect(configurationTab).toBeVisible({ timeout: 15000 });
+      await configurationTab.click();
 
-    // Wait for tab content to load - the configuration tab shows bin configuration
-    // Wait for either the bin configuration heading or loading state to resolve
-    await page.waitForLoadState("domcontentloaded");
+      // Wait for tab content to load
+      await page.waitForLoadState("domcontentloaded");
 
-    // Wait for either table, empty state, or the bin configuration section to appear
-    // BinListDisplay shows: bin-list-table, bin-list-empty, or loading state
-    // The Configuration tab also shows "Bin Configuration" heading
-    await Promise.race([
-      page
+      // Verify page structure is correct
+      const hasBinTable = await page
         .locator('[data-testid="bin-list-table"]')
-        .waitFor({ state: "visible", timeout: 20000 }),
-      page
+        .isVisible()
+        .catch(() => false);
+      const hasBinEmptyState = await page
         .locator('[data-testid="bin-list-empty"]')
-        .waitFor({ state: "visible", timeout: 20000 }),
-      page
+        .isVisible()
+        .catch(() => false);
+      const hasBinConfigHeading = await page
         .getByText("Bin Configuration")
-        .waitFor({ state: "visible", timeout: 20000 }),
-    ]).catch(() => {
-      // One of these should appear, but we'll verify below
-    });
+        .isVisible()
+        .catch(() => false);
 
-    // Verify page structure is correct - either table, empty state, or configuration heading visible
-    // Empty state is shown when no bins have packs assigned (BinListDisplay.tsx line 204-218)
-    const hasBinTable = await page
-      .locator('[data-testid="bin-list-table"]')
-      .isVisible()
-      .catch(() => false);
-    const hasBinEmptyState = await page
-      .locator('[data-testid="bin-list-empty"]')
-      .isVisible()
-      .catch(() => false);
-    const hasBinConfigHeading = await page
-      .getByText("Bin Configuration")
-      .isVisible()
-      .catch(() => false);
-
-    // Either state is valid - bin table (bins with packs), empty state (no packs), or config heading
-    expect(hasBinTable || hasBinEmptyState || hasBinConfigHeading).toBe(true);
+      // Either state is valid
+      expect(hasBinTable || hasBinEmptyState || hasBinConfigHeading).toBe(true);
+    } finally {
+      await cleanupTestFixture(fixture);
+    }
   });
 
   // ---------------------------------------------------------------------------
@@ -460,66 +535,77 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     /**
      * Security test: XSS Prevention in User Input Fields
      *
+     * OWASP Category: A7:2017 - Cross-Site Scripting (XSS)
+     *
      * This test verifies that:
      * 1. Script tags entered in input fields are NOT executed
-     * 2. Input values are properly escaped by React
+     * 2. Input values are properly escaped by React's automatic JSX escaping
      * 3. No JavaScript dialogs are triggered (alert/confirm/prompt)
-     *
-     * React Security: React automatically escapes all values embedded in JSX,
-     * converting special characters to their HTML entities (BinConfigurationForm.tsx)
+     * 4. Various XSS payload variants are properly handled
      */
 
-    // GIVEN: I am authenticated as a Client Owner
-    await loginAsClientOwner(page, clientOwner.email, password);
+    // Create isolated test fixture
+    const fixture = await createTestFixture("sec-001");
 
-    // Track any unexpected JavaScript execution via dialogs (e.g., alert())
-    let dialogTriggered = false;
-    page.on("dialog", async (dialog) => {
-      dialogTriggered = true;
-      await dialog.dismiss().catch(() => {});
-    });
+    try {
+      // GIVEN: I am authenticated as a Client Owner
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
 
-    // WHEN: I navigate to bin configuration page
-    await page.goto("/client-dashboard/settings/lottery-bins", {
-      waitUntil: "domcontentloaded",
-    });
+      // Track any unexpected JavaScript execution via dialogs
+      let dialogTriggered = false;
+      page.on("dialog", async (dialog) => {
+        dialogTriggered = true;
+        await dialog.dismiss().catch(() => {});
+      });
 
-    // Wait for the page to fully load
-    await waitForBinConfigurationPageLoaded(page);
+      // WHEN: I navigate to bin configuration page
+      await page.goto("/client-dashboard/settings/lottery-bins", {
+        waitUntil: "domcontentloaded",
+      });
 
-    // Skip if form is not visible (no stores)
-    const formVisible = await page
-      .locator('[data-testid="bin-configuration-form"]')
-      .isVisible()
-      .catch(() => false);
+      // Wait for the page to fully load
+      await waitForBinConfigurationPageLoaded(page);
 
-    if (!formVisible) {
-      test.skip(true, "Bin configuration form not available");
-      return;
+      // Skip if form is not visible (no stores)
+      const formVisible = await page
+        .locator('[data-testid="bin-configuration-form"]')
+        .isVisible()
+        .catch(() => false);
+
+      if (!formVisible) {
+        test.skip(true, "Bin configuration form not available");
+        return;
+      }
+
+      // Wait for form to load with bins
+      await expect(
+        page.locator('[data-testid="bin-name-input-0"]'),
+      ).toBeVisible({
+        timeout: 30000,
+      });
+
+      // AND: I attempt to enter XSS payload in bin name
+      const xssPayload = "<script>alert('xss')</script>";
+      const nameInput = page.locator('[data-testid="bin-name-input-0"]');
+      await nameInput.clear();
+      await nameInput.fill(xssPayload);
+
+      // THEN: XSS payload is displayed as text (not executed)
+      await expect(nameInput).toHaveValue(xssPayload);
+
+      // AND: No script execution occurs
+      const inputValue = await nameInput.inputValue();
+      expect(inputValue).toBe(xssPayload);
+
+      // Ensure no dialog was triggered by any script execution
+      expect(dialogTriggered).toBe(false);
+    } finally {
+      await cleanupTestFixture(fixture);
     }
-
-    // Wait for form to load with bins
-    await expect(page.locator('[data-testid="bin-name-input-0"]')).toBeVisible({
-      timeout: 15000,
-    });
-
-    // AND: I attempt to enter XSS payload in bin name
-    const xssPayload = "<script>alert('xss')</script>";
-    const nameInput = page.locator('[data-testid="bin-name-input-0"]');
-    await nameInput.clear();
-    await nameInput.fill(xssPayload);
-
-    // THEN: XSS payload is displayed as text (not executed)
-    await expect(nameInput).toHaveValue(xssPayload);
-
-    // AND: No script execution occurs
-    // React automatically escapes text content, preventing XSS
-    // The input value contains the payload as text, not as executable HTML
-    const inputValue = await nameInput.inputValue();
-    expect(inputValue).toBe(xssPayload);
-
-    // Ensure no dialog was triggered by any script execution
-    expect(dialogTriggered).toBe(false);
   });
 
   // ---------------------------------------------------------------------------
@@ -532,62 +618,70 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     /**
      * Edge case test: Client-side Validation Error Handling
      *
-     * Tests the validation logic in BinConfigurationForm.tsx (lines 145-173):
-     * - validateBins() checks: bin count (1-200), unique display orders, non-empty names
-     * - Error message: "All bins must have a name" (line 167)
-     *
-     * This test verifies:
-     * 1. Save button remains enabled when changes are made (hasChanges=true)
-     * 2. Client-side validation catches empty bin names before API call
-     * 3. Toast notification displays appropriate validation error
+     * Tests the validateBins() function in BinConfigurationForm.tsx:
+     * - Validates bin count (1-200 bins allowed)
+     * - Validates unique display orders
+     * - Validates non-empty names - Error: "All bins must have a name"
      */
 
-    // GIVEN: I am authenticated as a Client Owner
-    await loginAsClientOwner(page, clientOwner.email, password);
+    // Create isolated test fixture
+    const fixture = await createTestFixture("edge-001");
 
-    // WHEN: I navigate to bin configuration page
-    await page.goto("/client-dashboard/settings/lottery-bins", {
-      waitUntil: "domcontentloaded",
-    });
+    try {
+      // GIVEN: I am authenticated as a Client Owner
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
 
-    // Wait for the page to fully load
-    await waitForBinConfigurationPageLoaded(page);
+      // WHEN: I navigate to bin configuration page
+      await page.goto("/client-dashboard/settings/lottery-bins", {
+        waitUntil: "domcontentloaded",
+      });
 
-    // Skip if form is not visible (no stores)
-    const formVisible = await page
-      .locator('[data-testid="bin-configuration-form"]')
-      .isVisible()
-      .catch(() => false);
+      // Wait for the page to fully load
+      await waitForBinConfigurationPageLoaded(page);
 
-    if (!formVisible) {
-      test.skip(true, "Bin configuration form not available");
-      return;
+      // Skip if form is not visible (no stores)
+      const formVisible = await page
+        .locator('[data-testid="bin-configuration-form"]')
+        .isVisible()
+        .catch(() => false);
+
+      if (!formVisible) {
+        test.skip(true, "Bin configuration form not available");
+        return;
+      }
+
+      // Wait for form to load with bins
+      await expect(
+        page.locator('[data-testid="bin-name-input-0"]'),
+      ).toBeVisible({
+        timeout: 30000,
+      });
+
+      // AND: I clear the first bin name (make it empty to trigger validation)
+      const nameInput = page.locator('[data-testid="bin-name-input-0"]');
+      await nameInput.clear();
+      await nameInput.fill(""); // Ensure it's empty
+
+      // AND: I attempt to save with empty required field
+      const saveButton = page.locator(
+        '[data-testid="save-configuration-button"]',
+      );
+
+      // The save button should be enabled (hasChanges is true after clearing)
+      await expect(saveButton).toBeEnabled({ timeout: 5000 });
+      await saveButton.click();
+
+      // THEN: Validation error is displayed (toast notification)
+      await expect(
+        page.getByText("All bins must have a name").first(),
+      ).toBeVisible({ timeout: 10000 });
+    } finally {
+      await cleanupTestFixture(fixture);
     }
-
-    // Wait for form to load with bins
-    await expect(page.locator('[data-testid="bin-name-input-0"]')).toBeVisible({
-      timeout: 30000,
-    });
-
-    // AND: I clear the first bin name (make it empty to trigger validation)
-    const nameInput = page.locator('[data-testid="bin-name-input-0"]');
-    await nameInput.clear();
-    await nameInput.fill(""); // Ensure it's empty
-
-    // AND: I attempt to save with empty required field
-    const saveButton = page.locator(
-      '[data-testid="save-configuration-button"]',
-    );
-
-    // The save button should be enabled (hasChanges is true after clearing)
-    await expect(saveButton).toBeEnabled({ timeout: 5000 });
-    await saveButton.click();
-
-    // THEN: Validation error is displayed (toast notification)
-    // The BinConfigurationForm shows "All bins must have a name" for empty names (line 167)
-    await expect(
-      page.getByText("All bins must have a name").first(),
-    ).toBeVisible({ timeout: 10000 });
   });
 
   test("6.13-E2E-EDGE-002: [P1] Should handle network errors gracefully", async ({
@@ -596,91 +690,75 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
     /**
      * Edge case test: Network Error Handling
      *
-     * Tests error handling in BinConfigurationForm.tsx (lines 302-310):
-     * - Error state shown when API returns non-404 error
+     * Tests error handling in BinConfigurationForm.tsx:
+     * - isConfigError state triggers error UI when API returns non-404 error
      * - Component shows "Failed to load bin configuration" message
-     *
-     * Uses Playwright route interception to simulate server 500 error
-     * Verifies graceful degradation with user-friendly error message
      */
 
-    // GIVEN: I am authenticated as a Client Owner
-    await loginAsClientOwner(page, clientOwner.email, password);
+    // Create isolated test fixture
+    const fixture = await createTestFixture("edge-002");
 
-    // Set up route interception to simulate network error
-    // Intercept the bin configuration API call (GET /api/lottery/bins/configuration/:storeId)
-    await page.route("**/api/lottery/bins/configuration/*", (route) => {
-      route.fulfill({
-        status: 500,
-        contentType: "application/json",
-        body: JSON.stringify({
-          success: false,
-          error: { code: "INTERNAL_ERROR", message: "Server error" },
-        }),
+    try {
+      // GIVEN: I am authenticated as a Client Owner
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
+
+      // Set up route interception to simulate network error
+      await page.route("**/api/lottery/bins/configuration/*", (route) => {
+        route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({
+            success: false,
+            error: { code: "INTERNAL_ERROR", message: "Server error" },
+          }),
+        });
       });
-    });
 
-    // WHEN: I navigate to bin configuration page with network error
-    await page.goto("/client-dashboard/settings/lottery-bins", {
-      waitUntil: "domcontentloaded",
-    });
-
-    // If auth session was cleared during navigation, re-authenticate once
-    const navigatedToLogin = await Promise.race([
-      page
-        .locator('[data-testid="lottery-bins-settings-page"]')
-        .waitFor({ state: "visible", timeout: 5000 })
-        .then(() => false)
-        .catch(() => false),
-      page
-        .getByRole("heading", { name: "Welcome back" })
-        .waitFor({ state: "visible", timeout: 5000 })
-        .then(() => true)
-        .catch(() => false),
-    ]);
-
-    if (navigatedToLogin) {
-      await loginAsClientOwner(page, clientOwner.email, password);
+      // WHEN: I navigate to bin configuration page with network error
       await page.goto("/client-dashboard/settings/lottery-bins", {
         waitUntil: "domcontentloaded",
       });
+
+      // Wait for the settings page container to load
+      await page
+        .locator('[data-testid="lottery-bins-settings-page"]')
+        .waitFor({ state: "visible", timeout: 30000 });
+
+      // Wait for network to settle
+      await page
+        .waitForLoadState("networkidle", { timeout: 10000 })
+        .catch(() => {});
+
+      // THEN: Error message is displayed
+      const hasErrorMessage = await Promise.race([
+        page
+          .getByText(/failed to load/i)
+          .first()
+          .waitFor({ state: "visible", timeout: 10000 })
+          .then(() => true)
+          .catch(() => false),
+        page
+          .getByText(/error/i)
+          .first()
+          .waitFor({ state: "visible", timeout: 10000 })
+          .then(() => true)
+          .catch(() => false),
+        page
+          .locator(".text-destructive")
+          .first()
+          .waitFor({ state: "visible", timeout: 10000 })
+          .then(() => true)
+          .catch(() => false),
+      ]);
+
+      expect(hasErrorMessage).toBe(true);
+    } finally {
+      await cleanupTestFixture(fixture);
     }
-
-    // Wait for the settings page container to load
-    await page
-      .locator('[data-testid="lottery-bins-settings-page"]')
-      .waitFor({ state: "visible", timeout: 15000 });
-
-    // Wait for network to settle
-    await page
-      .waitForLoadState("networkidle", { timeout: 10000 })
-      .catch(() => {});
-
-    // THEN: Error message is displayed
-    // The BinConfigurationForm shows error for non-404 errors (lines 302-310)
-    // Check for the error message in the component
-    const hasErrorMessage = await Promise.race([
-      page
-        .getByText(/failed to load/i)
-        .first()
-        .waitFor({ state: "visible", timeout: 10000 })
-        .then(() => true)
-        .catch(() => false),
-      page
-        .getByText(/error/i)
-        .first()
-        .waitFor({ state: "visible", timeout: 10000 })
-        .then(() => true)
-        .catch(() => false),
-      page
-        .locator(".text-destructive")
-        .first()
-        .waitFor({ state: "visible", timeout: 10000 })
-        .then(() => true)
-        .catch(() => false),
-    ]);
-
-    expect(hasErrorMessage).toBe(true);
   });
 
   // ---------------------------------------------------------------------------
@@ -694,74 +772,82 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
      * Bin Management test: Add and Remove Bins
      *
      * Tests handlers in BinConfigurationForm.tsx:
-     * - handleAddBin() (lines 198-208): Creates new bin with default name "Bin {n+1}"
-     * - handleRemoveBin() (lines 210-228): Removes bin and reorders remaining bins
-     *
-     * Constraints:
-     * - Minimum 1 bin required (removal disabled when only 1 bin exists)
-     * - Maximum 200 bins allowed
-     * - New bins get sequential display_order
+     * - handleAddBin(): Creates new bin with default name "Bin {n+1}"
+     * - handleRemoveBin(): Removes bin and reorders remaining bins
      */
 
-    // GIVEN: I am authenticated as a Client Owner
-    await loginAsClientOwner(page, clientOwner.email, password);
+    // Create isolated test fixture
+    const fixture = await createTestFixture("002");
 
-    // Navigate to bin configuration page
-    await page.goto("/client-dashboard/settings/lottery-bins", {
-      waitUntil: "domcontentloaded",
-    });
+    try {
+      // GIVEN: I am authenticated as a Client Owner
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
 
-    // Wait for the page to fully load
-    await waitForBinConfigurationPageLoaded(page);
+      // Navigate to bin configuration page
+      await page.goto("/client-dashboard/settings/lottery-bins", {
+        waitUntil: "domcontentloaded",
+      });
 
-    // Skip if form is not visible
-    const formVisible = await page
-      .locator('[data-testid="bin-configuration-form"]')
-      .isVisible()
-      .catch(() => false);
+      // Wait for the page to fully load
+      await waitForBinConfigurationPageLoaded(page);
 
-    if (!formVisible) {
-      test.skip(true, "Bin configuration form not available");
-      return;
+      // Skip if form is not visible
+      const formVisible = await page
+        .locator('[data-testid="bin-configuration-form"]')
+        .isVisible()
+        .catch(() => false);
+
+      if (!formVisible) {
+        test.skip(true, "Bin configuration form not available");
+        return;
+      }
+
+      // Wait for initial bins to load
+      await expect(
+        page.locator('[data-testid="bin-name-input-0"]'),
+      ).toBeVisible({
+        timeout: 15000,
+      });
+
+      // Count initial bins (default 24 bins when no config exists)
+      const initialBinCount = await page
+        .locator('[data-testid^="bin-item-"]')
+        .count();
+
+      // WHEN: I click the Add Bin button
+      const addButton = page.locator('[data-testid="add-bin-button"]');
+      await addButton.click();
+
+      // THEN: A new bin is added
+      const newBinCount = await page
+        .locator('[data-testid^="bin-item-"]')
+        .count();
+      expect(newBinCount).toBe(initialBinCount + 1);
+
+      // Verify the new bin exists at the expected index
+      const newBinInput = page.locator(
+        `[data-testid="bin-name-input-${initialBinCount}"]`,
+      );
+      await expect(newBinInput).toBeVisible();
+
+      // WHEN: I remove the newly added bin
+      const removeButton = page.locator(
+        `[data-testid="bin-remove-${initialBinCount}"]`,
+      );
+      await removeButton.click();
+
+      // THEN: The bin is removed and count returns to original
+      const finalBinCount = await page
+        .locator('[data-testid^="bin-item-"]')
+        .count();
+      expect(finalBinCount).toBe(initialBinCount);
+    } finally {
+      await cleanupTestFixture(fixture);
     }
-
-    // Wait for initial bins to load
-    await expect(page.locator('[data-testid="bin-name-input-0"]')).toBeVisible({
-      timeout: 15000,
-    });
-
-    // Count initial bins (default 24 bins)
-    const initialBinCount = await page
-      .locator('[data-testid^="bin-item-"]')
-      .count();
-
-    // WHEN: I click the Add Bin button (data-testid="add-bin-button")
-    const addButton = page.locator('[data-testid="add-bin-button"]');
-    await addButton.click();
-
-    // THEN: A new bin is added
-    const newBinCount = await page
-      .locator('[data-testid^="bin-item-"]')
-      .count();
-    expect(newBinCount).toBe(initialBinCount + 1);
-
-    // Verify the new bin has default name "Bin {n+1}"
-    const newBinInput = page.locator(
-      `[data-testid="bin-name-input-${initialBinCount}"]`,
-    );
-    await expect(newBinInput).toBeVisible();
-
-    // WHEN: I remove the newly added bin (data-testid="bin-remove-{index}")
-    const removeButton = page.locator(
-      `[data-testid="bin-remove-${initialBinCount}"]`,
-    );
-    await removeButton.click();
-
-    // THEN: The bin is removed and count returns to original
-    const finalBinCount = await page
-      .locator('[data-testid^="bin-item-"]')
-      .count();
-    expect(finalBinCount).toBe(initialBinCount);
   });
 
   test("6.13-E2E-003: [P2] Client Owner can reorder bins", async ({ page }) => {
@@ -769,90 +855,86 @@ test.describe.serial("6.13-E2E: Lottery Bin Configuration Flow", () => {
      * Bin Management test: Reorder Bins
      *
      * Tests handlers in BinConfigurationForm.tsx:
-     * - handleMoveUp() (lines 230-246): Swaps bin with previous bin
-     * - handleMoveDown() (lines 248-266): Swaps bin with next bin
-     *
-     * UI Elements:
-     * - Move up button: data-testid="bin-move-up-{index}" (disabled at index 0)
-     * - Move down button: data-testid="bin-move-down-{index}" (disabled at last index)
-     *
-     * Behavior:
-     * - Swapping updates display_order for all affected bins
-     * - hasChanges becomes true after reordering
+     * - handleMoveUp(): Swaps bin with previous bin, updates display_order
+     * - handleMoveDown(): Swaps bin with next bin, updates display_order
      */
 
-    // GIVEN: I am authenticated as a Client Owner
-    await loginAsClientOwner(page, clientOwner.email, password);
+    // Create isolated test fixture
+    const fixture = await createTestFixture("003");
 
-    // Navigate to bin configuration page
-    await page.goto("/client-dashboard/settings/lottery-bins", {
-      waitUntil: "domcontentloaded",
-    });
+    try {
+      // GIVEN: I am authenticated as a Client Owner
+      await loginAsClientOwner(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
 
-    // Wait for the page to fully load
-    await waitForBinConfigurationPageLoaded(page);
+      // Navigate to bin configuration page
+      await page.goto("/client-dashboard/settings/lottery-bins", {
+        waitUntil: "domcontentloaded",
+      });
 
-    // Skip if form is not visible
-    const formVisible = await page
-      .locator('[data-testid="bin-configuration-form"]')
-      .isVisible()
-      .catch(() => false);
+      // Wait for the page to fully load
+      await waitForBinConfigurationPageLoaded(page);
 
-    if (!formVisible) {
-      test.skip(true, "Bin configuration form not available");
-      return;
+      // Skip if form is not visible
+      const formVisible = await page
+        .locator('[data-testid="bin-configuration-form"]')
+        .isVisible()
+        .catch(() => false);
+
+      if (!formVisible) {
+        test.skip(true, "Bin configuration form not available");
+        return;
+      }
+
+      // Wait for bins to load (need at least 2 bins to test reordering)
+      const firstBinInput = page.locator('[data-testid="bin-name-input-0"]');
+      const secondBinInput = page.locator('[data-testid="bin-name-input-1"]');
+      await expect(firstBinInput).toBeVisible({ timeout: 30000 });
+      await expect(secondBinInput).toBeVisible({ timeout: 15000 });
+
+      // Set unique names for both bins to ensure reliable testing
+      const uniqueBinNameA = `Reorder-A-${Date.now()}`;
+      const uniqueBinNameB = `Reorder-B-${Date.now()}`;
+
+      await firstBinInput.click();
+      await firstBinInput.clear();
+      await firstBinInput.fill(uniqueBinNameA);
+      await expect(firstBinInput).toHaveValue(uniqueBinNameA, {
+        timeout: 5000,
+      });
+
+      await secondBinInput.click();
+      await secondBinInput.clear();
+      await secondBinInput.fill(uniqueBinNameB);
+      await expect(secondBinInput).toHaveValue(uniqueBinNameB, {
+        timeout: 5000,
+      });
+
+      // WHEN: I click move down on the first bin (swaps positions with second bin)
+      const moveDownButton = page.locator('[data-testid="bin-move-down-0"]');
+      await expect(moveDownButton).toBeEnabled({ timeout: 5000 });
+      await moveDownButton.click();
+
+      // THEN: The bins are swapped
+      await expect(firstBinInput).toHaveValue(uniqueBinNameB, {
+        timeout: 10000,
+      });
+      await expect(secondBinInput).toHaveValue(uniqueBinNameA, {
+        timeout: 5000,
+      });
+
+      // Verify move up button on first bin is disabled (it's at index 0)
+      const moveUpButtonFirst = page.locator('[data-testid="bin-move-up-0"]');
+      await expect(moveUpButtonFirst).toBeDisabled();
+
+      // Verify move up button on second bin is enabled (it's at index 1)
+      const moveUpButton = page.locator('[data-testid="bin-move-up-1"]');
+      await expect(moveUpButton).toBeEnabled();
+    } finally {
+      await cleanupTestFixture(fixture);
     }
-
-    // Wait for bins to load (need at least 2 bins to test reordering)
-    const firstBinInput = page.locator('[data-testid="bin-name-input-0"]');
-    const secondBinInput = page.locator('[data-testid="bin-name-input-1"]');
-    await expect(firstBinInput).toBeVisible({ timeout: 30000 });
-    await expect(secondBinInput).toBeVisible({ timeout: 15000 });
-
-    // First, set unique and known names for both bins to ensure reliable testing
-    // This avoids any dependency on previous test state
-    const uniqueBinNameA = `Reorder-A-${Date.now()}`;
-    const uniqueBinNameB = `Reorder-B-${Date.now()}`;
-
-    await firstBinInput.click();
-    await firstBinInput.clear();
-    await firstBinInput.fill(uniqueBinNameA);
-    await expect(firstBinInput).toHaveValue(uniqueBinNameA, { timeout: 5000 });
-
-    await secondBinInput.click();
-    await secondBinInput.clear();
-    await secondBinInput.fill(uniqueBinNameB);
-    await expect(secondBinInput).toHaveValue(uniqueBinNameB, { timeout: 5000 });
-
-    // Verify we have distinct names before proceeding
-    const nameBefore0 = await firstBinInput.inputValue();
-    const nameBefore1 = await secondBinInput.inputValue();
-    expect(nameBefore0).toBe(uniqueBinNameA);
-    expect(nameBefore1).toBe(uniqueBinNameB);
-    expect(nameBefore0).not.toBe(nameBefore1);
-
-    // WHEN: I click move down on the first bin (swaps positions with second bin)
-    const moveDownButton = page.locator('[data-testid="bin-move-down-0"]');
-    await expect(moveDownButton).toBeEnabled({ timeout: 5000 });
-    await moveDownButton.click();
-
-    // THEN: The bins are swapped (handleMoveDown swaps adjacent bins)
-    // Use Playwright's auto-retry to wait for the DOM update
-    // The name that was at position 1 (uniqueBinNameB) should now be at position 0
-    await expect(firstBinInput).toHaveValue(uniqueBinNameB, {
-      timeout: 10000,
-    });
-    // The name that was at position 0 (uniqueBinNameA) should now be at position 1
-    await expect(secondBinInput).toHaveValue(uniqueBinNameA, {
-      timeout: 5000,
-    });
-
-    // Verify move up button on first bin is disabled (it's at index 0)
-    const moveUpButtonFirst = page.locator('[data-testid="bin-move-up-0"]');
-    await expect(moveUpButtonFirst).toBeDisabled();
-
-    // Verify move up button on second bin is enabled (it's at index 1)
-    const moveUpButton = page.locator('[data-testid="bin-move-up-1"]');
-    await expect(moveUpButton).toBeEnabled();
   });
 });

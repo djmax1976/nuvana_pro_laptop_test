@@ -751,32 +751,56 @@ test.describe("OPEN-SHIFTS-CHECK-API: Edge Cases", () => {
     storeManagerApiRequest,
     storeManagerUser,
   }) => {
-    // GIVEN: Store with open shift today
+    // GIVEN: Store with open shift created at current time (clearly "today")
+    // Create shift with unique timestamp using createTestShift helper
     const testData = await createTestShift(
       storeManagerUser.store_id,
       storeManagerUser.user_id,
       "ACTIVE",
-      "Today Terminal",
+      `DateFilter-${Date.now()}`,
     );
 
     try {
-      // WHEN: Requesting open shifts check for yesterday
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split("T")[0];
+      // Get the store's timezone for proper date calculation
+      const store = await withBypassClient(async (tx) => {
+        return await tx.store.findUnique({
+          where: { store_id: storeManagerUser.store_id },
+          select: { timezone: true },
+        });
+      });
+      const storeTimezone = store?.timezone || "America/New_York";
 
+      // Calculate a date clearly in the past (7 days ago to avoid any edge cases)
+      const pastDate = new Date();
+      pastDate.setDate(pastDate.getDate() - 7);
+      const pastDateFormatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: storeTimezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      const pastDateStr = pastDateFormatter.format(pastDate);
+
+      // WHEN: Requesting open shifts check for a date in the past
       const response = await storeManagerApiRequest.get(
-        `/api/stores/${storeManagerUser.store_id}/shifts/open-check?business_date=${yesterdayStr}`,
+        `/api/stores/${storeManagerUser.store_id}/shifts/open-check?business_date=${pastDateStr}`,
       );
 
-      // THEN: Should NOT find today's shift when filtering by yesterday
+      // THEN: Should NOT find today's shift when filtering by a past date
       const body = await response.json();
-      expect(body.success).toBe(true);
-      // Today's shift should not appear in yesterday's query
+      expect(
+        body.success,
+        `API should succeed but got: ${JSON.stringify(body)}`,
+      ).toBe(true);
+
+      // Today's shift should not appear in the past date's query
       const foundTodayShift = body.data.open_shifts.some(
         (s: any) => s.shift_id === testData.shift.shift_id,
       );
-      expect(foundTodayShift).toBe(false);
+      expect(
+        foundTodayShift,
+        `Today's shift (${testData.shift.shift_id}) should NOT be found when filtering for ${pastDateStr}`,
+      ).toBe(false);
     } finally {
       await cleanupTestEntities({
         shiftIds: [testData.shift.shift_id],

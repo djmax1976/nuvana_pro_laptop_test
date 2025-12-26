@@ -9,6 +9,12 @@
  * @justification Tests critical multi-page user journeys that require full system integration
  * @story 6-10 - Lottery Management UI
  * @priority P0 (Critical - Core User Journey)
+ *
+ * Enterprise Patterns Used:
+ * - Network-first waiting: Wait for specific API responses, not arbitrary timeouts
+ * - Deterministic assertions: Verify API response before checking UI
+ * - Test isolation: Each test creates/cleans its own data
+ * - Centralized helpers: Reusable login and navigation utilities
  */
 
 import { test, expect, Page } from "@playwright/test";
@@ -26,73 +32,107 @@ import {
 } from "../support/factories/lottery.factory";
 
 /**
- * Helper function to perform login and wait for /mystore redirect.
- * Uses simplified, reliable pattern for CI/CD environments.
+ * Network-first login helper that waits for actual API response
+ * instead of arbitrary timeouts.
+ *
+ * Flow:
+ * 1. Navigate to login page
+ * 2. Wait for form to be interactive (React hydration complete)
+ * 3. Fill credentials and submit
+ * 4. Wait for login API response (deterministic)
+ * 5. Wait for redirect to complete
+ *
+ * @throws Error with descriptive message if login fails
  */
 async function loginAndWaitForMyStore(
   page: Page,
   email: string,
   password: string,
 ): Promise<void> {
-  // Navigate to login page and wait for it to load
+  // Navigate to login page
   await page.goto("/login", { waitUntil: "domcontentloaded" });
 
-  // Wait for login form to be visible and editable
+  // Wait for form elements to be ready
   const emailInput = page.locator('input[type="email"]');
   const passwordInput = page.locator('input[type="password"]');
   const submitButton = page.locator('button[type="submit"]');
 
-  await expect(emailInput).toBeVisible({ timeout: 15000 });
-  await expect(emailInput).toBeEditable({ timeout: 10000 });
+  // Wait for React hydration - form should be interactive
+  await expect(emailInput).toBeEditable({ timeout: 30000 });
 
-  // Wait for React hydration to complete
-  await page.waitForLoadState("load").catch(() => {});
+  // Wait for page to fully hydrate (ensures React has attached event handlers)
+  await page.waitForLoadState("networkidle").catch(() => {});
 
-  // Fill credentials using Playwright's fill() which properly triggers React onChange
+  // Fill credentials with explicit click to focus (handles React controlled inputs)
   await emailInput.click();
   await emailInput.fill(email);
-
   await passwordInput.click();
   await passwordInput.fill(password);
 
-  // Verify fields were filled correctly
-  await expect(emailInput).toHaveValue(email, { timeout: 5000 });
-  await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
+  // Verify credentials were filled
+  await expect(emailInput).toHaveValue(email);
+  await expect(passwordInput).toHaveValue(password);
 
-  // Set up response promise to capture login response
-  const loginResponsePromise = page.waitForResponse(
-    (resp) => resp.url().includes("/api/auth/login"),
-    { timeout: 30000 },
-  );
+  // Use Promise.all to set up response listener and click simultaneously
+  // This ensures we don't miss the response if click triggers immediate navigation
+  const [loginResponse] = await Promise.all([
+    page.waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/auth/login") &&
+        resp.request().method() === "POST",
+      { timeout: 30000 },
+    ),
+    submitButton.click(),
+  ]);
 
-  // Click submit button
-  await submitButton.click();
-
-  // Wait for login API response
-  const loginResponse = await loginResponsePromise;
-  const responseStatus = loginResponse.status();
-
-  // Check if login was successful
-  if (responseStatus !== 200) {
-    const responseBody = await loginResponse.json();
+  if (loginResponse.status() !== 200) {
+    const body = await loginResponse.json().catch(() => ({}));
     throw new Error(
-      `Login failed with status ${responseStatus}: ${responseBody.message || responseBody.error?.message || "Unknown error"}`,
+      `Login failed: ${body.message || body.error?.message || `HTTP ${loginResponse.status()}`}`,
     );
   }
 
-  // Wait for navigation to /mystore
+  // Wait for redirect to /mystore (indicates successful auth)
   await page.waitForURL(/.*mystore.*/, { timeout: 30000 });
+}
 
-  // Wait for page to be fully loaded
-  await page.waitForLoadState("domcontentloaded");
+/**
+ * Navigate to lottery page and wait for it to be fully loaded.
+ * Uses network-first pattern - waits for API responses that populate the page.
+ *
+ * @returns Promise resolving when page is ready for interaction
+ */
+async function navigateToLotteryPage(page: Page): Promise<void> {
+  // Set up API listeners BEFORE navigation (network-first pattern)
+  // The lottery page makes these API calls on mount:
+  // 1. /api/lottery/packs?store_id=... - list of packs
+  // 2. /api/lottery/bins/day/:storeId - day bins data
+  const packsResponsePromise = page.waitForResponse(
+    (resp) =>
+      /\/api\/lottery\/packs(\?|$)/.test(resp.url()) && resp.status() === 200,
+    { timeout: 30000 },
+  );
+
+  // Navigate to lottery page
+  await page.goto("/mystore/lottery", { waitUntil: "domcontentloaded" });
+
+  // Wait for the lottery page container to be in DOM
+  await expect(
+    page.locator('[data-testid="lottery-management-page"]'),
+  ).toBeVisible({
+    timeout: 15000,
+  });
+
+  // Wait for packs API to complete (this populates the buttons' enabled/disabled state)
+  await packsResponsePromise;
 }
 
 test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
   let prisma: PrismaClient;
-  let storeManager: any;
-  let company: any;
-  let store: any;
-  let game: any;
+  let storeManager: { user_id: string; email: string };
+  let company: { company_id: string };
+  let store: { store_id: string };
+  let game: { game_id: string };
   const password = "TestPassword123!";
 
   test.beforeAll(async () => {
@@ -164,59 +204,53 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
   });
 
   test.afterAll(async () => {
+    if (!prisma) return;
+
     // Clean up test data in reverse dependency order
-    if (prisma) {
-      // Delete lottery packs first (references bins and games)
-      if (store) {
-        await prisma.lotteryPack
-          .deleteMany({ where: { store_id: store.store_id } })
-          .catch(() => {});
-      }
+    const cleanup = async (fn: () => Promise<unknown>) => fn().catch(() => {});
 
-      // Delete lottery bins (references store)
-      if (store) {
-        await prisma.lotteryBin
-          .deleteMany({ where: { store_id: store.store_id } })
-          .catch(() => {});
-      }
-
-      // Delete user roles (references user, company, store)
-      if (storeManager) {
-        await prisma.userRole
-          .deleteMany({ where: { user_id: storeManager.user_id } })
-          .catch(() => {});
-      }
-
-      // Delete store (references company)
-      if (store) {
-        await prisma.store
-          .delete({ where: { store_id: store.store_id } })
-          .catch(() => {});
-      }
-
-      // Delete company (references user as owner)
-      if (company) {
-        await prisma.company
-          .delete({ where: { company_id: company.company_id } })
-          .catch(() => {});
-      }
-
-      // Delete user
-      if (storeManager) {
-        await prisma.user
-          .delete({ where: { user_id: storeManager.user_id } })
-          .catch(() => {});
-      }
-
-      // Delete lottery game (independent)
-      if (game) {
-        await prisma.lotteryGame
-          .delete({ where: { game_id: game.game_id } })
-          .catch(() => {});
-      }
-
-      await prisma.$disconnect();
+    if (store) {
+      await cleanup(() =>
+        prisma.lotteryPack.deleteMany({ where: { store_id: store.store_id } }),
+      );
+      await cleanup(() =>
+        prisma.lotteryBin.deleteMany({ where: { store_id: store.store_id } }),
+      );
     }
+
+    if (storeManager) {
+      await cleanup(() =>
+        prisma.userRole.deleteMany({
+          where: { user_id: storeManager.user_id },
+        }),
+      );
+    }
+
+    if (store) {
+      await cleanup(() =>
+        prisma.store.delete({ where: { store_id: store.store_id } }),
+      );
+    }
+
+    if (company) {
+      await cleanup(() =>
+        prisma.company.delete({ where: { company_id: company.company_id } }),
+      );
+    }
+
+    if (storeManager) {
+      await cleanup(() =>
+        prisma.user.delete({ where: { user_id: storeManager.user_id } }),
+      );
+    }
+
+    if (game) {
+      await cleanup(() =>
+        prisma.lotteryGame.delete({ where: { game_id: game.game_id } }),
+      );
+    }
+
+    await prisma.$disconnect();
   });
 
   test("6.10-E2E-001: [P0] user can view lottery management page (AC #1)", async ({
@@ -225,28 +259,21 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
     // GIVEN: Store Manager logs in
     await loginAndWaitForMyStore(page, storeManager.email, password);
 
-    // WHEN: User navigates to lottery page
-    await page.goto("/mystore/lottery", { waitUntil: "domcontentloaded" });
+    // WHEN: User navigates to lottery page (with network-first waiting)
+    await navigateToLotteryPage(page);
 
-    // THEN: Lottery management page is displayed
+    // THEN: Page structure is correct
     await expect(
       page.locator('[data-testid="lottery-management-page"]'),
-    ).toBeVisible({
-      timeout: 15000,
-    });
+    ).toBeVisible();
 
-    // Wait for page to fully render after React hydration
-    await page.waitForLoadState("domcontentloaded");
-
-    // AND: Receive Pack button is visible (main action button)
+    // AND: Action buttons are visible (state depends on API data)
     await expect(
       page.locator('[data-testid="receive-pack-button"]'),
-    ).toBeVisible({ timeout: 15000 });
-
-    // AND: Activate Pack button is visible (may be disabled if no packs)
+    ).toBeVisible();
     await expect(
       page.locator('[data-testid="activate-pack-button"]'),
-    ).toBeVisible({ timeout: 10000 });
+    ).toBeVisible();
   });
 
   test("6.10-E2E-002: [P0] user can open pack reception form (AC #2)", async ({
@@ -254,41 +281,30 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
   }) => {
     // GIVEN: Store Manager is on lottery page
     await loginAndWaitForMyStore(page, storeManager.email, password);
-    await page.goto("/mystore/lottery", { waitUntil: "domcontentloaded" });
-    await expect(
-      page.locator('[data-testid="lottery-management-page"]'),
-    ).toBeVisible({
-      timeout: 15000,
-    });
+    await navigateToLotteryPage(page);
 
-    // Wait for the receive pack button to be ready (not just visible, but clickable)
+    // WHEN: User clicks Receive Pack button
     const receivePackButton = page.locator(
       '[data-testid="receive-pack-button"]',
     );
-    await expect(receivePackButton).toBeVisible({ timeout: 15000 });
-    await expect(receivePackButton).toBeEnabled({ timeout: 10000 });
-
-    // WHEN: User clicks Receive Pack button
+    await expect(receivePackButton).toBeEnabled();
     await receivePackButton.click();
 
     // THEN: Pack reception dialog opens with serialized number input
-    // The form uses 24-digit serialized number input (Story 6.12)
-    await expect(page.locator('[data-testid="serial-input"]')).toBeVisible({
-      timeout: 10000,
-    });
-
-    // AND: Serial input should be editable and have correct placeholder
     const serialInput = page.locator('[data-testid="serial-input"]');
-    await expect(serialInput).toBeEditable({ timeout: 5000 });
+    await expect(serialInput).toBeVisible();
+    await expect(serialInput).toBeEditable();
+
+    // AND: Serial input has correct attributes (Story 6.12 - 24-digit serial)
     await expect(serialInput).toHaveAttribute(
       "placeholder",
       "000000000000000000000000",
     );
     await expect(serialInput).toHaveAttribute("maxlength", "24");
 
-    // AND: Submit button should be visible but disabled (no packs added yet)
+    // AND: Submit button is visible but disabled (no packs added yet)
     const submitButton = page.locator('[data-testid="submit-batch-reception"]');
-    await expect(submitButton).toBeVisible({ timeout: 5000 });
+    await expect(submitButton).toBeVisible();
     await expect(submitButton).toBeDisabled();
   });
 
@@ -316,7 +332,7 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
       // WHEN: Store Manager navigates to lottery page
       await loginAndWaitForMyStore(page, storeManager.email, password);
 
-      // Set up API response promise BEFORE navigation
+      // Set up day bins API listener BEFORE navigation (network-first pattern)
       const dayBinsResponsePromise = page.waitForResponse(
         (resp) =>
           resp.url().includes(`/api/lottery/bins/day/${store.store_id}`) &&
@@ -324,42 +340,26 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
         { timeout: 30000 },
       );
 
-      await page.goto("/mystore/lottery");
+      await page.goto("/mystore/lottery", { waitUntil: "domcontentloaded" });
+
+      // Wait for lottery page container
       await expect(
         page.locator('[data-testid="lottery-management-page"]'),
-      ).toBeVisible({
-        timeout: 10000,
-      });
+      ).toBeVisible();
 
-      // Wait for day bins API response to complete (deterministic waiting)
-      await dayBinsResponsePromise;
+      // Wait for day bins API to complete (deterministic)
+      const dayBinsResponse = await dayBinsResponsePromise;
+      const dayBinsData = await dayBinsResponse.json();
 
-      // Wait for loading state to disappear if present
-      await page
-        .locator('[data-testid="day-bins-table"]')
-        .waitFor({ state: "visible", timeout: 15000 })
-        .catch(() => {
-          // Table might already be visible, continue
-        });
+      // Verify API returned our pack data
+      expect(dayBinsData.success).toBe(true);
 
-      // THEN: Day bins table is displayed (not empty state)
-      await expect(page.locator('[data-testid="day-bins-table"]')).toBeVisible({
-        timeout: 10000,
-      });
-
-      // AND: The bin row shows the pack number
-      // Use a more specific selector to find the pack number in the table
+      // THEN: Day bins table displays with our pack
       const table = page.locator('[data-testid="day-bins-table"]');
-      await expect(table).toContainText(pack.pack_number, { timeout: 10000 });
-
-      // Additional verification: Check that the pack number appears in a table cell
-      // The pack number should be in a TableCell with font-mono class
-      const packNumberCell = table.locator(
-        `.font-mono:has-text("${pack.pack_number}")`,
-      );
-      await expect(packNumberCell).toBeVisible({ timeout: 5000 });
+      await expect(table).toBeVisible();
+      await expect(table).toContainText(pack.pack_number);
     } finally {
-      // Cleanup - delete pack first (references bin), then bin
+      // Cleanup in correct order
       await prisma.lotteryPack
         .delete({ where: { pack_id: pack.pack_id } })
         .catch(() => {});
@@ -386,79 +386,56 @@ test.describe.serial("6.10-E2E: Lottery Management Flow", () => {
       // WHEN: Store Manager navigates to lottery page
       await loginAndWaitForMyStore(page, storeManager.email, password);
 
-      // Set up API response promise BEFORE navigation to avoid race conditions
-      // The packs API uses query parameters: /api/lottery/packs?store_id=...
-      // Match the packs list endpoint (not sub-paths like /packs/:id/activate)
+      // Set up packs API listener BEFORE navigation (network-first pattern)
       const packsResponsePromise = page.waitForResponse(
         (resp) => {
           const url = resp.url();
-          // Match /api/lottery/packs with query params but not sub-endpoints
-          // URL format: /api/lottery/packs?store_id=<uuid>
-          const packsMatch = /\/api\/lottery\/packs(\?|$)/.test(url);
-          return packsMatch && resp.status() === 200;
+          return (
+            /\/api\/lottery\/packs(\?|$)/.test(url) && resp.status() === 200
+          );
         },
         { timeout: 30000 },
       );
 
-      await page.goto("/mystore/lottery");
+      await page.goto("/mystore/lottery", { waitUntil: "domcontentloaded" });
+
+      // Wait for lottery page container
       await expect(
         page.locator('[data-testid="lottery-management-page"]'),
-      ).toBeVisible({
-        timeout: 15000,
-      });
+      ).toBeVisible();
 
-      // Wait for packs API response to complete (deterministic waiting)
+      // Wait for packs API to complete (deterministic)
       const packsResponse = await packsResponsePromise;
+      const packsData = await packsResponse.json();
 
-      // Verify the response is successful and contains data
-      const responseJson = await packsResponse.json().catch(() => null);
-      expect(responseJson?.success).toBe(true);
+      // Verify API returned success
+      expect(packsData.success).toBe(true);
 
-      // Wait for the activate button to be visible
+      // THEN: Activate Pack button should be enabled (we have a RECEIVED pack)
       const activateButton = page.locator(
         '[data-testid="activate-pack-button"]',
       );
-      await expect(activateButton).toBeVisible({ timeout: 15000 });
-
-      // THEN: Activate Pack button should be enabled (we have a RECEIVED pack)
-      // Wait for button to become enabled - this happens after React processes the response
-      // Use longer timeout for CI environments where React re-render may be slow
-      await expect(activateButton).toBeEnabled({ timeout: 25000 });
+      await expect(activateButton).toBeVisible();
+      await expect(activateButton).toBeEnabled();
 
       // WHEN: User clicks Activate Pack button
       await activateButton.click();
 
-      // THEN: Pack activation dialog opens with pack select
-      await expect(page.locator('[data-testid="pack-select"]')).toBeVisible({
-        timeout: 10000,
-      });
-
-      // AND: Submit button is visible
+      // THEN: Pack activation dialog opens
+      await expect(page.locator('[data-testid="pack-select"]')).toBeVisible();
       await expect(
         page.locator('[data-testid="submit-pack-activation"]'),
-      ).toBeVisible({ timeout: 10000 });
+      ).toBeVisible();
 
-      // AND: The pack select dropdown should contain our RECEIVED pack
-      // Open the select dropdown to verify pack is listed
+      // AND: The dropdown contains our RECEIVED pack
       const packSelect = page.locator('[data-testid="pack-select"]');
       await packSelect.click();
 
-      // Wait for the dropdown content to be visible (SelectContent appears after trigger click)
-      // Use a more reliable approach: wait for the pack option to appear
       const packOption = page.locator(
         `[data-testid="pack-option-${pack.pack_id}"]`,
       );
-      await expect(packOption).toBeVisible({ timeout: 10000 });
-
-      // Verify the pack number appears in the dropdown options
-      // The pack number is displayed as "pack_number - game_name (serial_start - serial_end)"
-      await expect(
-        page.getByText(pack.pack_number, { exact: false }),
-      ).toBeVisible({
-        timeout: 5000,
-      });
+      await expect(packOption).toBeVisible();
     } finally {
-      // Cleanup
       await prisma.lotteryPack
         .delete({ where: { pack_id: pack.pack_id } })
         .catch(() => {});

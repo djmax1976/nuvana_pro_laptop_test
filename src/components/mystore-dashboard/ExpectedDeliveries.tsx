@@ -11,12 +11,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Calendar } from "lucide-react";
+import { sanitizeForDisplay, sanitizeId } from "@/lib/utils/security";
 
 /**
  * ExpectedDeliveries Component
  *
  * Displays a table of expected vendor deliveries for the day
  * with status indicators (Delivered/Pending)
+ *
+ * Security Features:
+ * - SEC-004: XSS prevention via sanitized output
+ * - WCAG 2.1: Full accessibility support with proper table semantics
  *
  * Story: MyStore Dashboard Redesign
  */
@@ -65,66 +70,101 @@ const deliveries = [
   },
 ];
 
+// Status labels for screen readers
+const statusAriaLabels: Record<string, string> = {
+  delivered: "Delivery completed",
+  pending: "Delivery pending",
+};
+
 export function ExpectedDeliveries() {
   return (
     <Card
       className="min-h-[380px] flex flex-col"
       data-testid="expected-deliveries"
+      role="region"
+      aria-labelledby="expected-deliveries-title"
     >
       <CardHeader className="flex flex-row items-center justify-between p-5 border-b">
-        <CardTitle className="text-base font-semibold">
+        <CardTitle
+          id="expected-deliveries-title"
+          className="text-base font-semibold"
+        >
           Expected Deliveries
         </CardTitle>
-        <button className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground bg-muted/50 rounded-md border hover:border-primary transition-colors">
-          <Calendar className="w-3.5 h-3.5" />
+        <button
+          className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground bg-muted/50 rounded-md border hover:border-primary transition-colors"
+          aria-label="Filter deliveries by date: Today selected"
+        >
+          <Calendar className="w-3.5 h-3.5" aria-hidden="true" />
           Today
         </button>
       </CardHeader>
       <CardContent className="p-0 flex-1">
-        <Table>
+        <Table aria-label="Expected vendor deliveries for today">
           <TableHeader>
             <TableRow>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Vendor
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Status
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {deliveries.map((delivery) => (
-              <TableRow key={delivery.id}>
-                <TableCell>
-                  <div className="flex items-center gap-2.5">
-                    <div
-                      className={`w-8 h-8 rounded-md ${delivery.bgColor} flex items-center justify-center`}
-                    >
-                      <span
-                        className={`text-[11px] font-semibold ${delivery.textColor}`}
+            {deliveries.map((delivery) => {
+              // Sanitize all display values (SEC-004: XSS prevention)
+              const safeKey = sanitizeId(delivery.id) || delivery.id;
+              const safeVendor = sanitizeForDisplay(delivery.vendor);
+              const safeInitials = sanitizeForDisplay(delivery.initials);
+              const statusLabel =
+                delivery.status === "delivered" ? "Delivered" : "Pending";
+
+              return (
+                <TableRow key={safeKey}>
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`w-8 h-8 rounded-md ${delivery.bgColor} flex items-center justify-center`}
+                        aria-hidden="true"
                       >
-                        {delivery.initials}
-                      </span>
+                        <span
+                          className={`text-[11px] font-semibold ${delivery.textColor}`}
+                        >
+                          {safeInitials}
+                        </span>
+                      </div>
+                      <span className="font-medium">{safeVendor}</span>
                     </div>
-                    <span className="font-medium">{delivery.vendor}</span>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant={
-                      delivery.status === "delivered" ? "success" : "secondary"
-                    }
-                    className={
-                      delivery.status === "pending"
-                        ? "bg-muted text-muted-foreground"
-                        : ""
-                    }
-                  >
-                    {delivery.status === "delivered" ? "Delivered" : "Pending"}
-                  </Badge>
-                </TableCell>
-              </TableRow>
-            ))}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        delivery.status === "delivered"
+                          ? "success"
+                          : "secondary"
+                      }
+                      className={
+                        delivery.status === "pending"
+                          ? "bg-muted text-muted-foreground"
+                          : ""
+                      }
+                      aria-label={
+                        statusAriaLabels[delivery.status] || statusLabel
+                      }
+                    >
+                      {statusLabel}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </CardContent>

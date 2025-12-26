@@ -12,11 +12,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Check, AlertTriangle, XCircle } from "lucide-react";
+import {
+  sanitizeForDisplay,
+  maskEmployeeName,
+  maskSensitiveData,
+  formatCurrency,
+} from "@/lib/utils/security";
 
 /**
  * RecentShiftHistory Component
  *
- * Displays a full-width table of recent shifts with variance indicators
+ * Displays a full-width table of recent shifts with variance indicators.
+ *
+ * Security Features:
+ * - SEC-004: XSS prevention via sanitized output
+ * - FE-005: Employee name and shift ID masking for privacy
+ * - WCAG 2.1: Full accessibility support with variance status announcements
  *
  * Story: MyStore Dashboard Redesign
  */
@@ -82,6 +93,13 @@ const statusLabels: Record<string, string> = {
   flagged: "Flagged",
 };
 
+// Status descriptions for screen readers
+const statusAriaLabels: Record<string, string> = {
+  ok: "No variance, balanced",
+  warning: "Minor variance, needs review",
+  critical: "Critical variance, flagged for attention",
+};
+
 function VarianceIndicator({
   status,
   value,
@@ -92,9 +110,9 @@ function VarianceIndicator({
   isCurrency?: boolean;
 }) {
   const icons = {
-    ok: <Check className="w-3 h-3" />,
-    warning: <AlertTriangle className="w-3 h-3" />,
-    critical: <XCircle className="w-3 h-3" />,
+    ok: <Check className="w-3 h-3" aria-hidden="true" />,
+    warning: <AlertTriangle className="w-3 h-3" aria-hidden="true" />,
+    critical: <XCircle className="w-3 h-3" aria-hidden="true" />,
   };
 
   const colors = {
@@ -104,14 +122,22 @@ function VarianceIndicator({
   };
 
   const displayValue = isCurrency
-    ? `$${Math.abs(value).toFixed(2)}`
+    ? formatCurrency(Math.abs(value))
     : value.toString();
 
+  // eslint-disable-next-line security/detect-object-injection -- Safe: status is typed 'ok' | 'warning' | 'critical'
   const colorClass = colors[status as keyof typeof colors];
+  // eslint-disable-next-line security/detect-object-injection -- Safe: status is typed 'ok' | 'warning' | 'critical'
   const iconElement = icons[status as keyof typeof icons];
+  // eslint-disable-next-line security/detect-object-injection -- Safe: status is typed 'ok' | 'warning' | 'critical'
+  const ariaLabel = `${statusAriaLabels[status]}: ${value < 0 ? "negative " : ""}${displayValue}`;
 
   return (
-    <span className={`flex items-center gap-1 text-sm ${colorClass}`}>
+    <span
+      className={`flex items-center gap-1 text-sm ${colorClass}`}
+      role="status"
+      aria-label={ariaLabel}
+    >
       {iconElement}
       {value < 0 && isCurrency ? "-" : ""}
       {displayValue}
@@ -121,85 +147,137 @@ function VarianceIndicator({
 
 export function RecentShiftHistory() {
   return (
-    <Card data-testid="recent-shift-history">
+    <Card
+      data-testid="recent-shift-history"
+      role="region"
+      aria-labelledby="recent-shift-history-title"
+    >
       <CardHeader className="flex flex-row items-center justify-between p-5 border-b">
-        <CardTitle className="text-base font-semibold">
+        <CardTitle
+          id="recent-shift-history-title"
+          className="text-base font-semibold"
+        >
           Recent Shift History
         </CardTitle>
-        <Button variant="outline" size="sm" className="text-xs">
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-xs"
+          aria-label="View all shift history"
+        >
           View All Shifts
         </Button>
       </CardHeader>
       <CardContent className="p-0">
-        <Table>
+        <Table aria-label="Recent shift history with variance tracking">
           <TableHeader>
             <TableRow>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Shift ID
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Cashier
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Time
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Total Sales
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Transactions
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Cash Variance
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Lottery Variance
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Status
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {shifts.map((shift) => (
-              <TableRow key={shift.id}>
-                <TableCell>
-                  <span className="font-mono text-sm text-primary">
-                    {shift.id}
-                  </span>
-                </TableCell>
-                <TableCell>{shift.cashier}</TableCell>
-                <TableCell>{shift.time}</TableCell>
-                <TableCell>
-                  <span className="font-semibold">
-                    $
-                    {shift.totalSales.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
-                </TableCell>
-                <TableCell>{shift.transactions}</TableCell>
-                <TableCell>
-                  <VarianceIndicator
-                    status={shift.cashVariance.status}
-                    value={shift.cashVariance.amount}
-                  />
-                </TableCell>
-                <TableCell>
-                  <VarianceIndicator
-                    status={shift.lotteryVariance.status}
-                    value={shift.lotteryVariance.count}
-                    isCurrency={false}
-                  />
-                </TableCell>
-                <TableCell>
-                  <Badge variant={statusVariants[shift.status]}>
-                    {statusLabels[shift.status]}
-                  </Badge>
-                </TableCell>
-              </TableRow>
-            ))}
+            {shifts.map((shift) => {
+              // Sanitize and mask all display values (SEC-004, FE-005)
+              const safeShiftId = maskSensitiveData(shift.id, 4);
+              const safeCashier = maskEmployeeName(shift.cashier);
+              const safeTime = sanitizeForDisplay(shift.time);
+              const formattedSales = formatCurrency(shift.totalSales);
+              const safeStatus = sanitizeForDisplay(statusLabels[shift.status]);
+
+              return (
+                <TableRow key={shift.id}>
+                  <TableCell>
+                    <span
+                      className="font-mono text-sm text-primary"
+                      title={`Shift ${safeShiftId}`}
+                    >
+                      {safeShiftId}
+                    </span>
+                  </TableCell>
+                  <TableCell>{safeCashier}</TableCell>
+                  <TableCell>
+                    <time dateTime={safeTime}>{safeTime}</time>
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      className="font-semibold"
+                      aria-label={`Total sales: ${formattedSales}`}
+                    >
+                      {formattedSales}
+                    </span>
+                  </TableCell>
+                  <TableCell>{shift.transactions}</TableCell>
+                  <TableCell>
+                    <VarianceIndicator
+                      status={shift.cashVariance.status}
+                      value={shift.cashVariance.amount}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <VarianceIndicator
+                      status={shift.lotteryVariance.status}
+                      value={shift.lotteryVariance.count}
+                      isCurrency={false}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={statusVariants[shift.status]}
+                      aria-label={`Shift status: ${safeStatus}`}
+                    >
+                      {safeStatus}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </CardContent>

@@ -1,7 +1,28 @@
 /**
  * @test-level Component
- * @justification Component tests for ClientDashboardPage - validates dashboard display and data loading
- * @story 4-8-cashier-shift-start-flow
+ * @justification Tests for Client Owner Dashboard main page
+ * @story Client Owner Dashboard - Landing Page
+ *
+ * ClientDashboardPage Component Tests
+ *
+ * CRITICAL TEST COVERAGE:
+ * - Page structure and component composition
+ * - Loading and error states
+ * - KPI cards rendering
+ * - All dashboard sections presence
+ * - Accessibility (landmark regions, ARIA)
+ *
+ * Requirements Traceability Matrix:
+ * ┌─────────────────────────────────────────────────────────────────┐
+ * │ Test ID                    │ Requirement         │ Priority    │
+ * ├─────────────────────────────────────────────────────────────────┤
+ * │ PAGE-001                   │ Page renders        │ P0          │
+ * │ PAGE-002                   │ Loading state       │ P0          │
+ * │ PAGE-003                   │ Error state         │ P0          │
+ * │ PAGE-004                   │ KPI cards display   │ P0          │
+ * │ PAGE-005                   │ All sections render │ P0          │
+ * │ PAGE-006                   │ Accessibility       │ P0          │
+ * └─────────────────────────────────────────────────────────────────┘
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -41,37 +62,41 @@ vi.mock("@/lib/api/client-dashboard", () => ({
   useClientDashboard: vi.fn(),
 }));
 
-describe("4.8-COMPONENT: ClientDashboardPage Component", () => {
-  const mockStoreId = "550e8400-e29b-41d4-a716-446655440000";
+// Mock Recharts to avoid canvas issues
+vi.mock("recharts", () => ({
+  LineChart: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="mock-line-chart">{children}</div>
+  ),
+  Line: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="mock-line">{children}</div>
+  ),
+  AreaChart: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="mock-area-chart">{children}</div>
+  ),
+  Area: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="mock-area">{children}</div>
+  ),
+  PieChart: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="mock-pie-chart">{children}</div>
+  ),
+  Pie: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="mock-pie">{children}</div>
+  ),
+  Cell: () => <div data-testid="mock-cell" />,
+  XAxis: () => <div data-testid="mock-xaxis" />,
+  YAxis: () => <div data-testid="mock-yaxis" />,
+  CartesianGrid: () => <div data-testid="mock-grid" />,
+  Tooltip: () => <div data-testid="mock-tooltip" />,
+  Legend: () => <div data-testid="mock-legend" />,
+  LabelList: () => <div data-testid="mock-label-list" />,
+  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="mock-responsive-container">{children}</div>
+  ),
+}));
 
+describe("CLIENT-DASHBOARD: ClientDashboardPage Component", () => {
   const mockDashboardData = {
     user: mockUser,
-    companies: [
-      {
-        company_id: "550e8400-e29b-41d4-a716-446655440010",
-        name: "Test Company",
-        address: "123 Test St",
-        status: "ACTIVE",
-        store_count: 1,
-      },
-    ],
-    stores: [
-      {
-        store_id: mockStoreId,
-        name: "Test Store",
-        company_id: "550e8400-e29b-41d4-a716-446655440010",
-        company_name: "Test Company",
-        status: "ACTIVE",
-        location_json: { address: "123 Test St" },
-      },
-    ],
-    stats: {
-      total_companies: 1,
-      total_stores: 1,
-      active_stores: 1,
-      total_employees: 5,
-      today_transactions: 10,
-    },
   };
 
   const mockQuery = {
@@ -98,104 +123,238 @@ describe("4.8-COMPONENT: ClientDashboardPage Component", () => {
     );
   });
 
-  it("[P0] should display welcome message with user name", () => {
-    // GIVEN: User is logged in
-    renderWithProviders(<ClientDashboardPage />);
+  // ============================================
+  // LOADING STATE TESTS
+  // ============================================
+  describe("Loading State", () => {
+    it("[P0] PAGE-002: should render loading skeleton when data is loading", () => {
+      // GIVEN: Dashboard is loading
+      vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        isError: false,
+        error: null,
+      } as any);
 
-    // THEN: Welcome message should include user name
-    expect(screen.getByText(/welcome back/i)).toBeInTheDocument();
-    expect(screen.getByText(/Test Owner/i)).toBeInTheDocument();
+      renderWithProviders(<ClientDashboardPage />);
+
+      // THEN: Page container is present
+      expect(screen.getByTestId("client-dashboard-page")).toBeInTheDocument();
+
+      // AND: Skeleton elements are rendered (multiple animate-pulse elements)
+      const skeletons = document.querySelectorAll(".animate-pulse");
+      expect(skeletons.length).toBeGreaterThan(0);
+    });
   });
 
-  it("[P0] should display dashboard stats", () => {
-    // GIVEN: Dashboard data is loaded
-    renderWithProviders(<ClientDashboardPage />);
+  // ============================================
+  // ERROR STATE TESTS
+  // ============================================
+  describe("Error State", () => {
+    it("[P0] PAGE-003: should render error message when loading fails", () => {
+      // GIVEN: Dashboard loading failed
+      vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: { message: "Network error" },
+      } as any);
 
-    // THEN: Stats should be displayed
-    expect(screen.getByTestId("stat-active-stores")).toBeInTheDocument();
-    expect(screen.getByTestId("stat-total-employees")).toBeInTheDocument();
-    expect(screen.getByTestId("stat-companies")).toBeInTheDocument();
-    expect(screen.getByTestId("stat-activity")).toBeInTheDocument();
+      renderWithProviders(<ClientDashboardPage />);
+
+      // THEN: Error message is displayed
+      expect(screen.getByText(/Failed to load dashboard/)).toBeInTheDocument();
+      expect(screen.getByText(/Network error/)).toBeInTheDocument();
+    });
+
+    it("[P0] PAGE-003b: should handle unknown error", () => {
+      // GIVEN: Dashboard loading failed with no message
+      vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: null,
+      } as any);
+
+      renderWithProviders(<ClientDashboardPage />);
+
+      // THEN: Generic error message is displayed
+      expect(screen.getByText(/Unknown error/)).toBeInTheDocument();
+    });
   });
 
-  it("[P0] should display companies section", () => {
-    // GIVEN: Dashboard data with companies is loaded
-    renderWithProviders(<ClientDashboardPage />);
+  // ============================================
+  // SUCCESS STATE TESTS
+  // ============================================
+  describe("Success State", () => {
+    it("[P0] PAGE-001: should render dashboard page container", () => {
+      // GIVEN: Dashboard loaded successfully
+      renderWithProviders(<ClientDashboardPage />);
 
-    // THEN: Companies section should be displayed with company name
-    const companiesSection = screen.getByTestId("companies-section");
-    expect(companiesSection).toBeInTheDocument();
-    expect(screen.getAllByText("Test Company").length).toBeGreaterThan(0);
+      // THEN: Page container is present
+      expect(screen.getByTestId("client-dashboard-page")).toBeInTheDocument();
+    });
+
+    it("[P0] PAGE-004: should render KPI section with cards", () => {
+      // GIVEN: Dashboard loaded successfully
+      renderWithProviders(<ClientDashboardPage />);
+
+      // THEN: KPI section is present
+      expect(screen.getByTestId("kpi-section")).toBeInTheDocument();
+
+      // AND: KPI cards are rendered (8 total - 4 in each row)
+      // Check for unique KPI labels in the cards
+      expect(
+        screen.getByText("Taxable Sales (includes Food Sales)"),
+      ).toBeInTheDocument();
+      // Some labels like "Lottery Variance" also appear in dropdown, so use getAllByText
+      expect(screen.getAllByText(/Food Sales/i).length).toBeGreaterThanOrEqual(
+        1,
+      );
+      expect(
+        screen.getAllByText(/Lottery Sales/i).length,
+      ).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/Fuel Sales/i).length).toBeGreaterThanOrEqual(
+        1,
+      );
+      expect(screen.getByText("Average Ticket")).toBeInTheDocument();
+      expect(
+        screen.getAllByText(/Sales by Hour/i).length,
+      ).toBeGreaterThanOrEqual(1);
+      expect(
+        screen.getAllByText(/Lottery Variance/i).length,
+      ).toBeGreaterThanOrEqual(1);
+      expect(
+        screen.getAllByText(/Cash Variance/i).length,
+      ).toBeGreaterThanOrEqual(1);
+    });
+
+    it("[P0] PAGE-004b: should display KPI values", () => {
+      // GIVEN: Dashboard loaded successfully
+      renderWithProviders(<ClientDashboardPage />);
+
+      // THEN: KPI values are displayed (some values may appear in multiple places)
+      expect(screen.getByText("$5,892")).toBeInTheDocument();
+      expect(screen.getByText("$2,156")).toBeInTheDocument();
+      expect(screen.getByText("$1,847")).toBeInTheDocument();
+      expect(screen.getByText("$3,245")).toBeInTheDocument();
+      // $24.95 appears in both KPI cards and ShiftPerformanceCard, so use getAllByText
+      expect(screen.getAllByText("$24.95").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText("$847")).toBeInTheDocument();
+      // $0 may appear multiple times, so use getAllByText
+      expect(screen.getAllByText("$0").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText("-$12")).toBeInTheDocument();
+    });
+
+    it("[P0] PAGE-005: should render all dashboard sections", () => {
+      // GIVEN: Dashboard loaded successfully
+      renderWithProviders(<ClientDashboardPage />);
+
+      // THEN: Sales Overview is present
+      expect(screen.getByText("Sales Overview")).toBeInTheDocument();
+
+      // AND: Shift Performance is present
+      expect(screen.getByText("Shift Performance")).toBeInTheDocument();
+
+      // AND: Recent Transactions is present
+      expect(screen.getByText("Recent Transactions")).toBeInTheDocument();
+
+      // AND: Recent Activity is present
+      expect(screen.getByText("Recent Activity")).toBeInTheDocument();
+
+      // AND: Lottery Packs is present
+      expect(screen.getByText("Active Lottery Packs")).toBeInTheDocument();
+
+      // AND: Shift History is present
+      expect(screen.getByText("Recent Shift History")).toBeInTheDocument();
+    });
+
+    it("[P0] PAGE-005b: should render action buttons", () => {
+      // GIVEN: Dashboard loaded successfully
+      renderWithProviders(<ClientDashboardPage />);
+
+      // THEN: View All buttons are present
+      expect(screen.getByTestId("view-all-transactions")).toBeInTheDocument();
+      expect(screen.getByTestId("view-all-packs")).toBeInTheDocument();
+      expect(screen.getByTestId("view-all-shifts")).toBeInTheDocument();
+    });
   });
 
-  it("[P0] should display stores section", () => {
-    // GIVEN: Dashboard data with stores is loaded
-    renderWithProviders(<ClientDashboardPage />);
+  // ============================================
+  // ACCESSIBILITY TESTS
+  // ============================================
+  describe("Accessibility", () => {
+    it("[P0] PAGE-006: should have accessible KPI section", () => {
+      // GIVEN: Dashboard loaded successfully
+      renderWithProviders(<ClientDashboardPage />);
 
-    // THEN: Stores section should be displayed with store name
-    expect(screen.getByTestId("stores-section")).toBeInTheDocument();
-    expect(screen.getByText("Test Store")).toBeInTheDocument();
+      // THEN: KPI section has proper heading
+      expect(
+        screen.getByText("Key Performance Indicators"),
+      ).toBeInTheDocument();
+
+      // AND: KPI lists have proper aria-labels
+      expect(
+        screen.getByRole("list", { name: "Primary metrics" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("list", { name: "Secondary metrics" }),
+      ).toBeInTheDocument();
+    });
+
+    it("[P0] PAGE-006b: should have proper region landmarks", () => {
+      // GIVEN: Dashboard loaded successfully
+      renderWithProviders(<ClientDashboardPage />);
+
+      // THEN: All card regions are present
+      expect(screen.getByTestId("sales-overview-card")).toHaveAttribute(
+        "role",
+        "region",
+      );
+      expect(screen.getByTestId("shift-performance-card")).toHaveAttribute(
+        "role",
+        "region",
+      );
+      expect(screen.getByTestId("recent-transactions-card")).toHaveAttribute(
+        "role",
+        "region",
+      );
+      expect(screen.getByTestId("recent-activity-card")).toHaveAttribute(
+        "role",
+        "region",
+      );
+      expect(screen.getByTestId("lottery-packs-card")).toHaveAttribute(
+        "role",
+        "region",
+      );
+      expect(screen.getByTestId("shift-history-card")).toHaveAttribute(
+        "role",
+        "region",
+      );
+    });
   });
 
-  it("[P1] should show loading state when data is loading", () => {
-    // GIVEN: Dashboard data is loading
-    vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue({
-      data: undefined,
-      isLoading: true,
-      isError: false,
-      error: null,
-    } as any);
+  // ============================================
+  // INTEGRATION TESTS
+  // ============================================
+  describe("Integration", () => {
+    it("[P1] PAGE-007: should render charts in dashboard", () => {
+      // GIVEN: Dashboard loaded successfully
+      renderWithProviders(<ClientDashboardPage />);
 
-    renderWithProviders(<ClientDashboardPage />);
+      // THEN: Mock chart components are rendered
+      const responsiveContainers = screen.getAllByTestId(
+        "mock-responsive-container",
+      );
+      expect(responsiveContainers.length).toBeGreaterThan(0);
+    });
 
-    // THEN: Loading message should be displayed
-    expect(screen.getByText(/loading your dashboard/i)).toBeInTheDocument();
-  });
+    it("[P1] PAGE-007b: should render pie chart for shift performance", () => {
+      // GIVEN: Dashboard loaded successfully
+      renderWithProviders(<ClientDashboardPage />);
 
-  it("[P1] should show error state when data fails to load", () => {
-    // GIVEN: Dashboard data failed to load
-    vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      isError: true,
-      error: { message: "Network error" },
-    } as any);
-
-    renderWithProviders(<ClientDashboardPage />);
-
-    // THEN: Error message should be displayed
-    expect(screen.getByText(/failed to load dashboard/i)).toBeInTheDocument();
-  });
-
-  it("[P1] should display empty state message when no companies exist", () => {
-    // GIVEN: No companies exist
-    vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue({
-      ...mockQuery,
-      data: {
-        ...mockDashboardData,
-        companies: [],
-      },
-    } as any);
-
-    renderWithProviders(<ClientDashboardPage />);
-
-    // THEN: Empty state message should be displayed
-    expect(screen.getByText(/no companies found/i)).toBeInTheDocument();
-  });
-
-  it("[P1] should display empty state message when no stores exist", () => {
-    // GIVEN: No stores exist
-    vi.mocked(clientDashboardApi.useClientDashboard).mockReturnValue({
-      ...mockQuery,
-      data: {
-        ...mockDashboardData,
-        stores: [],
-      },
-    } as any);
-
-    renderWithProviders(<ClientDashboardPage />);
-
-    // THEN: Empty state message should be displayed
-    expect(screen.getByText(/no stores found/i)).toBeInTheDocument();
+      // THEN: Pie chart is rendered
+      expect(screen.getByTestId("mock-pie-chart")).toBeInTheDocument();
+    });
   });
 });

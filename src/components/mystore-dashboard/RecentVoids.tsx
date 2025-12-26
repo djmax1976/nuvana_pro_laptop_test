@@ -10,11 +10,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  sanitizeForDisplay,
+  maskEmployeeName,
+  maskSensitiveData,
+  formatCurrency,
+} from "@/lib/utils/security";
 
 /**
  * RecentVoids Component
  *
- * Displays a full-width table of recent voided transactions
+ * Displays a full-width table of recent voided transactions.
+ *
+ * Security Features:
+ * - SEC-004: XSS prevention via sanitized output
+ * - FE-005: Employee name and ID masking for privacy
+ * - WCAG 2.1: Full accessibility support with proper table semantics
  *
  * Story: MyStore Dashboard Redesign
  */
@@ -65,56 +76,102 @@ const voids = [
 
 export function RecentVoids() {
   return (
-    <Card data-testid="recent-voids">
+    <Card
+      data-testid="recent-voids"
+      role="region"
+      aria-labelledby="recent-voids-title"
+    >
       <CardHeader className="flex flex-row items-center justify-between p-5 border-b">
-        <CardTitle className="text-base font-semibold">Recent Voids</CardTitle>
-        <Button variant="outline" size="sm" className="text-xs">
+        <CardTitle id="recent-voids-title" className="text-base font-semibold">
+          Recent Voids
+        </CardTitle>
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-xs"
+          aria-label="View all voided transactions"
+        >
           View All Voids
         </Button>
       </CardHeader>
       <CardContent className="p-0">
-        <Table>
+        <Table aria-label="Recent voided transactions">
           <TableHeader>
             <TableRow>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Terminal
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Shift
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Cashier
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Void Amount
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Date & Time
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {voids.map((voidItem) => (
-              <TableRow key={voidItem.id}>
-                <TableCell>
-                  <span className="font-mono text-sm text-primary">
-                    {voidItem.terminal}
-                  </span>
-                </TableCell>
-                <TableCell>
-                  <span className="font-mono text-sm text-primary">
-                    {voidItem.shiftId}
-                  </span>
-                </TableCell>
-                <TableCell>{voidItem.cashier}</TableCell>
-                <TableCell>
-                  <span className="font-semibold text-destructive">
-                    -${Math.abs(voidItem.amount).toFixed(2)}
-                  </span>
-                </TableCell>
-                <TableCell>{voidItem.dateTime}</TableCell>
-              </TableRow>
-            ))}
+            {voids.map((voidItem) => {
+              // Sanitize and mask all display values (SEC-004, FE-005)
+              const safeTerminal = sanitizeForDisplay(voidItem.terminal);
+              const safeShiftId = maskSensitiveData(voidItem.shiftId, 4);
+              const safeCashier = maskEmployeeName(voidItem.cashier);
+              const formattedAmount = formatCurrency(Math.abs(voidItem.amount));
+              const safeDateTime = sanitizeForDisplay(voidItem.dateTime);
+
+              return (
+                <TableRow key={voidItem.id}>
+                  <TableCell>
+                    <span
+                      className="font-mono text-sm text-primary"
+                      title={`Terminal ${safeTerminal}`}
+                    >
+                      {safeTerminal}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      className="font-mono text-sm text-primary"
+                      title={`Shift ${safeShiftId}`}
+                    >
+                      {safeShiftId}
+                    </span>
+                  </TableCell>
+                  <TableCell>{safeCashier}</TableCell>
+                  <TableCell>
+                    <span
+                      className="font-semibold text-destructive"
+                      aria-label={`Void amount: negative ${formattedAmount}`}
+                    >
+                      -{formattedAmount}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <time dateTime={safeDateTime}>{safeDateTime}</time>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </CardContent>

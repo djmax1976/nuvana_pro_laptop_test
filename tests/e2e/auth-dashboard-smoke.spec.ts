@@ -472,10 +472,15 @@ test.describe
         await expect(page).toHaveURL(/\/client-dashboard/, { timeout: 15000 });
 
         // THEN: Client dashboard should load without errors
-        // Check for the welcome heading that appears on client dashboard
+        // Check for the dashboard page container and KPI section
         await expect(
-          page.getByRole("heading", { name: /welcome back/i }),
+          page.locator('[data-testid="client-dashboard-page"]'),
         ).toBeVisible({ timeout: 10000 });
+
+        // AND: KPI section should be visible (indicates successful data load)
+        await expect(page.locator('[data-testid="kpi-section"]')).toBeVisible({
+          timeout: 10000,
+        });
 
         // Wait for API requests to complete
         await page.waitForLoadState("networkidle");

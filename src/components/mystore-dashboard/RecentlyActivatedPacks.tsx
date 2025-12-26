@@ -10,12 +10,23 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  sanitizeForDisplay,
+  maskSensitiveData,
+  maskEmployeeName,
+  sanitizeId,
+} from "@/lib/utils/security";
 
 /**
  * RecentlyActivatedPacks Component
  *
  * Displays a table of recently activated lottery packs
  * with game name, pack ID, and activator name
+ *
+ * Security Features:
+ * - SEC-004: XSS prevention via sanitized output
+ * - FE-005: Employee name and pack ID masking for privacy
+ * - WCAG 2.1: Full accessibility support with proper table semantics
  *
  * Story: MyStore Dashboard Redesign
  */
@@ -59,42 +70,74 @@ export function RecentlyActivatedPacks() {
     <Card
       className="min-h-[380px] flex flex-col"
       data-testid="recently-activated-packs"
+      role="region"
+      aria-labelledby="recently-activated-packs-title"
     >
       <CardHeader className="flex flex-row items-center justify-between p-5 border-b">
-        <CardTitle className="text-base font-semibold">
+        <CardTitle
+          id="recently-activated-packs-title"
+          className="text-base font-semibold"
+        >
           Recently Activated Packs
         </CardTitle>
-        <Button variant="outline" size="sm" className="text-xs">
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-xs"
+          aria-label="View all activated lottery packs"
+        >
           View All
         </Button>
       </CardHeader>
       <CardContent className="p-0 flex-1">
-        <Table>
+        <Table aria-label="Recently activated lottery packs">
           <TableHeader>
             <TableRow>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Game
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Pack
               </TableHead>
-              <TableHead className="text-xs font-semibold uppercase tracking-wider">
+              <TableHead
+                className="text-xs font-semibold uppercase tracking-wider"
+                scope="col"
+              >
                 Activated By
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {recentPacks.map((pack) => (
-              <TableRow key={pack.id}>
-                <TableCell className="font-medium">{pack.game}</TableCell>
-                <TableCell>
-                  <span className="font-mono text-sm text-primary">
-                    {pack.packId}
-                  </span>
-                </TableCell>
-                <TableCell>{pack.activatedBy}</TableCell>
-              </TableRow>
-            ))}
+            {recentPacks.map((pack) => {
+              // Sanitize all display values (SEC-004: XSS prevention)
+              const safeKey = sanitizeId(pack.id) || pack.id;
+              const safeGame = sanitizeForDisplay(pack.game);
+              // Mask pack ID for privacy (FE-005)
+              const maskedPackId = maskSensitiveData(pack.packId, 4);
+              // Mask employee name for privacy (FE-005)
+              const maskedActivator = maskEmployeeName(pack.activatedBy);
+
+              return (
+                <TableRow key={safeKey}>
+                  <TableCell className="font-medium">{safeGame}</TableCell>
+                  <TableCell>
+                    <span
+                      className="font-mono text-sm text-primary"
+                      title={`Pack ${maskedPackId}`}
+                    >
+                      {maskedPackId}
+                    </span>
+                  </TableCell>
+                  <TableCell>{maskedActivator}</TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </CardContent>
