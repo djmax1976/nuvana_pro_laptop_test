@@ -3,6 +3,9 @@
  *
  * API endpoints for shift closing operations, specifically lottery shift closing.
  * Story 10.1: Lottery Shift Closing Page UI
+ *
+ * IMPORTANT: All shift status checks MUST use the ShiftStateMachine service
+ * to ensure consistent behavior across the application.
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
@@ -13,6 +16,9 @@ import { prisma } from "../utils/db";
 import { shiftService } from "../services/shift.service";
 import { ShiftStatus, LotteryPackStatus } from "@prisma/client";
 import { closeLotteryForShift } from "../services/shift-closing.service";
+import { rbacService } from "../services/rbac.service";
+import { shiftStateMachine } from "../services/shift-state-machine";
+import { validateSerialWithinPackRange } from "../services/lottery-validation.service";
 
 /**
  * Shift closing routes
@@ -526,7 +532,8 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Validate shift exists and is active (only if activated_shift_id is provided)
+        // Validate shift exists and can activate packs (only if activated_shift_id is provided)
+        // Uses ShiftStateMachine for consistent status validation across the application
         if (body.activated_shift_id) {
           const shift = await prisma.shift.findUnique({
             where: { shift_id: body.activated_shift_id },
@@ -556,13 +563,15 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
             };
           }
 
-          if (shift.status !== ShiftStatus.ACTIVE) {
+          // Use state machine to validate shift status for pack activation
+          // OPEN and ACTIVE are both valid for pack activation
+          if (!shiftStateMachine.canActivatePack(shift.status)) {
             reply.code(400);
             return {
               success: false,
               error: {
                 code: "BAD_REQUEST",
-                message: "Shift must be active to activate packs",
+                message: shiftStateMachine.getPackActivationError(shift.status),
               },
             };
           }
@@ -761,13 +770,7 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
         },
         body: {
           type: "object",
-          required: [
-            "pack_id",
-            "bin_id",
-            "serial_start",
-            "activated_by",
-            "activated_shift_id",
-          ],
+          required: ["pack_id", "bin_id", "serial_start", "activated_by"],
           properties: {
             pack_id: {
               type: "string",
@@ -791,12 +794,25 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
             activated_shift_id: {
               type: "string",
               format: "uuid",
-              description: "Shift UUID where pack is being activated",
+              description:
+                "Shift UUID where pack is being activated (required for cashiers, optional for managers)",
             },
             deplete_previous: {
               type: "boolean",
               description:
                 "If true and bin has an ACTIVE pack, auto-deplete it with reason AUTO_REPLACED",
+            },
+            serial_override_approved_by: {
+              type: "string",
+              format: "uuid",
+              description:
+                "Manager user UUID who approved the serial override (required when cashier needs to change starting serial)",
+            },
+            serial_override_reason: {
+              type: "string",
+              maxLength: 500,
+              description:
+                "Reason for the serial override (e.g., 'Pack already partially sold')",
             },
           },
         },
@@ -905,14 +921,17 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
       const params = request.params as { storeId: string };
       const body = request.body as {
         pack_id: string;
         bin_id: string;
         serial_start: string;
         activated_by: string;
-        activated_shift_id: string;
+        activated_shift_id?: string;
         deplete_previous?: boolean;
+        serial_override_approved_by?: string;
+        serial_override_reason?: string;
       };
 
       try {
@@ -930,44 +949,94 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
           };
         }
 
-        // Validate shift exists and is active
-        const shift = await prisma.shift.findUnique({
-          where: { shift_id: body.activated_shift_id },
-          select: {
-            shift_id: true,
-            store_id: true,
-            status: true,
-          },
-        });
+        // Manager role check - these roles can activate without shift
+        // MCP SEC-010: AUTHZ - Role-based access control for manager override
+        const MANAGER_ROLES = [
+          "CLIENT_OWNER",
+          "CLIENT_ADMIN",
+          "STORE_MANAGER",
+          "SYSTEM_ADMIN",
+        ];
 
-        if (!shift) {
-          reply.code(404);
-          return {
-            success: false,
-            error: { code: "NOT_FOUND", message: "Shift not found" },
-          };
+        // First check if the session user is a manager
+        let isManager = user.roles.some((role) => MANAGER_ROLES.includes(role));
+
+        // If session user is not a manager but activated_by is provided,
+        // check if the activated_by user (management-authenticated user) is a manager
+        // This handles the case where a cashier is logged in but authenticates via Management tab
+        if (!isManager && body.activated_by && body.activated_by !== user.id) {
+          const activatedByUser = await prisma.user.findUnique({
+            where: { user_id: body.activated_by },
+            select: { user_id: true },
+          });
+
+          if (activatedByUser) {
+            const activatedByRoles = await rbacService.getUserRoles(
+              body.activated_by,
+            );
+            isManager = activatedByRoles.some((userRole) =>
+              MANAGER_ROLES.includes(userRole.role_code),
+            );
+          }
         }
 
-        if (shift.store_id !== params.storeId) {
-          reply.code(400);
-          return {
-            success: false,
-            error: {
-              code: "BAD_REQUEST",
-              message: "Shift does not belong to this store",
+        // If shift_id not provided, validate user is a manager
+        if (!body.activated_shift_id) {
+          if (!isManager) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "BAD_REQUEST",
+                message:
+                  "Shift ID is required for non-manager users. Please authenticate with an active shift.",
+              },
+            };
+          }
+          // Manager override - proceed without shift validation
+        } else {
+          // Validate shift exists and can activate packs (standard cashier flow)
+          // Uses ShiftStateMachine for consistent status validation across the application
+          const shift = await prisma.shift.findUnique({
+            where: { shift_id: body.activated_shift_id },
+            select: {
+              shift_id: true,
+              store_id: true,
+              status: true,
             },
-          };
-        }
+          });
 
-        if (shift.status !== ShiftStatus.ACTIVE) {
-          reply.code(400);
-          return {
-            success: false,
-            error: {
-              code: "BAD_REQUEST",
-              message: "Shift must be active to activate packs",
-            },
-          };
+          if (!shift) {
+            reply.code(404);
+            return {
+              success: false,
+              error: { code: "NOT_FOUND", message: "Shift not found" },
+            };
+          }
+
+          if (shift.store_id !== params.storeId) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "BAD_REQUEST",
+                message: "Shift does not belong to this store",
+              },
+            };
+          }
+
+          // Use state machine to validate shift status for pack activation
+          // OPEN and ACTIVE are both valid for pack activation
+          if (!shiftStateMachine.canActivatePack(shift.status)) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "BAD_REQUEST",
+                message: shiftStateMachine.getPackActivationError(shift.status),
+              },
+            };
+          }
         }
 
         // Validate bin exists and belongs to store
@@ -1051,6 +1120,160 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
           };
         }
 
+        // SEC-014: INPUT_VALIDATION - Validate serial_start is within pack's valid range
+        // This validation runs for ALL serial values (including "0" default and overrides)
+        // Uses BigInt comparison for accurate handling of large serial numbers (24+ digits)
+        if (body.serial_start !== "0") {
+          const serialRangeValidation = validateSerialWithinPackRange(
+            body.serial_start,
+            pack.serial_start,
+            pack.serial_end,
+          );
+
+          if (!serialRangeValidation.valid) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: serialRangeValidation.error,
+                field: "serial_start",
+                validRange: {
+                  min: pack.serial_start,
+                  max: pack.serial_end,
+                },
+              },
+            };
+          }
+        }
+
+        // SEC-010: AUTHZ - Validate LOTTERY_SERIAL_OVERRIDE permission for non-zero serial_start
+        // Enterprise practice: Backend MUST validate permissions, not just frontend
+        // Default serial_start is "000" (or legacy "0") - any other value requires LOTTERY_SERIAL_OVERRIDE permission
+        // Dual-auth flow: Cashier activates, Manager approves serial override
+        let serialOverrideApprovedBy: string | null = null;
+        let serialOverrideApprovedAt: Date | null = null;
+
+        // Accept both "0" and "000" as default values that don't require override permission
+        const isDefaultSerial =
+          body.serial_start === "0" || body.serial_start === "000";
+        if (!isDefaultSerial) {
+          // First check session user's permissions
+          let hasSerialOverride = user.permissions.includes(
+            PERMISSIONS.LOTTERY_SERIAL_OVERRIDE,
+          );
+          let serialOverrideUserId = user.id;
+
+          // If session user doesn't have permission, check activated_by user (management auth flow)
+          // This handles case where cashier is logged in but manager authenticated via Management tab
+          if (
+            !hasSerialOverride &&
+            body.activated_by &&
+            body.activated_by !== user.id
+          ) {
+            const activatedByRoles = await rbacService.getUserRoles(
+              body.activated_by,
+            );
+            const activatedByPermissions = new Set<string>();
+            for (const userRole of activatedByRoles) {
+              const rolePermissions = await rbacService.getRolePermissions(
+                userRole.role_id,
+              );
+              for (const permCode of rolePermissions) {
+                activatedByPermissions.add(permCode);
+              }
+            }
+            if (
+              activatedByPermissions.has(PERMISSIONS.LOTTERY_SERIAL_OVERRIDE)
+            ) {
+              hasSerialOverride = true;
+              serialOverrideUserId = body.activated_by;
+            }
+          }
+
+          if (hasSerialOverride) {
+            // User has permission - they are effectively approving their own override
+            // This happens when a manager is doing the activation themselves
+            serialOverrideApprovedBy = serialOverrideUserId;
+            serialOverrideApprovedAt = new Date();
+          } else if (body.serial_override_approved_by) {
+            // Dual-auth flow: Cashier doesn't have permission, but manager approved
+            // Validate the approving manager exists and has the required permission
+            const approver = await prisma.user.findUnique({
+              where: { user_id: body.serial_override_approved_by },
+              select: {
+                user_id: true,
+                name: true,
+                status: true,
+              },
+            });
+
+            if (!approver) {
+              reply.code(400);
+              return {
+                success: false,
+                error: {
+                  code: "BAD_REQUEST",
+                  message: "Serial override approver not found",
+                },
+              };
+            }
+
+            if (approver.status !== "ACTIVE") {
+              reply.code(400);
+              return {
+                success: false,
+                error: {
+                  code: "BAD_REQUEST",
+                  message: "Serial override approver account is not active",
+                },
+              };
+            }
+
+            // Get approver's roles and permissions using rbacService
+            const approverRoles = await rbacService.getUserRoles(
+              body.serial_override_approved_by,
+            );
+            const approverPermissions = new Set<string>();
+            for (const userRole of approverRoles) {
+              // getRolePermissions returns string[] of permission codes
+              const rolePermissions = await rbacService.getRolePermissions(
+                userRole.role_id,
+              );
+              for (const permCode of rolePermissions) {
+                approverPermissions.add(permCode);
+              }
+            }
+
+            if (!approverPermissions.has(PERMISSIONS.LOTTERY_SERIAL_OVERRIDE)) {
+              reply.code(403);
+              return {
+                success: false,
+                error: {
+                  code: "PERMISSION_DENIED",
+                  message:
+                    "The approving manager does not have permission to override starting serial",
+                },
+              };
+            }
+
+            // Valid dual-auth approval
+            serialOverrideApprovedBy = body.serial_override_approved_by;
+            serialOverrideApprovedAt = new Date();
+          } else {
+            // No permission and no manager approval provided
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message:
+                  "You do not have permission to change the starting serial. A manager must approve this change.",
+              },
+            };
+          }
+        }
+
         // Use Prisma transaction to ensure atomicity (all-or-nothing)
         const result = await prisma.$transaction(async (tx) => {
           // 1. Check for previous pack in bin (if exists)
@@ -1083,6 +1306,7 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
             | undefined;
 
           // 2. Update pack: status = ACTIVE, set current_bin_id, activated_at, activated_by, activated_shift_id
+          // Also set serial override approval fields if manager approved a serial change
           await tx.lotteryPack.update({
             where: { pack_id: pack.pack_id },
             data: {
@@ -1090,7 +1314,11 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               current_bin_id: body.bin_id,
               activated_at: new Date(),
               activated_by: body.activated_by,
-              activated_shift_id: body.activated_shift_id,
+              activated_shift_id: body.activated_shift_id || null, // null for manager override
+              // Serial override approval tracking (dual-auth)
+              serial_override_approved_by: serialOverrideApprovedBy,
+              serial_override_approved_at: serialOverrideApprovedAt,
+              serial_override_reason: body.serial_override_reason || null,
             },
           });
 
@@ -1099,28 +1327,36 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
             if (body.deplete_previous) {
               // Auto-deplete the previous pack when activating new pack in same bin
               // MCP: SEC-009 - Using transaction for atomicity
+              // NOTE: Preserve current_bin_id for historical reference in depleted packs list
+              // The new pack's activation already assigns it to the bin, so we don't need
+              // to clear the old pack's bin reference. This allows the sold-out list to
+              // show which bin the pack was in when it was depleted.
               await tx.lotteryPack.update({
                 where: { pack_id: previousPack.pack_id },
                 data: {
                   status: LotteryPackStatus.DEPLETED,
                   depleted_at: new Date(),
                   depleted_by: body.activated_by,
-                  depleted_shift_id: body.activated_shift_id,
+                  depleted_shift_id: body.activated_shift_id || null,
                   depletion_reason: "AUTO_REPLACED",
-                  current_bin_id: null, // Remove from bin since new pack is taking over
+                  // current_bin_id intentionally NOT cleared - preserved for audit trail
                 },
               });
 
-              // Create closing record for depleted pack (use serial_end as closing serial)
-              await tx.lotteryShiftClosing.create({
-                data: {
-                  shift_id: body.activated_shift_id,
-                  pack_id: previousPack.pack_id,
-                  closing_serial: previousPack.serial_end,
-                },
-              });
+              // Create closing record for depleted pack only if we have a shift
+              // Manager override (no shift) skips shift closing record
+              if (body.activated_shift_id) {
+                await tx.lotteryShiftClosing.create({
+                  data: {
+                    shift_id: body.activated_shift_id,
+                    pack_id: previousPack.pack_id,
+                    closing_serial: previousPack.serial_end,
+                  },
+                });
+              }
 
               // Create audit log for auto-depletion
+              // MCP: DB-008 - Structured audit logging with complete state tracking
               await tx.auditLog.create({
                 data: {
                   user_id: body.activated_by,
@@ -1135,10 +1371,11 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
                     status: LotteryPackStatus.DEPLETED,
                     depleted_at: new Date().toISOString(),
                     depleted_by: body.activated_by,
-                    depleted_shift_id: body.activated_shift_id,
+                    depleted_shift_id: body.activated_shift_id || null,
                     depletion_reason: "AUTO_REPLACED",
-                    current_bin_id: null,
+                    current_bin_id: body.bin_id, // Preserved for historical reference
                     auto_replaced_by_pack: pack.pack_id,
+                    manager_override: !body.activated_shift_id,
                   },
                 },
               });
@@ -1154,14 +1391,17 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
             // but will be orphaned (no bin) - this is the legacy behavior for shift closing
           }
 
-          // 4. Create LotteryShiftOpening record
-          await tx.lotteryShiftOpening.create({
-            data: {
-              shift_id: body.activated_shift_id,
-              pack_id: pack.pack_id,
-              opening_serial: body.serial_start,
-            },
-          });
+          // 4. Create LotteryShiftOpening record (only if we have a shift)
+          // Manager override (no shift) skips shift opening record
+          if (body.activated_shift_id) {
+            await tx.lotteryShiftOpening.create({
+              data: {
+                shift_id: body.activated_shift_id,
+                pack_id: pack.pack_id,
+                opening_serial: body.serial_start,
+              },
+            });
+          }
 
           // 5. Create LotteryPackBinHistory record
           await tx.lotteryPackBinHistory.create({
@@ -1169,7 +1409,9 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               pack_id: pack.pack_id,
               bin_id: body.bin_id,
               moved_by: body.activated_by,
-              reason: "Pack activated during shift",
+              reason: body.activated_shift_id
+                ? "Pack activated during shift"
+                : "Pack activated via manager override",
             },
           });
 
@@ -1192,9 +1434,16 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
                 current_bin_id: body.bin_id,
                 activated_at: new Date().toISOString(),
                 activated_by: body.activated_by,
-                activated_shift_id: body.activated_shift_id,
+                activated_shift_id: body.activated_shift_id || null,
                 pack_number: pack.pack_number,
                 serial_start: body.serial_start,
+                manager_override: !body.activated_shift_id,
+                // Dual-auth: Track who approved the serial override
+                serial_override_approved_by: serialOverrideApprovedBy,
+                serial_override_approved_at: serialOverrideApprovedAt
+                  ? serialOverrideApprovedAt.toISOString()
+                  : null,
+                serial_override_reason: body.serial_override_reason || null,
               },
             },
           });
@@ -1231,6 +1480,24 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
             depletedPack: depletedPackInfo, // New: info about auto-depleted pack
           };
         });
+
+        // Trigger OPEN → ACTIVE transition on first pack activation
+        // This is idempotent - if already ACTIVE, no change occurs
+        if (body.activated_shift_id) {
+          try {
+            await shiftService.activateShiftOnFirstActivity(
+              body.activated_shift_id,
+              body.activated_by,
+              "LOTTERY_PACK_ACTIVATED",
+            );
+          } catch (activationError) {
+            // Log but don't fail the pack activation - the pack is already activated
+            fastify.log.warn(
+              { error: activationError, shiftId: body.activated_shift_id },
+              "Failed to transition shift to ACTIVE status",
+            );
+          }
+        }
 
         return {
           success: true,

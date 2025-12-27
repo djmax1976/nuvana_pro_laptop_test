@@ -268,16 +268,13 @@ export function UserList() {
 
     setActionInProgress(userToDelete.user_id);
     try {
-      console.log("Deleting user:", userToDelete.user_id);
-      const result = await deleteMutation.mutateAsync(userToDelete.user_id);
-      console.log("Delete result:", result);
+      await deleteMutation.mutateAsync(userToDelete.user_id);
 
       toast({
         title: "Success",
         description: `User "${userToDelete.name}" deleted successfully`,
       });
     } catch (error) {
-      console.error("Delete error:", error);
       toast({
         title: "Error",
         description:

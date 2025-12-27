@@ -727,17 +727,6 @@ export async function authRoutes(fastify: FastifyInstance) {
         ? new Date(tokenExp * 1000).toISOString()
         : null;
 
-      // Log permissions for debugging (especially in staging)
-      console.log("[Auth] /api/auth/me response:", {
-        userId: dbUser.user_id,
-        email: dbUser.email,
-        roles: user.roles,
-        permissions: user.permissions,
-        hasAdminPermission: user.permissions.includes("ADMIN_SYSTEM_CONFIG"),
-        expiresAt,
-        environment: process.env.NODE_ENV,
-      });
-
       reply.code(200);
       return {
         user: {
@@ -1226,6 +1215,330 @@ export async function authRoutes(fastify: FastifyInstance) {
         return {
           valid: false,
           error: "Failed to verify user permission",
+        };
+      }
+    },
+  );
+
+  /**
+   * Verify management credentials for pack activation
+   * POST /api/auth/verify-management
+   *
+   * Verifies user credentials WITHOUT setting session cookies.
+   * Used for management authentication in lottery pack activation modal.
+   * Unlike /api/auth/login, this endpoint:
+   * - Does NOT set access_token or refresh_token cookies
+   * - Checks for manager-level roles (CLIENT_OWNER, CLIENT_ADMIN, STORE_MANAGER, etc.)
+   * - Returns user info for audit purposes
+   *
+   * MCP Guidance Applied:
+   * - API-001: VALIDATION - Zod schema validation for request body
+   * - API-003: ERROR_HANDLING - Generic errors, no info leakage
+   * - API-004: AUTHENTICATION - Secure password verification with bcrypt
+   * - SEC-006: SQL_INJECTION - Parameterized queries via Prisma ORM
+   * - SEC-010: AUTHZ - Role-based access control check
+   */
+  const verifyManagementSchema = z.object({
+    email: z.string().email("Email must be a valid email address"),
+    password: z.string().min(1, "Password is required"),
+  });
+
+  fastify.post(
+    "/api/auth/verify-management",
+    {
+      schema: {
+        description:
+          "Verify management credentials for pack activation (no cookies set)",
+        tags: ["auth"],
+        body: {
+          type: "object",
+          properties: {
+            email: {
+              type: "string",
+              format: "email",
+              description: "User email address",
+            },
+            password: {
+              type: "string",
+              description: "User password",
+            },
+          },
+          required: ["email", "password"],
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  user_id: { type: "string", format: "uuid" },
+                  name: { type: "string" },
+                  email: { type: "string" },
+                  roles: { type: "array", items: { type: "string" } },
+                  permissions: { type: "array", items: { type: "string" } },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+      preHandler: [authMiddleware], // Requires authenticated session to make the request
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // API-001: VALIDATION - Validate request body with Zod schema
+        const parseResult = verifyManagementSchema.safeParse(request.body);
+        if (!parseResult.success) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message:
+                parseResult.error.issues[0]?.message || "Invalid request",
+            },
+          };
+        }
+
+        const { email, password } = parseResult.data;
+        const requestingUser = (request as unknown as { user: UserIdentity })
+          .user;
+        const auditContext = getAuditContext(request, requestingUser);
+
+        // Step 1: Find user by email
+        // SEC-006: SQL_INJECTION - Use parameterized query via Prisma ORM
+        const user = await prisma.user.findUnique({
+          where: { email: email.toLowerCase().trim() },
+          select: {
+            user_id: true,
+            email: true,
+            password_hash: true,
+            status: true,
+            name: true,
+          },
+        });
+
+        if (!user) {
+          // Log failed authentication attempt (user not found)
+          await prisma.auditLog.create({
+            data: {
+              user_id: requestingUser.id,
+              action: "MGMT_AUTH_FAILURE",
+              table_name: "users",
+              record_id: requestingUser.id,
+              new_values: {
+                reason: "User not found",
+                attempted_email: email,
+                auth_type: "MANAGEMENT_VERIFY",
+              },
+              ip_address: auditContext.ipAddress,
+              user_agent: auditContext.userAgent,
+            },
+          });
+
+          reply.code(401);
+          return {
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid email or password",
+            },
+          };
+        }
+
+        // Step 2: Check user status
+        if (user.status !== "ACTIVE") {
+          await prisma.auditLog.create({
+            data: {
+              user_id: requestingUser.id,
+              action: "MGMT_AUTH_FAILURE",
+              table_name: "users",
+              record_id: user.user_id,
+              new_values: {
+                reason: "User inactive",
+                user_status: user.status,
+                auth_type: "MANAGEMENT_VERIFY",
+              },
+              ip_address: auditContext.ipAddress,
+              user_agent: auditContext.userAgent,
+            },
+          });
+
+          reply.code(401);
+          return {
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Account is inactive",
+            },
+          };
+        }
+
+        // Step 3: Verify password
+        // API-004: AUTHENTICATION - Secure password verification with bcrypt
+        if (!user.password_hash) {
+          reply.code(401);
+          return {
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid email or password",
+            },
+          };
+        }
+
+        const passwordValid = await bcrypt.compare(
+          password,
+          user.password_hash,
+        );
+        if (!passwordValid) {
+          await prisma.auditLog.create({
+            data: {
+              user_id: requestingUser.id,
+              action: "MGMT_AUTH_FAILURE",
+              table_name: "users",
+              record_id: user.user_id,
+              new_values: {
+                reason: "Invalid password",
+                auth_type: "MANAGEMENT_VERIFY",
+              },
+              ip_address: auditContext.ipAddress,
+              user_agent: auditContext.userAgent,
+            },
+          });
+
+          reply.code(401);
+          return {
+            success: false,
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Invalid email or password",
+            },
+          };
+        }
+
+        // Step 4: Get user roles and permissions using RBAC service
+        const rbacService = new RBACService();
+        const userRoles = await rbacService.getUserRoles(user.user_id);
+        const roleCodes = userRoles.map((ur) => ur.role_code);
+        // Collect unique permissions from all roles
+        const allPermissions = new Set<string>();
+        for (const ur of userRoles) {
+          for (const perm of ur.permissions) {
+            allPermissions.add(perm);
+          }
+        }
+
+        // Step 5: Check if user has manager-level role
+        const MANAGER_ROLES = [
+          "CLIENT_OWNER",
+          "CLIENT_ADMIN",
+          "STORE_MANAGER",
+          "SYSTEM_ADMIN",
+          "SUPERADMIN",
+        ];
+
+        const hasManagerRole = roleCodes.some((role) =>
+          MANAGER_ROLES.includes(role),
+        );
+
+        if (!hasManagerRole) {
+          await prisma.auditLog.create({
+            data: {
+              user_id: requestingUser.id,
+              action: "MGMT_AUTH_FAILURE",
+              table_name: "users",
+              record_id: user.user_id,
+              new_values: {
+                reason: "Insufficient permissions - not a manager",
+                user_roles: roleCodes,
+                auth_type: "MANAGEMENT_VERIFY",
+              },
+              ip_address: auditContext.ipAddress,
+              user_agent: auditContext.userAgent,
+            },
+          });
+
+          reply.code(401);
+          return {
+            success: false,
+            error: {
+              code: "INSUFFICIENT_PERMISSIONS",
+              message: "User does not have manager permissions",
+            },
+          };
+        }
+
+        // Log successful management authentication
+        await prisma.auditLog.create({
+          data: {
+            user_id: requestingUser.id,
+            action: "MGMT_AUTH_SUCCESS",
+            table_name: "users",
+            record_id: user.user_id,
+            new_values: {
+              reason: "Management credentials verified for pack activation",
+              authorized_user_id: user.user_id,
+              authorized_user_name: user.name,
+              user_roles: roleCodes,
+              auth_type: "MANAGEMENT_VERIFY",
+            },
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+          },
+        });
+
+        // Return result - NO COOKIES SET
+        reply.code(200);
+        return {
+          success: true,
+          data: {
+            user_id: user.user_id,
+            name: user.name,
+            email: user.email,
+            roles: roleCodes,
+            permissions: Array.from(allPermissions),
+          },
+        };
+      } catch (error: unknown) {
+        // API-003: ERROR_HANDLING - Generic error message, don't leak implementation details
+        fastify.log.error({ error }, "Error verifying management credentials");
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to verify credentials",
+          },
         };
       }
     },

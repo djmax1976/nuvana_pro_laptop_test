@@ -78,16 +78,6 @@ export class AuthService {
     this.clientUserAccessTokenExpiry =
       process.env.CLIENT_USER_TOKEN_EXPIRY || "30d";
     this.refreshTokenExpiry = process.env.REFRESH_TOKEN_EXPIRY || "7d";
-
-    // Log configuration in non-production environments for debugging
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[AuthService] Token expiry configuration:", {
-        defaultAccessTokenExpiry: this.defaultAccessTokenExpiry,
-        superAdminAccessTokenExpiry: this.superAdminAccessTokenExpiry,
-        clientUserAccessTokenExpiry: this.clientUserAccessTokenExpiry,
-        refreshTokenExpiry: this.refreshTokenExpiry,
-      });
-    }
   }
 
   /**
@@ -174,18 +164,6 @@ export class AuthService {
 
     // Determine expiry based on roles
     const expiresIn = this.getAccessTokenExpiry(roles);
-    const isSuperAdmin = roles.includes("SUPERADMIN");
-
-    // Audit logging for super admin token generation
-    if (isSuperAdmin) {
-      console.log("[AUDIT] Super admin token generated:", {
-        user_id,
-        email,
-        expiresIn,
-        timestamp: new Date().toISOString(),
-        client_id: client_id || "N/A",
-      });
-    }
 
     return jwt.sign(payload, this.jwtSecret, {
       expiresIn,
@@ -261,14 +239,6 @@ export class AuthService {
         SELECT current_setting('app.current_user_id', true) as current_user_id
       `;
 
-        // Log in all environments to debug staging issues
-        console.log("[AuthService] RLS context check:", {
-          user_id,
-          sessionUserId: sessionCheck[0]?.current_user_id,
-          match: sessionCheck[0]?.current_user_id === user_id,
-          environment: process.env.NODE_ENV,
-        });
-
         // Use the transaction client to ensure queries run on the same connection
         // where SET LOCAL was executed
         // The RLS policy should allow this query because user_id matches current_setting
@@ -295,30 +265,6 @@ export class AuthService {
             },
           },
         });
-
-        // Log in all environments to debug staging issues
-        console.log("[AuthService] Fetched user roles:", {
-          user_id,
-          roleCount: userRoles.length,
-          roles: userRoles.map((ur) => ur.role.code),
-          permissions: userRoles.flatMap((ur) =>
-            ur.role.role_permissions.map((rp: any) => rp.permission.code),
-          ),
-          environment: process.env.NODE_ENV,
-        });
-
-        // If no roles found, this is a critical error - log it
-        if (userRoles.length === 0) {
-          console.error(
-            "[AuthService] CRITICAL: No roles found for user during token generation!",
-            {
-              user_id,
-              email,
-              sessionUserId: sessionCheck[0]?.current_user_id,
-              environment: process.env.NODE_ENV,
-            },
-          );
-        }
 
         // Transform to UserRole format (matching rbacService.getUserRoles format)
         return userRoles.map((ur) => ({
@@ -371,19 +317,6 @@ export class AuthService {
           .filter((id): id is string => id !== null),
       ),
     );
-
-    // Log final token generation details
-    console.log("[AuthService] Token generation summary:", {
-      user_id,
-      email,
-      roles,
-      permissions,
-      hasAdminPermission: permissions.includes("ADMIN_SYSTEM_CONFIG"),
-      is_system_admin,
-      company_ids_count: company_ids.length,
-      store_ids_count: store_ids.length,
-      environment: process.env.NODE_ENV,
-    });
 
     // PHASE 4: Populate user access cache on login for zero-DB-query permission checks
     // This pre-populates the cache with the same data computed during token generation

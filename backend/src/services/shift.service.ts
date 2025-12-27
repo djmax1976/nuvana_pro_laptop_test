@@ -3,6 +3,9 @@
  *
  * Business logic for shift operations.
  * Story 4.2: Shift Opening API
+ *
+ * IMPORTANT: All status transitions MUST use the ShiftStateMachine service.
+ * This ensures consistent behavior across the entire application.
  */
 
 import { ShiftStatus, Prisma } from "@prisma/client";
@@ -15,6 +18,11 @@ import { toStoreTime, toUTC } from "../utils/timezone.utils";
 import { startOfDay, addDays } from "date-fns";
 import * as crypto from "crypto";
 import { shiftSummaryService } from "./shift-summary.service";
+import {
+  shiftStateMachine,
+  UNCLOSED_SHIFT_STATUSES,
+  type TransitionContext,
+} from "./shift-state-machine";
 
 /**
  * Audit context for logging operations
@@ -253,23 +261,23 @@ export class ShiftService {
   }
 
   /**
-   * Check if an active shift exists for a POS terminal
-   * Active shifts are those with status: OPEN, ACTIVE, CLOSING, RECONCILING
-   * and closed_at IS NULL
+   * Check if an unclosed shift exists for a POS terminal
+   *
+   * Uses the ShiftStateMachine's UNCLOSED_SHIFT_STATUSES constant to ensure
+   * consistent definition of "unclosed" across the codebase.
+   *
+   * Note: "Unclosed" includes shifts in CLOSING/VARIANCE_REVIEW states.
+   * For checking if a shift allows operations, use isWorkingShift() instead.
+   *
    * @param posTerminalId - POS terminal UUID
-   * @returns Shift with cashier info if active shift exists, null otherwise
+   * @returns Shift with cashier info if unclosed shift exists, null otherwise
    */
   async checkActiveShift(posTerminalId: string) {
     const activeShift = await prisma.shift.findFirst({
       where: {
         pos_terminal_id: posTerminalId,
         status: {
-          in: [
-            ShiftStatus.OPEN,
-            ShiftStatus.ACTIVE,
-            ShiftStatus.CLOSING,
-            ShiftStatus.RECONCILING,
-          ],
+          in: [...UNCLOSED_SHIFT_STATUSES],
         },
         closed_at: null,
       },
@@ -286,6 +294,113 @@ export class ShiftService {
     });
 
     return activeShift;
+  }
+
+  /**
+   * Check if a shift is in a "working" state where operations are allowed.
+   *
+   * Working states: OPEN, ACTIVE
+   * These are the only states where transactions and pack activations are allowed.
+   *
+   * @param shiftId - Shift UUID
+   * @returns true if shift is in working state, false otherwise
+   */
+  async isWorkingShift(shiftId: string): Promise<boolean> {
+    const shift = await prisma.shift.findUnique({
+      where: { shift_id: shiftId },
+      select: { status: true },
+    });
+
+    if (!shift) {
+      return false;
+    }
+
+    return shiftStateMachine.isWorkingStatus(shift.status);
+  }
+
+  /**
+   * Transition a shift to ACTIVE status when first operational activity occurs.
+   *
+   * This is called automatically when:
+   * - First transaction is recorded
+   * - First lottery pack is activated
+   * - First lottery pack is opened
+   *
+   * The transition is idempotent - if already ACTIVE, no change occurs.
+   *
+   * @param shiftId - Shift UUID
+   * @param actorId - User who triggered the activity
+   * @param trigger - What caused the activation (for audit)
+   * @returns Updated shift status, or current status if no change needed
+   */
+  async activateShiftOnFirstActivity(
+    shiftId: string,
+    actorId: string,
+    trigger:
+      | "LOTTERY_PACK_ACTIVATED"
+      | "LOTTERY_PACK_OPENED"
+      | "TRANSACTION_CREATED",
+  ): Promise<ShiftStatus> {
+    const shift = await prisma.shift.findUnique({
+      where: { shift_id: shiftId },
+      select: { shift_id: true, status: true, store_id: true },
+    });
+
+    if (!shift) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.SHIFT_NOT_FOUND,
+        `Shift ${shiftId} not found`,
+      );
+    }
+
+    // Only transition OPEN → ACTIVE
+    if (shift.status !== ShiftStatus.OPEN) {
+      return shift.status; // Already ACTIVE or in another state
+    }
+
+    // Validate the transition
+    const context: TransitionContext = {
+      shiftId,
+      trigger: "FIRST_ACTIVITY",
+      actorId,
+      reason: `Shift activated by first activity: ${trigger}`,
+    };
+
+    shiftStateMachine.validateTransition(
+      shift.status,
+      ShiftStatus.ACTIVE,
+      context,
+    );
+
+    // Perform the transition
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedShift = await tx.shift.update({
+        where: { shift_id: shiftId },
+        data: { status: ShiftStatus.ACTIVE },
+        select: { status: true },
+      });
+
+      // Audit the transition
+      await tx.auditLog.create({
+        data: {
+          user_id: actorId,
+          action: "SHIFT_ACTIVATED",
+          table_name: "shifts",
+          record_id: shiftId,
+          old_values: { status: ShiftStatus.OPEN },
+          new_values: {
+            status: ShiftStatus.ACTIVE,
+            trigger,
+            transitioned_at: new Date().toISOString(),
+          },
+          reason: `Shift transitioned OPEN → ACTIVE on first activity: ${trigger}`,
+        },
+      });
+
+      return updatedShift;
+    });
+
+    return updated.status;
   }
 
   /**

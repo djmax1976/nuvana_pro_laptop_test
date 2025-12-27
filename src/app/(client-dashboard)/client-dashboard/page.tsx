@@ -364,8 +364,7 @@ export default function ClientDashboardPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <RecentTransactionsTable
           onViewAll={() => {
-            // Navigate to transactions page
-            console.log("Navigate to transactions");
+            // TODO: Navigate to transactions page
           }}
         />
         <RecentActivityFeed />
@@ -377,8 +376,7 @@ export default function ClientDashboardPage() {
           ============================================ */}
       <LotteryPacksTable
         onViewAll={() => {
-          // Navigate to lottery page
-          console.log("Navigate to lottery packs");
+          // TODO: Navigate to lottery page
         }}
       />
 
@@ -388,8 +386,7 @@ export default function ClientDashboardPage() {
           ============================================ */}
       <ShiftHistoryTable
         onViewAll={() => {
-          // Navigate to shifts page
-          console.log("Navigate to shifts");
+          // TODO: Navigate to shifts page
         }}
       />
     </div>

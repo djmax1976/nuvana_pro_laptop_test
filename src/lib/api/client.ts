@@ -72,15 +72,10 @@ function createApiClient(): AxiosInstance {
     },
   });
 
-  // Request interceptor - add logging in development
+  // Request interceptor - minimal logging in development
+  // Enterprise practice: never log request bodies (even sanitized) to avoid PII exposure
   client.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
-      if (process.env.NODE_ENV === "development") {
-        console.debug(
-          `[API] ${config.method?.toUpperCase()} ${config.url}`,
-          config.params || config.data || "",
-        );
-      }
       return config;
     },
     (error: AxiosError) => {
@@ -94,8 +89,41 @@ function createApiClient(): AxiosInstance {
       return response;
     },
     async (error: AxiosError) => {
-      // Handle 401 Unauthorized - session expired
+      // Handle 401 Unauthorized
       if (error.response?.status === 401) {
+        const requestUrl = error.config?.url || "";
+
+        // SEC-010: AUTHZ - Distinguish between session expiration and credential verification failures
+        // These endpoints verify OTHER users' credentials (not the current session).
+        // A 401 from these means "invalid credentials for the user being verified",
+        // NOT "the current logged-in user's session expired".
+        // Do NOT trigger global session expiration for these endpoints.
+        const isCredentialVerificationEndpoint =
+          requestUrl.includes("/auth/verify-management") ||
+          requestUrl.includes("/auth/verify-user-permission") ||
+          requestUrl.includes("/auth/verify-cashier-permission") ||
+          requestUrl.includes("/cashiers/authenticate-pin");
+
+        if (isCredentialVerificationEndpoint) {
+          // Extract error details for proper error message display
+          const responseData = error.response?.data as {
+            success?: boolean;
+            error?: { code?: string; message?: string };
+            message?: string;
+          };
+
+          const errorCode =
+            responseData?.error?.code || "AUTHENTICATION_FAILED";
+          const errorMessage =
+            responseData?.error?.message ||
+            responseData?.message ||
+            "Authentication failed";
+
+          // Return credential verification error WITHOUT triggering session expiration
+          return Promise.reject(new ApiError(errorMessage, 401, errorCode));
+        }
+
+        // For all other 401s, this is a session expiration
         // Dispatch event for React Query to clear cache
         dispatchSessionExpiredEvent("api_401");
 

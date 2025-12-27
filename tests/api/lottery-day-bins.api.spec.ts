@@ -894,4 +894,353 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     expect(body.success).toBe(false);
     expect(body.error.code).toBe("NOT_FOUND");
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Enterprise Close-to-Close Business Day Model Tests
+  // ═══════════════════════════════════════════════════════════════════════════
+  // In enterprise POS systems, a "business day" is defined as the period from
+  // the last day close to the next day close - NOT calendar midnight-to-midnight.
+  // This ensures no transactions are orphaned when a day close is missed.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  test("DAY-BINS-014: [P0] Should return open_business_period metadata", async ({
+    clientUserApiRequest,
+    clientUser,
+  }) => {
+    // GIVEN: I am authenticated as a Client Owner
+    const storeId = clientUser.store_id;
+
+    // WHEN: I query day bins
+    const response = await clientUserApiRequest.get(
+      `/api/lottery/bins/day/${storeId}`,
+    );
+
+    // THEN: Response should include open_business_period metadata
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(
+      body.data.open_business_period,
+      "Should have open_business_period",
+    ).toBeDefined();
+    expect(
+      typeof body.data.open_business_period.is_first_period,
+      "is_first_period should be boolean",
+    ).toBe("boolean");
+  });
+
+  test("DAY-BINS-015: [P0] Should show depleted packs from multiple days when day close is missed", async ({
+    clientUserApiRequest,
+    clientUser,
+  }) => {
+    // GIVEN: A store with no closed LotteryBusinessDay and packs depleted over multiple calendar days
+    // This simulates the scenario where a cashier forgets to close the day
+    const storeId = clientUser.store_id;
+
+    const gameCode = generateUniqueGameCode();
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const twoDaysAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+
+    const testData = await withBypassClient(async (tx) => {
+      const game = await tx.lotteryGame.create({
+        data: {
+          name: "Multi-Day Depleted Test Game",
+          game_code: gameCode,
+          price: 5.0,
+          pack_value: 150,
+          status: "ACTIVE",
+          store_id: storeId,
+        },
+      });
+
+      const bin = await tx.lotteryBin.create({
+        data: {
+          store_id: storeId,
+          name: "Multi-Day Test Bin",
+          display_order: 95,
+          is_active: true,
+        },
+      });
+
+      // Pack depleted 2 days ago (should be visible with close-to-close model)
+      const pack1 = await tx.lotteryPack.create({
+        data: {
+          game_id: game.game_id,
+          store_id: storeId,
+          pack_number: `MULTI-2DAYS-${Date.now()}`,
+          serial_start: "001",
+          serial_end: "030",
+          status: "DEPLETED",
+          activated_at: new Date(twoDaysAgo.getTime() - 86400000),
+          depleted_at: twoDaysAgo,
+          current_bin_id: bin.bin_id,
+        },
+      });
+
+      // Pack depleted yesterday (should be visible with close-to-close model)
+      const pack2 = await tx.lotteryPack.create({
+        data: {
+          game_id: game.game_id,
+          store_id: storeId,
+          pack_number: `MULTI-1DAY-${Date.now()}`,
+          serial_start: "001",
+          serial_end: "030",
+          status: "DEPLETED",
+          activated_at: new Date(yesterday.getTime() - 86400000),
+          depleted_at: yesterday,
+          current_bin_id: bin.bin_id,
+        },
+      });
+
+      // Pack depleted today (should definitely be visible)
+      const todayNoon = getTodayNoonInTimezone("America/New_York");
+      const pack3 = await tx.lotteryPack.create({
+        data: {
+          game_id: game.game_id,
+          store_id: storeId,
+          pack_number: `MULTI-TODAY-${Date.now()}`,
+          serial_start: "001",
+          serial_end: "030",
+          status: "DEPLETED",
+          activated_at: new Date(todayNoon.getTime() - 86400000),
+          depleted_at: todayNoon,
+          current_bin_id: bin.bin_id,
+        },
+      });
+
+      return { game, bin, pack1, pack2, pack3 };
+    });
+
+    // WHEN: I query day bins (no LotteryBusinessDay has been closed for this store)
+    const response = await clientUserApiRequest.get(
+      `/api/lottery/bins/day/${storeId}`,
+    );
+
+    // THEN: All depleted packs since the epoch should be visible (no closed day = beginning of time)
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+
+    // All 3 packs should be in depleted_packs (close-to-close model shows all since last close)
+    const depletedPackIds = body.data.depleted_packs.map((p: any) => p.pack_id);
+    expect(
+      depletedPackIds,
+      "Pack depleted 2 days ago should be visible",
+    ).toContain(testData.pack1.pack_id);
+    expect(
+      depletedPackIds,
+      "Pack depleted yesterday should be visible",
+    ).toContain(testData.pack2.pack_id);
+    expect(depletedPackIds, "Pack depleted today should be visible").toContain(
+      testData.pack3.pack_id,
+    );
+
+    // open_business_period should indicate this is the first period (no prior closed days)
+    expect(
+      body.data.open_business_period.is_first_period,
+      "Should be first period when no day has been closed",
+    ).toBe(true);
+    expect(
+      body.data.open_business_period.last_closed_date,
+      "last_closed_date should be null for first period",
+    ).toBeNull();
+
+    // Cleanup
+    await withBypassClient(async (tx) => {
+      await tx.lotteryPack.deleteMany({
+        where: {
+          pack_id: {
+            in: [
+              testData.pack1.pack_id,
+              testData.pack2.pack_id,
+              testData.pack3.pack_id,
+            ],
+          },
+        },
+      });
+      await tx.lotteryBin.delete({ where: { bin_id: testData.bin.bin_id } });
+      await tx.lotteryGame.delete({
+        where: { game_id: testData.game.game_id },
+      });
+    });
+  });
+
+  test("DAY-BINS-016: [P0] Should show days_since_last_close when day close is missed", async ({
+    clientUserApiRequest,
+    clientUser,
+  }) => {
+    // GIVEN: A store with a LotteryBusinessDay closed 3 days ago
+    const storeId = clientUser.store_id;
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+
+    const testData = await withBypassClient(async (tx) => {
+      // Create a closed LotteryBusinessDay from 3 days ago
+      const closedDay = await tx.lotteryBusinessDay.create({
+        data: {
+          store_id: storeId,
+          business_date: threeDaysAgo,
+          status: "CLOSED",
+          opened_at: threeDaysAgo,
+          closed_at: threeDaysAgo,
+          opened_by: clientUser.user_id,
+          closed_by: clientUser.user_id,
+        },
+      });
+
+      return { closedDay };
+    });
+
+    // WHEN: I query day bins
+    const response = await clientUserApiRequest.get(
+      `/api/lottery/bins/day/${storeId}`,
+    );
+
+    // THEN: days_since_last_close should be approximately 3
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+
+    expect(
+      body.data.open_business_period.is_first_period,
+      "Should not be first period when a day has been closed",
+    ).toBe(false);
+    expect(
+      body.data.open_business_period.days_since_last_close,
+      "days_since_last_close should be >= 2",
+    ).toBeGreaterThanOrEqual(2); // Allow for timezone edge cases
+    expect(
+      body.data.open_business_period.last_closed_date,
+      "Should have last_closed_date",
+    ).toBeDefined();
+
+    // Cleanup
+    await withBypassClient(async (tx) => {
+      await tx.lotteryBusinessDay.delete({
+        where: { day_id: testData.closedDay.day_id },
+      });
+    });
+  });
+
+  test("DAY-BINS-017: [P0] Should only show depleted packs after last closed day", async ({
+    clientUserApiRequest,
+    clientUser,
+  }) => {
+    // GIVEN: A store with a closed LotteryBusinessDay and packs depleted before/after close
+    const storeId = clientUser.store_id;
+
+    const gameCode = generateUniqueGameCode();
+    const now = new Date();
+    const twoDaysAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    const testData = await withBypassClient(async (tx) => {
+      const game = await tx.lotteryGame.create({
+        data: {
+          name: "Close Boundary Test Game",
+          game_code: gameCode,
+          price: 5.0,
+          pack_value: 150,
+          status: "ACTIVE",
+          store_id: storeId,
+        },
+      });
+
+      const bin = await tx.lotteryBin.create({
+        data: {
+          store_id: storeId,
+          name: "Close Boundary Test Bin",
+          display_order: 96,
+          is_active: true,
+        },
+      });
+
+      // Pack depleted BEFORE the day close (should NOT be visible in current period)
+      const packBeforeClose = await tx.lotteryPack.create({
+        data: {
+          game_id: game.game_id,
+          store_id: storeId,
+          pack_number: `BEFORE-CLOSE-${Date.now()}`,
+          serial_start: "001",
+          serial_end: "030",
+          status: "DEPLETED",
+          activated_at: new Date(twoDaysAgo.getTime() - 86400000),
+          depleted_at: twoDaysAgo, // 2 days ago
+          current_bin_id: bin.bin_id,
+        },
+      });
+
+      // Day closed 1.5 days ago (between the two packs)
+      const closeTime = new Date(now.getTime() - 36 * 60 * 60 * 1000);
+      const closedDay = await tx.lotteryBusinessDay.create({
+        data: {
+          store_id: storeId,
+          business_date: new Date(closeTime.toISOString().split("T")[0]),
+          status: "CLOSED",
+          opened_at: closeTime,
+          closed_at: closeTime,
+          opened_by: clientUser.user_id,
+          closed_by: clientUser.user_id,
+        },
+      });
+
+      // Pack depleted AFTER the day close (should be visible in current period)
+      const packAfterClose = await tx.lotteryPack.create({
+        data: {
+          game_id: game.game_id,
+          store_id: storeId,
+          pack_number: `AFTER-CLOSE-${Date.now()}`,
+          serial_start: "001",
+          serial_end: "030",
+          status: "DEPLETED",
+          activated_at: new Date(oneDayAgo.getTime() - 86400000),
+          depleted_at: oneDayAgo, // 1 day ago (after close)
+          current_bin_id: bin.bin_id,
+        },
+      });
+
+      return { game, bin, packBeforeClose, packAfterClose, closedDay };
+    });
+
+    // WHEN: I query day bins
+    const response = await clientUserApiRequest.get(
+      `/api/lottery/bins/day/${storeId}`,
+    );
+
+    // THEN: Only pack depleted AFTER the day close should be visible
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+
+    const depletedPackIds = body.data.depleted_packs.map((p: any) => p.pack_id);
+
+    // Pack depleted before close should NOT be in the list
+    expect(
+      depletedPackIds,
+      "Pack depleted before close should NOT be visible",
+    ).not.toContain(testData.packBeforeClose.pack_id);
+
+    // Pack depleted after close should be in the list
+    expect(
+      depletedPackIds,
+      "Pack depleted after close should be visible",
+    ).toContain(testData.packAfterClose.pack_id);
+
+    // Cleanup
+    await withBypassClient(async (tx) => {
+      await tx.lotteryPack.deleteMany({
+        where: {
+          pack_id: {
+            in: [
+              testData.packBeforeClose.pack_id,
+              testData.packAfterClose.pack_id,
+            ],
+          },
+        },
+      });
+      await tx.lotteryBusinessDay.delete({
+        where: { day_id: testData.closedDay.day_id },
+      });
+      await tx.lotteryBin.delete({ where: { bin_id: testData.bin.bin_id } });
+      await tx.lotteryGame.delete({
+        where: { game_id: testData.game.game_id },
+      });
+    });
+  });
 });

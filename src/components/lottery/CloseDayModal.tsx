@@ -114,11 +114,6 @@ export function CloseDayModal({
   const isControlled = externalScannedBins !== undefined;
   const scannedBins = isControlled ? externalScannedBins : internalScannedBins;
 
-  // Debug logging - remove after fixing
-  console.log("[CloseDayModal] isControlled:", isControlled);
-  console.log("[CloseDayModal] externalScannedBins:", externalScannedBins);
-  console.log("[CloseDayModal] scannedBins length:", scannedBins.length);
-
   // Keep refs to avoid stale closures in callbacks
   const externalScannedBinsRef = useRef(externalScannedBins);
   const onScannedBinsChangeRef = useRef(onScannedBinsChange);

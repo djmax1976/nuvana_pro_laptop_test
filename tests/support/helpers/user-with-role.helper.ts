@@ -3,6 +3,7 @@
  *
  * Helper function to create a user with password and assigned role for authentication tests.
  * Ensures users can login successfully by having proper role assignments.
+ * Also populates the Redis cache for RBAC to bypass RLS issues in tests.
  */
 
 import { PrismaClient } from "@prisma/client";
@@ -12,6 +13,10 @@ import {
   generatePublicId,
   PUBLIC_ID_PREFIXES,
 } from "../../../backend/src/utils/public-id";
+import {
+  populateUserRolesCache,
+  CachedUserRole,
+} from "../fixtures/rbac.fixture";
 
 export interface CreateUserWithRoleInput {
   email?: string;
@@ -71,9 +76,16 @@ export async function createUserWithRole(
   const saltRounds = 10;
   const password_hash = await bcrypt.hash(password, saltRounds);
 
-  // Get the role
+  // Get the role with permissions
   const role = await prisma.role.findUnique({
     where: { code: roleCode },
+    include: {
+      role_permissions: {
+        include: {
+          permission: true,
+        },
+      },
+    },
   });
 
   if (!role) {
@@ -103,6 +115,23 @@ export async function createUserWithRole(
   if (!user.password_hash) {
     throw new Error("Password hash should not be null");
   }
+
+  // Populate Redis cache for RBAC to bypass RLS issues
+  // This is necessary because the rbacService.getUserRoles() queries user_roles
+  // table which has RLS policies that block access in test contexts
+  const permissions = role.role_permissions.map((rp) => rp.permission.code);
+  const cachedRole: CachedUserRole = {
+    user_role_id: userRole.user_role_id,
+    user_id: user.user_id,
+    role_id: role.role_id,
+    role_code: role.code,
+    scope: role.scope as "SYSTEM" | "COMPANY" | "STORE" | "CLIENT",
+    client_id: null,
+    company_id: null,
+    store_id: null,
+    permissions,
+  };
+  await populateUserRolesCache(user.user_id, [cachedRole]);
 
   return {
     user: {

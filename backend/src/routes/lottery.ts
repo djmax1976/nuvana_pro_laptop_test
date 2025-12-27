@@ -2709,6 +2709,13 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               format: "uuid",
               description: "Filter by game UUID",
             },
+            search: {
+              type: "string",
+              minLength: 2,
+              maxLength: 100,
+              description:
+                "Search by game name or pack number (case-insensitive, min 2 chars)",
+            },
           },
         },
         response: {
@@ -2834,6 +2841,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         store_id: string;
         status?: "RECEIVED" | "ACTIVE" | "DEPLETED" | "RETURNED";
         game_id?: string;
+        search?: string;
       };
 
       try {
@@ -2900,6 +2908,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         }
 
         // Build query filter using Prisma ORM (prevents SQL injection)
+        // MCP SEC-006: SQL_INJECTION - Using Prisma ORM parameterized queries
         const whereClause: any = {
           store_id: query.store_id, // RLS enforced via store_id filter
         };
@@ -2910,6 +2919,15 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
 
         if (query.game_id) {
           whereClause.game_id = query.game_id;
+        }
+
+        // Add search filter for game name or pack number (case-insensitive)
+        // MCP SEC-006: Using Prisma's contains with mode: insensitive (no SQL injection)
+        if (query.search && query.search.length >= 2) {
+          whereClause.OR = [
+            { game: { name: { contains: query.search, mode: "insensitive" } } },
+            { pack_number: { contains: query.search, mode: "insensitive" } },
+          ];
         }
 
         // Query packs with relationships using Prisma ORM
@@ -6749,6 +6767,51 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           }
         }
 
+        // ============================================================================
+        // ENTERPRISE BUSINESS DAY MODEL: Close-to-Close
+        // ============================================================================
+        // In enterprise POS systems, a "business day" is defined as the period from
+        // the last day close to the next day close - NOT calendar midnight-to-midnight.
+        // This ensures no transactions are orphaned when a day close is missed.
+        //
+        // Example: If Day 1 closes at 11:30 PM and Day 2 hasn't closed yet (even if
+        // it's now Day 4), all activity since Day 1's close belongs to the current
+        // open business period and should be visible.
+        // ============================================================================
+
+        // Always find the most recent CLOSED business day for this store
+        // This is the boundary for the current open business period
+        const lastClosedBusinessDay = await prisma.lotteryBusinessDay.findFirst(
+          {
+            where: {
+              store_id: params.storeId,
+              status: "CLOSED",
+            },
+            orderBy: { closed_at: "desc" },
+            select: {
+              day_id: true,
+              business_date: true,
+              closed_at: true,
+              day_packs: {
+                where: {
+                  pack_id: { in: activePackIds },
+                  ending_serial: { not: null },
+                },
+                select: {
+                  pack_id: true,
+                  ending_serial: true,
+                },
+              },
+            },
+          },
+        );
+
+        // The open business period starts from the last closed day's closed_at timestamp
+        // If no day has ever been closed, use the beginning of time (epoch)
+        const openBusinessPeriodStart = lastClosedBusinessDay?.closed_at
+          ? new Date(lastClosedBusinessDay.closed_at)
+          : new Date(0); // Epoch - beginning of time
+
         // Look for the most recent CLOSED day's ending serials to use as starting serials
         // This handles two scenarios:
         // 1. No LotteryDayPack for today yet -> use previous closed day's ending serials
@@ -6774,26 +6837,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           !lotteryBusinessDay ||
           lotteryBusinessDay.day_packs.length === 0
         ) {
-          // Find the most recent closed LotteryBusinessDay for this store (any prior day)
-          const previousClosedDay = await prisma.lotteryBusinessDay.findFirst({
-            where: {
-              store_id: params.storeId,
-              status: "CLOSED",
-              business_date: { lt: targetDate },
-            },
-            orderBy: { business_date: "desc" },
-            include: {
-              day_packs: {
-                where: {
-                  pack_id: { in: activePackIds },
-                  ending_serial: { not: null },
-                },
-              },
-            },
-          });
-
-          if (previousClosedDay?.day_packs) {
-            for (const dayPack of previousClosedDay.day_packs) {
+          // Use the already-fetched lastClosedBusinessDay for ending serials
+          if (lastClosedBusinessDay?.day_packs) {
+            for (const dayPack of lastClosedBusinessDay.day_packs) {
               if (dayPack.ending_serial) {
                 previousDayEndingByPack.set(
                   dayPack.pack_id,
@@ -6869,14 +6915,23 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           };
         });
 
-        // Get depleted packs for the day (packs that became DEPLETED today)
+        // ============================================================================
+        // DEPLETED PACKS QUERY: Enterprise Close-to-Close Model
+        // ============================================================================
+        // Show ALL packs depleted since the last closed business day, not just today.
+        // This ensures no depleted packs are hidden when a day close is missed.
+        //
+        // The query uses openBusinessPeriodStart (from lastClosedBusinessDay.closed_at)
+        // as the lower bound, ensuring all activity in the current open period is visible.
+        // ============================================================================
         const depletedPacks = await prisma.lotteryPack.findMany({
           where: {
             store_id: params.storeId,
             status: "DEPLETED",
             depleted_at: {
-              gte: dayStartUtc,
-              lte: dayEndUtc,
+              // Use the open business period start (last day close) as lower bound
+              // This ensures depleted packs are visible even if day close was missed
+              gte: openBusinessPeriodStart,
             },
           },
           include: {
@@ -6904,6 +6959,15 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           depleted_at: pack.depleted_at?.toISOString() || "",
         }));
 
+        // Calculate days since last close for UI warning display
+        const daysSinceLastClose = lastClosedBusinessDay?.closed_at
+          ? Math.floor(
+              (Date.now() -
+                new Date(lastClosedBusinessDay.closed_at).getTime()) /
+                (1000 * 60 * 60 * 24),
+            )
+          : null;
+
         return {
           success: true,
           data: {
@@ -6924,6 +6988,22 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 lastShift?.closed_at?.toISOString() ||
                 null,
               shifts_count: dayShifts.length,
+            },
+            // Enterprise close-to-close business period metadata
+            open_business_period: {
+              // When the current open period started (last day close timestamp)
+              started_at:
+                lastClosedBusinessDay?.closed_at?.toISOString() || null,
+              // The business date of the last closed day
+              last_closed_date: lastClosedBusinessDay?.business_date
+                ? new Date(lastClosedBusinessDay.business_date)
+                    .toISOString()
+                    .split("T")[0]
+                : null,
+              // Days since last close (for UI warning if > 1)
+              days_since_last_close: daysSinceLastClose,
+              // Whether the store has never closed a day (first-time setup)
+              is_first_period: !lastClosedBusinessDay,
             },
             depleted_packs: depletedPacksData,
           },

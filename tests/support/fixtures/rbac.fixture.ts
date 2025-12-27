@@ -84,7 +84,7 @@ async function clearUserRbacCache(userId: string): Promise<void> {
  * UserRole interface matching the rbac.service.ts format
  * Used for pre-populating Redis cache in tests
  */
-interface CachedUserRole {
+export interface CachedUserRole {
   user_role_id: string;
   user_id: string;
   role_id: string;
@@ -107,7 +107,7 @@ interface CachedUserRole {
  * @param userId - User ID to cache roles for
  * @param roles - Array of user roles to cache
  */
-async function populateUserRolesCache(
+export async function populateUserRolesCache(
   userId: string,
   roles: CachedUserRole[],
 ): Promise<void> {

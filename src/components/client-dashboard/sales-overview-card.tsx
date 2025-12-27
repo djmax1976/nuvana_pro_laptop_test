@@ -601,7 +601,7 @@ export function SalesOverviewCard({
 
         {/* Chart */}
         <div style={{ minHeight: 280 }}>
-          <ResponsiveContainer width="100%" height={280} minHeight={280}>
+          <ResponsiveContainer width="100%" height={280}>
             <LineChart
               data={chartData}
               margin={{ top: 30, right: 20, left: 10, bottom: 5 }}

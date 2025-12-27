@@ -78,7 +78,7 @@ export function SalesByDepartment() {
         >
           <div className="flex flex-col items-center">
             <div className="relative w-[180px] h-[180px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width={180} height={180}>
                 <PieChart>
                   <Pie
                     data={salesData}
