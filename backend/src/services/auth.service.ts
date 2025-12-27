@@ -232,13 +232,6 @@ export class AuthService {
     const userRoles = await withRLSTransaction(
       user_id,
       async (tx) => {
-        // First, verify the session variable is set correctly
-        const sessionCheck = await tx.$queryRaw<
-          Array<{ current_user_id: string | null }>
-        >`
-        SELECT current_setting('app.current_user_id', true) as current_user_id
-      `;
-
         // Use the transaction client to ensure queries run on the same connection
         // where SET LOCAL was executed
         // The RLS policy should allow this query because user_id matches current_setting
