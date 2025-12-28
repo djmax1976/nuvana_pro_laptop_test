@@ -696,15 +696,19 @@ test.describe("10-5-API: Bin Creation", () => {
     );
 
     // THEN: Request fails with 400 Bad Request
+    // The ShiftStateMachine.getPackActivationError() returns specific messages per status
     expect(response.status(), "Expected 400 Bad Request").toBe(400);
     const body = await response.json();
     expect(body.success, "Response should indicate failure").toBe(false);
     expect(body.error.code, "Error code should be BAD_REQUEST").toBe(
       "BAD_REQUEST",
     );
-    expect(body.error.message, "Error message should mention active").toContain(
-      "active",
-    );
+    // Verify the error message indicates pack activation is not allowed on closed shifts
+    // The actual message from ShiftStateMachine is: "Shift is closed. Pack activation is not allowed on closed shifts."
+    expect(
+      body.error.message,
+      "Error message should indicate shift is closed",
+    ).toMatch(/closed|not allowed/i);
   });
 
   test("10-5-API-018: [P0] POST /api/stores/:storeId/lottery/bins/create-with-pack - should reject missing required fields", async ({

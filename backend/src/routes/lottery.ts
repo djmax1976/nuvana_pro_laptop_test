@@ -6432,6 +6432,43 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                       },
                     },
                   },
+                  // Enterprise close-to-close business period metadata
+                  // Provides information about the current open business period for UI warnings
+                  // and multi-day depleted pack visibility
+                  open_business_period: {
+                    type: "object",
+                    properties: {
+                      // When the current open period started (last day close timestamp)
+                      started_at: {
+                        type: "string",
+                        format: "date-time",
+                        nullable: true,
+                        description:
+                          "Timestamp when the current open business period started (last day close)",
+                      },
+                      // The business date of the last closed day
+                      last_closed_date: {
+                        type: "string",
+                        format: "date",
+                        nullable: true,
+                        description:
+                          "The business date of the most recently closed day (YYYY-MM-DD)",
+                      },
+                      // Days since last close (for UI warning if > 1)
+                      days_since_last_close: {
+                        type: "integer",
+                        nullable: true,
+                        description:
+                          "Number of days since the last day close (null if first period)",
+                      },
+                      // Whether the store has never closed a day (first-time setup)
+                      is_first_period: {
+                        type: "boolean",
+                        description:
+                          "True if no business day has ever been closed for this store",
+                      },
+                    },
+                  },
                 },
               },
             },
