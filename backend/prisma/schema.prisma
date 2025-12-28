@@ -50,6 +50,7 @@ model User {
   pack_bin_history            LotteryPackBinHistory[] @relation("PackMover")
   packs_activated             LotteryPack[]           @relation("PackActivatedBy")
   packs_depleted              LotteryPack[]           @relation("PackDepletedBy")
+  packs_serial_override_approved LotteryPack[]        @relation("PackSerialOverrideApprovedBy")
   manual_entry_authorizations LotteryShiftClosing[]   @relation("ManualEntryAuthorizer")
   lottery_days_opened         LotteryBusinessDay[]    @relation("LotteryDayOpenedBy")
   lottery_days_closed         LotteryBusinessDay[]    @relation("LotteryDayClosedBy")
@@ -1081,6 +1082,11 @@ model LotteryPack {
   depleted_shift_id  String?                      @db.Uuid
   depletion_reason   LotteryPackDepletionReason?
 
+  // Serial override approval (dual-auth when cashier needs manager to approve serial change)
+  serial_override_approved_by String?   @db.Uuid
+  serial_override_approved_at DateTime? @db.Timestamptz(6)
+  serial_override_reason      String?   @db.VarChar(500)
+
   game            LotteryGame             @relation(fields: [game_id], references: [game_id], onDelete: Cascade)
   store           Store                   @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
   bin             LotteryBin?             @relation(fields: [current_bin_id], references: [bin_id], onDelete: SetNull)
@@ -1090,10 +1096,11 @@ model LotteryPack {
   ticket_serials  LotteryTicketSerial[]
   bin_history     LotteryPackBinHistory[]
   day_packs       LotteryDayPack[]
-  activatedByUser User?                   @relation("PackActivatedBy", fields: [activated_by], references: [user_id])
-  activatedShift  Shift?                  @relation("PackActivatedInShift", fields: [activated_shift_id], references: [shift_id])
-  depletedByUser  User?                   @relation("PackDepletedBy", fields: [depleted_by], references: [user_id])
-  depletedShift   Shift?                  @relation("PackDepletedInShift", fields: [depleted_shift_id], references: [shift_id])
+  activatedByUser              User?  @relation("PackActivatedBy", fields: [activated_by], references: [user_id])
+  activatedShift               Shift? @relation("PackActivatedInShift", fields: [activated_shift_id], references: [shift_id])
+  depletedByUser               User?  @relation("PackDepletedBy", fields: [depleted_by], references: [user_id])
+  depletedShift                Shift? @relation("PackDepletedInShift", fields: [depleted_shift_id], references: [shift_id])
+  serialOverrideApprovedByUser User?  @relation("PackSerialOverrideApprovedBy", fields: [serial_override_approved_by], references: [user_id])
 
   @@unique([store_id, pack_number])
   @@index([game_id])
@@ -1106,6 +1113,7 @@ model LotteryPack {
   @@index([activated_shift_id])
   @@index([depleted_by])
   @@index([depleted_shift_id])
+  @@index([serial_override_approved_by])
   @@map("lottery_packs")
 }
 

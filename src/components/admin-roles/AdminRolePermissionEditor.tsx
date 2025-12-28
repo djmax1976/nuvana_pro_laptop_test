@@ -58,8 +58,8 @@ const PERMISSION_CATEGORIES: Record<
 > = {
   USER: {
     name: "User Management",
-    description: "Permissions for managing users",
-    prefixes: ["USER_"],
+    description: "Permissions for managing users and cashiers",
+    prefixes: ["USER_", "CASHIER_"],
   },
   COMPANY: {
     name: "Company Management",
@@ -93,8 +93,8 @@ const PERMISSION_CATEGORIES: Record<
   },
   REPORT: {
     name: "Reports",
-    description: "Permissions for report generation",
-    prefixes: ["REPORT_"],
+    description: "Permissions for report generation and X/Z reports",
+    prefixes: ["REPORT_", "X_REPORT_", "Z_REPORT_"],
   },
   ADMIN: {
     name: "Administration",
@@ -105,6 +105,19 @@ const PERMISSION_CATEGORIES: Record<
     name: "Client Dashboard",
     description: "Client dashboard and employee management",
     prefixes: ["CLIENT_"],
+  },
+  POS_CONFIG: {
+    name: "POS Configuration",
+    description:
+      "POS integration, NAXML file management, and system configuration",
+    prefixes: [
+      "TENDER_TYPE_",
+      "DEPARTMENT_",
+      "TAX_RATE_",
+      "CONFIG_",
+      "POS_",
+      "NAXML_",
+    ],
   },
 };
 
@@ -458,60 +471,12 @@ export function AdminRolePermissionEditor({
                   {config.description}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {categoryPerms.map((perm) => (
-                  <div
-                    key={perm.permission_id}
-                    className="flex items-start gap-2 group"
-                    data-testid={`permission-${perm.code}`}
-                  >
-                    <Checkbox
-                      id={perm.permission_id}
-                      checked={selectedPermissions.has(perm.permission_id)}
-                      onCheckedChange={() =>
-                        togglePermission(perm.permission_id)
-                      }
-                      className="mt-0.5"
-                    />
-                    <label
-                      htmlFor={perm.permission_id}
-                      className="flex-1 cursor-pointer"
-                    >
-                      <div className="text-sm font-medium leading-none">
-                        {perm.code.replace(/_/g, " ")}
-                      </div>
-                      {perm.description && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {perm.description}
-                        </p>
-                      )}
-                    </label>
-                    {selectedPermissions.has(perm.permission_id) && (
-                      <Check className="h-4 w-4 text-green-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    )}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          );
-        })}
-
-        {/* Other permissions (if any don't match categories) */}
-        {groupedPermissions.get("OTHER") &&
-          (groupedPermissions.get("OTHER")?.length ?? 0) > 0 && (
-            <Card data-testid="category-OTHER">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Other</CardTitle>
-                <CardDescription className="text-xs">
-                  Miscellaneous permissions
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {(groupedPermissions.get("OTHER") ?? []).map(
-                  (perm: Permission) => (
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-2">
+                  {categoryPerms.map((perm) => (
                     <div
                       key={perm.permission_id}
-                      className="flex items-start gap-2"
+                      className="flex items-start gap-2 group"
                       data-testid={`permission-${perm.code}`}
                     >
                       <Checkbox
@@ -535,9 +500,61 @@ export function AdminRolePermissionEditor({
                           </p>
                         )}
                       </label>
+                      {selectedPermissions.has(perm.permission_id) && (
+                        <Check className="h-4 w-4 text-green-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
                     </div>
-                  ),
-                )}
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+
+        {/* Other permissions (if any don't match categories) */}
+        {groupedPermissions.get("OTHER") &&
+          (groupedPermissions.get("OTHER")?.length ?? 0) > 0 && (
+            <Card data-testid="category-OTHER">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Other</CardTitle>
+                <CardDescription className="text-xs">
+                  Miscellaneous permissions
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-2">
+                  {(groupedPermissions.get("OTHER") ?? []).map(
+                    (perm: Permission) => (
+                      <div
+                        key={perm.permission_id}
+                        className="flex items-start gap-2"
+                        data-testid={`permission-${perm.code}`}
+                      >
+                        <Checkbox
+                          id={perm.permission_id}
+                          checked={selectedPermissions.has(perm.permission_id)}
+                          onCheckedChange={() =>
+                            togglePermission(perm.permission_id)
+                          }
+                          className="mt-0.5"
+                        />
+                        <label
+                          htmlFor={perm.permission_id}
+                          className="flex-1 cursor-pointer"
+                        >
+                          <div className="text-sm font-medium leading-none">
+                            {perm.code.replace(/_/g, " ")}
+                          </div>
+                          {perm.description && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {perm.description}
+                            </p>
+                          )}
+                        </label>
+                      </div>
+                    ),
+                  )}
+                </div>
               </CardContent>
             </Card>
           )}

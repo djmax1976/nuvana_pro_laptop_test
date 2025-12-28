@@ -16,7 +16,6 @@ import { Button } from "@/components/ui/button";
 import {
   useLotteryPacks,
   usePackReception,
-  usePackActivation,
   usePackDetails,
   useInvalidateLottery,
   useLotteryDayBins,
@@ -30,10 +29,7 @@ import { DepletedPacksSection } from "@/components/lottery/DepletedPacksSection"
 import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
 // CloseDayModal removed from lottery page - lottery close now only available via day-close page
 // This ensures lottery closing is part of the proper day close workflow
-import {
-  PackActivationForm,
-  type PackOption,
-} from "@/components/lottery/PackActivationForm";
+import { EnhancedPackActivationForm } from "@/components/lottery/EnhancedPackActivationForm";
 import {
   PackDetailsModal,
   type PackDetailsData,
@@ -145,8 +141,8 @@ export default function LotteryManagementPage() {
     error: dayBinsErrorObj,
   } = useLotteryDayBins(storeId);
 
-  // Fetch lottery packs for activation form (need RECEIVED packs)
-  const { data: packs, isLoading: packsLoading } = useLotteryPacks(storeId);
+  // Fetch lottery packs for checking if there are RECEIVED packs (for button state)
+  const { data: packs } = useLotteryPacks(storeId, { status: "RECEIVED" });
 
   // Fetch pack details when selected
   const { data: packDetails, isLoading: packDetailsLoading } = usePackDetails(
@@ -156,21 +152,11 @@ export default function LotteryManagementPage() {
 
   // Mutations
   const packReceptionMutation = usePackReception();
-  const packActivationMutation = usePackActivation();
-  const { invalidatePacks, invalidateAll } = useInvalidateLottery();
+  const { invalidateAll } = useInvalidateLottery();
 
-  // Filter packs for activation form (RECEIVED status only)
-  const receivedPacks: PackOption[] = useMemo(() => {
-    if (!packs) return [];
-    return packs
-      .filter((pack) => pack.status === "RECEIVED")
-      .map((pack) => ({
-        pack_id: pack.pack_id,
-        pack_number: pack.pack_number,
-        game: pack.game || { game_id: pack.game_id, name: "Unknown Game" },
-        serial_start: pack.serial_start,
-        serial_end: pack.serial_end,
-      }));
+  // Check if there are received packs for the Activate Pack button state
+  const hasReceivedPacks = useMemo(() => {
+    return (packs?.length ?? 0) > 0;
   }, [packs]);
 
   // Handlers
@@ -212,17 +198,15 @@ export default function LotteryManagementPage() {
     }
   };
 
-  const handlePackActivation = async (packId: string) => {
-    try {
-      await packActivationMutation.mutateAsync(packId);
-      invalidateAll(); // Invalidate all lottery data including day bins
-      setActivationDialogOpen(false);
-      setSuccessMessage("Pack activated successfully");
-      setTimeout(() => setSuccessMessage(null), 5000);
-    } catch (error) {
-      throw error; // Error handling is done in the form component
-    }
-  };
+  /**
+   * Handle successful pack activation
+   * Called by EnhancedPackActivationForm onSuccess
+   */
+  const handleActivationSuccess = useCallback(() => {
+    invalidateAll(); // Invalidate all lottery data including day bins
+    setSuccessMessage("Pack activated successfully");
+    setTimeout(() => setSuccessMessage(null), 5000);
+  }, [invalidateAll]);
 
   /**
    * Handle Manual Entry button click
@@ -638,7 +622,7 @@ export default function LotteryManagementPage() {
             onClick={() => setActivationDialogOpen(true)}
             variant="outline"
             data-testid="activate-pack-button"
-            disabled={receivedPacks.length === 0 || manualEntryState.isActive}
+            disabled={!hasReceivedPacks || manualEntryState.isActive}
           >
             <Zap className="mr-2 h-4 w-4" />
             Activate Pack
@@ -708,9 +692,10 @@ export default function LotteryManagementPage() {
             onMarkSoldOut={handleMarkSoldOutClick}
           />
 
-          {/* Depleted Packs Section (Collapsible) */}
+          {/* Depleted Packs Section (Collapsible) - Enterprise Close-to-Close Model */}
           <DepletedPacksSection
             depletedPacks={dayBinsData.depleted_packs}
+            openBusinessPeriod={dayBinsData.open_business_period}
             defaultOpen={false}
           />
         </>
@@ -736,15 +721,13 @@ export default function LotteryManagementPage() {
         }}
       />
 
-      {/* Pack Activation Dialog */}
-      <PackActivationForm
-        packs={receivedPacks}
+      {/* Pack Activation Dialog - Enhanced with search, bin selection, and auth flow */}
+      <EnhancedPackActivationForm
+        storeId={storeId}
         open={activationDialogOpen}
         onOpenChange={setActivationDialogOpen}
-        onSuccess={() => {
-          invalidateAll();
-        }}
-        onActivate={handlePackActivation}
+        onSuccess={handleActivationSuccess}
+        dayBins={dayBinsData?.bins}
       />
 
       {/* Pack Details Modal */}

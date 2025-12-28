@@ -84,7 +84,7 @@ async function clearUserRbacCache(userId: string): Promise<void> {
  * UserRole interface matching the rbac.service.ts format
  * Used for pre-populating Redis cache in tests
  */
-interface CachedUserRole {
+export interface CachedUserRole {
   user_role_id: string;
   user_id: string;
   role_id: string;
@@ -107,7 +107,7 @@ interface CachedUserRole {
  * @param userId - User ID to cache roles for
  * @param roles - Array of user roles to cache
  */
-async function populateUserRolesCache(
+export async function populateUserRolesCache(
   userId: string,
   roles: CachedUserRole[],
 ): Promise<void> {
@@ -977,6 +977,7 @@ export const test = base.extend<RBACFixture>({
       "LOTTERY_SHIFT_RECONCILE",
       "LOTTERY_REPORT",
       "LOTTERY_MANUAL_ENTRY",
+      "LOTTERY_SERIAL_OVERRIDE",
       "REPORT_SHIFT",
       "REPORT_DAILY",
       "REPORT_ANALYTICS",
@@ -1134,6 +1135,52 @@ export const test = base.extend<RBACFixture>({
         where: {
           OR: [{ created_by: user.user_id }, { updated_by: user.user_id }],
         },
+      });
+
+      // 5.6. Nullify lottery_packs.serial_override_approved_by references to this user
+      // This FK constraint prevents user deletion if not handled
+      await bypassClient.lotteryPack.updateMany({
+        where: { serial_override_approved_by: user.user_id },
+        data: { serial_override_approved_by: null },
+      });
+
+      // 5.7. Get all lottery packs in the store for cleanup
+      const storePacks = await bypassClient.lotteryPack.findMany({
+        where: { store_id: store.store_id },
+        select: { pack_id: true },
+      });
+      const packIds = storePacks.map((p) => p.pack_id);
+
+      if (packIds.length > 0) {
+        // Delete lottery pack-related records in proper FK order
+        await bypassClient.lotteryDayPack.deleteMany({
+          where: { pack_id: { in: packIds } },
+        });
+        await bypassClient.lotteryVariance.deleteMany({
+          where: { pack_id: { in: packIds } },
+        });
+        await bypassClient.lotteryTicketSerial.deleteMany({
+          where: { pack_id: { in: packIds } },
+        });
+        await bypassClient.lotteryShiftOpening.deleteMany({
+          where: { pack_id: { in: packIds } },
+        });
+        await bypassClient.lotteryShiftClosing.deleteMany({
+          where: { pack_id: { in: packIds } },
+        });
+        await bypassClient.lotteryPackBinHistory.deleteMany({
+          where: { pack_id: { in: packIds } },
+        });
+      }
+
+      // 5.8. Delete lottery packs in the store (FK: store_id)
+      await bypassClient.lotteryPack.deleteMany({
+        where: { store_id: store.store_id },
+      });
+
+      // 5.9. Delete lottery bins in the store (after packs that reference them)
+      await bypassClient.lotteryBin.deleteMany({
+        where: { store_id: store.store_id },
       });
 
       // 6. Delete the store manager user
@@ -2556,8 +2603,9 @@ export const test = base.extend<RBACFixture>({
     }
 
     // Assign CLIENT_USER role to user
+    let userRoleId: string = "";
     await withBypassClient(async (bypassClient) => {
-      await bypassClient.userRole.create({
+      const userRole = await bypassClient.userRole.create({
         data: {
           user_id: user.user_id,
           role_id: role.role_id,
@@ -2565,15 +2613,43 @@ export const test = base.extend<RBACFixture>({
           store_id: store.store_id,
         },
       });
+      userRoleId = userRole.user_role_id;
     });
 
-    // Cashier permissions - includes SHIFT_OPEN for self-service shift start
+    // Cashier permissions - includes lottery operations that cashiers can perform
+    // Note: Cashiers do NOT have LOTTERY_SERIAL_OVERRIDE - they need manager approval
+    // for non-zero serial starting positions
     const cashierPermissions = [
       "CLIENT_DASHBOARD_ACCESS",
       "SHIFT_OPEN",
       "SHIFT_READ",
       "STORE_READ",
+      // Lottery permissions for cashier operations
+      "LOTTERY_PACK_ACTIVATE",
+      "LOTTERY_PACK_READ",
+      "LOTTERY_BIN_READ",
+      "LOTTERY_GAME_READ",
+      "LOTTERY_SHIFT_OPEN",
+      "LOTTERY_SHIFT_CLOSE",
     ];
+
+    // Pre-populate the Redis cache with user roles
+    // This is necessary because the permission middleware calls rbacService.getUserRoles()
+    // which queries the user_roles table. Due to RLS policies, this query returns empty
+    // unless we either use withRLSTransaction (complex) or pre-populate the cache (simple)
+    await populateUserRolesCache(user.user_id, [
+      {
+        user_role_id: userRoleId,
+        user_id: user.user_id,
+        role_id: role.role_id,
+        role_code: "CLIENT_USER",
+        scope: "STORE",
+        client_id: null,
+        company_id: company.company_id,
+        store_id: store.store_id,
+        permissions: cashierPermissions,
+      },
+    ]);
 
     const token = createJWTAccessToken({
       user_id: user.user_id,

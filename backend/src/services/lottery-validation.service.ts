@@ -139,6 +139,108 @@ export function validateSerialFormat(
 }
 
 /**
+ * Validates that a user-provided serial number falls within a pack's valid serial range.
+ * Used during pack activation when the user overrides the starting serial.
+ *
+ * Enterprise Pattern: SEC-014 INPUT_VALIDATION
+ * - Uses BigInt for accurate comparison of large serial numbers (24+ digits)
+ * - Validates format before numeric comparison
+ * - Validates serial length matches pack's serial format
+ * - Returns clear, user-friendly error messages with the valid range
+ *
+ * Validation Rules:
+ * 1. Must be numeric (digits only)
+ * 2. Must match the length of pack's serial format (e.g., 3 digits for "001"-"150")
+ * 3. Must be within the pack's valid range (inclusive)
+ *
+ * @param userSerial - The serial number entered by the user
+ * @param packSerialStart - The pack's minimum valid serial (inclusive)
+ * @param packSerialEnd - The pack's maximum valid serial (inclusive)
+ * @returns ValidationResult with valid flag and optional error message
+ */
+export function validateSerialWithinPackRange(
+  userSerial: string,
+  packSerialStart: string,
+  packSerialEnd: string,
+): ValidationResult {
+  // Trim whitespace
+  const serial = userSerial.trim();
+  const rangeStart = packSerialStart.trim();
+  const rangeEnd = packSerialEnd.trim();
+
+  // Check for empty user serial
+  if (!serial) {
+    return {
+      valid: false,
+      error: "Starting serial is required",
+    };
+  }
+
+  // Check length limit
+  if (serial.length > MAX_SERIAL_LENGTH) {
+    return {
+      valid: false,
+      error: `Serial number exceeds maximum length of ${MAX_SERIAL_LENGTH} characters`,
+    };
+  }
+
+  // Check numeric format
+  if (!NUMERIC_REGEX.test(serial)) {
+    return {
+      valid: false,
+      error: "Serial number must be numeric (digits only)",
+    };
+  }
+
+  // Validate pack range values exist
+  if (!rangeStart || !rangeEnd) {
+    return {
+      valid: false,
+      error: "Pack serial range is not defined",
+    };
+  }
+
+  // Validate serial length matches pack's serial format
+  // e.g., if pack serial_start is "001", user must enter exactly 3 digits
+  const expectedLength = rangeStart.length;
+  if (serial.length !== expectedLength) {
+    return {
+      valid: false,
+      error: `Serial number must be exactly ${expectedLength} digits to match pack format`,
+    };
+  }
+
+  // Use BigInt for accurate comparison (handles numbers > Number.MAX_SAFE_INTEGER)
+  try {
+    const userSerialBigInt = BigInt(serial);
+    const rangeStartBigInt = BigInt(rangeStart);
+    const rangeEndBigInt = BigInt(rangeEnd);
+
+    // Validate: rangeStart <= userSerial <= rangeEnd
+    if (userSerialBigInt < rangeStartBigInt) {
+      return {
+        valid: false,
+        error: `Serial ${serial} is below the pack's starting serial ${rangeStart}. Valid range: ${rangeStart} - ${rangeEnd}`,
+      };
+    }
+
+    if (userSerialBigInt > rangeEndBigInt) {
+      return {
+        valid: false,
+        error: `Serial ${serial} exceeds the pack's ending serial ${rangeEnd}. Valid range: ${rangeStart} - ${rangeEnd}`,
+      };
+    }
+
+    return { valid: true };
+  } catch {
+    return {
+      valid: false,
+      error: "Invalid serial number format - must be a valid number",
+    };
+  }
+}
+
+/**
  * Validates pack number format (1-50 characters, non-empty).
  */
 export function validatePackNumber(packNumber: string): ValidationResult {

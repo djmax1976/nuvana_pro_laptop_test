@@ -28,6 +28,8 @@ export interface LotteryPackQueryFilters {
   store_id?: string;
   status?: LotteryPackStatus;
   game_id?: string;
+  /** Search by game name or pack number (case-insensitive, min 2 chars) */
+  search?: string;
 }
 
 /**
@@ -165,6 +167,61 @@ export interface ActivatePackResponse {
     bin_id: string;
     name: string;
     location: string | null;
+  } | null;
+}
+
+/**
+ * Input for full pack activation (with bin assignment)
+ * Story: Pack Activation UX Enhancement
+ *
+ * MCP Guidance Applied:
+ * - FE-002: FORM_VALIDATION - Interface for validated form data
+ * - SEC-014: INPUT_VALIDATION - UUID format for IDs
+ */
+export interface FullActivatePackInput {
+  pack_id: string;
+  bin_id: string;
+  serial_start: string;
+  activated_by: string;
+  /** Optional - required for cashiers, optional for managers */
+  activated_shift_id?: string;
+  /** If true, auto-deplete any existing active pack in the bin */
+  deplete_previous?: boolean;
+  /** Manager user UUID who approved the serial override (for dual-auth flow) */
+  serial_override_approved_by?: string;
+  /** Reason for the serial override (e.g., "Pack already partially sold") */
+  serial_override_reason?: string;
+}
+
+/**
+ * Response from full pack activation
+ */
+export interface FullActivatePackResponse {
+  updatedBin: {
+    bin_id: string;
+    bin_number: number;
+    name: string;
+    is_active: boolean;
+    pack: {
+      pack_id: string;
+      game_name: string;
+      game_price: number;
+      starting_serial: string;
+      serial_end: string;
+      pack_number: string;
+    } | null;
+  };
+  previousPack: {
+    pack_id: string;
+    pack_number: string;
+    game_name: string;
+    game_price: number;
+  } | null;
+  depletedPack: {
+    pack_id: string;
+    pack_number: string;
+    game_name: string;
+    depletion_reason: "AUTO_REPLACED";
   } | null;
 }
 
@@ -728,13 +785,33 @@ export interface DayBin {
  */
 export interface BusinessDay {
   date: string; // ISO date (YYYY-MM-DD)
+  day_id: string | null; // LotteryBusinessDay UUID
+  status: "OPEN" | "CLOSED" | null; // Day status
   first_shift_opened_at: string | null; // ISO datetime
   last_shift_closed_at: string | null; // ISO datetime
   shifts_count: number;
 }
 
 /**
- * Depleted pack for the day
+ * Open business period information (enterprise close-to-close model)
+ * Represents the period from the last closed day to now.
+ * In enterprise POS systems, a "business day" runs from close-to-close,
+ * not midnight-to-midnight, ensuring no transactions are orphaned.
+ */
+export interface OpenBusinessPeriod {
+  /** When the current open period started (last day close timestamp) */
+  started_at: string | null; // ISO datetime
+  /** The business date of the last closed day (YYYY-MM-DD) */
+  last_closed_date: string | null;
+  /** Number of days since last close (for UI warning if > 1) */
+  days_since_last_close: number | null;
+  /** Whether the store has never closed a day (first-time setup) */
+  is_first_period: boolean;
+}
+
+/**
+ * Depleted pack for the current open business period
+ * Shows all packs depleted since the last day close, not just today
  */
 export interface DepletedPackDay {
   pack_id: string;
@@ -748,10 +825,17 @@ export interface DepletedPackDay {
 /**
  * Day bins response
  * Response from GET /api/lottery/bins/day/:storeId
+ *
+ * Uses enterprise close-to-close business day model:
+ * - depleted_packs: All packs depleted since last closed day (not just today)
+ * - open_business_period: Metadata about current open period for UI display
  */
 export interface DayBinsResponse {
   bins: DayBin[];
   business_day: BusinessDay;
+  /** Enterprise close-to-close business period metadata */
+  open_business_period: OpenBusinessPeriod;
+  /** All packs depleted since last day close (enterprise model) */
   depleted_packs: DepletedPackDay[];
 }
 
@@ -870,6 +954,77 @@ export async function markPackAsSoldOut(
   const response = await apiClient.post<ApiResponse<MarkPackAsSoldOutResponse>>(
     `/api/lottery/packs/${packId}/deplete`,
     data,
+  );
+  return response.data;
+}
+
+// ============ Full Pack Activation API ============
+
+/**
+ * Activate a pack with bin assignment during shift
+ * POST /api/stores/:storeId/lottery/packs/activate
+ * Story: Pack Activation UX Enhancement
+ *
+ * This endpoint combines pack activation with bin assignment in a single operation.
+ * For cashiers, a shift_id is required. For managers (CLIENT_OWNER, CLIENT_ADMIN,
+ * STORE_MANAGER), the shift_id is optional.
+ *
+ * MCP Guidance Applied:
+ * - API-001: VALIDATION - All inputs validated via Zod on backend
+ * - SEC-010: AUTHZ - Role-based shift requirement enforcement
+ * - DB-001: ORM_USAGE - Uses Prisma transactions for atomicity
+ *
+ * @param storeId - Store UUID
+ * @param data - Pack activation data
+ * @returns Updated bin with pack information
+ */
+export async function activatePackFull(
+  storeId: string,
+  data: FullActivatePackInput,
+): Promise<ApiResponse<FullActivatePackResponse>> {
+  const response = await apiClient.post<ApiResponse<FullActivatePackResponse>>(
+    `/api/stores/${storeId}/lottery/packs/activate`,
+    data,
+  );
+  return response.data;
+}
+
+// ============ Shifts API (for lottery activation) ============
+
+/**
+ * Active shift response for a cashier
+ */
+export interface CashierActiveShiftResponse {
+  shift_id: string;
+  store_id: string;
+  cashier_id: string;
+  cashier_name: string;
+  status: "OPEN" | "ACTIVE" | "CLOSING" | "RECONCILING";
+  opened_at: string | null;
+}
+
+/**
+ * Get the active shift for a specific cashier at a store
+ * GET /api/stores/:storeId/cashiers/:cashierId/active-shift
+ * Story: Pack Activation UX Enhancement
+ *
+ * Returns the cashier's active shift if one exists.
+ * Used to get the shift_id for pack activation when a cashier authenticates.
+ *
+ * MCP Guidance Applied:
+ * - DB-006: TENANT_ISOLATION - Store-scoped query
+ * - API-003: ERROR_HANDLING - Structured error responses
+ *
+ * @param storeId - Store UUID
+ * @param cashierId - Cashier UUID
+ * @returns Active shift information or 404 if no active shift
+ */
+export async function getCashierActiveShift(
+  storeId: string,
+  cashierId: string,
+): Promise<ApiResponse<CashierActiveShiftResponse>> {
+  const response = await apiClient.get<ApiResponse<CashierActiveShiftResponse>>(
+    `/api/stores/${storeId}/cashiers/${cashierId}/active-shift`,
   );
   return response.data;
 }

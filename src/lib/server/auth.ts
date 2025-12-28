@@ -147,28 +147,10 @@ export async function checkSuperAdminPermission(): Promise<{
 
     const data: AuthMeResponse = await response.json();
 
-    // Log what we received for debugging
-    console.log("[Frontend] checkSuperAdminPermission received:", {
-      userId: data.user.id,
-      email: data.user.email,
-      roles: data.user.roles,
-      permissionsCount: data.user.permissions.length,
-      permissions: data.user.permissions,
-      hasAdminPermission: data.user.permissions.includes(
-        ADMIN_SYSTEM_CONFIG_PERMISSION,
-      ),
-      hasWildcard: data.user.permissions.includes("*"),
-    });
-
     // Check if user has ADMIN_SYSTEM_CONFIG permission
     const hasPermission =
       data.user.permissions.includes(ADMIN_SYSTEM_CONFIG_PERMISSION) ||
       data.user.permissions.includes("*"); // Wildcard permission grants all access
-
-    console.log("[Frontend] checkSuperAdminPermission result:", {
-      hasPermission,
-      isAuthorized: hasPermission,
-    });
 
     return {
       isAuthorized: hasPermission,

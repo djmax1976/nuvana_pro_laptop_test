@@ -6,6 +6,11 @@ import { cashierService, AuditContext } from "../services/cashier.service";
 import { cashierSessionService } from "../services/cashier-session.service";
 import { prisma } from "../utils/db";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
+import {
+  shiftStateMachine,
+  WORKING_SHIFT_STATUSES,
+} from "../services/shift-state-machine";
 
 /**
  * Zod schema for creating a cashier
@@ -674,6 +679,387 @@ export async function cashierRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to authenticate cashier",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * POST /api/stores/:storeId/cashiers/authenticate-pin
+   * PIN-only authentication for lottery pack activation
+   *
+   * This endpoint authenticates a cashier by PIN only and automatically
+   * detects their active shift. Unlike the full authenticate endpoint,
+   * this does NOT require cashier name/employee_id selection - the PIN
+   * uniquely identifies the cashier within the store.
+   *
+   * Flow:
+   * 1. Lookup all active cashiers in the store
+   * 2. Compare PIN hash against each (bcrypt)
+   * 3. If match found, verify cashier has an active shift
+   * 4. Return cashier_id, cashier_name, and shift_id
+   *
+   * MCP Guidance Applied:
+   * - SEC-001: PASSWORD_HASHING - bcrypt comparison for PIN verification
+   * - SEC-006: SQL_INJECTION - Prisma ORM parameterized queries
+   * - API-001: VALIDATION - Zod schema validation for PIN format
+   * - API-002: RATE_LIMIT - Per-store rate limiting to prevent brute force
+   * - API-003: ERROR_HANDLING - Generic error messages, no info leakage
+   * - SEC-010: AUTHZ - Permission middleware for access control
+   *
+   * @security Requires CLIENT_DASHBOARD_ACCESS permission (authenticated via JWT)
+   * Rate limit: 5 attempts per minute per store (prevents brute force attacks)
+   * @body { pin: string } - 4-digit PIN
+   * @returns { cashier_id, cashier_name, shift_id } on success
+   */
+  fastify.post(
+    "/api/stores/:storeId/cashiers/authenticate-pin",
+    {
+      config: {
+        // CI/Test: DISABLED to prevent false test failures
+        rateLimit:
+          process.env.CI === "true" || process.env.NODE_ENV === "test"
+            ? false
+            : {
+                max: parseInt(
+                  process.env.CASHIER_AUTH_RATE_LIMIT_MAX || "5",
+                  10,
+                ),
+                timeWindow:
+                  process.env.CASHIER_AUTH_RATE_LIMIT_WINDOW || "1 minute",
+                keyGenerator: (request: FastifyRequest) => {
+                  const { storeId } = request.params as { storeId: string };
+                  const ip =
+                    (request.headers["x-forwarded-for"] as string)?.split(
+                      ",",
+                    )[0] ||
+                    request.ip ||
+                    request.socket.remoteAddress ||
+                    "unknown";
+                  return `cashier-pin-auth:${storeId}:${ip}`;
+                },
+              },
+      },
+      schema: {
+        description:
+          "Authenticate cashier by PIN only and auto-detect active shift",
+        tags: ["cashiers"],
+        params: {
+          type: "object",
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+          required: ["storeId"],
+        },
+        body: {
+          type: "object",
+          properties: {
+            pin: {
+              type: "string",
+              pattern: "^\\d{4}$",
+              description: "4-digit numeric PIN",
+            },
+          },
+          required: ["pin"],
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  cashier_id: { type: "string", format: "uuid" },
+                  cashier_name: { type: "string" },
+                  shift_id: { type: "string", format: "uuid" },
+                },
+                required: ["cashier_id", "cashier_name", "shift_id"],
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          401: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.CLIENT_DASHBOARD_ACCESS),
+      ],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { storeId } = request.params as { storeId: string };
+      const { pin } = request.body as { pin: string };
+      const user = (request as unknown as { user: UserIdentity }).user;
+      const auditContext = getAuditContext(request, user);
+
+      // API-001: VALIDATION - Validate PIN format
+      if (!pin || !/^\d{4}$/.test(pin)) {
+        reply.code(400);
+        return {
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "PIN must be exactly 4 numeric digits",
+          },
+        };
+      }
+
+      try {
+        // SEC-006: SQL_INJECTION - Use Prisma ORM for parameterized queries
+        // Find all active cashiers in this store with their PIN hashes
+        const cashiers = await prisma.cashier.findMany({
+          where: {
+            store_id: storeId,
+            disabled_at: null, // Only active cashiers
+          },
+          select: {
+            cashier_id: true,
+            name: true,
+            pin_hash: true,
+          },
+        });
+
+        if (cashiers.length === 0) {
+          // Log attempt with no cashiers
+          await prisma.auditLog.create({
+            data: {
+              user_id: null,
+              action: "AUTH_FAILURE",
+              table_name: "cashiers",
+              record_id: "00000000-0000-0000-0000-000000000000",
+              new_values: {
+                store_id: storeId,
+                reason: "No active cashiers in store",
+                auth_type: "PIN_ONLY",
+              },
+              ip_address: auditContext.ipAddress,
+              user_agent: auditContext.userAgent,
+            },
+          });
+
+          // Use 400 instead of 401 to avoid triggering frontend 401 interceptor
+          // (401 is reserved for JWT session expiration, not PIN auth failures)
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "AUTHENTICATION_FAILED",
+              message: "Invalid PIN or no active shift",
+            },
+          };
+        }
+
+        // SEC-001: PASSWORD_HASHING - Use bcrypt to compare PIN
+        // Iterate through cashiers and find matching PIN
+        let matchedCashier: { cashier_id: string; name: string } | null = null;
+
+        for (const cashier of cashiers) {
+          if (cashier.pin_hash) {
+            const isMatch = await bcrypt.compare(pin, cashier.pin_hash);
+            if (isMatch) {
+              matchedCashier = {
+                cashier_id: cashier.cashier_id,
+                name: cashier.name,
+              };
+              break;
+            }
+          }
+        }
+
+        if (!matchedCashier) {
+          // Log failed PIN attempt
+          await prisma.auditLog.create({
+            data: {
+              user_id: null,
+              action: "AUTH_FAILURE",
+              table_name: "cashiers",
+              record_id: "00000000-0000-0000-0000-000000000000",
+              new_values: {
+                store_id: storeId,
+                reason: "Invalid PIN",
+                auth_type: "PIN_ONLY",
+              },
+              ip_address: auditContext.ipAddress,
+              user_agent: auditContext.userAgent,
+            },
+          });
+
+          // Use 400 instead of 401 to avoid triggering frontend 401 interceptor
+          // (401 is reserved for JWT session expiration, not PIN auth failures)
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "AUTHENTICATION_FAILED",
+              message: "Invalid PIN or no active shift",
+            },
+          };
+        }
+
+        // Now find a working shift for this cashier
+        // CRITICAL: Use WORKING_SHIFT_STATUSES to match pack activation requirements
+        // This ensures PIN auth only succeeds if the shift can actually be used for pack activation
+        const activeShift = await prisma.shift.findFirst({
+          where: {
+            cashier_id: matchedCashier.cashier_id,
+            store_id: storeId,
+            status: {
+              in: [...WORKING_SHIFT_STATUSES], // OPEN, ACTIVE only - matches pack activation
+            },
+            closed_at: null,
+          },
+          select: {
+            shift_id: true,
+            status: true, // Include status for better error messages
+          },
+        });
+
+        if (!activeShift) {
+          // Check if there's a shift in CLOSING or other non-working state
+          // to provide a more helpful error message
+          const nonWorkingShift = await prisma.shift.findFirst({
+            where: {
+              cashier_id: matchedCashier.cashier_id,
+              store_id: storeId,
+              status: {
+                in: ["CLOSING", "RECONCILING", "VARIANCE_REVIEW"],
+              },
+              closed_at: null,
+            },
+            select: {
+              shift_id: true,
+              status: true,
+            },
+          });
+
+          // Determine the appropriate error message
+          let errorMessage: string;
+          let errorReason: string;
+          if (nonWorkingShift) {
+            // Shift exists but is in closing process
+            errorReason = `Shift in ${nonWorkingShift.status} state`;
+            errorMessage = shiftStateMachine.getPackActivationError(
+              nonWorkingShift.status as any,
+            );
+          } else {
+            // No shift at all
+            errorReason = "No working shift found";
+            errorMessage =
+              "You must have an open or active shift to activate packs. Please open a new shift.";
+          }
+
+          // Log attempt with detailed reason
+          await prisma.auditLog.create({
+            data: {
+              user_id: null,
+              action: "AUTH_FAILURE",
+              table_name: "cashiers",
+              record_id: matchedCashier.cashier_id,
+              new_values: {
+                store_id: storeId,
+                cashier_name: matchedCashier.name,
+                reason: errorReason,
+                auth_type: "PIN_ONLY",
+                non_working_shift_id: nonWorkingShift?.shift_id || null,
+                non_working_shift_status: nonWorkingShift?.status || null,
+              },
+              ip_address: auditContext.ipAddress,
+              user_agent: auditContext.userAgent,
+            },
+          });
+
+          // Use 400 instead of 401 to avoid triggering frontend 401 interceptor
+          // (401 is reserved for JWT session expiration, not PIN auth failures)
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "NO_ACTIVE_SHIFT",
+              message: errorMessage,
+            },
+          };
+        }
+
+        // Log successful authentication
+        await prisma.auditLog.create({
+          data: {
+            user_id: null,
+            action: "AUTH_SUCCESS",
+            table_name: "cashiers",
+            record_id: matchedCashier.cashier_id,
+            new_values: {
+              store_id: storeId,
+              cashier_name: matchedCashier.name,
+              shift_id: activeShift.shift_id,
+              auth_type: "PIN_ONLY",
+            },
+            ip_address: auditContext.ipAddress,
+            user_agent: auditContext.userAgent,
+          },
+        });
+
+        reply.code(200);
+        return {
+          success: true,
+          data: {
+            cashier_id: matchedCashier.cashier_id,
+            cashier_name: matchedCashier.name,
+            shift_id: activeShift.shift_id,
+          },
+        };
+      } catch (error: unknown) {
+        // API-003: ERROR_HANDLING - Generic error, don't leak implementation details
+        fastify.log.error({ error }, "Error in PIN-only authentication");
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Authentication failed",
           },
         };
       }

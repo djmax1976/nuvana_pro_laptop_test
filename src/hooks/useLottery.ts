@@ -11,6 +11,7 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import {
   receivePack,
   activatePack,
+  activatePackFull,
   updatePack,
   deletePack,
   getPacks,
@@ -20,6 +21,7 @@ import {
   getLotteryDayBins,
   closeLotteryDay,
   markPackAsSoldOut,
+  getCashierActiveShift,
   type ReceivePackInput,
   type UpdatePackInput,
   type ApproveVarianceInput,
@@ -27,6 +29,7 @@ import {
   type VarianceQueryFilters,
   type CloseLotteryDayInput,
   type MarkPackAsSoldOutInput,
+  type FullActivatePackInput,
 } from "../lib/api/lottery";
 
 // ============ TanStack Query Keys ============
@@ -339,5 +342,112 @@ export function useMarkPackAsSoldOut() {
       // Also invalidate packs list to reflect status change
       queryClient.invalidateQueries({ queryKey: lotteryKeys.packs() });
     },
+  });
+}
+
+// ============ Pack Search Hooks ============
+
+/**
+ * Hook to search lottery packs with debouncing
+ * Story: Pack Activation UX Enhancement
+ *
+ * MCP Guidance Applied:
+ * - DB-006: TENANT_ISOLATION - Store-scoped search
+ * - SEC-006: SQL_INJECTION - Search uses Prisma parameterized queries
+ *
+ * @param storeId - Store UUID (required for RLS enforcement)
+ * @param search - Search query (min 2 chars to trigger search)
+ * @param filters - Additional query filters (status, game_id)
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with matching packs
+ */
+export function usePackSearch(
+  storeId: string | null | undefined,
+  search: string | undefined,
+  filters?: Omit<LotteryPackQueryFilters, "store_id" | "search">,
+  options?: { enabled?: boolean },
+) {
+  // Only search if we have 2+ characters
+  const searchEnabled = (search?.length ?? 0) >= 2;
+
+  return useQuery({
+    queryKey: lotteryKeys.packList(
+      storeId ? { ...filters, store_id: storeId, search } : filters,
+    ),
+    queryFn: () =>
+      getPacks(storeId ? { ...filters, store_id: storeId, search } : filters),
+    enabled: options?.enabled !== false && !!storeId && searchEnabled,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    staleTime: 60000, // Consider search results fresh for 1 minute
+    select: (response) => response.data,
+  });
+}
+
+// ============ Full Pack Activation Hooks ============
+
+/**
+ * Input for the full pack activation mutation
+ */
+export interface FullPackActivationMutationInput {
+  storeId: string;
+  data: FullActivatePackInput;
+}
+
+/**
+ * Hook for full pack activation (with bin assignment)
+ * Story: Pack Activation UX Enhancement
+ *
+ * This combines pack activation and bin assignment in a single operation.
+ * Supports both cashier flow (with shift_id) and manager override (no shift_id).
+ *
+ * MCP Guidance Applied:
+ * - FE-001: STATE_MANAGEMENT - Proper cache invalidation after mutation
+ * - SEC-010: AUTHZ - Role-based shift requirement handled by backend
+ *
+ * @returns Mutation hook for full pack activation
+ */
+export function useFullPackActivation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ storeId, data }: FullPackActivationMutationInput) =>
+      activatePackFull(storeId, data),
+    onSuccess: () => {
+      // Invalidate pack list and day bins to refresh after activation
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.packs() });
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.dayBins() });
+    },
+  });
+}
+
+// ============ Cashier Shift Hooks ============
+
+/**
+ * Hook to get the active shift for a cashier
+ * Story: Pack Activation UX Enhancement
+ *
+ * MCP Guidance Applied:
+ * - DB-006: TENANT_ISOLATION - Store-scoped query
+ * - API-003: ERROR_HANDLING - Handles 404 when no active shift
+ *
+ * @param storeId - Store UUID
+ * @param cashierId - Cashier UUID
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with active shift data
+ */
+export function useCashierActiveShift(
+  storeId: string | null | undefined,
+  cashierId: string | null | undefined,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: ["shifts", "active", storeId, cashierId] as const,
+    queryFn: () => getCashierActiveShift(storeId!, cashierId!),
+    enabled: options?.enabled !== false && !!storeId && !!cashierId,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    retry: false, // Don't retry 404s (cashier has no active shift)
+    select: (response) => response.data,
   });
 }

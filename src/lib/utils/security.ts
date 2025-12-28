@@ -383,3 +383,105 @@ export function detectSuspiciousInput(
 
   return isSuspicious;
 }
+
+/**
+ * Security event types for structured logging
+ * LM-001: LOGGING - Emit structured logs with severity levels
+ */
+export type SecurityEventType =
+  | "AUTH_FAILED"
+  | "AUTH_SUCCESS"
+  | "SESSION_EXPIRED"
+  | "CREDENTIAL_VERIFICATION_FAILED"
+  | "PERMISSION_DENIED"
+  | "RATE_LIMIT_EXCEEDED"
+  | "SUSPICIOUS_INPUT"
+  | "INVALID_TOKEN";
+
+/**
+ * Security event severity levels
+ */
+export type SecuritySeverity = "info" | "warn" | "error";
+
+/**
+ * Structured security event interface
+ * Excludes PII and secrets per LM-001
+ */
+interface SecurityEvent {
+  type: SecurityEventType;
+  severity: SecuritySeverity;
+  timestamp: string;
+  context?: string;
+  errorCode?: string;
+  // Never include: email, password, PIN, tokens, PII
+}
+
+/**
+ * Log a security event in structured format
+ *
+ * LM-001: LOGGING - Emit structured logs with severity levels and exclude secrets
+ * SEC-017: AUDIT_TRAILS - Log security-sensitive events for monitoring
+ * OWASP A09: Security Logging and Monitoring Failures
+ *
+ * @param type - Type of security event
+ * @param severity - Severity level
+ * @param details - Additional context (must NOT contain PII or secrets)
+ *
+ * @example
+ * logSecurityEvent('AUTH_FAILED', 'warn', { context: 'management_login', errorCode: 'INVALID_CREDENTIALS' });
+ */
+export function logSecurityEvent(
+  type: SecurityEventType,
+  severity: SecuritySeverity,
+  details: { context?: string; errorCode?: string } = {},
+): void {
+  const event: SecurityEvent = {
+    type,
+    severity,
+    timestamp: new Date().toISOString(),
+    ...details,
+  };
+
+  // In production, this would send to a centralized logging service
+  // For now, use console with structured format
+  const logMethod =
+    severity === "error"
+      ? console.error
+      : severity === "warn"
+        ? console.warn
+        : console.info;
+
+  logMethod("[SECURITY]", JSON.stringify(event));
+}
+
+/**
+ * Log a failed authentication attempt
+ *
+ * OWASP A09: Log failed authentication for brute-force detection
+ * Note: Does NOT log email/password/PIN - only event metadata
+ *
+ * @param context - Where the auth attempt occurred (e.g., 'management_login', 'cashier_pin')
+ * @param errorCode - The error code returned (e.g., 'INVALID_CREDENTIALS', 'INSUFFICIENT_PERMISSIONS')
+ */
+export function logAuthFailure(context: string, errorCode?: string): void {
+  logSecurityEvent("AUTH_FAILED", "warn", { context, errorCode });
+}
+
+/**
+ * Log a credential verification failure (different from session expiration)
+ *
+ * Used when verifying OTHER users' credentials (not the current session)
+ * Examples: Manager login for pack activation, cashier PIN verification
+ *
+ * @param context - Where the verification occurred
+ * @param errorCode - The error code returned
+ */
+export function logCredentialVerificationFailure(
+  context: string,
+  errorCode?: string,
+): void {
+  logSecurityEvent("CREDENTIAL_VERIFICATION_FAILED", "warn", {
+    context,
+    errorCode,
+  });
+}

@@ -142,7 +142,39 @@ export async function apiClient<T = unknown>(
     clearTimeout(timeoutId);
 
     // Handle 401 Unauthorized - Session Expired
+    // SEC-010: AUTHZ - Must distinguish between session expiration and credential verification
     if (response.status === 401 && !skipSessionCheck) {
+      // Check if this is a credential verification endpoint (NOT session expiration)
+      const isCredentialVerificationEndpoint =
+        url.includes("/auth/verify-management") ||
+        url.includes("/auth/verify-user-permission") ||
+        url.includes("/auth/verify-cashier-permission") ||
+        url.includes("/cashiers/authenticate-pin");
+
+      if (isCredentialVerificationEndpoint) {
+        // Parse error response for proper error message
+        let errorData: {
+          success?: boolean;
+          error?: { code?: string; message?: string };
+          message?: string;
+        } = {};
+        try {
+          errorData = await response.json();
+        } catch {
+          // Response body not JSON
+        }
+
+        const errorCode = errorData?.error?.code || "AUTHENTICATION_FAILED";
+        const errorMessage =
+          errorData?.error?.message ||
+          errorData?.message ||
+          "Authentication failed";
+
+        // Return credential verification error WITHOUT triggering session expiration
+        throw new ApiError(errorMessage, 401, errorCode);
+      }
+
+      // For all other 401s, this is a session expiration
       handleSessionExpired("session_expired");
       throw new ApiError(
         "Session expired. Please log in again.",

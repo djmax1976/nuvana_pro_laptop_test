@@ -59,6 +59,7 @@ export const LOTTERY_SHIFT_CLOSE = "LOTTERY_SHIFT_CLOSE";
 export const LOTTERY_SHIFT_RECONCILE = "LOTTERY_SHIFT_RECONCILE";
 export const LOTTERY_REPORT = "LOTTERY_REPORT";
 export const LOTTERY_MANUAL_ENTRY = "LOTTERY_MANUAL_ENTRY";
+export const LOTTERY_SERIAL_OVERRIDE = "LOTTERY_SERIAL_OVERRIDE";
 
 // Report Permissions
 export const REPORT_SHIFT = "REPORT_SHIFT";
@@ -176,6 +177,7 @@ export const PERMISSIONS = {
   LOTTERY_SHIFT_RECONCILE,
   LOTTERY_REPORT,
   LOTTERY_MANUAL_ENTRY,
+  LOTTERY_SERIAL_OVERRIDE,
 
   // Reports
   REPORT_SHIFT,
@@ -306,6 +308,8 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
   [LOTTERY_REPORT]: "Generate lottery reports",
   [LOTTERY_MANUAL_ENTRY]:
     "Override mandatory barcode scanning for manual lottery serial entry",
+  [LOTTERY_SERIAL_OVERRIDE]:
+    "Change starting serial number when activating lottery packs (default is 0)",
 
   // Reports
   [REPORT_SHIFT]: "Generate shift reports",
@@ -424,6 +428,7 @@ export const PERMISSION_CATEGORIES = {
       LOTTERY_SHIFT_RECONCILE,
       LOTTERY_REPORT,
       LOTTERY_MANUAL_ENTRY,
+      LOTTERY_SERIAL_OVERRIDE,
     ],
   },
   REPORTS: {
@@ -570,6 +575,7 @@ export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
   LOTTERY_SHIFT_RECONCILE,
   LOTTERY_REPORT,
   LOTTERY_MANUAL_ENTRY,
+  LOTTERY_SERIAL_OVERRIDE,
 
   // Reports - Shift and daily reporting
   REPORT_SHIFT,

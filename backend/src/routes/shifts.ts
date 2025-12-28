@@ -3320,4 +3320,205 @@ export async function shiftRoutes(fastify: FastifyInstance) {
       }
     },
   );
+
+  /**
+   * GET /api/stores/:storeId/cashiers/:cashierId/active-shift
+   * Get the active shift for a specific cashier
+   * Protected route - requires CLIENT_DASHBOARD_ACCESS permission
+   *
+   * Story: Pack Activation UX Enhancement
+   * Returns shift information if cashier has an active shift, 404 if not
+   *
+   * MCP Guidance Applied:
+   * - DB-006: TENANT_ISOLATION - Store-scoped query with RLS validation
+   * - SEC-006: SQL_INJECTION - Using Prisma ORM parameterized queries
+   * - API-003: ERROR_HANDLING - Structured error responses
+   */
+  fastify.get(
+    "/api/stores/:storeId/cashiers/:cashierId/active-shift",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.CLIENT_DASHBOARD_ACCESS),
+      ],
+      schema: {
+        description: "Get the active shift for a specific cashier at a store",
+        tags: ["shifts", "cashiers"],
+        params: {
+          type: "object",
+          required: ["storeId", "cashierId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+            cashierId: {
+              type: "string",
+              format: "uuid",
+              description: "Cashier UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  shift_id: { type: "string", format: "uuid" },
+                  store_id: { type: "string", format: "uuid" },
+                  cashier_id: { type: "string", format: "uuid" },
+                  cashier_name: { type: "string" },
+                  status: {
+                    type: "string",
+                    enum: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"],
+                  },
+                  opened_at: { type: "string", format: "date-time" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { storeId: string; cashierId: string };
+
+      try {
+        // Validate store access via RBAC (RLS enforcement)
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasSystemScope = userRoles.some(
+          (role) => role.scope === "SYSTEM",
+        );
+
+        // Verify store exists
+        const store = await prisma.store.findUnique({
+          where: { store_id: params.storeId },
+          select: { store_id: true, name: true, company_id: true },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: { code: "NOT_FOUND", message: "Store not found" },
+          };
+        }
+
+        // Validate store access based on user's role scope
+        if (!hasSystemScope) {
+          const hasStoreAccess = userRoles.some(
+            (role) =>
+              role.scope === "STORE" && role.store_id === params.storeId,
+          );
+          const hasCompanyAccess = userRoles.some(
+            (role) =>
+              role.scope === "COMPANY" && role.company_id === store.company_id,
+          );
+
+          if (!hasStoreAccess && !hasCompanyAccess) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "FORBIDDEN",
+                message: "Access denied to this store",
+              },
+            };
+          }
+        }
+
+        // Verify cashier exists at this store
+        const cashier = await prisma.cashier.findFirst({
+          where: {
+            cashier_id: params.cashierId,
+            store_id: params.storeId,
+            disabled_at: null, // Only active cashiers
+          },
+          select: { cashier_id: true, name: true },
+        });
+
+        if (!cashier) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Cashier not found at this store",
+            },
+          };
+        }
+
+        // Find active shift for this cashier at this store
+        // Active shifts are OPEN, ACTIVE, CLOSING, or RECONCILING
+        const activeShift = await prisma.shift.findFirst({
+          where: {
+            store_id: params.storeId,
+            cashier_id: params.cashierId,
+            status: { in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"] },
+            closed_at: null,
+          },
+          select: {
+            shift_id: true,
+            store_id: true,
+            cashier_id: true,
+            status: true,
+            opened_at: true,
+          },
+          orderBy: { opened_at: "desc" },
+        });
+
+        if (!activeShift) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "NO_ACTIVE_SHIFT",
+              message: "Cashier does not have an active shift",
+            },
+          };
+        }
+
+        reply.code(200);
+        return {
+          success: true,
+          data: {
+            shift_id: activeShift.shift_id,
+            store_id: activeShift.store_id,
+            cashier_id: activeShift.cashier_id,
+            cashier_name: cashier.name,
+            status: activeShift.status,
+            opened_at: activeShift.opened_at?.toISOString() || null,
+          },
+        };
+      } catch (error) {
+        fastify.log.error({ error }, "Error getting active shift for cashier");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to get active shift",
+          },
+        };
+      }
+    },
+  );
 }
