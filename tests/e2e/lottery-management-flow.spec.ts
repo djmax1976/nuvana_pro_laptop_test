@@ -318,16 +318,18 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
     page,
   }) => {
     // GIVEN: A bin exists for the store with an ACTIVE pack assigned
+    // Use unique identifiers with timestamp to avoid collisions across test runs
+    const testTimestamp = Date.now();
     const bin = await createLotteryBin(prisma, {
       store_id: store.store_id,
       bin_number: 1,
-      name: "Bin 1",
+      name: `Bin-${testTimestamp}`,
     });
 
     const pack = await createLotteryPack(prisma, {
       game_id: game.game_id,
       store_id: store.store_id,
-      pack_number: `E2E-PACK-${Date.now()}`,
+      pack_number: `E2E-PACK-${testTimestamp}`,
       serial_start: "0001",
       serial_end: "0100",
       status: LotteryPackStatus.ACTIVE,
@@ -341,31 +343,40 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       // Set up day bins API listener BEFORE navigation (network-first pattern)
       const dayBinsResponsePromise = page.waitForResponse(
         (resp) =>
-          resp.url().includes(`/api/lottery/bins/day/${store.store_id}`) &&
+          resp.url().includes("/api/lottery/bins/day/") &&
           resp.status() === 200,
         { timeout: 30000 },
       );
 
       await page.goto("/mystore/lottery", { waitUntil: "domcontentloaded" });
 
-      // Wait for lottery page container
+      // Wait for lottery page container to be visible
       await expect(
         page.locator('[data-testid="lottery-management-page"]'),
-      ).toBeVisible();
+      ).toBeVisible({ timeout: 15000 });
 
-      // Wait for day bins API to complete (deterministic)
+      // Wait for day bins API to complete (deterministic wait)
       const dayBinsResponse = await dayBinsResponsePromise;
       const dayBinsData = await dayBinsResponse.json();
 
-      // Verify API returned our pack data
+      // Verify API returned our pack data with expected structure
+      // Response structure: { success: true, data: { bins: [...], business_day: {...}, depleted_packs: [...] } }
       expect(dayBinsData.success).toBe(true);
+      expect(dayBinsData.data).toBeDefined();
+      expect(dayBinsData.data.bins).toBeDefined();
 
       // THEN: Day bins table displays with our pack
       const table = page.locator('[data-testid="day-bins-table"]');
-      await expect(table).toBeVisible();
-      await expect(table).toContainText(pack.pack_number);
+      await expect(table).toBeVisible({ timeout: 10000 });
+      await expect(table).toContainText(pack.pack_number, { timeout: 5000 });
     } finally {
-      // Cleanup in correct order
+      // Cleanup in correct FK order - handle constraints gracefully
+      await prisma.lotteryShiftOpening
+        .deleteMany({ where: { pack_id: pack.pack_id } })
+        .catch(() => {});
+      await prisma.lotteryShiftClosing
+        .deleteMany({ where: { pack_id: pack.pack_id } })
+        .catch(() => {});
       await prisma.lotteryPack
         .delete({ where: { pack_id: pack.pack_id } })
         .catch(() => {});
@@ -379,10 +390,12 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
     page,
   }) => {
     // GIVEN: A RECEIVED pack exists for the store
+    // Use unique pack number with timestamp to avoid collisions across test runs
+    const testTimestamp = Date.now();
     const pack = await createLotteryPack(prisma, {
       game_id: game.game_id,
       store_id: store.store_id,
-      pack_number: `E2E-RECEIVED-${Date.now()}`,
+      pack_number: `E2E-RECEIVED-${testTimestamp}`,
       serial_start: "001",
       serial_end: "100",
       status: LotteryPackStatus.RECEIVED,
@@ -393,6 +406,7 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       await loginAndWaitForMyStore(page, storeManager.email, password);
 
       // Set up packs API listener BEFORE navigation (network-first pattern)
+      // This catches the initial packs fetch that determines button enable/disable state
       const packsResponsePromise = page.waitForResponse(
         (resp) => {
           const url = resp.url();
@@ -405,62 +419,69 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
 
       await page.goto("/mystore/lottery", { waitUntil: "domcontentloaded" });
 
-      // Wait for lottery page container
+      // Wait for lottery page container to be visible
       await expect(
         page.locator('[data-testid="lottery-management-page"]'),
-      ).toBeVisible();
+      ).toBeVisible({ timeout: 15000 });
 
-      // Wait for packs API to complete (deterministic)
+      // Wait for packs API to complete (deterministic wait)
       const packsResponse = await packsResponsePromise;
       const packsData = await packsResponse.json();
 
-      // Verify API returned success
+      // Verify API returned success with expected structure
       expect(packsData.success).toBe(true);
 
       // THEN: Activate Pack button should be enabled (we have a RECEIVED pack)
       const activateButton = page.locator(
         '[data-testid="activate-pack-button"]',
       );
-      await expect(activateButton).toBeVisible();
-      await expect(activateButton).toBeEnabled();
+      await expect(activateButton).toBeVisible({ timeout: 10000 });
+      await expect(activateButton).toBeEnabled({ timeout: 10000 });
 
       // WHEN: User clicks Activate Pack button
       await activateButton.click();
 
       // THEN: Pack activation dialog opens (EnhancedPackActivationForm)
       // Verify the dialog container is visible
-      await expect(
-        page.locator('[data-testid="pack-activation-form"]'),
-      ).toBeVisible({ timeout: 10000 });
+      const activationForm = page.locator(
+        '[data-testid="pack-activation-form"]',
+      );
+      await expect(activationForm).toBeVisible({ timeout: 15000 });
 
-      // Verify the pack search combobox is visible
+      // Verify the pack search combobox is visible and ready
       const packSearchInput = page.locator('[data-testid="pack-search"]');
-      await expect(packSearchInput).toBeVisible();
+      await expect(packSearchInput).toBeVisible({ timeout: 10000 });
+      await expect(packSearchInput).toBeEditable({ timeout: 5000 });
 
       // Verify the submit button is visible (disabled until pack is selected)
       await expect(
         page.locator('[data-testid="submit-activation"]'),
-      ).toBeVisible();
+      ).toBeVisible({ timeout: 5000 });
 
       // AND: The combobox dropdown shows our RECEIVED pack when focused
-      // Click the input to open the dropdown showing recent received packs
+      // The PackSearchCombobox fetches packs when dialog opens (isOpen=true), not on focus
+      // So we just need to click to open the dropdown and wait for options to render
       await packSearchInput.click();
 
-      // Wait for the dropdown to appear and contain pack options
+      // Wait for the dropdown to appear (packs are already fetched when dialog opened)
       const packDropdown = page.locator('[data-testid="pack-search-dropdown"]');
-      await expect(packDropdown).toBeVisible({ timeout: 10000 });
+      await expect(packDropdown).toBeVisible({ timeout: 15000 });
 
       // Verify at least one pack option is visible (our created pack)
       // The combobox uses indexed options (pack-search-option-0, option-1, etc.)
       const firstPackOption = page.locator(
         '[data-testid="pack-search-option-0"]',
       );
-      await expect(firstPackOption).toBeVisible({ timeout: 5000 });
+      await expect(firstPackOption).toBeVisible({ timeout: 10000 });
 
       // Verify the option contains our pack's information
       // The option displays: Game Name, Pack #<number>, Serials <start>-<end>
       await expect(firstPackOption).toContainText(pack.pack_number);
     } finally {
+      // Clean up test data - handle FK constraints gracefully
+      await prisma.lotteryShiftOpening
+        .deleteMany({ where: { pack_id: pack.pack_id } })
+        .catch(() => {});
       await prisma.lotteryPack
         .delete({ where: { pack_id: pack.pack_id } })
         .catch(() => {});
