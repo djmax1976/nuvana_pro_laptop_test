@@ -24,7 +24,7 @@
  * - SEC-001: PASSWORD_HASHING - PIN/password verified server-side via bcrypt
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,15 +64,28 @@ export interface SerialOverrideApproval {
   has_permission: boolean;
 }
 
+/**
+ * Result of mark sold manager approval (separate from activation auth)
+ * Used when cashier needs manager approval to mark pack as pre-sold during activation
+ */
+export interface MarkSoldApproval {
+  approver_id: string;
+  approver_name: string;
+  approved_at: Date;
+  has_permission: boolean;
+}
+
 interface LotteryAuthModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   storeId: string;
   onAuthenticated: (result: LotteryAuthResult) => void;
-  /** Mode for the modal - "activation" requires shift, "serial_override" is manager-only */
-  mode?: "activation" | "serial_override";
+  /** Mode for the modal - "activation" requires shift, "serial_override" and "mark_sold" are manager-only */
+  mode?: "activation" | "serial_override" | "mark_sold";
   /** Callback for serial override approval (only used in serial_override mode) */
   onSerialOverrideApproved?: (approval: SerialOverrideApproval) => void;
+  /** Callback for mark sold approval (only used in mark_sold mode) */
+  onMarkSoldApproved?: (approval: MarkSoldApproval) => void;
 }
 
 /**
@@ -136,9 +149,12 @@ export function LotteryAuthModal({
   onAuthenticated,
   mode = "activation",
   onSerialOverrideApproved,
+  onMarkSoldApproved,
 }: LotteryAuthModalProps) {
-  // In serial_override mode, only show management tab
+  // In serial_override or mark_sold mode, only show management tab
   const isSerialOverrideMode = mode === "serial_override";
+  const isMarkSoldMode = mode === "mark_sold";
+  const isManagerOnlyMode = isSerialOverrideMode || isMarkSoldMode;
   // Tab state
   const [activeTab, setActiveTab] = useState<"cashier" | "management">(
     "cashier",
@@ -152,6 +168,10 @@ export function LotteryAuthModal({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [managementError, setManagementError] = useState<string | null>(null);
+
+  // Refs for autofocus
+  const pinInputRef = useRef<HTMLInputElement>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null);
 
   // Cashier PIN authentication mutation
   const cashierAuthMutation = useMutation({
@@ -173,8 +193,8 @@ export function LotteryAuthModal({
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
-      // In serial_override mode, always start on management tab
-      setActiveTab(isSerialOverrideMode ? "management" : "cashier");
+      // In manager-only modes (serial_override, mark_sold), always start on management tab
+      setActiveTab(isManagerOnlyMode ? "management" : "cashier");
       setPin("");
       setCashierError(null);
       setEmail("");
@@ -182,9 +202,33 @@ export function LotteryAuthModal({
       setManagementError(null);
       cashierAuthMutation.reset();
       managementAuthMutation.reset();
+
+      // Focus the appropriate input after dialog animation completes
+      const timer = setTimeout(() => {
+        if (isManagerOnlyMode) {
+          emailInputRef.current?.focus();
+        } else {
+          pinInputRef.current?.focus();
+        }
+      }, 100);
+      return () => clearTimeout(timer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isSerialOverrideMode]);
+  }, [open, isManagerOnlyMode]);
+
+  // Focus appropriate input when tab changes
+  useEffect(() => {
+    if (open) {
+      const timer = setTimeout(() => {
+        if (activeTab === "cashier") {
+          pinInputRef.current?.focus();
+        } else {
+          emailInputRef.current?.focus();
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, open]);
 
   // Handle cashier PIN submission
   const handleCashierSubmit = async (e: React.FormEvent) => {
@@ -207,22 +251,22 @@ export function LotteryAuthModal({
       });
       onOpenChange(false);
     } catch (err) {
-      if (err instanceof Error) {
-        // Check for specific error codes/messages from backend
-        const errorMsg = err.message.toLowerCase();
-        if (
-          errorMsg.includes("no_active_shift") ||
-          errorMsg.includes("must have an active shift")
-        ) {
-          setCashierError("You must have an active shift to activate packs.");
-        } else if (
-          errorMsg.includes("authentication_failed") ||
-          errorMsg.includes("invalid pin")
-        ) {
-          setCashierError("Invalid PIN. Please try again.");
-        } else {
-          setCashierError("Authentication failed. Please try again.");
-        }
+      // Check for ApiError with code property first
+      const errorCode = (err as { code?: string })?.code;
+      const errorMessage = err instanceof Error ? err.message : "";
+      const errorMsgLower = errorMessage.toLowerCase();
+
+      if (
+        errorCode === "NO_ACTIVE_SHIFT" ||
+        errorMsgLower.includes("must have an open or active shift") ||
+        errorMsgLower.includes("must have an active shift")
+      ) {
+        setCashierError("You must have an active shift to activate packs.");
+      } else if (
+        errorCode === "AUTHENTICATION_FAILED" ||
+        errorMsgLower.includes("invalid pin")
+      ) {
+        setCashierError("Invalid PIN. Please try again.");
       } else {
         setCashierError("Authentication failed. Please try again.");
       }
@@ -262,6 +306,25 @@ export function LotteryAuthModal({
         // Call the serial override callback
         if (onSerialOverrideApproved) {
           onSerialOverrideApproved({
+            approver_id: result.user_id,
+            approver_name: result.name || result.email,
+            approved_at: new Date(),
+            has_permission: true,
+          });
+        }
+      } else if (isMarkSoldMode) {
+        // In mark_sold mode, check for LOTTERY_MARK_SOLD permission
+        const hasMarkSoldPermission =
+          result.permissions?.includes("LOTTERY_MARK_SOLD");
+        if (!hasMarkSoldPermission) {
+          setManagementError(
+            "You do not have permission to mark packs as sold. Only users with LOTTERY_MARK_SOLD permission can approve this action.",
+          );
+          return;
+        }
+        // Call the mark sold callback
+        if (onMarkSoldApproved) {
+          onMarkSoldApproved({
             approver_id: result.user_id,
             approver_name: result.name || result.email,
             approved_at: new Date(),
@@ -338,14 +401,16 @@ export function LotteryAuthModal({
       >
         <DialogHeader>
           <DialogTitle>
-            {isSerialOverrideMode
+            {isManagerOnlyMode
               ? "Manager Approval Required"
               : "Authentication Required"}
           </DialogTitle>
           <DialogDescription>
             {isSerialOverrideMode
               ? "A manager must approve changing the starting serial. This action will be recorded."
-              : "Authenticate to activate the pack. This action will be recorded."}
+              : isMarkSoldMode
+                ? "A manager must approve marking this pack as sold. This action will be recorded."
+                : "Authenticate to activate the pack. This action will be recorded."}
           </DialogDescription>
         </DialogHeader>
 
@@ -354,8 +419,8 @@ export function LotteryAuthModal({
           onValueChange={(v) => setActiveTab(v as "cashier" | "management")}
           className="w-full"
         >
-          {/* In serial_override mode, only show management tab */}
-          {!isSerialOverrideMode && (
+          {/* In manager-only modes (serial_override, mark_sold), only show management tab */}
+          {!isManagerOnlyMode && (
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger
                 value="cashier"
@@ -390,6 +455,7 @@ export function LotteryAuthModal({
               <div className="space-y-2">
                 <Label htmlFor="pin-input">PIN</Label>
                 <Input
+                  ref={pinInputRef}
                   id="pin-input"
                   type="password"
                   inputMode="numeric"
@@ -404,7 +470,6 @@ export function LotteryAuthModal({
                   }}
                   disabled={isSubmitting}
                   autoComplete="off"
-                  autoFocus
                   data-testid="pin-input"
                 />
                 <p className="text-xs text-muted-foreground">
@@ -450,6 +515,7 @@ export function LotteryAuthModal({
               <div className="space-y-2">
                 <Label htmlFor="email-input">Email</Label>
                 <Input
+                  ref={emailInputRef}
                   id="email-input"
                   type="email"
                   placeholder="Enter your email"

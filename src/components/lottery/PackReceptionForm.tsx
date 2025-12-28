@@ -2,10 +2,18 @@
 
 /**
  * Pack Reception Form Component
- * Form for receiving lottery packs via 24-digit serialized numbers
+ * Form for receiving lottery packs via 24-digit serialized barcode scanning
  *
  * Story: 6.12 - Serialized Pack Reception with Batch Processing
+ * Story: Scan-Only Pack Reception Security
+ *
  * AC #1, #2, #3, #4, #5: Serialized input, parsing, validation, batch submission
+ *
+ * Security Enhancement:
+ * - SCAN-ONLY INPUT: Manual keyboard entry is detected and rejected
+ * - Enterprise-grade barcode scan detection using keystroke timing analysis
+ * - Server-side validation of scan metrics prevents client-side tampering
+ * - Audit logging of all scan attempts for security analysis
  *
  * Enhanced: Auto-create games when game code not found (Client Dashboard only)
  */
@@ -15,6 +23,7 @@ import {
   useCallback,
   useRef,
   useEffect,
+  type KeyboardEvent,
   type ChangeEvent,
 } from "react";
 import { Button } from "@/components/ui/button";
@@ -33,11 +42,19 @@ import {
   receivePackBatch,
   getGames,
   checkPackExists,
-  type BatchReceivePackResponse,
   type LotteryGameResponse,
 } from "@/lib/api/lottery";
 import { parseSerializedNumber } from "@/lib/utils/lottery-serial-parser";
 import { NewGameModal } from "./NewGameModal";
+import { useScanDetector } from "@/hooks/useScanDetector";
+// ScanOnlyIndicator components available but UI simplified per requirements
+// Detection logic still active via useScanDetector hook
+import type { ScanMetrics } from "@/types/scan-detection";
+
+/**
+ * Expected barcode length
+ */
+const EXPECTED_BARCODE_LENGTH = 24;
 
 /**
  * Pack item in reception list
@@ -54,6 +71,8 @@ interface PackItem {
   game_total_tickets?: number;
   error?: string;
   isValidating?: boolean;
+  /** Scan metrics for server-side validation */
+  scanMetrics?: ScanMetrics;
 }
 
 interface PackReceptionFormProps {
@@ -61,18 +80,27 @@ interface PackReceptionFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
+  /**
+   * Whether to enforce scan-only input (default: true)
+   * Set to false for testing or accessibility exceptions
+   */
+  enforceScanOnly?: boolean;
 }
 
 /**
  * PackReceptionForm component
- * Dialog form for receiving lottery packs via serialized numbers
+ * Dialog form for receiving lottery packs via barcode scanning
  * Supports batch processing with auto-generating input fields
+ *
+ * SECURITY: Manual keyboard entry is detected and rejected.
+ * Uses keystroke timing analysis to distinguish scanner vs typing.
  */
 export function PackReceptionForm({
   storeId,
   open,
   onOpenChange,
   onSuccess,
+  enforceScanOnly = true,
 }: PackReceptionFormProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -94,7 +122,37 @@ export function PackReceptionForm({
     game_code: string;
     pack_number: string;
     serial_start: string;
+    scanMetrics?: ScanMetrics;
   } | null>(null);
+
+  // Scan detector hook for detecting manual entry vs barcode scan
+  const scanDetector = useScanDetector({
+    expectedLength: EXPECTED_BARCODE_LENGTH,
+    enabled: enforceScanOnly,
+    onManualDetected: (metrics) => {
+      // Manual entry detected - show rejection
+      toast({
+        title: "Manual Entry Not Allowed",
+        description:
+          "Please use a barcode scanner. Manual keyboard entry is not permitted for security.",
+        variant: "destructive",
+      });
+      // Clear input and reset detector
+      setInputValue("");
+      scanDetectorRef.current.reset();
+      // Refocus for next attempt
+      setTimeout(() => inputRef.current?.focus(), 100);
+    },
+    onScanDetected: (metrics) => {
+      // Valid scan detected - process will continue via handleSerialComplete
+      console.debug("Scan detected with confidence:", metrics.confidence);
+    },
+  });
+
+  // Store scanDetector in ref to avoid dependency on object reference in callbacks
+  // This prevents infinite loops and unnecessary re-renders
+  const scanDetectorRef = useRef(scanDetector);
+  scanDetectorRef.current = scanDetector;
 
   // Clear debounce timer on unmount
   useEffect(() => {
@@ -138,6 +196,7 @@ export function PackReceptionForm({
       setInputValue("");
       setPendingGameToCreate(null);
       setShowNewGameModal(false);
+      scanDetectorRef.current.reset();
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
         debounceTimer.current = null;
@@ -160,6 +219,7 @@ export function PackReceptionForm({
    */
   const clearInputAndFocus = useCallback(() => {
     setInputValue("");
+    scanDetectorRef.current.reset();
     // Immediately focus after clearing
     setTimeout(() => {
       inputRef.current?.focus();
@@ -174,6 +234,7 @@ export function PackReceptionForm({
       serial: string,
       parsed: { game_code: string; pack_number: string; serial_start: string },
       game: LotteryGameResponse,
+      scanMetrics?: ScanMetrics,
     ) => {
       const newPack: PackItem = {
         serial,
@@ -185,6 +246,7 @@ export function PackReceptionForm({
         game_price: game.price ?? undefined,
         game_pack_value: game.pack_value ?? undefined,
         game_total_tickets: game.total_tickets ?? undefined,
+        scanMetrics,
       };
 
       setPackList((prev) => [...prev, newPack]);
@@ -200,12 +262,25 @@ export function PackReceptionForm({
    * Parse and add serialized number to list
    * Checks game existence immediately - shows modal if game not found
    * Also checks server-side if pack already exists in inventory
+   *
+   * SECURITY: Only processes if scan detection passed
    */
   const handleSerialComplete = useCallback(
-    async (serial: string): Promise<void> => {
+    async (serial: string, scanMetrics?: ScanMetrics): Promise<void> => {
       // Validate format first (client-side)
       if (!/^\d{24}$/.test(serial)) {
         // Not yet 24 digits - wait for more input
+        return;
+      }
+
+      // SECURITY: Check if scan enforcement is enabled and entry was manual
+      if (enforceScanOnly && scanMetrics?.inputMethod === "MANUAL") {
+        toast({
+          title: "Manual Entry Rejected",
+          description: `Detected manual keyboard entry. Please use a barcode scanner.`,
+          variant: "destructive",
+        });
+        clearInputAndFocus();
         return;
       }
 
@@ -253,7 +328,7 @@ export function PackReceptionForm({
         const game = gamesCache.get(parsed.game_code);
         if (game) {
           // Game exists - add pack to list immediately
-          addPackToList(serial, parsed, game);
+          addPackToList(serial, parsed, game, scanMetrics);
         } else {
           // Game not found - show modal to create it
           setPendingGameToCreate({
@@ -261,6 +336,7 @@ export function PackReceptionForm({
             game_code: parsed.game_code,
             pack_number: parsed.pack_number,
             serial_start: parsed.serial_start,
+            scanMetrics,
           });
           setShowNewGameModal(true);
           clearInputAndFocus();
@@ -277,15 +353,31 @@ export function PackReceptionForm({
         clearInputAndFocus();
       }
     },
-    [packList, gamesCache, storeId, toast, clearInputAndFocus, addPackToList],
+    [
+      packList,
+      gamesCache,
+      storeId,
+      toast,
+      clearInputAndFocus,
+      addPackToList,
+      enforceScanOnly,
+    ],
   );
 
   /**
-   * Handle input change with debouncing
+   * Handle keydown event - track keystroke timing for scan detection
+   */
+  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
+    scanDetectorRef.current.handleKeyDown(e);
+  }, []);
+
+  /**
+   * Handle input change with debouncing and scan detection
    */
   const handleInputChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
-      const cleanedValue = e.target.value.replace(/\D/g, ""); // Only allow digits
+      const detector = scanDetectorRef.current;
+      const cleanedValue = detector.handleChange(e);
       setInputValue(cleanedValue);
 
       // Clear existing debounce timer
@@ -293,14 +385,27 @@ export function PackReceptionForm({
         clearTimeout(debounceTimer.current);
       }
 
-      // Set new debounce timer (400ms delay)
+      // Set new debounce timer
+      // Use shorter delay for scanned input (detected by quick check)
+      const delay = detector.quickCheck.likelyScan ? 100 : 400;
+
       debounceTimer.current = setTimeout(() => {
-        if (cleanedValue.length === 24) {
-          handleSerialComplete(cleanedValue);
+        if (cleanedValue.length === EXPECTED_BARCODE_LENGTH) {
+          // Get final scan metrics from current ref value
+          const currentDetector = scanDetectorRef.current;
+          const metrics = currentDetector.getMetrics();
+
+          // Check if manual entry should be rejected
+          if (enforceScanOnly && currentDetector.shouldReject) {
+            // Manual entry detected - already handled by hook callback
+            return;
+          }
+
+          handleSerialComplete(cleanedValue, metrics ?? undefined);
         }
-      }, 400);
+      }, delay);
     },
-    [handleSerialComplete],
+    [handleSerialComplete, enforceScanOnly],
   );
 
   /**
@@ -312,14 +417,16 @@ export function PackReceptionForm({
 
   /**
    * Handle batch submission
+   * Includes scan metrics for server-side validation
    */
   const handleSubmit = useCallback(async () => {
     const serials = packList.map((pack) => pack.serial);
+    const scanMetricsArray = packList.map((pack) => pack.scanMetrics);
 
     if (serials.length === 0) {
       toast({
         title: "No packs to receive",
-        description: "Please enter at least one valid pack",
+        description: "Please scan at least one valid pack",
         variant: "destructive",
       });
       return;
@@ -327,10 +434,14 @@ export function PackReceptionForm({
 
     setIsSubmitting(true);
     try {
-      // Submit all packs via batch API
+      // Submit all packs via batch API with scan metrics
       const response = await receivePackBatch({
         serialized_numbers: serials,
         store_id: storeId,
+        // Include scan metrics for server-side validation
+        scan_metrics: enforceScanOnly
+          ? (scanMetricsArray.filter(Boolean) as ScanMetrics[])
+          : undefined,
       });
 
       if (response.success && response.data) {
@@ -351,6 +462,7 @@ export function PackReceptionForm({
           // Reset form
           setPackList([]);
           setInputValue("");
+          scanDetectorRef.current.reset();
           onOpenChange(false);
           onSuccess?.();
         } else {
@@ -386,7 +498,7 @@ export function PackReceptionForm({
     } finally {
       setIsSubmitting(false);
     }
-  }, [packList, storeId, toast, onOpenChange, onSuccess]);
+  }, [packList, storeId, toast, onOpenChange, onSuccess, enforceScanOnly]);
 
   /**
    * Handle game created callback - add the pack to list after game creation
@@ -430,8 +542,13 @@ export function PackReceptionForm({
           return updated;
         });
 
-        // Add the pack to list
-        addPackToList(pendingGameToCreate.serial, pendingGameToCreate, newGame);
+        // Add the pack to list with scan metrics
+        addPackToList(
+          pendingGameToCreate.serial,
+          pendingGameToCreate,
+          newGame,
+          pendingGameToCreate.scanMetrics,
+        );
       }
 
       // Clear pending state
@@ -463,10 +580,8 @@ export function PackReceptionForm({
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Receive Lottery Packs</DialogTitle>
-          <DialogDescription>
-            Enter 24-digit serialized numbers to receive multiple packs. The
-            form will automatically validate and add packs to the reception
-            list.
+          <DialogDescription className="sr-only">
+            Scan barcodes to receive lottery packs into inventory
           </DialogDescription>
         </DialogHeader>
 
@@ -474,19 +589,24 @@ export function PackReceptionForm({
           {/* Single Input Field */}
           <div className="space-y-2">
             <label htmlFor="serial-input" className="text-sm font-medium">
-              Serialized Number (24 digits)
+              Barcode
             </label>
             <Input
               id="serial-input"
               ref={inputRef}
               value={inputValue}
               onChange={handleInputChange}
-              placeholder="000000000000000000000000"
+              onKeyDown={handleKeyDown}
+              placeholder="Scan barcode..."
               disabled={isSubmitting || isLoadingGames || isCheckingPack}
               maxLength={24}
               data-testid="serial-input"
               className="font-mono"
-              aria-label="Enter 24-digit serialized number"
+              aria-label="Scan 24-digit barcode"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
             />
             {isLoadingGames && (
               <p className="text-xs text-muted-foreground flex items-center gap-1">

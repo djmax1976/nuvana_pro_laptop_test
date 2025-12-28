@@ -22,6 +22,10 @@ import {
   getCurrentStoreDate,
   DEFAULT_STORE_TIMEZONE,
 } from "../utils/timezone.utils";
+import {
+  syncPackActivation,
+  syncPackDeactivation,
+} from "../services/lottery/pack-pos-sync.service";
 
 /**
  * Validate user has access to a store via SYSTEM, COMPANY, or STORE scope
@@ -814,6 +818,39 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               format: "uuid",
               description: "Store UUID (must match authenticated user's store)",
             },
+            scan_metrics: {
+              type: "array",
+              description:
+                "Scan metrics for server-side validation (required when scan enforcement is enabled)",
+              items: {
+                type: "object",
+                properties: {
+                  totalInputTimeMs: { type: "number" },
+                  avgInterKeyDelayMs: { type: "number" },
+                  maxInterKeyDelayMs: { type: "number" },
+                  minInterKeyDelayMs: { type: "number" },
+                  interKeyStdDevMs: { type: "number" },
+                  charCount: { type: "number" },
+                  keystrokeTimestamps: {
+                    type: "array",
+                    items: { type: "number" },
+                  },
+                  inputMethod: {
+                    type: "string",
+                    enum: ["SCANNED", "MANUAL", "UNKNOWN"],
+                  },
+                  confidence: { type: "number" },
+                  rejectionReason: { type: "string" },
+                  analyzedAt: { type: "string" },
+                },
+              },
+            },
+            enforce_scan_only: {
+              type: "boolean",
+              default: true,
+              description:
+                "Whether to enforce scan-only input (default true, set false for testing)",
+            },
           },
         },
         response: {
@@ -900,6 +937,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       const body = request.body as {
         serialized_numbers: string[];
         store_id?: string;
+        scan_metrics?: any[];
+        enforce_scan_only?: boolean;
       };
 
       try {
@@ -938,6 +977,95 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               message: "Batch size cannot exceed 100 packs",
             },
           };
+        }
+
+        // SECURITY: Validate scan metrics for scan-only enforcement
+        // Default to enforcing scan-only unless explicitly disabled
+        const enforceScanOnly = body.enforce_scan_only !== false;
+
+        if (enforceScanOnly) {
+          // Import scan validation service dynamically to avoid circular deps
+          const {
+            validateBatchScanMetrics,
+            logScanAudit,
+          } = require("../services/lottery/scan-validation.service");
+
+          const scanValidation = validateBatchScanMetrics(
+            body.serialized_numbers,
+            body.scan_metrics,
+            enforceScanOnly,
+          );
+
+          // Log validation attempt for audit
+          for (const result of scanValidation.results) {
+            logScanAudit({
+              timestamp: new Date(),
+              storeId: body.store_id || "unknown",
+              userId: user.id,
+              serial: result.serial,
+              inputMethod: result.inputMethod,
+              accepted: result.valid,
+              rejectionReason: result.rejectionReason,
+              tamperedDetected: result.tamperedDetected,
+              clientIp: ipAddress || undefined,
+              userAgent: userAgent || undefined,
+              metrics: body.scan_metrics?.[result.index]
+                ? {
+                    totalInputTimeMs:
+                      body.scan_metrics[result.index].totalInputTimeMs || 0,
+                    avgInterKeyDelayMs:
+                      body.scan_metrics[result.index].avgInterKeyDelayMs || 0,
+                    maxInterKeyDelayMs:
+                      body.scan_metrics[result.index].maxInterKeyDelayMs || 0,
+                    confidence: body.scan_metrics[result.index].confidence || 0,
+                  }
+                : {
+                    totalInputTimeMs: 0,
+                    avgInterKeyDelayMs: 0,
+                    maxInterKeyDelayMs: 0,
+                    confidence: 0,
+                  },
+            });
+          }
+
+          // If any scans were rejected, return error
+          if (!scanValidation.allValid) {
+            const rejectedSerials = scanValidation.results
+              .filter((r: any) => !r.valid)
+              .map((r: any) => r.serial);
+
+            fastify.log.warn(
+              {
+                userId: user.id,
+                rejectedCount: scanValidation.rejectedCount,
+                tamperedCount: scanValidation.tamperedCount,
+                rejectedSerials,
+              },
+              "Batch pack reception rejected: Manual entry detected",
+            );
+
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "SCAN_VALIDATION_FAILED",
+                message: `Manual entry detected for ${scanValidation.rejectedCount} pack(s). Please use a barcode scanner.`,
+                details: {
+                  rejectedCount: scanValidation.rejectedCount,
+                  tamperedCount: scanValidation.tamperedCount,
+                  rejectedSerials: rejectedSerials.slice(0, 5), // Limit to first 5
+                },
+              },
+            };
+          }
+
+          fastify.log.info(
+            {
+              userId: user.id,
+              packCount: body.serialized_numbers.length,
+            },
+            "Batch pack reception scan validation passed",
+          );
         }
 
         // Get user roles to determine store access
@@ -1514,6 +1642,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           }
 
           // Fetch the updated pack with relationships
+          // Include game fields needed for UPC generation (game_code, tickets_per_pack, price)
           const activatedPack = await tx.lotteryPack.findUnique({
             where: { pack_id: params.packId },
             include: {
@@ -1521,6 +1650,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 select: {
                   game_id: true,
                   name: true,
+                  game_code: true, // For UPC generation
+                  tickets_per_pack: true, // For UPC generation
+                  price: true, // For UPC generation
                 },
               },
               store: {
@@ -1586,6 +1718,49 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
 
           return activatedPack;
         });
+
+        // === UPC GENERATION AND POS SYNC ===
+        // Generate UPCs for the pack and sync with POS system (if configured)
+        // This is synchronous - UPCs are generated and pushed before returning success
+        if (updatedPack.game.game_code && updatedPack.game.tickets_per_pack) {
+          try {
+            const syncResult = await syncPackActivation({
+              packId: updatedPack.pack_id,
+              packNumber: updatedPack.pack_number,
+              gameCode: updatedPack.game.game_code,
+              gameName: updatedPack.game.name,
+              ticketsPerPack: updatedPack.game.tickets_per_pack,
+              ticketPrice: Number(updatedPack.game.price),
+              storeId: updatedPack.store_id,
+            });
+
+            if (syncResult.posExported) {
+              fastify.log.info(
+                {
+                  packId: updatedPack.pack_id,
+                  upcCount: syncResult.upcCount,
+                  posFilePath: syncResult.posFilePath,
+                },
+                "Pack UPCs exported to POS",
+              );
+            } else if (syncResult.upcCount > 0) {
+              fastify.log.info(
+                {
+                  packId: updatedPack.pack_id,
+                  upcCount: syncResult.upcCount,
+                  redisStored: syncResult.redisStored,
+                },
+                "Pack UPCs generated (no POS configured)",
+              );
+            }
+          } catch (syncError) {
+            // Log but don't fail activation - UPC sync is non-critical
+            fastify.log.error(
+              { error: syncError, packId: updatedPack.pack_id },
+              "Failed to sync pack UPCs with POS (non-fatal)",
+            );
+          }
+        }
 
         reply.code(200);
         return {
@@ -2077,6 +2252,32 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
 
           return updatedPack;
         });
+
+        // === UPC CLEANUP FROM REDIS AND POS ===
+        // Remove UPCs when pack is depleted
+        try {
+          const cleanupResult = await syncPackDeactivation(
+            params.packId,
+            pack.store_id,
+          );
+
+          if (cleanupResult.redisDeleted || cleanupResult.posRemoved) {
+            fastify.log.info(
+              {
+                packId: params.packId,
+                redisDeleted: cleanupResult.redisDeleted,
+                posRemoved: cleanupResult.posRemoved,
+              },
+              "Pack UPCs cleaned up on depletion",
+            );
+          }
+        } catch (cleanupError) {
+          // Log but don't fail depletion - UPC cleanup is non-critical
+          fastify.log.error(
+            { error: cleanupError, packId: params.packId },
+            "Failed to cleanup pack UPCs on depletion (non-fatal)",
+          );
+        }
 
         reply.code(200);
         return {

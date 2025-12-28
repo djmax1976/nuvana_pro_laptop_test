@@ -6,6 +6,12 @@
  *
  * Story: Pack Activation UX Enhancement
  *
+ * Architecture: FULLY CONTROLLED COMPONENT
+ * - Parent owns all state (searchQuery passed via prop)
+ * - No internal state synchronization with props (prevents infinite loops)
+ * - Single source of truth for selection state
+ * - Derived state computed during render, not stored
+ *
  * Features:
  * - Debounced search (500ms) for game name or pack number
  * - Shows recent received packs on focus before typing
@@ -18,10 +24,18 @@
  * - FE-002: FORM_VALIDATION - Input length validation before search
  * - SEC-014: INPUT_VALIDATION - Sanitized input (React auto-escapes)
  * - SEC-004: XSS - React auto-escapes output
- * - FE-001: STATE_MANAGEMENT - Controlled component with external state
+ * - FE-001: STATE_MANAGEMENT - Fully controlled component pattern
  */
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  forwardRef,
+  useImperativeHandle,
+  useCallback,
+} from "react";
 import { useDebounce } from "@/hooks/useDebounce";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,13 +57,33 @@ export interface PackSearchOption {
   serial_end: string;
 }
 
-interface PackSearchComboboxProps {
+/**
+ * Props for PackSearchCombobox
+ *
+ * This is a FULLY CONTROLLED component:
+ * - searchQuery: The current search input value (controlled by parent)
+ * - onSearchQueryChange: Called when user types (parent updates searchQuery)
+ * - onPackSelect: Called when user selects a pack
+ * - onClear: Called when selection should be cleared
+ */
+export interface PackSearchComboboxProps {
+  /** Store UUID for fetching packs */
   storeId: string | null | undefined;
-  value?: string; // pack_id
-  onValueChange: (packId: string, pack: PackSearchOption | null) => void;
+  /** Current search query value (controlled) */
+  searchQuery: string;
+  /** Callback when search query changes */
+  onSearchQueryChange: (query: string) => void;
+  /** Callback when a pack is selected */
+  onPackSelect: (pack: PackSearchOption) => void;
+  /** Callback to clear the current selection */
+  onClear?: () => void;
+  /** Display label for the input */
   label?: string;
+  /** Placeholder text */
   placeholder?: string;
+  /** Whether the input is disabled */
   disabled?: boolean;
+  /** Error message to display */
   error?: string;
   /** Filter by pack status - defaults to RECEIVED for activation */
   statusFilter?: "RECEIVED" | "ACTIVE" | "DEPLETED" | "RETURNED";
@@ -58,30 +92,92 @@ interface PackSearchComboboxProps {
 }
 
 /**
- * PackSearchCombobox component
- * Searchable dropdown for selecting lottery packs
+ * Handle interface for imperative methods exposed via ref
  */
-export function PackSearchCombobox({
-  storeId,
-  value,
-  onValueChange,
-  label = "Pack",
-  placeholder = "Search by game name or pack number...",
-  disabled = false,
-  error,
-  statusFilter = "RECEIVED",
-  testId,
-}: PackSearchComboboxProps) {
-  const [searchQuery, setSearchQuery] = useState("");
+export interface PackSearchComboboxHandle {
+  /** Focus the input element */
+  focus: () => void;
+  /** Clear the search input (calls onSearchQueryChange with empty string) */
+  clear: () => void;
+}
+
+/**
+ * Map API response to PackSearchOption format
+ * Memoized at module level to ensure stable reference
+ */
+function mapPackToOption(pack: LotteryPackResponse): PackSearchOption {
+  return {
+    pack_id: pack.pack_id,
+    pack_number: pack.pack_number,
+    game_id: pack.game_id,
+    game_name: pack.game?.name || "Unknown Game",
+    game_price: pack.game?.price || null,
+    serial_start: pack.serial_start,
+    serial_end: pack.serial_end,
+  };
+}
+
+/**
+ * PackSearchCombobox component
+ * Fully controlled searchable dropdown for selecting lottery packs
+ *
+ * Enterprise Pattern: Fully Controlled Component
+ * - All state owned by parent
+ * - No useEffect for state synchronization (prevents infinite loops)
+ * - Derived state computed during render
+ */
+export const PackSearchCombobox = forwardRef<
+  PackSearchComboboxHandle,
+  PackSearchComboboxProps
+>(function PackSearchCombobox(
+  {
+    storeId,
+    searchQuery,
+    onSearchQueryChange,
+    onPackSelect,
+    onClear,
+    label = "Pack",
+    placeholder = "Search by game name or pack number...",
+    disabled = false,
+    error,
+    statusFilter = "RECEIVED",
+    testId,
+  },
+  ref,
+) {
+  // ============================================================================
+  // INTERNAL UI STATE ONLY (not derived from props, no sync needed)
+  // ============================================================================
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedPack, setSelectedPack] = useState<PackSearchOption | null>(
-    null,
-  );
   const [highlightedIndex, setHighlightedIndex] = useState(0);
 
-  const debouncedSearch = useDebounce(searchQuery, 500);
+  // Refs
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Debounce search query for API calls
+  const debouncedSearch = useDebounce(searchQuery, 500);
+
+  // ============================================================================
+  // IMPERATIVE HANDLE (for parent to control focus/clear)
+  // ============================================================================
+  useImperativeHandle(
+    ref,
+    () => ({
+      focus: () => {
+        inputRef.current?.focus();
+      },
+      clear: () => {
+        onSearchQueryChange("");
+        onClear?.();
+      },
+    }),
+    [onSearchQueryChange, onClear],
+  );
+
+  // ============================================================================
+  // DATA FETCHING
+  // ============================================================================
 
   // Determine if we're in search mode (2+ characters typed)
   const isSearchMode = debouncedSearch.trim().length >= 2;
@@ -101,50 +197,22 @@ export function PackSearchCombobox({
     { enabled: isSearchMode },
   );
 
-  // Map pack response to option format
-  const mapPackToOption = (pack: LotteryPackResponse): PackSearchOption => ({
-    pack_id: pack.pack_id,
-    pack_number: pack.pack_number,
-    game_id: pack.game_id,
-    game_name: pack.game?.name || "Unknown Game",
-    game_price: pack.game?.price || null,
-    serial_start: pack.serial_start,
-    serial_end: pack.serial_end,
-  });
+  // ============================================================================
+  // DERIVED STATE (computed during render, not stored)
+  // ============================================================================
 
-  // Determine which packs to display and loading state
   const isLoading = isSearchMode ? isLoadingSearch : isLoadingRecent;
+
+  // Memoize packs list with stable mapping
   const packs = useMemo(() => {
     const rawPacks = isSearchMode ? searchPacksData : recentPacksData;
-    return (rawPacks || []).map(mapPackToOption);
+    if (!rawPacks) return [];
+    return rawPacks.map(mapPackToOption);
   }, [isSearchMode, searchPacksData, recentPacksData]);
 
-  // Load selected pack on mount if value is provided
-  useEffect(() => {
-    if (value && !selectedPack) {
-      const pack = packs.find((p) => p.pack_id === value);
-      if (pack) {
-        setSelectedPack(pack);
-        setSearchQuery(`${pack.game_name} - ${pack.pack_number}`);
-      }
-    }
-  }, [value, packs, selectedPack]);
-
-  // Track if the value was ever set externally (controlled mode)
-  const wasValueSet = useRef(false);
-  useEffect(() => {
-    if (value) {
-      wasValueSet.current = true;
-    }
-  }, [value]);
-
-  // Reset internal state when value prop is cleared externally (controlled mode only)
-  useEffect(() => {
-    if (!value && selectedPack && wasValueSet.current) {
-      setSelectedPack(null);
-      setSearchQuery("");
-    }
-  }, [value, selectedPack]);
+  // ============================================================================
+  // EFFECTS (UI behavior only, NO state synchronization)
+  // ============================================================================
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -164,67 +232,73 @@ export function PackSearchCombobox({
   // Reset highlighted index when packs change
   useEffect(() => {
     setHighlightedIndex(0);
-  }, [packs]);
+  }, [packs.length]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const query = e.target.value;
-    setSearchQuery(query);
-    setIsOpen(true);
+  // ============================================================================
+  // EVENT HANDLERS
+  // ============================================================================
 
-    // Clear selection if user modifies the search
-    if (
-      selectedPack &&
-      query !== `${selectedPack.game_name} - ${selectedPack.pack_number}`
-    ) {
-      setSelectedPack(null);
-      onValueChange("", null);
-    }
-  };
-
-  const handleSelectPack = (pack: PackSearchOption) => {
-    setSelectedPack(pack);
-    setSearchQuery(`${pack.game_name} - ${pack.pack_number}`);
-    onValueChange(pack.pack_id, pack);
-    setIsOpen(false);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!isOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+  const handleInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const query = e.target.value;
+      onSearchQueryChange(query);
       setIsOpen(true);
-      return;
-    }
+    },
+    [onSearchQueryChange],
+  );
 
-    if (!isOpen) return;
+  const handleSelectPack = useCallback(
+    (pack: PackSearchOption) => {
+      // Notify parent of selection
+      onPackSelect(pack);
+      // Update display value
+      onSearchQueryChange(`${pack.game_name} - ${pack.pack_number}`);
+      // Close dropdown
+      setIsOpen(false);
+    },
+    [onPackSelect, onSearchQueryChange],
+  );
 
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        setHighlightedIndex((prev) =>
-          prev < packs.length - 1 ? prev + 1 : prev,
-        );
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : 0));
-        break;
-      case "Enter":
-        e.preventDefault();
-        // eslint-disable-next-line security/detect-object-injection -- highlightedIndex is a controlled number index
-        if (packs[highlightedIndex]) {
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (!isOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        setIsOpen(true);
+        return;
+      }
+
+      if (!isOpen) return;
+
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault();
+          setHighlightedIndex((prev) =>
+            prev < packs.length - 1 ? prev + 1 : prev,
+          );
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+          break;
+        case "Enter":
+          e.preventDefault();
           // eslint-disable-next-line security/detect-object-injection -- highlightedIndex is a controlled number index
-          handleSelectPack(packs[highlightedIndex]);
-        }
-        break;
-      case "Escape":
-        e.preventDefault();
-        setIsOpen(false);
-        break;
-    }
-  };
+          if (packs[highlightedIndex]) {
+            // eslint-disable-next-line security/detect-object-injection -- highlightedIndex is a controlled number index
+            handleSelectPack(packs[highlightedIndex]);
+          }
+          break;
+        case "Escape":
+          e.preventDefault();
+          setIsOpen(false);
+          break;
+      }
+    },
+    [isOpen, packs, highlightedIndex, handleSelectPack],
+  );
 
-  const handleInputFocus = () => {
+  const handleInputFocus = useCallback(() => {
     setIsOpen(true);
-  };
+  }, []);
 
   return (
     <div ref={dropdownRef} className="relative space-y-2">
@@ -299,7 +373,6 @@ export function PackSearchCombobox({
               )}
               <ul className="py-1">
                 {packs.map((pack, index) => {
-                  const isSelected = selectedPack?.pack_id === pack.pack_id;
                   const isHighlighted = highlightedIndex === index;
 
                   return (
@@ -307,13 +380,12 @@ export function PackSearchCombobox({
                       key={pack.pack_id}
                       id={`pack-option-${index}`}
                       role="option"
-                      aria-selected={isSelected}
+                      aria-selected={isHighlighted}
                       onClick={() => handleSelectPack(pack)}
                       onMouseEnter={() => setHighlightedIndex(index)}
                       className={cn(
                         "relative flex cursor-pointer select-none items-center px-3 py-2 text-sm outline-none transition-colors",
                         isHighlighted && "bg-accent",
-                        isSelected && "font-medium",
                       )}
                       data-testid={
                         testId ? `${testId}-option-${index}` : undefined
@@ -333,7 +405,7 @@ export function PackSearchCombobox({
                           -{pack.serial_end}
                         </span>
                       </div>
-                      {isSelected && <Check className="h-4 w-4" />}
+                      {isHighlighted && <Check className="h-4 w-4" />}
                     </li>
                   );
                 })}
@@ -348,4 +420,4 @@ export function PackSearchCombobox({
       </p>
     </div>
   );
-}
+});

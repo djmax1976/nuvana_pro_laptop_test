@@ -52,6 +52,10 @@ export const CACHE_TTL = {
 
   // Store configuration: Rarely changes, cache for 10 minutes
   STORE_CONFIG: 60 * 10,
+
+  // Pack UPC data: Ephemeral, cache for 24 hours (safety fallback)
+  // Explicit deletion occurs when pack is depleted or returned
+  PACK_UPC: 60 * 60 * 24,
 } as const;
 
 /**
@@ -68,6 +72,7 @@ export const CACHE_PREFIX = {
   X_REPORT: "report:x",
   Z_REPORT: "report:z",
   STORE_CONFIG: "store:config",
+  PACK_UPC: "pack:upc",
 } as const;
 
 /**
@@ -139,6 +144,11 @@ export const CacheKeys = {
    */
   storeConfig: (storeId: string): string =>
     `${CACHE_PREFIX.STORE_CONFIG}:${storeId}`,
+
+  /**
+   * Pack UPC data: pack:upc:{packId}
+   */
+  packUpc: (packId: string): string => `${CACHE_PREFIX.PACK_UPC}:${packId}`,
 
   /**
    * Pattern for invalidating all shift summaries for a store

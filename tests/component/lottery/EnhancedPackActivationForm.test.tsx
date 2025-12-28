@@ -1,209 +1,203 @@
 /**
- * EnhancedPackActivationForm Component Tests
+ * EnhancedPackActivationForm Component Tests (Batch Mode)
  *
- * Test file for EnhancedPackActivationForm component - the main form for
- * activating lottery packs with bin assignment and cashier authentication.
+ * Test file for EnhancedPackActivationForm component - the batch activation form
+ * for activating multiple lottery packs in a single session.
  *
  * ============================================================================
  * TRACEABILITY MATRIX
  * ============================================================================
  * | Test ID                    | Requirement              | Category         |
  * |----------------------------|--------------------------|------------------|
- * | EPAF-001                   | Render form dialog       | Component        |
- * | EPAF-002                   | Manager bypass auth      | Business Logic   |
- * | EPAF-003                   | Non-manager auth req     | Business Logic   |
- * | EPAF-004                   | Pack search integration  | Integration      |
- * | EPAF-005                   | Bin selection            | Integration      |
- * | EPAF-006                   | Serial auto-fill         | Business Logic   |
- * | EPAF-007                   | Form validation          | Assertions       |
- * | EPAF-008                   | Successful activation    | Integration      |
- * | EPAF-009                   | Activation error         | Error Handling   |
- * | EPAF-010                   | (Removed - auto-deplete) | -                |
- * | EPAF-011                   | Dialog close on success  | Business Logic   |
- * | EPAF-012                   | Form reset on open       | Business Logic   |
- * | EPAF-013                   | Submit button states     | Assertions       |
- * | EPAF-014                   | Cancel button            | Business Logic   |
- * | EPAF-015                   | Auth modal trigger       | Integration      |
- * | EPAF-016                   | Activate btn after auth  | Bug Fix          |
- * | EPAF-017                   | Auth user permissions    | Bug Fix          |
- * | EPAF-018                   | Serial change by manager | Authorization    |
- * | EPAF-019                   | Serial change by cashier | Authorization    |
- * | EPAF-020                   | Serial override modal    | Integration      |
- * | EPAF-021                   | Dual-auth flow cashier   | Business Logic   |
- * | EPAF-022                   | Approval status display  | Component        |
- * | EPAF-023                   | Override data in submit  | Integration      |
- * | EPAF-024                   | Request Change button    | Component        |
- * | EPAF-025                   | Red border incomplete    | Error Handling   |
- * | EPAF-026                   | Red border above range   | Error Handling   |
- * | EPAF-027                   | Clear border on valid    | Business Logic   |
- * | EPAF-028                   | Show valid range hint    | Component        |
- * | EPAF-029                   | Disable submit on error  | Business Logic   |
- * | EPAF-030                   | Error styling on input   | Component        |
- * | EPAF-031                   | Clear error on cancel    | Business Logic   |
- * | EPAF-032                   | Clear error on pack chg  | Business Logic   |
- * | EPAF-033                   | Red border short serial  | Error Handling   |
- * | EPAF-034                   | Prevent >3 digits input  | Input Constraint |
- * | EPAF-035                   | Accept correct length    | Business Logic   |
- * | EPAF-036                   | Red border incomplete    | Component        |
- * | EPAF-037                   | Mgmt auth shows mgr name | Authorization    |
- * | EPAF-038                   | Cashier auth shows name  | Authorization    |
- * | EPAF-039                   | Default serial 000       | Business Logic   |
+ * | BATCH-001                  | Render batch form dialog | Component        |
+ * | BATCH-002                  | Pack search integration  | Integration      |
+ * | BATCH-003                  | Bin selection modal      | Integration      |
+ * | BATCH-004                  | Add pack to pending list | Business Logic   |
+ * | BATCH-005                  | Newest pack at top       | Business Logic   |
+ * | BATCH-006                  | Remove pack from list    | Business Logic   |
+ * | BATCH-007                  | Duplicate pack rejection | Validation       |
+ * | BATCH-008                  | Pending bin warning      | Component        |
+ * | BATCH-009                  | Activate all packs       | Integration      |
+ * | BATCH-010                  | Partial failure handling | Error Handling   |
+ * | BATCH-011                  | Empty list disable btn   | Business Logic   |
+ * | BATCH-012                  | Success closes modal     | Business Logic   |
+ * | BATCH-013                  | Retry failed packs       | Error Handling   |
+ * | BATCH-014                  | Reset on modal open      | Business Logic   |
+ * | BATCH-015                  | Occupied bin indicator   | Component        |
+ * | BATCH-016                  | PendingBinIds filtering  | Security         |
+ * | BATCH-017                  | No duplicate bin select  | Security         |
+ * | BATCH-018                  | Multiple bin tracking    | Business Logic   |
+ * | BATCH-019                  | Clear input after add    | UX Enhancement   |
+ * | BATCH-020                  | Toast on duplicate pack  | UX Enhancement   |
+ * | BATCH-021                  | Pack Sold button render  | Component        |
+ * | BATCH-022                  | Toggle pack sold on      | Business Logic   |
+ * | BATCH-023                  | Toggle pack sold off     | Business Logic   |
+ * | BATCH-024                  | API mark_sold fields     | Integration      |
+ * | BATCH-025                  | No mark_sold if not set  | Business Logic   |
+ * | BATCH-026                  | Persist mark sold state  | Business Logic   |
+ * | BATCH-027                  | Disabled during submit   | UX Enhancement   |
  * ============================================================================
  *
  * Key Features Tested:
- * - Complete form with pack search, bin selection, serial confirmation
- * - Manager bypass for authentication
- * - Non-manager authentication requirement
- * - Auto-fill serial from pack selection
- * - Form validation with Zod schema
- * - Successful and failed activation flows
- * - Automatic depletion of existing pack when bin is occupied
- * - Dialog state management
+ * - Batch activation workflow
+ * - Pending pack list management
+ * - Bin selection sub-modal integration
+ * - Sequential API calls with error handling
+ * - Partial failure recovery
  *
  * MCP Guidance Applied:
- * - FE-002: FORM_VALIDATION - Comprehensive form validation
- * - SEC-014: INPUT_VALIDATION - Strict validation before submission
- * - SEC-010: AUTHZ - Role-based activation flow
- * - DB-001: ORM_USAGE - Uses API for database operations
+ * - FE-002: FORM_VALIDATION - Pack validation before add
+ * - SEC-014: INPUT_VALIDATION - Duplicate check, UUID validation
+ * - FE-001: STATE_MANAGEMENT - Pending list state management
+ * - API-003: ERROR_HANDLING - Partial failure handling
  *
- * @story Pack Activation UX Enhancement
+ * @story Batch Pack Activation
  * @priority P0 (Critical - Core Feature)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createPortal } from "react-dom";
 import { EnhancedPackActivationForm } from "@/components/lottery/EnhancedPackActivationForm";
 import type { DayBin } from "@/lib/api/lottery";
 
-// Test UUIDs for form validation (Zod schema requires UUID format)
-const TEST_PACK_ID = "11111111-1111-1111-1111-111111111111";
-const TEST_BIN_ID = "22222222-2222-2222-2222-222222222222";
-const TEST_GAME_ID = "33333333-3333-3333-3333-333333333333";
+// Test UUIDs for validation
+const TEST_PACK_ID_1 = "11111111-1111-1111-1111-111111111111";
+const TEST_PACK_ID_2 = "22222222-2222-2222-2222-222222222222";
+const TEST_PACK_ID_3 = "33333333-3333-3333-3333-333333333333";
+const TEST_BIN_ID_1 = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const TEST_BIN_ID_2 = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+const TEST_BIN_ID_3 = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 
-// Mock the child components
+// Track which pack to return when pack search is triggered
+let currentPackIndex = 0;
+const testPacks = [
+  {
+    pack_id: TEST_PACK_ID_1,
+    pack_number: "12345",
+    game_id: "game-1",
+    game_name: "Mega Millions",
+    game_price: 2.0,
+    serial_start: "001",
+    serial_end: "150",
+  },
+  {
+    pack_id: TEST_PACK_ID_2,
+    pack_number: "67890",
+    game_id: "game-2",
+    game_name: "Powerball",
+    game_price: 5.0,
+    serial_start: "001",
+    serial_end: "100",
+  },
+  {
+    pack_id: TEST_PACK_ID_3,
+    pack_number: "11111",
+    game_id: "game-3",
+    game_name: "Cash 5",
+    game_price: 1.0,
+    serial_start: "001",
+    serial_end: "200",
+  },
+];
+
+// Track which bin to select in modal
+let currentBinIndex = 0;
+
+// Mock PackSearchCombobox - simulates pack selection (uses new fully controlled API)
 vi.mock("@/components/lottery/PackSearchCombobox", () => ({
-  PackSearchCombobox: vi.fn(({ onValueChange, testId }) => (
-    <div data-testid={testId}>
-      <button
-        data-testid="mock-pack-select"
-        onClick={() =>
-          onValueChange("11111111-1111-1111-1111-111111111111", {
-            pack_id: "11111111-1111-1111-1111-111111111111",
-            pack_number: "12345",
-            game_id: "33333333-3333-3333-3333-333333333333",
-            game_name: "Mega Millions",
-            game_price: 2.0,
-            serial_start: "001",
-            serial_end: "150",
-          })
-        }
-      >
-        Select Pack
-      </button>
-    </div>
-  )),
+  PackSearchCombobox: vi.fn(
+    ({ onPackSelect, testId, disabled, searchQuery }) => (
+      <div data-testid={testId}>
+        <input
+          data-testid="mock-pack-search-input"
+          value={searchQuery || ""}
+          readOnly
+          disabled={disabled}
+        />
+        <button
+          data-testid="mock-pack-select"
+          disabled={disabled}
+          onClick={() => {
+            const pack = testPacks[currentPackIndex % testPacks.length];
+            onPackSelect(pack);
+            currentPackIndex++;
+          }}
+        >
+          Select Pack
+        </button>
+        <button
+          data-testid="mock-select-duplicate"
+          disabled={disabled}
+          onClick={() => {
+            // Always select the first pack (for duplicate testing)
+            const pack = testPacks[0];
+            onPackSelect(pack);
+          }}
+        >
+          Select Duplicate
+        </button>
+      </div>
+    ),
+  ),
 }));
 
-vi.mock("@/components/lottery/BinSelector", () => ({
-  BinSelector: vi.fn(({ onValueChange, testId }) => (
-    <div data-testid={testId}>
-      <button
-        data-testid="mock-bin-select"
-        onClick={() =>
-          onValueChange("22222222-2222-2222-2222-222222222222", {
-            bin_id: "22222222-2222-2222-2222-222222222222",
-            bin_number: 1,
-            name: "Bin A",
-            pack: null,
-          })
+// Mock BinSelectionModal - simulates bin selection
+// Uses createPortal to render outside the main dialog's overlay which has pointer-events: none
+vi.mock("@/components/lottery/BinSelectionModal", () => ({
+  BinSelectionModal: vi.fn(
+    ({ open, onOpenChange, pack, bins, pendingBinIds, onConfirm }) => {
+      if (!open || !pack) return null;
+
+      const handleSelectBin = (index: number) => {
+        const bin = bins[index];
+        if (bin) {
+          const isOccupied = bin.pack !== null;
+          onConfirm(bin.bin_id, bin, isOccupied);
         }
-      >
-        Select Bin
-      </button>
-    </div>
-  )),
-}));
+      };
 
-// Track the mock auth type for testing different scenarios
-let mockAuthType: "cashier" | "management" = "cashier";
-let mockAuthPermissions: string[] = [];
-
-vi.mock("@/components/lottery/LotteryAuthModal", () => ({
-  LotteryAuthModal: vi.fn(
-    ({ open, onAuthenticated, mode, onSerialOverrideApproved }) => {
-      // For serial_override mode, render different mock
-      if (mode === "serial_override" && open) {
-        return (
-          <div data-testid="mock-serial-override-modal">
+      // Render in a portal to escape the dialog's pointer-events: none overlay
+      return createPortal(
+        <div
+          data-testid="bin-selection-modal"
+          style={{ pointerEvents: "auto" }}
+        >
+          <div data-testid="modal-pack-name">{pack.game_name}</div>
+          <div data-testid="modal-pack-number">{pack.pack_number}</div>
+          {bins.map((bin: DayBin, index: number) => (
             <button
-              data-testid="mock-approve-serial-override"
-              onClick={() =>
-                onSerialOverrideApproved?.({
-                  approver_id: "manager-1",
-                  approver_name: "Manager Approver",
-                  approved_at: new Date(),
-                  has_permission: true,
-                })
-              }
+              key={bin.bin_id}
+              data-testid={`select-bin-${index}`}
+              onClick={() => handleSelectBin(index)}
+              style={{ pointerEvents: "auto" }}
             >
-              Approve Serial Override
+              Bin {bin.bin_number}
+              {pendingBinIds.includes(bin.bin_id) && " (pending)"}
+              {bin.pack && " (occupied)"}
             </button>
-            <button
-              data-testid="mock-deny-serial-override"
-              onClick={() => {
-                // Simulate permission denial - modal stays open, no callback
-              }}
-            >
-              Deny (No Permission)
-            </button>
-          </div>
-        );
-      }
-
-      // Regular activation mode
-      return open ? (
-        <div data-testid="mock-auth-modal">
+          ))}
           <button
-            data-testid="mock-authenticate"
-            onClick={() =>
-              onAuthenticated({
-                cashier_id: "cashier-1",
-                cashier_name: "John Doe",
-                shift_id: mockAuthType === "cashier" ? "shift-1" : "",
-                auth_type: mockAuthType,
-                permissions:
-                  mockAuthType === "management" ? mockAuthPermissions : [],
-              })
-            }
+            data-testid="cancel-bin-selection"
+            onClick={() => onOpenChange(false)}
+            style={{ pointerEvents: "auto" }}
           >
-            Authenticate
+            Cancel
           </button>
-          <button
-            data-testid="mock-authenticate-management"
-            onClick={() =>
-              onAuthenticated({
-                cashier_id: "manager-1",
-                cashier_name: "Jane Manager",
-                shift_id: "",
-                auth_type: "management",
-                permissions: ["LOTTERY_SERIAL_OVERRIDE"],
-              })
-            }
-          >
-            Auth as Manager
-          </button>
-        </div>
-      ) : null;
+        </div>,
+        document.body,
+      );
     },
   ),
 }));
 
 // Mock hooks
+const mockMutateAsync = vi.fn();
 vi.mock("@/hooks/useLottery", () => ({
   useFullPackActivation: vi.fn(() => ({
-    mutateAsync: vi.fn().mockResolvedValue({ success: true }),
+    mutateAsync: mockMutateAsync,
     isPending: false,
     isError: false,
     error: null,
@@ -222,21 +216,16 @@ vi.mock("@/hooks/use-toast", () => ({
 
 // Mock ClientAuthContext
 const mockUser = {
-  id: "user-1", // Fixed: Changed from userId to id to match ClientUser interface
+  id: "user-1",
   roles: ["STORE_MANAGER"],
 };
-
-// Mock permissions - LOTTERY_SERIAL_OVERRIDE is given to all roles except CASHIER
-let mockPermissions: string[] = ["LOTTERY_SERIAL_OVERRIDE"];
 
 vi.mock("@/contexts/ClientAuthContext", () => ({
   useClientAuth: () => ({
     user: mockUser,
-    permissions: mockPermissions,
+    permissions: ["LOTTERY_SERIAL_OVERRIDE", "LOTTERY_MARK_SOLD"],
   }),
 }));
-
-import { useFullPackActivation } from "@/hooks/useLottery";
 
 // Helper to create QueryClient wrapper
 function createWrapper() {
@@ -258,33 +247,40 @@ function renderWithProviders(ui: React.ReactElement) {
   return render(ui, { wrapper: createWrapper() });
 }
 
-// Mock day bins (using UUIDs for consistency)
+// Mock day bins
 const mockDayBins: DayBin[] = [
   {
-    bin_id: TEST_BIN_ID,
+    bin_id: TEST_BIN_ID_1,
     bin_number: 1,
     name: "Bin A",
     is_active: true,
     pack: null,
   },
   {
-    bin_id: "44444444-4444-4444-4444-444444444444",
+    bin_id: TEST_BIN_ID_2,
     bin_number: 2,
     name: "Bin B",
     is_active: true,
     pack: {
-      pack_id: "55555555-5555-5555-5555-555555555555",
-      pack_number: "67890",
-      game_name: "Powerball",
-      game_price: 10.0,
+      pack_id: "existing-pack-1",
+      pack_number: "99999",
+      game_name: "Existing Game",
+      game_price: 3.0,
       starting_serial: "001",
       ending_serial: "050",
       serial_end: "100",
     },
   },
+  {
+    bin_id: TEST_BIN_ID_3,
+    bin_number: 3,
+    name: "Bin C",
+    is_active: true,
+    pack: null,
+  },
 ];
 
-describe("EnhancedPackActivationForm", () => {
+describe("EnhancedPackActivationForm (Batch Mode)", () => {
   const defaultProps = {
     storeId: "store-123",
     open: true,
@@ -293,14 +289,15 @@ describe("EnhancedPackActivationForm", () => {
     dayBins: mockDayBins,
   };
 
+  // Setup userEvent with pointerEventsCheck disabled to work with dialog overlays
+  // The mock components render inside the dialog context which has pointer-events: none on overlays
+  const setupUser = () => userEvent.setup({ pointerEventsCheck: 0 });
+
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset user to manager by default (with serial override permission)
-    mockUser.roles = ["STORE_MANAGER"];
-    mockPermissions = ["LOTTERY_SERIAL_OVERRIDE"];
-    // Reset mock auth type
-    mockAuthType = "cashier";
-    mockAuthPermissions = [];
+    currentPackIndex = 0;
+    currentBinIndex = 0;
+    mockMutateAsync.mockResolvedValue({ success: true });
   });
 
   afterEach(() => {
@@ -308,15 +305,18 @@ describe("EnhancedPackActivationForm", () => {
   });
 
   // ============================================================================
-  // SECTION 1: COMPONENT RENDERING (EPAF-001)
+  // SECTION 1: COMPONENT RENDERING (BATCH-001)
   // ============================================================================
 
   describe("Component Rendering", () => {
-    it("EPAF-001: should render form dialog when open is true", () => {
+    it("BATCH-001: should render batch activation form dialog when open", () => {
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      expect(screen.getByTestId("pack-activation-form")).toBeInTheDocument();
-      expect(screen.getByText("Activate Lottery Pack")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("batch-pack-activation-form"),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Activate Packs")).toBeInTheDocument();
+      expect(screen.getByText(/scan or search for packs/i)).toBeInTheDocument();
     });
 
     it("should not render dialog when open is false", () => {
@@ -325,823 +325,510 @@ describe("EnhancedPackActivationForm", () => {
       );
 
       expect(
-        screen.queryByTestId("pack-activation-form"),
+        screen.queryByTestId("batch-pack-activation-form"),
       ).not.toBeInTheDocument();
     });
 
     it("should render pack search component", () => {
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      expect(screen.getByTestId("pack-search")).toBeInTheDocument();
+      expect(screen.getByTestId("batch-pack-search")).toBeInTheDocument();
     });
 
-    it("should render serial start display with default value 0", () => {
+    it("should render empty pending list with helper text", () => {
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      const serialDisplay = screen.getByTestId("serial-start-display");
-      expect(serialDisplay).toBeInTheDocument();
-      expect(serialDisplay).toHaveTextContent("0");
-    });
-
-    it("should render change serial button", () => {
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      expect(screen.getByTestId("change-serial-button")).toBeInTheDocument();
-    });
-  });
-
-  // ============================================================================
-  // SECTION 2: MANAGER AUTHENTICATION BYPASS (EPAF-002, EPAF-003)
-  // ============================================================================
-
-  describe("Manager Authentication Bypass", () => {
-    it("EPAF-002: should not show auth requirement for manager roles", () => {
-      mockUser.roles = ["STORE_MANAGER"];
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Should not show "Authentication required" message
+      expect(screen.getByText("Pending Packs (0)")).toBeInTheDocument();
       expect(
-        screen.queryByText(/authentication required/i),
-      ).not.toBeInTheDocument();
-      // Should not show authenticate button
-      expect(
-        screen.queryByTestId("authenticate-button"),
-      ).not.toBeInTheDocument();
-    });
-
-    it("EPAF-003: should show auth requirement for non-manager roles", () => {
-      mockUser.roles = ["CASHIER"];
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Should show "Authentication required" message
-      expect(screen.getByText(/authentication required/i)).toBeInTheDocument();
-      // Should show authenticate button
-      expect(screen.getByTestId("authenticate-button")).toBeInTheDocument();
-    });
-
-    it("should show authenticated status after authentication", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-      mockUser.roles = ["CASHIER"];
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Click authenticate button to open modal
-      const authButton = screen.getByTestId("authenticate-button");
-      await user.click(authButton);
-
-      // Modal should appear
-      await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
-      });
-
-      // Click authenticate in mock modal
-      await user.click(screen.getByTestId("mock-authenticate"));
-
-      // Should show authenticated status
-      await waitFor(() => {
-        expect(screen.getByText(/authenticated as/i)).toBeInTheDocument();
-        expect(screen.getByText("John Doe")).toBeInTheDocument();
-      });
-    });
-  });
-
-  // ============================================================================
-  // SECTION 3: PACK SELECTION (EPAF-004, EPAF-006)
-  // ============================================================================
-
-  describe("Pack Selection", () => {
-    it("EPAF-004: should integrate with PackSearchCombobox", async () => {
-      const user = userEvent.setup();
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Click mock pack select
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Pack details should be displayed
-      await waitFor(() => {
-        expect(screen.getByText("Pack Details")).toBeInTheDocument();
-        expect(screen.getByText(/Mega Millions/)).toBeInTheDocument();
-      });
-    });
-
-    it("EPAF-006: should keep serial at 0 when pack is selected (manager can change)", async () => {
-      const user = userEvent.setup();
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Click mock pack select
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Serial display should remain at 0 (not auto-filled)
-      await waitFor(() => {
-        const serialDisplay = screen.getByTestId("serial-start-display");
-        expect(serialDisplay).toHaveTextContent("0");
-      });
-
-      // Manager can click "Change" to edit serial
-      const changeButton = screen.getByTestId("change-serial-button");
-      expect(changeButton).not.toBeDisabled();
-    });
-
-    it("should allow manager to change starting serial", async () => {
-      const user = userEvent.setup();
-      mockUser.roles = ["STORE_MANAGER"];
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select a pack first
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial button
-      await user.click(screen.getByTestId("change-serial-button"));
-
-      // Input should appear
-      await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
-      });
-
-      // Type new value
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "050");
-
-      expect(input.value).toBe("050");
-    });
-
-    it("should show Request Change button when user lacks LOTTERY_SERIAL_OVERRIDE permission", async () => {
-      const user = userEvent.setup();
-      mockUser.roles = ["CASHIER"];
-      mockPermissions = []; // CASHIER doesn't have LOTTERY_SERIAL_OVERRIDE
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select a pack first
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Change button should be enabled but show "Request Change" text
-      // (since dual-auth flow allows cashiers to request manager approval)
-      const changeButton = screen.getByTestId("change-serial-button");
-      expect(changeButton).not.toBeDisabled();
-
-      // Should show helper text about requesting manager approval
-      expect(
-        screen.getByText(/click request change to get manager approval/i),
+        screen.getByText("Scan a pack to get started"),
       ).toBeInTheDocument();
     });
+
+    it("BATCH-011: should disable activate button when list is empty", () => {
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      const activateButton = screen.getByTestId("activate-all-button");
+      expect(activateButton).toBeDisabled();
+      expect(activateButton).toHaveTextContent("Add Packs to Activate");
+    });
   });
 
   // ============================================================================
-  // SECTION 4: BIN SELECTION (EPAF-005)
-  // Note: Auto-deplete is now automatic, no checkbox - test EPAF-010 removed
+  // SECTION 2: PACK SELECTION AND BIN MODAL (BATCH-002, BATCH-003)
   // ============================================================================
 
-  describe("Bin Selection", () => {
-    it("EPAF-005: should integrate with BinSelector", async () => {
-      const user = userEvent.setup();
+  describe("Pack Selection and Bin Modal", () => {
+    it("BATCH-002: should open bin selection modal when pack is selected", async () => {
+      const user = setupUser();
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      // First select a pack to enable bin selector
+      // Select a pack
       await user.click(screen.getByTestId("mock-pack-select"));
 
-      // Bin selector should be available
-      expect(screen.getByTestId("bin-select")).toBeInTheDocument();
-    });
-  });
+      // Bin modal should open
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
 
-  // ============================================================================
-  // SECTION 5: FORM VALIDATION (EPAF-007, EPAF-013)
-  // ============================================================================
-
-  describe("Form Validation", () => {
-    it("EPAF-007: should validate required fields", async () => {
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Submit button should be disabled without required fields
-      const submitButton = screen.getByTestId("submit-activation");
-      expect(submitButton).toBeDisabled();
+      // Modal should show pack details
+      expect(screen.getByTestId("modal-pack-name")).toHaveTextContent(
+        "Mega Millions",
+      );
+      expect(screen.getByTestId("modal-pack-number")).toHaveTextContent(
+        "12345",
+      );
     });
 
-    it("EPAF-013: should show Activate Pack button for managers", async () => {
-      mockUser.roles = ["STORE_MANAGER"];
-
+    it("BATCH-003: should show all bins in selection modal", async () => {
+      const user = setupUser();
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      // For managers, the submit button should show "Activate Pack" text
-      const submitButton = screen.getByTestId("submit-activation");
-      expect(submitButton).toHaveTextContent("Activate Pack");
-
-      // Button starts disabled (form incomplete)
-      expect(submitButton).toBeDisabled();
-    });
-
-    it("should require authentication for non-managers before enabling submit", async () => {
-      const user = userEvent.setup();
-      mockUser.roles = ["CASHIER"];
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select pack and bin
       await user.click(screen.getByTestId("mock-pack-select"));
-      await user.click(screen.getByTestId("mock-bin-select"));
 
-      // Submit button should still be disabled without auth
-      const submitButton = screen.getByTestId("submit-activation");
-      expect(submitButton).toBeDisabled();
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+
+      // All bins should be visible
+      expect(screen.getByTestId("select-bin-0")).toHaveTextContent("Bin 1");
+      expect(screen.getByTestId("select-bin-1")).toHaveTextContent("Bin 2");
+      expect(screen.getByTestId("select-bin-2")).toHaveTextContent("Bin 3");
+    });
+
+    it("BATCH-015: should indicate occupied bins in selection modal", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      await user.click(screen.getByTestId("mock-pack-select"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+
+      // Bin 2 is occupied
+      expect(screen.getByTestId("select-bin-1")).toHaveTextContent(
+        "(occupied)",
+      );
+    });
+
+    it("should close bin modal when cancel is clicked", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      await user.click(screen.getByTestId("mock-pack-select"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId("cancel-bin-selection"));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId("bin-selection-modal"),
+        ).not.toBeInTheDocument();
+      });
+
+      // Pending list should remain empty
+      expect(screen.getByText("Pending Packs (0)")).toBeInTheDocument();
     });
   });
 
   // ============================================================================
-  // SECTION 6: ACTIVATION FLOW (EPAF-008, EPAF-009, EPAF-011)
+  // SECTION 3: PENDING LIST MANAGEMENT (BATCH-004, BATCH-005, BATCH-006)
   // ============================================================================
 
-  describe("Activation Flow", () => {
-    it("EPAF-008: should render pack details after pack selection", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-      mockUser.roles = ["STORE_MANAGER"];
-
+  describe("Pending List Management", () => {
+    it("BATCH-004: should add pack to pending list after bin selection", async () => {
+      const user = setupUser();
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
       // Select pack
       await user.click(screen.getByTestId("mock-pack-select"));
 
-      // Pack details should be displayed
       await waitFor(() => {
-        expect(screen.getByText("Pack Details")).toBeInTheDocument();
-        expect(screen.getByText(/Mega Millions/)).toBeInTheDocument();
-        expect(screen.getByText(/\$2/)).toBeInTheDocument();
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
       });
 
-      // Serial range should be shown
-      expect(screen.getByText(/001/)).toBeInTheDocument();
-      expect(screen.getByText(/150/)).toBeInTheDocument();
-    });
+      // Select bin
+      await user.click(screen.getByTestId("select-bin-0"));
 
-    it("EPAF-009: should display error alert when mutation has error", async () => {
-      vi.mocked(useFullPackActivation).mockReturnValue({
-        mutateAsync: vi.fn(),
-        isPending: false,
-        isError: true,
-        error: new Error("Activation failed"),
-      } as any);
-
-      mockUser.roles = ["STORE_MANAGER"];
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Error alert should be visible with the error message
-      expect(screen.getByText("Activation failed")).toBeInTheDocument();
-    });
-
-    it("EPAF-011: should disable buttons during submission", async () => {
-      vi.mocked(useFullPackActivation).mockReturnValue({
-        mutateAsync: vi.fn(),
-        isPending: true, // Simulating loading state
-        isError: false,
-        error: null,
-      } as any);
-
-      mockUser.roles = ["STORE_MANAGER"];
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Submit button should be disabled during submission
-      const submitButton = screen.getByTestId("submit-activation");
-      expect(submitButton).toBeDisabled();
-    });
-  });
-
-  // ============================================================================
-  // SECTION 7: DIALOG STATE MANAGEMENT (EPAF-012, EPAF-014, EPAF-015)
-  // ============================================================================
-
-  describe("Dialog State Management", () => {
-    it("EPAF-014: should close dialog when Cancel button is clicked", async () => {
-      const user = userEvent.setup();
-      const onOpenChange = vi.fn();
-
-      renderWithProviders(
-        <EnhancedPackActivationForm
-          {...defaultProps}
-          onOpenChange={onOpenChange}
-        />,
-      );
-
-      const cancelButton = screen.getByRole("button", { name: /cancel/i });
-      await user.click(cancelButton);
-
-      expect(onOpenChange).toHaveBeenCalledWith(false);
-    });
-
-    it("EPAF-015: should open auth modal when authenticate button clicked", async () => {
-      const user = userEvent.setup();
-      mockUser.roles = ["CASHIER"];
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      const authButton = screen.getByTestId("authenticate-button");
-      await user.click(authButton);
-
-      expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
-    });
-
-    it("should accept onSuccess callback prop", async () => {
-      const onSuccess = vi.fn();
-
-      mockUser.roles = ["STORE_MANAGER"];
-
-      // Verify component accepts onSuccess prop without error
-      renderWithProviders(
-        <EnhancedPackActivationForm {...defaultProps} onSuccess={onSuccess} />,
-      );
-
-      // Form renders correctly with callback
-      expect(screen.getByTestId("pack-activation-form")).toBeInTheDocument();
-      expect(screen.getByTestId("submit-activation")).toBeInTheDocument();
-    });
-  });
-
-  // ============================================================================
-  // SECTION 8: BUTTON TEXT AND STATES
-  // ============================================================================
-
-  describe("Button States", () => {
-    it("should show 'Authenticate & Activate' for non-authenticated non-managers", () => {
-      mockUser.roles = ["CASHIER"];
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      const submitButton = screen.getByTestId("submit-activation");
-      expect(submitButton).toHaveTextContent(/authenticate.*activate/i);
-    });
-
-    it("should show 'Activate Pack' for managers", () => {
-      mockUser.roles = ["STORE_MANAGER"];
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      const submitButton = screen.getByTestId("submit-activation");
-      expect(submitButton).toHaveTextContent("Activate Pack");
-    });
-
-    it("should show loading state during submission", async () => {
-      vi.mocked(useFullPackActivation).mockReturnValue({
-        mutateAsync: vi.fn(),
-        isPending: true,
-        isError: false,
-        error: null,
-      } as any);
-
-      mockUser.roles = ["STORE_MANAGER"];
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      const submitButton = screen.getByTestId("submit-activation");
-      expect(submitButton).toBeDisabled();
-    });
-  });
-
-  // ============================================================================
-  // SECTION 9: BUG FIXES - ACTIVATE BUTTON & PERMISSION CHECKS
-  // (EPAF-016, EPAF-017, EPAF-018, EPAF-019)
-  // ============================================================================
-
-  describe("Bug Fixes - Activate Button and Permission Checks", () => {
-    it("EPAF-016: should show authenticated status after cashier authentication", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-      mockUser.roles = ["CASHIER"];
-      mockPermissions = []; // Cashier without special permissions
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Submit button should show authentication requirement
-      const submitButton = screen.getByTestId("submit-activation");
-      expect(submitButton).toHaveTextContent(/authenticate.*activate/i);
-
-      // Click authenticate button to open modal
-      const authButton = screen.getByTestId("authenticate-button");
-      await user.click(authButton);
-
+      // Modal should close
       await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
+        expect(
+          screen.queryByTestId("bin-selection-modal"),
+        ).not.toBeInTheDocument();
       });
 
-      // Click authenticate in mock modal (cashier auth)
-      await user.click(screen.getByTestId("mock-authenticate"));
+      // Pack should be in pending list
+      expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
+      expect(
+        screen.getByTestId(`pending-item-${TEST_PACK_ID_1}`),
+      ).toBeInTheDocument();
 
-      // Should show authenticated status
-      await waitFor(() => {
-        expect(screen.getByText(/authenticated as/i)).toBeInTheDocument();
-        expect(screen.getByText("John Doe")).toBeInTheDocument();
-      });
-
-      // Verify toast was shown
+      // Toast should be shown
       expect(mockToast).toHaveBeenCalledWith(
         expect.objectContaining({
-          title: "Authenticated",
+          title: "Pack Added",
         }),
       );
     });
 
-    it("EPAF-017: should use authenticated manager's permissions for Change Serial button", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-      mockUser.roles = ["CASHIER"];
-      mockPermissions = []; // Logged-in user (cashier) has NO serial override permission
-
+    it("BATCH-005: should prepend newest pack to top of list", async () => {
+      const user = setupUser();
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      // Select a pack first
+      // Add first pack
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Change button should show "Request Change" initially (cashier can request approval)
-      let changeButton = screen.getByTestId("change-serial-button");
-      expect(changeButton).toHaveTextContent("Request Change");
-
-      // Open auth modal
-      const authButton = screen.getByTestId("authenticate-button");
-      await user.click(authButton);
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
 
       await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
+        expect(
+          screen.queryByTestId("bin-selection-modal"),
+        ).not.toBeInTheDocument();
       });
 
-      // Authenticate as manager (who HAS LOTTERY_SERIAL_OVERRIDE)
-      await user.click(screen.getByTestId("mock-authenticate-management"));
-
-      // Change button should now show "Change" (using manager's permissions)
-      await waitFor(() => {
-        changeButton = screen.getByTestId("change-serial-button");
-        expect(changeButton).toHaveTextContent("Change");
-        expect(changeButton).not.toHaveTextContent("Request");
-      });
-    });
-
-    it("EPAF-018: should allow manager to change serial without authentication modal", async () => {
-      const user = userEvent.setup();
-      mockUser.roles = ["STORE_MANAGER"];
-      mockPermissions = ["LOTTERY_SERIAL_OVERRIDE"];
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select a pack
+      // Add second pack
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Change button should be enabled for managers
-      const changeButton = screen.getByTestId("change-serial-button");
-      expect(changeButton).not.toBeDisabled();
-
-      // Click to edit
-      await user.click(changeButton);
-
-      // Input should appear
       await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
       });
+      await user.click(screen.getByTestId("select-bin-2"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (2)")).toBeInTheDocument();
+      });
+
+      // Get all pending items
+      const pendingItems = screen.getAllByTestId(/^pending-item-/);
+
+      // Second pack (Powerball) should be first in the list
+      expect(pendingItems[0]).toHaveTextContent("Powerball");
+      expect(pendingItems[1]).toHaveTextContent("Mega Millions");
     });
 
-    it("EPAF-019: should keep Request Change text for cashier auth without manager permissions", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-      mockUser.roles = ["CASHIER"];
-      mockPermissions = []; // Cashier has no permissions
-
+    it("BATCH-006: should remove pack from list when X button is clicked", async () => {
+      const user = setupUser();
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      // Select a pack
+      // Add a pack
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Change button should show "Request Change" (cashier can request approval)
-      let changeButton = screen.getByTestId("change-serial-button");
-      expect(changeButton).toHaveTextContent("Request Change");
-
-      // Open auth modal
-      await user.click(screen.getByTestId("authenticate-button"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
 
       await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
       });
 
-      // Authenticate as cashier (not manager) - no permissions
-      await user.click(screen.getByTestId("mock-authenticate"));
+      // Remove the pack
+      await user.click(screen.getByTestId(`remove-pending-${TEST_PACK_ID_1}`));
 
-      // Change button should STILL show "Request Change" (cashier can request manager approval)
+      // List should be empty
       await waitFor(() => {
-        changeButton = screen.getByTestId("change-serial-button");
-        expect(changeButton).toHaveTextContent("Request Change");
+        expect(screen.getByText("Pending Packs (0)")).toBeInTheDocument();
       });
-    });
-
-    it("should require authentication before submission for cashiers", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-      mockUser.roles = ["CASHIER"];
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Before auth, submit button should show "Authenticate & Activate"
-      const submitButton = screen.getByTestId("submit-activation");
-      expect(submitButton).toHaveTextContent(/authenticate.*activate/i);
-      expect(submitButton).toBeDisabled();
-
-      // Authenticate button should be visible
-      expect(screen.getByTestId("authenticate-button")).toBeInTheDocument();
-
-      // Click authenticate to open modal
-      await user.click(screen.getByTestId("authenticate-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
-      });
-
-      // Authenticate
-      await user.click(screen.getByTestId("mock-authenticate"));
-
-      // After auth, authenticated status should appear
-      await waitFor(() => {
-        expect(screen.getByText(/authenticated as/i)).toBeInTheDocument();
-      });
-    });
-
-    it("should use user.id correctly in mockUser context", async () => {
-      mockUser.roles = ["STORE_MANAGER"];
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Verify mockUser.id is correctly set (this validates the test setup)
-      // The actual user.id usage is verified in API/integration tests
-      expect(mockUser.id).toBe("user-1");
-
-      // The form should render for this user
-      expect(screen.getByTestId("pack-activation-form")).toBeInTheDocument();
     });
   });
 
   // ============================================================================
-  // SECTION 10: DUAL-AUTH SERIAL OVERRIDE FLOW
-  // (EPAF-020, EPAF-021, EPAF-022, EPAF-023, EPAF-024)
+  // SECTION 4: VALIDATION (BATCH-007, BATCH-008)
   // ============================================================================
 
-  describe("Dual-Auth Serial Override Flow", () => {
-    beforeEach(() => {
-      vi.clearAllMocks();
-      // Setup cashier user (no serial override permission)
-      mockUser.roles = ["CASHIER"];
-      mockPermissions = [];
-      mockAuthType = "cashier";
-      mockAuthPermissions = [];
-    });
-
-    it("EPAF-020: should show serial override modal when cashier clicks Request Change", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
+  describe("Validation", () => {
+    it("BATCH-007: should reject duplicate pack", async () => {
+      const user = setupUser();
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      // Select a pack first
+      // Add first pack
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Authenticate as cashier
-      await user.click(screen.getByTestId("authenticate-button"));
-
-      // Wait for modal to appear before clicking inside it
       await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
       });
 
-      await user.click(screen.getByTestId("mock-authenticate"));
+      // Try to add same pack again
+      await user.click(screen.getByTestId("mock-select-duplicate"));
 
-      // Wait for auth to complete
+      // Toast error should be shown
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Pack Already Added",
+          variant: "destructive",
+        }),
+      );
+
+      // List should still have only 1 pack
+      expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
+    });
+
+    it("BATCH-008: should show pending indicator for bins already in list", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // Add first pack to bin 1
+      await user.click(screen.getByTestId("mock-pack-select"));
       await waitFor(() => {
-        expect(screen.getByText(/authenticated as/i)).toBeInTheDocument();
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
       });
+      await user.click(screen.getByTestId("select-bin-0"));
 
-      // Click the change serial button (should say "Request Change" for cashier)
-      const changeButton = screen.getByTestId("change-serial-button");
-      await user.click(changeButton);
-
-      // Serial override modal should appear
       await waitFor(() => {
         expect(
-          screen.getByTestId("mock-serial-override-modal"),
-        ).toBeInTheDocument();
+          screen.queryByTestId("bin-selection-modal"),
+        ).not.toBeInTheDocument();
       });
-    });
 
-    it("EPAF-024: should show 'Request Change' text for cashier without permission", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select a pack first
+      // Add second pack - bin 1 should show as pending
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Authenticate as cashier
-      await user.click(screen.getByTestId("authenticate-button"));
-
       await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
       });
 
-      await user.click(screen.getByTestId("mock-authenticate"));
-
-      await waitFor(() => {
-        expect(screen.getByText(/authenticated as/i)).toBeInTheDocument();
-      });
-
-      // Button should show "Request Change" instead of "Change"
-      const changeButton = screen.getByTestId("change-serial-button");
-      expect(changeButton).toHaveTextContent("Request Change");
+      // Bin 1 should show (pending) indicator
+      expect(screen.getByTestId("select-bin-0")).toHaveTextContent("(pending)");
     });
+  });
 
-    it("EPAF-021: should enable serial editing after manager approval", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
+  // ============================================================================
+  // SECTION 5: BATCH ACTIVATION (BATCH-009, BATCH-010, BATCH-012, BATCH-013)
+  // ============================================================================
 
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select a pack
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Authenticate as cashier
-      await user.click(screen.getByTestId("authenticate-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByTestId("mock-authenticate"));
-
-      await waitFor(() => {
-        expect(screen.getByText(/authenticated as/i)).toBeInTheDocument();
-      });
-
-      // Click request change
-      await user.click(screen.getByTestId("change-serial-button"));
-
-      // Approve serial override
-      await user.click(screen.getByTestId("mock-approve-serial-override"));
-
-      // Serial input should now be visible
-      await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
-      });
-    });
-
-    it("EPAF-022: should display approval status after manager approval", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select a pack
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Authenticate as cashier
-      await user.click(screen.getByTestId("authenticate-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByTestId("mock-authenticate"));
-
-      await waitFor(() => {
-        expect(screen.getByText(/authenticated as/i)).toBeInTheDocument();
-      });
-
-      // Request and approve serial override
-      await user.click(screen.getByTestId("change-serial-button"));
-      await user.click(screen.getByTestId("mock-approve-serial-override"));
-
-      // Should show approval status
-      await waitFor(() => {
-        expect(
-          screen.getByText(/serial change approved by/i),
-        ).toBeInTheDocument();
-        expect(screen.getByText("Manager Approver")).toBeInTheDocument();
-      });
-    });
-
-    it("EPAF-023: should show approval badge with manager name after approval", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select pack
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Authenticate as cashier
-      await user.click(screen.getByTestId("authenticate-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByTestId("mock-authenticate"));
-
-      await waitFor(() => {
-        expect(screen.getByText(/authenticated as/i)).toBeInTheDocument();
-      });
-
-      // Request and approve serial override
-      await user.click(screen.getByTestId("change-serial-button"));
-      await user.click(screen.getByTestId("mock-approve-serial-override"));
-
-      // Wait for approval badge to show
-      await waitFor(() => {
-        expect(
-          screen.getByText(/serial change approved by/i),
-        ).toBeInTheDocument();
-        expect(screen.getByText("Manager Approver")).toBeInTheDocument();
-      });
-
-      // Serial input should be visible after approval
-      await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
-      });
-    });
-
-    it("should default serial to 0 without requiring approval", async () => {
-      // Use manager user who doesn't need approval
-      mockUser.roles = ["STORE_MANAGER"];
-      mockPermissions = ["LOTTERY_SERIAL_OVERRIDE"];
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Serial display should show default 0
-      const serialDisplay = screen.getByTestId("serial-start-display");
-      expect(serialDisplay).toHaveTextContent("0");
-
-      // No serial override approval should be visible (not changed from default)
-      expect(
-        screen.queryByText(/serial change approved by/i),
-      ).not.toBeInTheDocument();
-    });
-
-    it("should show toast on successful serial override approval", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select a pack
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Authenticate as cashier
-      await user.click(screen.getByTestId("authenticate-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByTestId("mock-authenticate"));
-
-      await waitFor(() => {
-        expect(screen.getByText(/authenticated as/i)).toBeInTheDocument();
-      });
-
-      // Request and approve serial override
-      await user.click(screen.getByTestId("change-serial-button"));
-      await user.click(screen.getByTestId("mock-approve-serial-override"));
-
-      // Should show toast
-      await waitFor(() => {
-        expect(mockToast).toHaveBeenCalledWith(
-          expect.objectContaining({
-            title: "Serial Override Approved",
-          }),
-        );
-      });
-    });
-
-    it("should reset serial override approval when dialog closes and reopens", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
+  describe("Batch Activation", () => {
+    it("BATCH-009: should activate all packs successfully", async () => {
+      const user = setupUser();
       const onOpenChange = vi.fn();
+      const onSuccess = vi.fn();
 
-      const { rerender } = renderWithProviders(
+      renderWithProviders(
         <EnhancedPackActivationForm
           {...defaultProps}
           onOpenChange={onOpenChange}
+          onSuccess={onSuccess}
         />,
       );
 
-      // Select a pack
+      // Add two packs
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Authenticate as cashier
-      await user.click(screen.getByTestId("authenticate-button"));
-
       await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
       });
+      await user.click(screen.getByTestId("select-bin-0"));
 
-      await user.click(screen.getByTestId("mock-authenticate"));
-
-      await waitFor(() => {
-        expect(screen.getByText(/authenticated as/i)).toBeInTheDocument();
-      });
-
-      // Request and approve serial override
-      await user.click(screen.getByTestId("change-serial-button"));
-      await user.click(screen.getByTestId("mock-approve-serial-override"));
-
-      // Should show approval
       await waitFor(() => {
         expect(
-          screen.getByText(/serial change approved by/i),
-        ).toBeInTheDocument();
+          screen.queryByTestId("bin-selection-modal"),
+        ).not.toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-2"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (2)")).toBeInTheDocument();
+      });
+
+      // Activate button should be enabled with count
+      const activateButton = screen.getByTestId("activate-all-button");
+      expect(activateButton).not.toBeDisabled();
+      expect(activateButton).toHaveTextContent("Activate 2 Packs");
+
+      // Click activate
+      await user.click(activateButton);
+
+      // API should be called twice
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalledTimes(2);
+      });
+
+      // Success toast and callbacks
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Packs Activated",
+        }),
+      );
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(onSuccess).toHaveBeenCalled();
+    });
+
+    it("BATCH-010: should handle partial failure", async () => {
+      const user = setupUser();
+
+      // First call succeeds, second fails
+      mockMutateAsync
+        .mockResolvedValueOnce({ success: true })
+        .mockRejectedValueOnce(new Error("Pack not found"));
+
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // Add two packs
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId("bin-selection-modal"),
+        ).not.toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-2"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (2)")).toBeInTheDocument();
+      });
+
+      // Activate
+      await user.click(screen.getByTestId("activate-all-button"));
+
+      // Wait for both API calls
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalledTimes(2);
+      });
+
+      // Should show partial success toast
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "Partial Success",
+            variant: "destructive",
+          }),
+        );
+      });
+
+      // Modal should stay open (verify main form is still visible)
+      expect(
+        screen.getByTestId("batch-pack-activation-form"),
+      ).toBeInTheDocument();
+
+      // Failed pack should show error styling
+      await waitFor(() => {
+        const failedItem = screen.getByTestId(`pending-item-${TEST_PACK_ID_2}`);
+        expect(failedItem).toBeInTheDocument();
+      });
+
+      // Retry button should appear
+      expect(screen.getByTestId("retry-failed-button")).toBeInTheDocument();
+    });
+
+    it("BATCH-012: should close modal on complete success", async () => {
+      const user = setupUser();
+      const onOpenChange = vi.fn();
+      const onSuccess = vi.fn();
+
+      renderWithProviders(
+        <EnhancedPackActivationForm
+          {...defaultProps}
+          onOpenChange={onOpenChange}
+          onSuccess={onSuccess}
+        />,
+      );
+
+      // Add one pack
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
+      });
+
+      // Activate
+      await user.click(screen.getByTestId("activate-all-button"));
+
+      await waitFor(() => {
+        expect(onOpenChange).toHaveBeenCalledWith(false);
+        expect(onSuccess).toHaveBeenCalled();
+      });
+    });
+
+    it("BATCH-013: should allow retry of failed packs", async () => {
+      const user = setupUser();
+
+      // First attempt fails, retry succeeds
+      mockMutateAsync
+        .mockRejectedValueOnce(new Error("Temporary error"))
+        .mockResolvedValueOnce({ success: true });
+
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // Add pack
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
+      });
+
+      // First activation attempt (will fail)
+      await user.click(screen.getByTestId("activate-all-button"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("retry-failed-button")).toBeInTheDocument();
+      });
+
+      // Clear errors
+      await user.click(screen.getByTestId("retry-failed-button"));
+
+      // Retry (will succeed)
+      await user.click(screen.getByTestId("activate-all-button"));
+
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalledTimes(2);
+      });
+
+      // Should show success
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Packs Activated",
+        }),
+      );
+    });
+  });
+
+  // ============================================================================
+  // SECTION 6: DIALOG STATE MANAGEMENT (BATCH-014)
+  // ============================================================================
+
+  describe("Dialog State Management", () => {
+    it("BATCH-014: should reset state when modal reopens", async () => {
+      const user = setupUser();
+
+      const { rerender } = renderWithProviders(
+        <EnhancedPackActivationForm {...defaultProps} />,
+      );
+
+      // Add a pack
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
       });
 
       // Close and reopen dialog
@@ -1175,650 +862,560 @@ describe("EnhancedPackActivationForm", () => {
         </QueryClientProvider>,
       );
 
-      // Approval status should be cleared
+      // List should be empty
       await waitFor(() => {
-        expect(
-          screen.queryByText(/serial change approved by/i),
-        ).not.toBeInTheDocument();
+        expect(screen.getByText("Pending Packs (0)")).toBeInTheDocument();
       });
     });
 
-    it("should allow manager to change serial directly without dual-auth", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
+    it("should close dialog when Cancel button is clicked", async () => {
+      const user = setupUser();
+      const onOpenChange = vi.fn();
 
-      // Use manager user
-      mockUser.roles = ["STORE_MANAGER"];
-      mockPermissions = ["LOTTERY_SERIAL_OVERRIDE"];
+      renderWithProviders(
+        <EnhancedPackActivationForm
+          {...defaultProps}
+          onOpenChange={onOpenChange}
+        />,
+      );
+
+      const cancelButton = screen.getByRole("button", { name: /cancel/i });
+      await user.click(cancelButton);
+
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  // ============================================================================
+  // SECTION 7: OCCUPIED BIN HANDLING
+  // ============================================================================
+
+  describe("Occupied Bin Handling", () => {
+    it("should show Replace badge for packs going to occupied bins", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // Add pack to occupied bin (bin 2)
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-1")); // Bin 2 is occupied
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
+      });
+
+      // Should show Replace badge
+      const pendingItem = screen.getByTestId(`pending-item-${TEST_PACK_ID_1}`);
+      expect(within(pendingItem).getByText("Replace")).toBeInTheDocument();
+    });
+
+    it("should send deplete_previous flag for occupied bins", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // Add pack to occupied bin
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-1")); // Occupied bin
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
+      });
+
+      // Activate
+      await user.click(screen.getByTestId("activate-all-button"));
+
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              deplete_previous: true,
+            }),
+          }),
+        );
+      });
+    });
+  });
+
+  // ============================================================================
+  // SECTION 8: API INTEGRATION
+  // ============================================================================
+
+  describe("API Integration", () => {
+    it("should send correct data in API calls", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // Add pack
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
+      });
+
+      // Activate
+      await user.click(screen.getByTestId("activate-all-button"));
+
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalledWith({
+          storeId: "store-123",
+          data: {
+            pack_id: TEST_PACK_ID_1,
+            bin_id: TEST_BIN_ID_1,
+            serial_start: "000",
+            activated_by: "user-1",
+            deplete_previous: undefined, // Bin 1 is not occupied
+          },
+        });
+      });
+    });
+
+    it("should handle all-failed activation gracefully", async () => {
+      const user = setupUser();
+
+      mockMutateAsync.mockRejectedValue(new Error("Server error"));
 
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      // Select a pack
+      // Add pack
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Button should say "Change" not "Request Change"
-      const changeButton = screen.getByTestId("change-serial-button");
-      expect(changeButton).toHaveTextContent("Change");
-      expect(changeButton).not.toHaveTextContent("Request");
-
-      // Click to change (no approval modal)
-      await user.click(changeButton);
-
-      // Serial input should appear immediately
       await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
       });
 
-      // No serial override modal should be shown
+      // Activate
+      await user.click(screen.getByTestId("activate-all-button"));
+
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "Activation Failed",
+            variant: "destructive",
+          }),
+        );
+      });
+
+      // Modal stays open (verify main form is still visible)
       expect(
-        screen.queryByTestId("mock-serial-override-modal"),
+        screen.getByTestId("batch-pack-activation-form"),
+      ).toBeInTheDocument();
+    });
+  });
+
+  // ============================================================================
+  // SECTION 9: DUPLICATE BIN PREVENTION (SEC-014) - CRITICAL SECURITY
+  // ============================================================================
+
+  describe("Duplicate Bin Prevention", () => {
+    it("BATCH-016: should pass pendingBinIds to bin selection modal for filtering", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // Add first pack to bin 1
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId("bin-selection-modal"),
+        ).not.toBeInTheDocument();
+      });
+
+      // Add second pack - verify bin 1 shows as pending (filtered at modal level)
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+
+      // The mock shows "(pending)" for bins in pendingBinIds
+      // This verifies pendingBinIds is being passed correctly
+      expect(screen.getByTestId("select-bin-0")).toHaveTextContent("(pending)");
+    });
+
+    it("BATCH-017: should not allow selecting same bin for multiple packs via modal", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // Add first pack to bin 1
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
+      });
+
+      // Add second pack
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+
+      // Select a different bin (bin 3)
+      await user.click(screen.getByTestId("select-bin-2"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (2)")).toBeInTheDocument();
+      });
+
+      // Verify both packs are in different bins
+      const pendingItems = screen.getAllByTestId(/^pending-item-/);
+      expect(pendingItems).toHaveLength(2);
+    });
+
+    it("BATCH-018: should correctly track multiple pending bin IDs", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // Add three packs to three different bins
+      for (let i = 0; i < 3; i++) {
+        await user.click(screen.getByTestId("mock-pack-select"));
+        await waitFor(() => {
+          expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+        });
+        await user.click(screen.getByTestId(`select-bin-${i}`));
+        await waitFor(() => {
+          expect(
+            screen.queryByTestId("bin-selection-modal"),
+          ).not.toBeInTheDocument();
+        });
+      }
+
+      // All three packs should be in the list
+      expect(screen.getByText("Pending Packs (3)")).toBeInTheDocument();
+    });
+  });
+
+  // ============================================================================
+  // SECTION 10: INPUT CLEARING AND REFOCUS (UX Enhancement)
+  // ============================================================================
+
+  describe("Input Clearing and Refocus", () => {
+    it("BATCH-019: should clear input after successful bin selection", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // The mock PackSearchCombobox doesn't have input state, but verifies
+      // the onValueChange callback behavior which triggers the clear
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      // Toast should show for successful add (input clearing happens internally)
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Pack Added",
+        }),
+      );
+    });
+
+    it("BATCH-020: should show toast and clear when duplicate pack is selected", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // Add first pack
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
+      });
+
+      // Clear previous toasts
+      mockToast.mockClear();
+
+      // Try to add same pack again
+      await user.click(screen.getByTestId("mock-select-duplicate"));
+
+      // Should show error toast (internal clear happens via ref)
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Pack Already Added",
+          variant: "destructive",
+        }),
+      );
+
+      // Bin modal should NOT open for duplicate pack
+      expect(
+        screen.queryByTestId("bin-selection-modal"),
       ).not.toBeInTheDocument();
     });
   });
 
   // ============================================================================
-  // SECTION 11: SERIAL RANGE VALIDATION
-  // (EPAF-025 through EPAF-032)
-  // ============================================================================
-  // | Test ID                    | Requirement              | Category         |
-  // |----------------------------|--------------------------|------------------|
-  // | EPAF-025                   | Red border incomplete    | Error Handling   |
-  // | EPAF-026                   | Red border above range   | Error Handling   |
-  // | EPAF-027                   | Clear border on valid    | Business Logic   |
-  // | EPAF-028                   | Show valid range hint    | Component        |
-  // | EPAF-029                   | Disable submit on error  | Business Logic   |
-  // | EPAF-030                   | Error styling on input   | Component        |
-  // | EPAF-031                   | Clear error on cancel    | Business Logic   |
-  // | EPAF-032                   | Clear error on pack chg  | Business Logic   |
+  // SECTION 11: PACK SOLD FUNCTIONALITY (Dual-Auth Pattern)
   // ============================================================================
 
-  describe("Serial Range Validation", () => {
-    beforeEach(() => {
-      vi.clearAllMocks();
-      mockUser.roles = ["STORE_MANAGER"];
-      mockPermissions = ["LOTTERY_SERIAL_OVERRIDE"];
-    });
-
-    it("EPAF-025: should show error when serial is incomplete (less than 3 digits)", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
+  describe("Pack Sold Functionality", () => {
+    it("BATCH-021: should render Pack Sold button for each pending item", async () => {
+      const user = setupUser();
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      // Select pack with range 001-150
+      // Add a pack
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
 
       await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
       });
 
-      // Type incomplete serial (1 digit only)
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "5");
-
-      // Should show red border styling (incomplete input)
-      await waitFor(() => {
-        expect(input).toHaveClass("border-destructive");
-      });
+      // Pack Sold button should be visible
+      expect(
+        screen.getByTestId(`mark-sold-${TEST_PACK_ID_1}`),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId(`mark-sold-${TEST_PACK_ID_1}`),
+      ).toHaveTextContent("Pack Sold");
     });
 
-    it("EPAF-026: should show error when serial exceeds pack's ending serial", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
+    it("BATCH-022: should toggle pack sold status when button is clicked (with permission)", async () => {
+      const user = setupUser();
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      // Select pack with range 001-150
+      // Add a pack
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
 
       await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
       });
 
-      // Type serial above range (pack ends at 150, type 200)
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "200");
+      // Click Pack Sold button
+      const markSoldButton = screen.getByTestId(`mark-sold-${TEST_PACK_ID_1}`);
+      await user.click(markSoldButton);
 
-      // Should show red border styling (no text error messages)
+      // Button should change to indicate pack is marked as sold
       await waitFor(() => {
-        expect(input).toHaveClass("border-destructive");
+        expect(markSoldButton).toHaveTextContent("Sold ✓");
       });
+
+      // Toast should confirm the action
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Pack Marked as Sold",
+        }),
+      );
     });
 
-    it("EPAF-027: should clear error when valid serial is entered", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
+    it("BATCH-023: should toggle off pack sold status when button is clicked again", async () => {
+      const user = setupUser();
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      // Select pack with range 001-150
+      // Add a pack
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
 
       await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
       });
 
-      // Type invalid serial first (out of range)
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "999");
+      // Click Pack Sold button to enable
+      const markSoldButton = screen.getByTestId(`mark-sold-${TEST_PACK_ID_1}`);
+      await user.click(markSoldButton);
 
-      // Should show red border
       await waitFor(() => {
-        expect(input).toHaveClass("border-destructive");
+        expect(markSoldButton).toHaveTextContent("Sold ✓");
       });
 
-      // Now type valid serial
-      await user.clear(input);
-      await user.type(input, "050");
+      // Clear toast mock
+      mockToast.mockClear();
 
-      // Red border should be cleared
+      // Click again to disable
+      await user.click(markSoldButton);
+
       await waitFor(() => {
-        expect(input).not.toHaveClass("border-destructive");
+        expect(markSoldButton).toHaveTextContent("Pack Sold");
       });
+
+      // Toast should confirm removal
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Pack Sold Removed",
+        }),
+      );
     });
 
-    it("EPAF-028: should show valid range hint when editing serial", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
+    it("BATCH-024: should send mark_sold_approved_by in API call when pack is marked as sold", async () => {
+      const user = setupUser();
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      // Select pack with range 001-150
+      // Add a pack
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
 
       await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
       });
 
-      // Type valid serial
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "050");
+      // Mark pack as sold
+      await user.click(screen.getByTestId(`mark-sold-${TEST_PACK_ID_1}`));
 
-      // Should show valid range hint text (contains "Valid range:")
-      await waitFor(() => {
-        const validRangeHint = screen.getByText(/valid range:/i);
-        expect(validRangeHint).toBeInTheDocument();
-        // The hint text should contain the range values
-        expect(validRangeHint.textContent).toContain("001");
-        expect(validRangeHint.textContent).toContain("150");
-      });
-    });
-
-    it("EPAF-029: should disable submit button when serial range error exists", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select pack and bin
-      await user.click(screen.getByTestId("mock-pack-select"));
-      await user.click(screen.getByTestId("mock-bin-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
-      });
-
-      // Type invalid serial
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "999");
-
-      // Submit button should be disabled
-      await waitFor(() => {
-        const submitButton = screen.getByTestId("submit-activation");
-        expect(submitButton).toBeDisabled();
-      });
-    });
-
-    it("EPAF-030: should apply error styling to input when serial is out of range", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select pack
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
-      });
-
-      // Type invalid serial
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "999");
-
-      // Input should have error styling (border-destructive class)
-      await waitFor(() => {
-        expect(input).toHaveClass("border-destructive");
-      });
-    });
-
-    it("EPAF-031: should clear serial range error when cancel is clicked", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select pack
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
-      });
-
-      // Type invalid serial
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "999");
-
-      // Should show red border (error indicator)
-      await waitFor(() => {
-        expect(input).toHaveClass("border-destructive");
-      });
-
-      // Click Cancel button next to input (the smaller one in the serial edit section)
-      // Use getAllByRole and select the first one (which is the inline Cancel button)
-      const cancelButtons = screen.getAllByRole("button", { name: /cancel/i });
-      // The first Cancel button should be the inline one next to serial input
-      await user.click(cancelButtons[0]);
-
-      // Input should be hidden (back to display mode)
       await waitFor(() => {
         expect(
-          screen.queryByTestId("serial-start-input"),
+          screen.getByTestId(`mark-sold-${TEST_PACK_ID_1}`),
+        ).toHaveTextContent("Sold ✓");
+      });
+
+      // Activate
+      await user.click(screen.getByTestId("activate-all-button"));
+
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalledWith({
+          storeId: "store-123",
+          data: expect.objectContaining({
+            pack_id: TEST_PACK_ID_1,
+            mark_sold_approved_by: "user-1",
+            mark_sold_reason: "Pack marked as pre-sold during activation",
+          }),
+        });
+      });
+    });
+
+    it("BATCH-025: should not send mark_sold fields when pack is not marked as sold", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // Add a pack (without marking as sold)
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
+      });
+
+      // Activate without marking as sold
+      await user.click(screen.getByTestId("activate-all-button"));
+
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalledWith({
+          storeId: "store-123",
+          data: expect.objectContaining({
+            pack_id: TEST_PACK_ID_1,
+            mark_sold_approved_by: undefined,
+            mark_sold_reason: undefined,
+          }),
+        });
+      });
+    });
+
+    it("BATCH-026: should maintain mark sold state after removing another pack", async () => {
+      const user = setupUser();
+      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
+
+      // Add two packs
+      await user.click(screen.getByTestId("mock-pack-select"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId("bin-selection-modal"),
         ).not.toBeInTheDocument();
       });
 
-      // Serial display should show default "000"
-      const serialDisplay = screen.getByTestId("serial-start-display");
-      expect(serialDisplay).toHaveTextContent("000");
-    });
-
-    it("EPAF-032: should clear serial range error when a new pack is selected", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select pack
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-2"));
 
       await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
+        expect(screen.getByText("Pending Packs (2)")).toBeInTheDocument();
       });
 
-      // Type invalid serial
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "999");
+      // Mark first pack as sold
+      await user.click(screen.getByTestId(`mark-sold-${TEST_PACK_ID_1}`));
 
-      // Should show red border (error indicator)
-      await waitFor(() => {
-        expect(input).toHaveClass("border-destructive");
-      });
-
-      // Select a different pack (same mock, but it triggers reset via useEffect)
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // After pack re-selection, editing mode is reset and serial returns to "000"
-      await waitFor(() => {
-        // Input should be hidden (back to display mode)
-        expect(
-          screen.queryByTestId("serial-start-input"),
-        ).not.toBeInTheDocument();
-        // Serial display should show "000"
-        const serialDisplay = screen.getByTestId("serial-start-display");
-        expect(serialDisplay).toHaveTextContent("000");
-      });
-    });
-
-    it("should accept serial at exact boundaries (inclusive range)", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select pack with range 001-150
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
-      });
-
-      // Type exact start boundary
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "001");
-
-      // Should NOT show error (001 is valid start)
       await waitFor(() => {
         expect(
-          screen.queryByText(/serial must be at least/i),
-        ).not.toBeInTheDocument();
-        expect(screen.queryByText(/cannot exceed/i)).not.toBeInTheDocument();
+          screen.getByTestId(`mark-sold-${TEST_PACK_ID_1}`),
+        ).toHaveTextContent("Sold ✓");
       });
 
-      // Now try exact end boundary
-      await user.clear(input);
-      await user.type(input, "150");
+      // Remove second pack
+      await user.click(screen.getByTestId(`remove-pending-${TEST_PACK_ID_2}`));
 
-      // Should NOT show error (150 is valid end)
       await waitFor(() => {
-        expect(screen.queryByText(/cannot exceed/i)).not.toBeInTheDocument();
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
       });
+
+      // First pack should still be marked as sold
+      expect(
+        screen.getByTestId(`mark-sold-${TEST_PACK_ID_1}`),
+      ).toHaveTextContent("Sold ✓");
     });
 
-    it("should handle non-numeric input gracefully", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
+    it("BATCH-027: Pack Sold button should be disabled during submission", async () => {
+      const user = setupUser();
+
+      // Make mutation hang to test disabled state
+      mockMutateAsync.mockImplementation(() => new Promise(() => {}));
 
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
-      // Select pack
+      // Add a pack
       await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
+      await waitFor(() => {
+        expect(screen.getByTestId("bin-selection-modal")).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("select-bin-0"));
 
       await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
+        expect(screen.getByText("Pending Packs (1)")).toBeInTheDocument();
       });
 
-      // Type non-numeric characters
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "abc");
+      // Start activation
+      await user.click(screen.getByTestId("activate-all-button"));
 
-      // Input should show red border (invalid input) since regex /^\d{3}$/ doesn't match
-      // Non-numeric input fails validation and triggers error styling
+      // Button should show loading state in header
       await waitFor(() => {
-        expect(input).toHaveClass("border-destructive");
+        expect(screen.getByTestId("activate-all-button")).toHaveTextContent(
+          "Activating...",
+        );
       });
 
-      // Submit button should be disabled due to validation failure
-      const submitButton = screen.getByTestId("submit-activation");
-      expect(submitButton).toBeDisabled();
-    });
-
-    // ============================================================================
-    // SECTION 11.1: SERIAL LENGTH VALIDATION
-    // (EPAF-033 through EPAF-036)
-    // ============================================================================
-    // | Test ID                    | Requirement              | Category         |
-    // |----------------------------|--------------------------|------------------|
-    // | EPAF-033                   | Red border short serial  | Error Handling   |
-    // | EPAF-034                   | Prevent >3 digits input  | Input Constraint |
-    // | EPAF-035                   | Accept correct length    | Business Logic   |
-    // | EPAF-036                   | Red border incomplete    | Component        |
-    // ============================================================================
-
-    it("EPAF-033: should show error when serial has fewer digits than pack format", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select pack with 3-digit format (001-150)
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
-      });
-
-      // Type 2-digit serial (pack requires 3 digits)
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "50");
-
-      // Should show red border (visual error indicator)
-      await waitFor(() => {
-        expect(input).toHaveClass("border-destructive");
-      });
-    });
-
-    it("EPAF-034: should prevent more than 3 digits via maxLength", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select pack with 3-digit format (001-150)
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
-      });
-
-      // Try to type 4-digit serial (maxLength=3 should prevent it)
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "0050");
-
-      // Input should only contain 3 characters due to maxLength
-      await waitFor(() => {
-        expect(input.value.length).toBeLessThanOrEqual(3);
-      });
-    });
-
-    it("EPAF-035: should accept serial with correct digit length", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select pack with 3-digit format (001-150)
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
-      });
-
-      // Type exactly 3-digit serial within range
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "075");
-
-      // Should NOT have red border (valid input)
-      await waitFor(() => {
-        expect(input).not.toHaveClass("border-destructive");
-      });
-    });
-
-    it("EPAF-036: should show red border for incomplete serial", async () => {
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Select pack with 3-digit format (001-150)
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Click change serial
-      await user.click(screen.getByTestId("change-serial-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("serial-start-input")).toBeInTheDocument();
-      });
-
-      // Type incomplete serial (1 digit)
-      const input = screen.getByTestId(
-        "serial-start-input",
-      ) as HTMLInputElement;
-      await user.clear(input);
-      await user.type(input, "5");
-
-      // Should show red border for incomplete input
-      await waitFor(() => {
-        expect(input).toHaveClass("border-destructive");
-      });
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════════════════════════════════
-  // Management Auth activated_by Logic Tests
-  // ═══════════════════════════════════════════════════════════════════════════════════
-  // These tests verify that the component correctly displays authenticated user names
-  // and that the default serial is set to "000" when a pack is selected.
-  //
-  // | EPAF-037                   | Mgmt auth shows manager name     | Authorization    |
-  // | EPAF-038                   | Cashier auth shows cashier name  | Authorization    |
-  // | EPAF-039                   | Default serial 000 on new pack   | Business Logic   |
-  // ═══════════════════════════════════════════════════════════════════════════════════
-
-  describe("Management Auth activated_by Logic", () => {
-    it("EPAF-037: should show management-authenticated user name after management auth", async () => {
-      // This test verifies that when a cashier authenticates via Management tab,
-      // the authentication result shows the management user's name
-      mockUser.roles = ["CASHIER"];
-      mockPermissions = [];
-
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Open auth modal via authenticate button
-      await user.click(screen.getByTestId("authenticate-button"));
-
-      // Auth modal should appear
-      await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
-      });
-
-      // Authenticate via Management tab (manager-1, Jane Manager)
-      await user.click(screen.getByTestId("mock-authenticate-management"));
-
-      // Should show the MANAGEMENT user's name (Jane Manager), not session user
-      await waitFor(() => {
-        expect(screen.getByText(/authenticated as/i)).toBeInTheDocument();
-        expect(screen.getByText("Jane Manager")).toBeInTheDocument();
-      });
-
-      // Verify it's NOT showing the session user name
-      expect(screen.queryByText("John Doe")).not.toBeInTheDocument();
-
-      // Reset for other tests
-      mockUser.roles = ["STORE_MANAGER"];
-      mockPermissions = ["LOTTERY_SERIAL_OVERRIDE"];
-    });
-
-    it("EPAF-038: should show cashier-authenticated user name after cashier auth", async () => {
-      // This test verifies that when a cashier authenticates via Cashier tab,
-      // the authentication result shows the cashier's name
-      mockUser.roles = ["CASHIER"];
-      mockPermissions = [];
-      mockAuthType = "cashier";
-
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Open auth modal via authenticate button
-      await user.click(screen.getByTestId("authenticate-button"));
-
-      // Auth modal should appear
-      await waitFor(() => {
-        expect(screen.getByTestId("mock-auth-modal")).toBeInTheDocument();
-      });
-
-      // Authenticate via Cashier tab (regular authenticate)
-      await user.click(screen.getByTestId("mock-authenticate"));
-
-      // Should show the cashier's name (John Doe)
-      await waitFor(() => {
-        expect(screen.getByText(/authenticated as/i)).toBeInTheDocument();
-        expect(screen.getByText("John Doe")).toBeInTheDocument();
-      });
-
-      // Verify it's NOT showing the management user name
-      expect(screen.queryByText("Jane Manager")).not.toBeInTheDocument();
-
-      // Reset for other tests
-      mockUser.roles = ["STORE_MANAGER"];
-      mockPermissions = ["LOTTERY_SERIAL_OVERRIDE"];
-      mockAuthType = "cashier";
-    });
-
-    it("EPAF-039: should set default serial to 000 when pack is selected", async () => {
-      // This test verifies that when a pack is selected, the serial defaults to "000"
-      mockUser.roles = ["STORE_MANAGER"];
-      mockPermissions = ["LOTTERY_SERIAL_OVERRIDE"];
-
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-      renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
-
-      // Initially serial display should show "000" (from form defaultValues)
-      const serialDisplayInitial = screen.getByTestId("serial-start-display");
-      expect(serialDisplayInitial).toHaveTextContent("000");
-
-      // Select pack (should reset serial to 000 via useEffect)
-      await user.click(screen.getByTestId("mock-pack-select"));
-
-      // Wait for pack to be selected
-      await waitFor(() => {
-        expect(screen.getByText("Pack Details")).toBeInTheDocument();
-      });
-
-      // Serial display should still show "000" (reset by useEffect when pack changes)
-      await waitFor(() => {
-        const serialDisplay = screen.getByTestId("serial-start-display");
-        expect(serialDisplay).toHaveTextContent("000");
-      });
-
-      // Verify the pack's serial range is displayed (not the default)
-      expect(screen.getByText(/Serial Range:/)).toBeInTheDocument();
+      // Pack Sold button should be disabled during submission
+      expect(screen.getByTestId(`mark-sold-${TEST_PACK_ID_1}`)).toBeDisabled();
     });
   });
 });
