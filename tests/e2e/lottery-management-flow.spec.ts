@@ -304,15 +304,23 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
     await expect(serialInput).toBeVisible({ timeout: 15000 });
     await expect(serialInput).toBeEditable({ timeout: 10000 });
 
-    // AND: Serial input has correct attributes (Story 6.12 - 24-digit serial)
+    // AND: Serial input has correct attributes (Story 6.12 - 24-digit serial barcode input)
+    // The placeholder uses user-friendly text "Scan barcode..." to guide users
     await expect(serialInput).toHaveAttribute(
       "placeholder",
-      "000000000000000000000000",
+      "Scan barcode...",
       { timeout: 5000 },
     );
+    // Input is restricted to 24 characters for barcode format
     await expect(serialInput).toHaveAttribute("maxlength", "24", {
       timeout: 5000,
     });
+    // Accessibility: aria-label describes the expected format
+    await expect(serialInput).toHaveAttribute(
+      "aria-label",
+      "Scan 24-digit barcode",
+      { timeout: 5000 },
+    );
 
     // AND: Submit button is visible but disabled (no packs added yet)
     const submitButton = page.locator('[data-testid="submit-batch-reception"]');
@@ -447,21 +455,28 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       // WHEN: User clicks Activate Pack button
       await activateButton.click();
 
-      // THEN: Pack activation dialog opens (EnhancedPackActivationForm)
-      // Verify the dialog container is visible
+      // THEN: Pack activation dialog opens (EnhancedPackActivationForm - Batch Mode)
+      // The component uses batch-pack-activation-form as its testId
       const activationForm = page.locator(
-        '[data-testid="pack-activation-form"]',
+        '[data-testid="batch-pack-activation-form"]',
       );
       await expect(activationForm).toBeVisible({ timeout: 20000 });
 
+      // Verify the dialog title is correct
+      await expect(
+        page.getByRole("heading", { name: "Activate Packs" }),
+      ).toBeVisible({ timeout: 10000 });
+
       // Verify the pack search combobox is visible and ready
-      const packSearchInput = page.locator('[data-testid="pack-search"]');
+      // The batch form uses testId="batch-pack-search"
+      const packSearchInput = page.locator('[data-testid="batch-pack-search"]');
       await expect(packSearchInput).toBeVisible({ timeout: 15000 });
       await expect(packSearchInput).toBeEditable({ timeout: 10000 });
 
-      // Verify the submit button is visible (disabled until pack is selected)
+      // Verify the activate all button is visible (disabled until packs are added)
+      // The batch form uses activate-all-button
       await expect(
-        page.locator('[data-testid="submit-activation"]'),
+        page.locator('[data-testid="activate-all-button"]'),
       ).toBeVisible({ timeout: 10000 });
 
       // AND: The combobox dropdown shows our RECEIVED pack when focused
@@ -471,13 +486,16 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       await packSearchInput.click();
 
       // Wait for the dropdown to appear (data may come from cache or fresh fetch)
-      const packDropdown = page.locator('[data-testid="pack-search-dropdown"]');
+      // The dropdown testId is based on the input testId: batch-pack-search-dropdown
+      const packDropdown = page.locator(
+        '[data-testid="batch-pack-search-dropdown"]',
+      );
       await expect(packDropdown).toBeVisible({ timeout: 20000 });
 
       // Verify at least one pack option is visible (our created pack)
-      // The combobox uses indexed options (pack-search-option-0, option-1, etc.)
+      // The combobox uses indexed options based on testId: batch-pack-search-option-0
       const firstPackOption = page.locator(
-        '[data-testid="pack-search-option-0"]',
+        '[data-testid="batch-pack-search-option-0"]',
       );
       await expect(firstPackOption).toBeVisible({ timeout: 15000 });
 
