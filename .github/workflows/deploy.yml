@@ -1,5 +1,5 @@
 # Deploy Pipeline - Railway Deployment
-# Triggered ONLY on push to main (after PR merge with passing CI)
+# Triggered on push to main (production) or development (staging)
 # Railway auto-deploys via GitHub integration when connected
 # This workflow provides deployment verification and optional manual triggers
 
@@ -7,16 +7,17 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, development]
   workflow_dispatch:
     inputs:
       environment:
         description: 'Deployment environment'
         required: true
-        default: 'production'
+        default: 'staging'
         type: choice
         options:
           - production
+          - staging
       skip_health_check:
         description: 'Skip post-deployment health check'
         required: false
@@ -29,9 +30,6 @@ permissions:
 
 env:
   NODE_VERSION: "20"
-  RAILWAY_PROJECT_ID: "ef54c8e0-0edf-4782-a583-4f7f0022c507"
-  BACKEND_URL: "https://backend-production-5c11.up.railway.app"
-  FRONTEND_URL: "https://frontend-production-be71.up.railway.app"
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -39,10 +37,56 @@ concurrency:
 
 jobs:
   # =============================================================================
+  # Determine deployment environment based on branch or manual input
+  # =============================================================================
+  setup:
+    name: Setup Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      backend_url: ${{ steps.env.outputs.backend_url }}
+      frontend_url: ${{ steps.env.outputs.frontend_url }}
+      cors_origins: ${{ steps.env.outputs.cors_origins }}
+    steps:
+      - name: Determine environment
+        id: env
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # Determine environment from branch or manual input
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ENV="$INPUT_ENVIRONMENT"
+          elif [ "$REF_NAME" = "main" ]; then
+            ENV="production"
+          else
+            ENV="staging"
+          fi
+
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+
+          # Set URLs based on environment
+          if [ "$ENV" = "production" ]; then
+            echo "backend_url=https://backend-production-5c11.up.railway.app" >> $GITHUB_OUTPUT
+            echo "frontend_url=https://nuvanaapp.com" >> $GITHUB_OUTPUT
+            echo "cors_origins=https://nuvanaapp.com,https://www.nuvanaapp.com" >> $GITHUB_OUTPUT
+          else
+            echo "backend_url=https://backend-production-5c11.up.railway.app" >> $GITHUB_OUTPUT
+            echo "frontend_url=https://staging.nuvanaapp.com" >> $GITHUB_OUTPUT
+            echo "cors_origins=https://staging.nuvanaapp.com" >> $GITHUB_OUTPUT
+          fi
+
+          echo "## Environment Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** $ENV" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** $REF_NAME" >> $GITHUB_STEP_SUMMARY
+
+  # =============================================================================
   # Pre-deployment validation (fast sanity check)
   # =============================================================================
   pre-deploy:
     name: Pre-deployment Validation
+    needs: setup
     runs-on: ubuntu-latest
     outputs:
       deploy_sha: ${{ steps.info.outputs.sha }}
@@ -78,23 +122,24 @@ jobs:
         env:
           DATABASE_URL: "postgresql://dummy:dummy@dummy:5432/dummy"
           NODE_ENV: "production"
-          NEXT_PUBLIC_BACKEND_URL: "${{ env.BACKEND_URL }}"
+          NEXT_PUBLIC_BACKEND_URL: "${{ needs.setup.outputs.backend_url }}"
 
   # =============================================================================
   # Railway Deployment (triggered by GitHub integration OR manual)
   # =============================================================================
   deploy:
-    name: Deploy to Railway
-    needs: pre-deploy
+    name: Deploy to Railway (${{ needs.setup.outputs.environment }})
+    needs: [setup, pre-deploy]
     runs-on: ubuntu-latest
     environment:
-      name: production
-      url: ${{ env.FRONTEND_URL }}
+      name: ${{ needs.setup.outputs.environment }}
+      url: ${{ needs.setup.outputs.frontend_url }}
     steps:
       - name: Deployment started
         run: |
           echo "## Deployment Started" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ needs.pre-deploy.outputs.deploy_sha }}" >> $GITHUB_STEP_SUMMARY
           echo "**Time:** ${{ needs.pre-deploy.outputs.deploy_time }}" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
@@ -102,8 +147,11 @@ jobs:
           echo "Railway will auto-deploy via GitHub integration." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Services" >> $GITHUB_STEP_SUMMARY
-          echo "- **Frontend:** ${{ env.FRONTEND_URL }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Backend:** ${{ env.BACKEND_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend:** ${{ needs.setup.outputs.frontend_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend:** ${{ needs.setup.outputs.backend_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### CORS Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "Allowed Origins: \`${{ needs.setup.outputs.cors_origins }}\`" >> $GITHUB_STEP_SUMMARY
 
       # Optional: Use Railway CLI for explicit deployment control
       # Uncomment and add RAILWAY_TOKEN secret if you want CLI-based deployments
@@ -124,8 +172,8 @@ jobs:
   # Post-deployment health verification
   # =============================================================================
   health-check:
-    name: Verify Deployment Health
-    needs: [pre-deploy, deploy]
+    name: Verify Deployment Health (${{ needs.setup.outputs.environment }})
+    needs: [setup, pre-deploy, deploy]
     runs-on: ubuntu-latest
     if: ${{ !inputs.skip_health_check }}
     steps:
@@ -135,9 +183,10 @@ jobs:
       - name: Check Backend Health
         id: backend_health
         run: |
-          echo "Checking backend health..."
+          BACKEND_URL="${{ needs.setup.outputs.backend_url }}"
+          echo "Checking backend health at $BACKEND_URL..."
           for i in {1..10}; do
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ env.BACKEND_URL }}/api/health" || echo "000")
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/api/health" || echo "000")
             if [ "$HTTP_STATUS" = "200" ]; then
               echo "Backend is healthy!"
               echo "status=healthy" >> $GITHUB_OUTPUT
@@ -152,9 +201,10 @@ jobs:
       - name: Check Frontend Health
         id: frontend_health
         run: |
-          echo "Checking frontend health..."
+          FRONTEND_URL="${{ needs.setup.outputs.frontend_url }}"
+          echo "Checking frontend health at $FRONTEND_URL..."
           for i in {1..10}; do
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ env.FRONTEND_URL }}" || echo "000")
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$FRONTEND_URL" || echo "000")
             if [ "$HTTP_STATUS" = "200" ]; then
               echo "Frontend is healthy!"
               echo "status=healthy" >> $GITHUB_OUTPUT
@@ -166,13 +216,48 @@ jobs:
           echo "status=unhealthy" >> $GITHUB_OUTPUT
           echo "::warning::Frontend health check failed after 10 attempts"
 
+      - name: Verify CORS Configuration
+        id: cors_check
+        run: |
+          BACKEND_URL="${{ needs.setup.outputs.backend_url }}"
+          FRONTEND_URL="${{ needs.setup.outputs.frontend_url }}"
+          echo "Verifying CORS configuration..."
+
+          # Send preflight request
+          CORS_HEADERS=$(curl -s -I -X OPTIONS \
+            -H "Origin: $FRONTEND_URL" \
+            -H "Access-Control-Request-Method: GET" \
+            -H "Access-Control-Request-Headers: Content-Type,Authorization" \
+            "$BACKEND_URL/api/health" 2>&1)
+
+          # Check for Access-Control-Allow-Origin header
+          if echo "$CORS_HEADERS" | grep -qi "access-control-allow-origin"; then
+            ALLOWED_ORIGIN=$(echo "$CORS_HEADERS" | grep -i "access-control-allow-origin" | cut -d: -f2- | tr -d ' \r')
+            echo "CORS configured: Access-Control-Allow-Origin: $ALLOWED_ORIGIN"
+
+            # Verify the frontend URL is in the allowed origin
+            if echo "$ALLOWED_ORIGIN" | grep -q "$FRONTEND_URL"; then
+              echo "✅ CORS correctly configured for $FRONTEND_URL"
+              echo "status=valid" >> $GITHUB_OUTPUT
+            else
+              echo "⚠️ CORS header present but may not include $FRONTEND_URL"
+              echo "status=warning" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "❌ No Access-Control-Allow-Origin header found"
+            echo "status=missing" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deployment Summary
         run: |
           echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Service | Status | URL |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|--------|-----|" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend | ${{ steps.backend_health.outputs.status == 'healthy' && '✅ Healthy' || '⚠️ Check Required' }} | ${{ env.BACKEND_URL }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Frontend | ${{ steps.frontend_health.outputs.status == 'healthy' && '✅ Healthy' || '⚠️ Check Required' }} | ${{ env.FRONTEND_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend | ${{ steps.backend_health.outputs.status == 'healthy' && '✅ Healthy' || '⚠️ Check Required' }} | ${{ needs.setup.outputs.backend_url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend | ${{ steps.frontend_health.outputs.status == 'healthy' && '✅ Healthy' || '⚠️ Check Required' }} | ${{ needs.setup.outputs.frontend_url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CORS | ${{ steps.cors_check.outputs.status == 'valid' && '✅ Valid' || (steps.cors_check.outputs.status == 'warning' && '⚠️ Warning' || '❌ Missing') }} | - |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Deployed Commit:** \`${{ needs.pre-deploy.outputs.deploy_sha }}\`" >> $GITHUB_STEP_SUMMARY

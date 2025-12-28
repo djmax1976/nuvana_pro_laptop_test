@@ -12,6 +12,7 @@ import {
   closeRabbitMQ,
   setupTransactionsQueue,
 } from "./utils/rabbitmq";
+import { getFastifyCorsOptions, logCorsConfig } from "./config/cors.config";
 import { healthRoutes } from "./routes/health";
 import { authRoutes } from "./routes/auth";
 import { adminRoutes } from "./routes/admin";
@@ -244,15 +245,11 @@ app.register(multipart, {
   },
 });
 
-// Register CORS
-app.register(cors, {
-  origin: process.env.CORS_ORIGIN?.split(",") || ["http://localhost:3000"],
-  credentials: true, // Required for cookies to work with CORS
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-cashier-session"],
-  exposedHeaders: ["Content-Type", "Authorization"],
-  preflightContinue: false, // Ensure Fastify handles OPTIONS requests
-});
+// Register CORS with validated configuration
+// Configuration is validated at startup - fails fast in production if misconfigured
+// See backend/src/config/cors.config.ts for configuration details
+logCorsConfig();
+app.register(cors, getFastifyCorsOptions());
 
 // Register Helmet for security headers
 // Note: This API server doesn't serve HTML, but CSP headers are set as defense-in-depth
