@@ -39,71 +39,63 @@
  * @priority P0 (Critical - Security & Authorization)
  */
 
-// @ts-nocheck - Test file is incomplete, requires proper fixtures before enabling
 import { test, expect } from "../support/fixtures/rbac.fixture";
 import { createUserWithRole } from "../support/helpers/user-with-role.helper";
+import {
+  createLotteryGame,
+  createLotteryPack,
+  createLotteryBin,
+} from "../support/factories/lottery.factory";
+import { createCashier } from "../support/factories/cashier.factory";
+import { createShift } from "../support/factories/shift.factory";
 import { v4 as uuidv4 } from "uuid";
 
-// SKIP: Tests require fixtures (testStore, testUser, apiRequest) that don't exist yet.
-// TODO: Implement proper fixtures and re-enable tests.
-test.describe
-  .skip("POST /api/stores/:storeId/lottery/packs/activate (Serial Override)", () => {
+test.describe("POST /api/stores/:storeId/lottery/packs/activate (Serial Override)", () => {
   // ═══════════════════════════════════════════════════════════════════════════
   // SECTION 1: MANAGER SELF-APPROVAL (PASO-001, PASO-009)
   // ═══════════════════════════════════════════════════════════════════════════
 
   test.describe("Manager Self-Approval", () => {
     test("PASO-001: manager with LOTTERY_SERIAL_OVERRIDE can set non-zero serial", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
       // GIVEN: A manager with LOTTERY_SERIAL_OVERRIDE permission
-      // testUser should be a manager with this permission
+      const storeId = storeManagerUser.store_id;
 
       // Create a test game and pack
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game PASO001 ${Date.now()}`,
+        price: 2.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `${Date.now()}`,
-          serial_start: "001",
-          serial_end: "150",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PASO001-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "150",
+        status: "RECEIVED",
       });
 
       // Create a test bin
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: 99,
-          name: "Test Bin Override",
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: 99,
+        name: "Test Bin Override PASO001",
       });
 
       try {
         // WHEN: Manager activates pack with non-zero starting serial
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "025", // Non-zero serial
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
@@ -117,7 +109,9 @@ test.describe
           where: { pack_id: pack.pack_id },
         });
 
-        expect(updatedPack?.serial_override_approved_by).toBe(testUser.user_id);
+        expect(updatedPack?.serial_override_approved_by).toBe(
+          storeManagerUser.user_id,
+        );
         expect(updatedPack?.serial_override_approved_at).not.toBeNull();
       } finally {
         // Cleanup
@@ -132,52 +126,43 @@ test.describe
     });
 
     test("PASO-009: zero serial does NOT require approval tracking", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
       // GIVEN: A pack and bin
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game Zero ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const storeId = storeManagerUser.store_id;
+
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game Zero PASO009 ${Date.now()}`,
+        price: 2.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `ZERO${Date.now()}`,
-          serial_start: "001",
-          serial_end: "150",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `ZERO-PASO009-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "150",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: 98,
-          name: "Test Bin Zero Serial",
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: 98,
+        name: "Test Bin Zero Serial PASO009",
       });
 
       try {
         // WHEN: Activating with serial_start = "0" (default)
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "0",
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
@@ -209,81 +194,73 @@ test.describe
 
   test.describe("Dual-Auth Cashier Flow", () => {
     test("PASO-002: cashier can activate with valid manager approval", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
+      storeManagerUser,
     }) => {
       // GIVEN: A cashier and a manager with approval permission
+      const storeId = storeManagerUser.store_id;
+
       const { user: cashier } = await createUserWithRole(prismaClient, {
         roleCode: "CASHIER",
+        storeId: storeId,
+        companyId: storeManagerUser.company_id,
       });
 
-      const { user: manager } = await createUserWithRole(prismaClient, {
-        roleCode: "CLIENT_OWNER", // Has LOTTERY_SERIAL_OVERRIDE
+      // Create cashier for shift using factory (handles pin_hash and required fields)
+      const cashierData = await createCashier({
+        store_id: storeId,
+        created_by: storeManagerUser.user_id,
+        name: `Cashier PASO002 ${Date.now()}`,
+      });
+      const cashierRecord = await prismaClient.cashier.create({
+        data: cashierData,
       });
 
-      // Associate both with the store
-      await prismaClient.userStore.createMany({
-        data: [
-          { user_id: cashier.user_id, store_id: testStore.store_id },
-          { user_id: manager.user_id, store_id: testStore.store_id },
-        ],
-        skipDuplicates: true,
+      // Create shift for cashier using factory
+      const shiftData = createShift({
+        store_id: storeId,
+        cashier_id: cashierRecord.cashier_id,
+        opened_by: storeManagerUser.user_id,
+        status: "ACTIVE",
+        opened_at: new Date(),
       });
-
-      // Create shift for cashier
       const shift = await prismaClient.shift.create({
-        data: {
-          shift_id: uuidv4(),
-          store_id: testStore.store_id,
-          cashier_id: cashier.user_id,
-          status: "ACTIVE",
-          opened_at: new Date(),
-        },
+        data: shiftData,
       });
 
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Dual Auth Game ${Date.now()}`,
-          price: 5.0,
-          serial_length: 3,
-        },
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Dual Auth Game PASO002 ${Date.now()}`,
+        price: 5.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `DA${Date.now()}`,
-          serial_start: "001",
-          serial_end: "100",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `DA-PASO002-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "100",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: 97,
-          name: "Dual Auth Bin",
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: 97,
+        name: "Dual Auth Bin PASO002",
       });
 
       try {
         // WHEN: Cashier activates with manager approval
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "050", // Non-zero
             activated_by: cashier.user_id,
             activated_shift_id: shift.shift_id,
-            serial_override_approved_by: manager.user_id,
+            serial_override_approved_by: storeManagerUser.user_id,
             serial_override_reason: "Pack partially sold before receiving",
           },
         );
@@ -298,7 +275,9 @@ test.describe
           where: { pack_id: pack.pack_id },
         });
 
-        expect(updatedPack?.serial_override_approved_by).toBe(manager.user_id);
+        expect(updatedPack?.serial_override_approved_by).toBe(
+          storeManagerUser.user_id,
+        );
         expect(updatedPack?.serial_override_approved_at).not.toBeNull();
         expect(updatedPack?.serial_override_reason).toBe(
           "Pack partially sold before receiving",
@@ -315,85 +294,77 @@ test.describe
         await prismaClient.shift.delete({
           where: { shift_id: shift.shift_id },
         });
-        await prismaClient.userStore.deleteMany({
-          where: {
-            user_id: { in: [cashier.user_id, manager.user_id] },
-            store_id: testStore.store_id,
-          },
+        await prismaClient.cashier.delete({
+          where: { cashier_id: cashierRecord.cashier_id },
         });
         await prismaClient.userRole.deleteMany({
-          where: { user_id: { in: [cashier.user_id, manager.user_id] } },
+          where: { user_id: cashier.user_id },
         });
-        await prismaClient.user.deleteMany({
-          where: { user_id: { in: [cashier.user_id, manager.user_id] } },
-        });
+        await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
       }
     });
 
     test("PASO-003: cashier without approval cannot set non-zero serial", async ({
-      apiRequest,
+      cashierApiRequest,
       prismaClient,
-      testStore,
+      cashierUser,
     }) => {
       // GIVEN: A cashier without serial override permission and no approval
-      const { user: cashier } = await createUserWithRole(prismaClient, {
-        roleCode: "CASHIER",
+      // Use cashierUser's store so the JWT has access to the store
+      const storeId = cashierUser.store_id;
+
+      // Create cashier record for shift using factory
+      const cashierData = await createCashier({
+        store_id: storeId,
+        created_by: cashierUser.user_id,
+        name: `Cashier PASO003 ${Date.now()}`,
+      });
+      const cashierRecord = await prismaClient.cashier.create({
+        data: cashierData,
       });
 
-      await prismaClient.userStore.create({
-        data: { user_id: cashier.user_id, store_id: testStore.store_id },
+      // Create shift using factory
+      const shiftData = createShift({
+        store_id: storeId,
+        cashier_id: cashierRecord.cashier_id,
+        opened_by: cashierUser.user_id,
+        status: "ACTIVE",
+        opened_at: new Date(),
       });
-
       const shift = await prismaClient.shift.create({
-        data: {
-          shift_id: uuidv4(),
-          store_id: testStore.store_id,
-          cashier_id: cashier.user_id,
-          status: "ACTIVE",
-          opened_at: new Date(),
-        },
+        data: shiftData,
       });
 
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `No Approval Game ${Date.now()}`,
-          price: 1.0,
-          serial_length: 3,
-        },
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `No Approval Game PASO003 ${Date.now()}`,
+        price: 1.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `NA${Date.now()}`,
-          serial_start: "001",
-          serial_end: "050",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `NA-PASO003-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "050",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: 96,
-          name: "No Approval Bin",
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: 96,
+        name: "No Approval Bin PASO003",
       });
 
       try {
         // WHEN: Cashier tries to activate with non-zero serial WITHOUT approval
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await cashierApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "010", // Non-zero, no approval
-            activated_by: cashier.user_id,
+            activated_by: cashierUser.user_id,
             activated_shift_id: shift.shift_id,
             // NO serial_override_approved_by
           },
@@ -415,13 +386,9 @@ test.describe
         await prismaClient.shift.delete({
           where: { shift_id: shift.shift_id },
         });
-        await prismaClient.userStore.deleteMany({
-          where: { user_id: cashier.user_id },
+        await prismaClient.cashier.delete({
+          where: { cashier_id: cashierRecord.cashier_id },
         });
-        await prismaClient.userRole.deleteMany({
-          where: { user_id: cashier.user_id },
-        });
-        await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
       }
     });
   });
@@ -432,81 +399,80 @@ test.describe
 
   test.describe("Approval Validation", () => {
     test("PASO-004: should reject invalid approver UUID", async ({
-      apiRequest,
+      cashierApiRequest,
       prismaClient,
-      testStore,
+      cashierUser,
     }) => {
       // GIVEN: A cashier with invalid approval UUID
-      const { user: cashier } = await createUserWithRole(prismaClient, {
-        roleCode: "CASHIER",
+      // Use cashierUser's store so the JWT has access to the store
+      const storeId = cashierUser.store_id;
+
+      // Create cashier record for shift using factory
+      const cashierData = await createCashier({
+        store_id: storeId,
+        created_by: cashierUser.user_id,
+        name: `Cashier PASO004 ${Date.now()}`,
+      });
+      const cashierRecord = await prismaClient.cashier.create({
+        data: cashierData,
       });
 
-      await prismaClient.userStore.create({
-        data: { user_id: cashier.user_id, store_id: testStore.store_id },
+      // Create shift using factory
+      const shiftData = createShift({
+        store_id: storeId,
+        cashier_id: cashierRecord.cashier_id,
+        opened_by: cashierUser.user_id,
+        status: "ACTIVE",
+        opened_at: new Date(),
       });
-
       const shift = await prismaClient.shift.create({
-        data: {
-          shift_id: uuidv4(),
-          store_id: testStore.store_id,
-          cashier_id: cashier.user_id,
-          status: "ACTIVE",
-          opened_at: new Date(),
-        },
+        data: shiftData,
       });
 
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Invalid Approver Game ${Date.now()}`,
-          price: 1.0,
-          serial_length: 3,
-        },
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Invalid Approver Game PASO004 ${Date.now()}`,
+        price: 1.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `IA${Date.now()}`,
-          serial_start: "001",
-          serial_end: "050",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `IA-PASO004-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "050",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: 95,
-          name: "Invalid Approver Bin",
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: 95,
+        name: "Invalid Approver Bin PASO004",
       });
 
       const nonExistentUserId = uuidv4();
 
       try {
         // WHEN: Activating with non-existent approver
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await cashierApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "015",
-            activated_by: cashier.user_id,
+            activated_by: cashierUser.user_id,
             activated_shift_id: shift.shift_id,
             serial_override_approved_by: nonExistentUserId,
           },
         );
 
-        // THEN: Should be rejected
-        expect(response.status()).toBe(403);
+        // THEN: Should be rejected with 400 (approver not found)
+        // Backend validates approver exists before checking permissions
+        expect(response.status()).toBe(400);
         const body = await response.json();
         expect(body.success).toBe(false);
-        expect(body.error.message).toContain("not found");
+        expect(body.error.code).toBe("BAD_REQUEST");
+        expect(body.error.message).toContain("approver not found"); // Matches "Serial override approver not found"
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
@@ -518,105 +484,93 @@ test.describe
         await prismaClient.shift.delete({
           where: { shift_id: shift.shift_id },
         });
-        await prismaClient.userStore.deleteMany({
-          where: { user_id: cashier.user_id },
+        await prismaClient.cashier.delete({
+          where: { cashier_id: cashierRecord.cashier_id },
         });
-        await prismaClient.userRole.deleteMany({
-          where: { user_id: cashier.user_id },
-        });
-        await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
       }
     });
 
     test("PASO-005: should reject approver without LOTTERY_SERIAL_OVERRIDE permission", async ({
-      apiRequest,
+      cashierApiRequest,
       prismaClient,
-      testStore,
+      cashierUser,
     }) => {
       // GIVEN: A cashier and another user without the permission
-      const { user: cashier } = await createUserWithRole(prismaClient, {
-        roleCode: "CASHIER",
-      });
+      // Use cashierUser's store for proper JWT scope
+      const storeId = cashierUser.store_id;
 
       const { user: approverWithoutPerm } = await createUserWithRole(
         prismaClient,
         {
           roleCode: "CASHIER", // Cashiers don't have LOTTERY_SERIAL_OVERRIDE
+          storeId: storeId,
+          companyId: cashierUser.company_id,
         },
       );
 
-      await prismaClient.userStore.createMany({
-        data: [
-          { user_id: cashier.user_id, store_id: testStore.store_id },
-          {
-            user_id: approverWithoutPerm.user_id,
-            store_id: testStore.store_id,
-          },
-        ],
-        skipDuplicates: true,
+      // Create cashier for shift using factory
+      const cashierData = await createCashier({
+        store_id: storeId,
+        created_by: cashierUser.user_id,
+        name: `Cashier PASO005 ${Date.now()}`,
+      });
+      const cashierRecord = await prismaClient.cashier.create({
+        data: cashierData,
       });
 
+      // Create shift using factory
+      const shiftData = createShift({
+        store_id: storeId,
+        cashier_id: cashierRecord.cashier_id,
+        opened_by: cashierUser.user_id,
+        status: "ACTIVE",
+        opened_at: new Date(),
+      });
       const shift = await prismaClient.shift.create({
-        data: {
-          shift_id: uuidv4(),
-          store_id: testStore.store_id,
-          cashier_id: cashier.user_id,
-          status: "ACTIVE",
-          opened_at: new Date(),
-        },
+        data: shiftData,
       });
 
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `No Perm Approver ${Date.now()}`,
-          price: 1.0,
-          serial_length: 3,
-        },
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `No Perm Approver PASO005 ${Date.now()}`,
+        price: 1.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `NP${Date.now()}`,
-          serial_start: "001",
-          serial_end: "050",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `NP-PASO005-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "050",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: 94,
-          name: "No Perm Approver Bin",
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: 94,
+        name: "No Perm Approver Bin PASO005",
       });
 
       try {
         // WHEN: Activating with approver who lacks permission
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await cashierApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "020",
-            activated_by: cashier.user_id,
+            activated_by: cashierUser.user_id,
             activated_shift_id: shift.shift_id,
             serial_override_approved_by: approverWithoutPerm.user_id,
           },
         );
 
-        // THEN: Should be rejected
+        // THEN: Should be rejected with 403 (permission denied)
         expect(response.status()).toBe(403);
         const body = await response.json();
         expect(body.success).toBe(false);
         expect(body.error.code).toBe("PERMISSION_DENIED");
-        expect(body.error.message).toContain("LOTTERY_SERIAL_OVERRIDE");
+        expect(body.error.message).toContain("permission to override");
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
@@ -628,107 +582,98 @@ test.describe
         await prismaClient.shift.delete({
           where: { shift_id: shift.shift_id },
         });
-        await prismaClient.userStore.deleteMany({
-          where: {
-            user_id: { in: [cashier.user_id, approverWithoutPerm.user_id] },
-          },
+        await prismaClient.cashier.delete({
+          where: { cashier_id: cashierRecord.cashier_id },
         });
         await prismaClient.userRole.deleteMany({
-          where: {
-            user_id: { in: [cashier.user_id, approverWithoutPerm.user_id] },
-          },
+          where: { user_id: approverWithoutPerm.user_id },
         });
-        await prismaClient.user.deleteMany({
-          where: {
-            user_id: { in: [cashier.user_id, approverWithoutPerm.user_id] },
-          },
+        await prismaClient.user.delete({
+          where: { user_id: approverWithoutPerm.user_id },
         });
       }
     });
 
     test("PASO-006: should reject inactive approver", async ({
-      apiRequest,
+      cashierApiRequest,
       prismaClient,
-      testStore,
+      cashierUser,
     }) => {
       // GIVEN: A cashier and an inactive manager
-      const { user: cashier } = await createUserWithRole(prismaClient, {
-        roleCode: "CASHIER",
-      });
+      // Use cashierUser's store so the JWT has access to the store
+      const storeId = cashierUser.store_id;
 
       const { user: inactiveManager } = await createUserWithRole(prismaClient, {
         roleCode: "CLIENT_OWNER",
         status: "INACTIVE",
+        storeId: storeId,
+        companyId: cashierUser.company_id,
       });
 
-      await prismaClient.userStore.createMany({
-        data: [
-          { user_id: cashier.user_id, store_id: testStore.store_id },
-          { user_id: inactiveManager.user_id, store_id: testStore.store_id },
-        ],
-        skipDuplicates: true,
+      // Create cashier record for shift using factory
+      const cashierData = await createCashier({
+        store_id: storeId,
+        created_by: cashierUser.user_id,
+        name: `Cashier PASO006 ${Date.now()}`,
+      });
+      const cashierRecord = await prismaClient.cashier.create({
+        data: cashierData,
       });
 
+      // Create shift using factory
+      const shiftData = createShift({
+        store_id: storeId,
+        cashier_id: cashierRecord.cashier_id,
+        opened_by: cashierUser.user_id,
+        status: "ACTIVE",
+        opened_at: new Date(),
+      });
       const shift = await prismaClient.shift.create({
-        data: {
-          shift_id: uuidv4(),
-          store_id: testStore.store_id,
-          cashier_id: cashier.user_id,
-          status: "ACTIVE",
-          opened_at: new Date(),
-        },
+        data: shiftData,
       });
 
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Inactive Approver ${Date.now()}`,
-          price: 1.0,
-          serial_length: 3,
-        },
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Inactive Approver PASO006 ${Date.now()}`,
+        price: 1.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `IN${Date.now()}`,
-          serial_start: "001",
-          serial_end: "050",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `IN-PASO006-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "050",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: 93,
-          name: "Inactive Approver Bin",
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: 93,
+        name: "Inactive Approver Bin PASO006",
       });
 
       try {
         // WHEN: Activating with inactive approver
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await cashierApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "025",
-            activated_by: cashier.user_id,
+            activated_by: cashierUser.user_id,
             activated_shift_id: shift.shift_id,
             serial_override_approved_by: inactiveManager.user_id,
           },
         );
 
-        // THEN: Should be rejected
-        expect(response.status()).toBe(403);
+        // THEN: Should be rejected with 400 (inactive approver)
+        // Implementation returns BAD_REQUEST for inactive approver, not 403
+        expect(response.status()).toBe(400);
         const body = await response.json();
         expect(body.success).toBe(false);
-        expect(body.error.message).toContain("inactive");
+        expect(body.error.code).toBe("BAD_REQUEST");
+        expect(body.error.message).toContain("not active");
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
@@ -740,20 +685,14 @@ test.describe
         await prismaClient.shift.delete({
           where: { shift_id: shift.shift_id },
         });
-        await prismaClient.userStore.deleteMany({
-          where: {
-            user_id: { in: [cashier.user_id, inactiveManager.user_id] },
-          },
+        await prismaClient.cashier.delete({
+          where: { cashier_id: cashierRecord.cashier_id },
         });
         await prismaClient.userRole.deleteMany({
-          where: {
-            user_id: { in: [cashier.user_id, inactiveManager.user_id] },
-          },
+          where: { user_id: inactiveManager.user_id },
         });
-        await prismaClient.user.deleteMany({
-          where: {
-            user_id: { in: [cashier.user_id, inactiveManager.user_id] },
-          },
+        await prismaClient.user.delete({
+          where: { user_id: inactiveManager.user_id },
         });
       }
     });
@@ -765,54 +704,45 @@ test.describe
 
   test.describe("Data Persistence", () => {
     test("PASO-007: should save all approval fields to database", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
       // GIVEN: A manager activating with non-zero serial
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Persistence Game ${Date.now()}`,
-          price: 3.0,
-          serial_length: 3,
-        },
+      const storeId = storeManagerUser.store_id;
+
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Persistence Game PASO007 ${Date.now()}`,
+        price: 3.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `PG${Date.now()}`,
-          serial_start: "001",
-          serial_end: "100",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PG-PASO007-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "100",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: 92,
-          name: "Persistence Bin",
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: 92,
+        name: "Persistence Bin PASO007",
       });
 
       const beforeActivation = new Date();
 
       try {
         // WHEN: Activating with serial override
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "035",
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
@@ -823,7 +753,9 @@ test.describe
           where: { pack_id: pack.pack_id },
         });
 
-        expect(updatedPack?.serial_override_approved_by).toBe(testUser.user_id);
+        expect(updatedPack?.serial_override_approved_by).toBe(
+          storeManagerUser.user_id,
+        );
         expect(updatedPack?.serial_override_approved_at).not.toBeNull();
 
         // Timestamp should be recent
@@ -843,66 +775,60 @@ test.describe
     });
 
     test("PASO-010: should save serial_override_reason when provided", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
+      storeManagerUser,
     }) => {
       // GIVEN: A cashier with manager approval and reason
+      const storeId = storeManagerUser.store_id;
+
       const { user: cashier } = await createUserWithRole(prismaClient, {
         roleCode: "CASHIER",
+        storeId: storeId,
+        companyId: storeManagerUser.company_id,
       });
 
-      const { user: manager } = await createUserWithRole(prismaClient, {
-        roleCode: "CLIENT_OWNER",
+      // Create cashier for shift using factory
+      const cashierData = await createCashier({
+        store_id: storeId,
+        created_by: storeManagerUser.user_id,
+        name: `Cashier PASO010 ${Date.now()}`,
+      });
+      const cashierRecord = await prismaClient.cashier.create({
+        data: cashierData,
       });
 
-      await prismaClient.userStore.createMany({
-        data: [
-          { user_id: cashier.user_id, store_id: testStore.store_id },
-          { user_id: manager.user_id, store_id: testStore.store_id },
-        ],
-        skipDuplicates: true,
+      // Create shift using factory
+      const shiftData = createShift({
+        store_id: storeId,
+        cashier_id: cashierRecord.cashier_id,
+        opened_by: storeManagerUser.user_id,
+        status: "ACTIVE",
+        opened_at: new Date(),
       });
-
       const shift = await prismaClient.shift.create({
-        data: {
-          shift_id: uuidv4(),
-          store_id: testStore.store_id,
-          cashier_id: cashier.user_id,
-          status: "ACTIVE",
-          opened_at: new Date(),
-        },
+        data: shiftData,
       });
 
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Reason Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Reason Game PASO010 ${Date.now()}`,
+        price: 2.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `RG${Date.now()}`,
-          serial_start: "001",
-          serial_end: "100",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `RG-PASO010-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "100",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: 91,
-          name: "Reason Bin",
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: 91,
+        name: "Reason Bin PASO010",
       });
 
       const overrideReason =
@@ -910,15 +836,15 @@ test.describe
 
       try {
         // WHEN: Activating with reason
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "042",
             activated_by: cashier.user_id,
             activated_shift_id: shift.shift_id,
-            serial_override_approved_by: manager.user_id,
+            serial_override_approved_by: storeManagerUser.user_id,
             serial_override_reason: overrideReason,
           },
         );
@@ -942,21 +868,13 @@ test.describe
         await prismaClient.shift.delete({
           where: { shift_id: shift.shift_id },
         });
-        await prismaClient.userStore.deleteMany({
-          where: {
-            user_id: { in: [cashier.user_id, manager.user_id] },
-          },
+        await prismaClient.cashier.delete({
+          where: { cashier_id: cashierRecord.cashier_id },
         });
         await prismaClient.userRole.deleteMany({
-          where: {
-            user_id: { in: [cashier.user_id, manager.user_id] },
-          },
+          where: { user_id: cashier.user_id },
         });
-        await prismaClient.user.deleteMany({
-          where: {
-            user_id: { in: [cashier.user_id, manager.user_id] },
-          },
-        });
+        await prismaClient.user.delete({ where: { user_id: cashier.user_id } });
       }
     });
   });

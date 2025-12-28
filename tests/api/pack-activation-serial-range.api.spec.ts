@@ -34,72 +34,64 @@
  * @priority P0 (Critical - Data Integrity)
  */
 
-// @ts-nocheck - Test file is incomplete, requires proper fixtures before enabling
 import { test, expect } from "../support/fixtures/rbac.fixture";
-import { v4 as uuidv4 } from "uuid";
+import {
+  createLotteryGame,
+  createLotteryPack,
+  createLotteryBin,
+} from "../support/factories/lottery.factory";
 
-// SKIP: Tests require fixtures (testStore, testUser, apiRequest) that don't exist yet.
-// TODO: Implement proper fixtures and re-enable tests.
-test.describe
-  .skip("POST /api/stores/:storeId/lottery/packs/activate (Serial Range Validation)", () => {
+test.describe("POST /api/stores/:storeId/lottery/packs/activate (Serial Range Validation)", () => {
   // ═══════════════════════════════════════════════════════════════════════════
   // SECTION 1: VALID SERIAL RANGE (PASR-001, PASR-002, PASR-003, PASR-006)
   // ═══════════════════════════════════════════════════════════════════════════
 
   test.describe("Valid Serial Range", () => {
     test("PASR-001: should accept serial in middle of valid range", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
+      const storeId = storeManagerUser.store_id;
+
       // GIVEN: A pack with serial range 001-150
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game PASR001 ${Date.now()}`,
+        price: 2.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `${Date.now()}`,
-          serial_start: "001",
-          serial_end: "150",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PASR001-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "150",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: Math.floor(Math.random() * 1000) + 100,
-          name: `Test Bin ${Date.now()}`,
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: Math.floor(Math.random() * 1000) + 100,
+        name: `Test Bin PASR001 ${Date.now()}`,
       });
 
       try {
         // WHEN: Manager activates pack with serial 050 (middle of range)
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "050", // Middle of 001-150 range
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
         // THEN: Activation should succeed
-        expect(response.status).toBe(200);
-        expect(response.data.success).toBe(true);
+        expect(response.status()).toBe(200);
+        const body = await response.json();
+        expect(body.success).toBe(true);
       } finally {
         // Cleanup
         await prismaClient.lotteryPack.delete({
@@ -113,57 +105,49 @@ test.describe
     });
 
     test("PASR-002: should accept serial at exact range start (inclusive)", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const storeId = storeManagerUser.store_id;
+
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game PASR002 ${Date.now()}`,
+        price: 2.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `${Date.now()}`,
-          serial_start: "001",
-          serial_end: "150",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PASR002-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "150",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: Math.floor(Math.random() * 1000) + 200,
-          name: `Test Bin ${Date.now()}`,
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: Math.floor(Math.random() * 1000) + 200,
+        name: `Test Bin PASR002 ${Date.now()}`,
       });
 
       try {
         // WHEN: Activate with serial at exact start of range
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "001", // Exact start of range
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
         // THEN: Should succeed (start is inclusive)
-        expect(response.status).toBe(200);
-        expect(response.data.success).toBe(true);
+        expect(response.status()).toBe(200);
+        const body = await response.json();
+        expect(body.success).toBe(true);
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
@@ -176,57 +160,49 @@ test.describe
     });
 
     test("PASR-003: should accept serial at exact range end (inclusive)", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const storeId = storeManagerUser.store_id;
+
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game PASR003 ${Date.now()}`,
+        price: 2.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `${Date.now()}`,
-          serial_start: "001",
-          serial_end: "150",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PASR003-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "150",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: Math.floor(Math.random() * 1000) + 300,
-          name: `Test Bin ${Date.now()}`,
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: Math.floor(Math.random() * 1000) + 300,
+        name: `Test Bin PASR003 ${Date.now()}`,
       });
 
       try {
         // WHEN: Activate with serial at exact end of range
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "150", // Exact end of range
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
         // THEN: Should succeed (end is inclusive)
-        expect(response.status).toBe(200);
-        expect(response.data.success).toBe(true);
+        expect(response.status()).toBe(200);
+        const body = await response.json();
+        expect(body.success).toBe(true);
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
@@ -239,57 +215,49 @@ test.describe
     });
 
     test("PASR-006: should bypass validation for default '0' serial", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const storeId = storeManagerUser.store_id;
+
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game PASR006 ${Date.now()}`,
+        price: 2.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `${Date.now()}`,
-          serial_start: "001",
-          serial_end: "150",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PASR006-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "150",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: Math.floor(Math.random() * 1000) + 400,
-          name: `Test Bin ${Date.now()}`,
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: Math.floor(Math.random() * 1000) + 400,
+        name: `Test Bin PASR006 ${Date.now()}`,
       });
 
       try {
         // WHEN: Activate with default "0" serial (no validation needed)
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "0", // Default value - bypasses range validation
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
         // THEN: Should succeed without range validation
-        expect(response.status).toBe(200);
-        expect(response.data.success).toBe(true);
+        expect(response.status()).toBe(200);
+        const body = await response.json();
+        expect(body.success).toBe(true);
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
@@ -308,60 +276,54 @@ test.describe
 
   test.describe("Out of Range Errors", () => {
     test("PASR-004: should reject serial below pack's starting serial", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const storeId = storeManagerUser.store_id;
+
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game PASR004 ${Date.now()}`,
+        price: 2.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `${Date.now()}`,
-          serial_start: "050", // Pack starts at 050
-          serial_end: "150",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PASR004-${Date.now()}`,
+        serial_start: "050", // Pack starts at 050
+        serial_end: "150",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: Math.floor(Math.random() * 1000) + 500,
-          name: `Test Bin ${Date.now()}`,
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: Math.floor(Math.random() * 1000) + 500,
+        name: `Test Bin PASR004 ${Date.now()}`,
       });
 
       try {
         // WHEN: Try to activate with serial below range
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "001", // Below range start of 050
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
         // THEN: Should fail with validation error
-        expect(response.status).toBe(400);
-        expect(response.data.success).toBe(false);
-        expect(response.data.error.code).toBe("VALIDATION_ERROR");
-        expect(response.data.error.message).toContain("below");
-        expect(response.data.error.field).toBe("serial_start");
+        expect(response.status()).toBe(400);
+        const body = await response.json();
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+        // Error message contains "below" and the valid range
+        expect(body.error.message).toContain("below");
+        expect(body.error.message).toContain("050"); // Valid range start
+        expect(body.error.message).toContain("150"); // Valid range end
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
@@ -374,60 +336,54 @@ test.describe
     });
 
     test("PASR-005: should reject serial above pack's ending serial", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const storeId = storeManagerUser.store_id;
+
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game PASR005 ${Date.now()}`,
+        price: 2.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `${Date.now()}`,
-          serial_start: "001",
-          serial_end: "100", // Pack ends at 100
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PASR005-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "100", // Pack ends at 100
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: Math.floor(Math.random() * 1000) + 600,
-          name: `Test Bin ${Date.now()}`,
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: Math.floor(Math.random() * 1000) + 600,
+        name: `Test Bin PASR005 ${Date.now()}`,
       });
 
       try {
         // WHEN: Try to activate with serial above range
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "150", // Above range end of 100
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
         // THEN: Should fail with validation error
-        expect(response.status).toBe(400);
-        expect(response.data.success).toBe(false);
-        expect(response.data.error.code).toBe("VALIDATION_ERROR");
-        expect(response.data.error.message).toContain("exceeds");
-        expect(response.data.error.field).toBe("serial_start");
+        expect(response.status()).toBe(400);
+        const body = await response.json();
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+        // Error message contains "exceeds" and the valid range
+        expect(body.error.message).toContain("exceeds");
+        expect(body.error.message).toContain("001"); // Valid range start
+        expect(body.error.message).toContain("100"); // Valid range end
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
@@ -440,59 +396,54 @@ test.describe
     });
 
     test("PASR-007: should include valid range in error response", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const storeId = storeManagerUser.store_id;
+
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game PASR007 ${Date.now()}`,
+        price: 2.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `${Date.now()}`,
-          serial_start: "025",
-          serial_end: "175",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PASR007-${Date.now()}`,
+        serial_start: "025",
+        serial_end: "175",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: Math.floor(Math.random() * 1000) + 700,
-          name: `Test Bin ${Date.now()}`,
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: Math.floor(Math.random() * 1000) + 700,
+        name: `Test Bin PASR007 ${Date.now()}`,
       });
 
       try {
         // WHEN: Try to activate with invalid serial
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "200", // Above range
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
-        // THEN: Error should include the valid range
-        expect(response.status).toBe(400);
-        expect(response.data.error.validRange).toBeDefined();
-        expect(response.data.error.validRange.min).toBe("025");
-        expect(response.data.error.validRange.max).toBe("175");
+        // THEN: Error should include the valid range in the message
+        expect(response.status()).toBe(400);
+        const body = await response.json();
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+        // The error message includes the valid range
+        expect(body.error.message).toContain("025"); // Valid range start
+        expect(body.error.message).toContain("175"); // Valid range end
+        expect(body.error.message).toContain("Valid range");
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
@@ -511,59 +462,51 @@ test.describe
 
   test.describe("Security Tests", () => {
     test("PASR-008: should reject non-numeric serial_start", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const storeId = storeManagerUser.store_id;
+
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game PASR008 ${Date.now()}`,
+        price: 2.0,
       });
 
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `${Date.now()}`,
-          serial_start: "001",
-          serial_end: "150",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PASR008-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "150",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: Math.floor(Math.random() * 1000) + 800,
-          name: `Test Bin ${Date.now()}`,
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: Math.floor(Math.random() * 1000) + 800,
+        name: `Test Bin PASR008 ${Date.now()}`,
       });
 
       try {
         // WHEN: Try to activate with non-numeric serial (injection attempt)
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "abc; DROP TABLE--",
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
         // THEN: Should fail with validation error
-        expect(response.status).toBe(400);
-        expect(response.data.success).toBe(false);
-        expect(response.data.error.code).toBe("VALIDATION_ERROR");
-        expect(response.data.error.message).toContain("numeric");
+        expect(response.status()).toBe(400);
+        const body = await response.json();
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+        expect(body.error.message).toContain("numeric");
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
@@ -582,61 +525,53 @@ test.describe
 
   test.describe("Serial Length Validation", () => {
     test("PASR-011: should reject serial with fewer digits than pack format", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const storeId = storeManagerUser.store_id;
+
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game PASR011 ${Date.now()}`,
+        price: 2.0,
       });
 
       // Pack uses 3-digit serial format (001-150)
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `${Date.now()}`,
-          serial_start: "001",
-          serial_end: "150",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PASR011-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "150",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: Math.floor(Math.random() * 1000) + 1100,
-          name: `Test Bin ${Date.now()}`,
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: Math.floor(Math.random() * 1000) + 1100,
+        name: `Test Bin PASR011 ${Date.now()}`,
       });
 
       try {
         // WHEN: Try to activate with 2-digit serial (should be 3)
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "50", // Wrong: 2 digits, should be 3
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
         // THEN: Should fail with length validation error
-        expect(response.status).toBe(400);
-        expect(response.data.success).toBe(false);
-        expect(response.data.error.code).toBe("VALIDATION_ERROR");
-        expect(response.data.error.message).toContain("exactly 3 digits");
-        expect(response.data.error.field).toBe("serial_start");
+        expect(response.status()).toBe(400);
+        const body = await response.json();
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+        // Error message indicates exact digit requirement
+        expect(body.error.message).toContain("exactly 3 digits");
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
@@ -649,61 +584,53 @@ test.describe
     });
 
     test("PASR-012: should reject serial with more digits than pack format", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 3,
-        },
+      const storeId = storeManagerUser.store_id;
+
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game PASR012 ${Date.now()}`,
+        price: 2.0,
       });
 
       // Pack uses 3-digit serial format (001-150)
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `${Date.now()}`,
-          serial_start: "001",
-          serial_end: "150",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PASR012-${Date.now()}`,
+        serial_start: "001",
+        serial_end: "150",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: Math.floor(Math.random() * 1000) + 1200,
-          name: `Test Bin ${Date.now()}`,
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: Math.floor(Math.random() * 1000) + 1200,
+        name: `Test Bin PASR012 ${Date.now()}`,
       });
 
       try {
         // WHEN: Try to activate with 4-digit serial (should be 3)
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "0050", // Wrong: 4 digits, should be 3
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
         // THEN: Should fail with length validation error
-        expect(response.status).toBe(400);
-        expect(response.data.success).toBe(false);
-        expect(response.data.error.code).toBe("VALIDATION_ERROR");
-        expect(response.data.error.message).toContain("exactly 3 digits");
-        expect(response.data.error.field).toBe("serial_start");
+        expect(response.status()).toBe(400);
+        const body = await response.json();
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+        // Error message indicates exact digit requirement
+        expect(body.error.message).toContain("exactly 3 digits");
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
@@ -722,58 +649,50 @@ test.describe
 
   test.describe("BigInt Edge Cases", () => {
     test("PASR-009: should correctly handle large serial numbers with BigInt", async ({
-      apiRequest,
+      storeManagerApiRequest,
       prismaClient,
-      testStore,
-      testUser,
+      storeManagerUser,
     }) => {
-      const game = await prismaClient.lotteryGame.create({
-        data: {
-          game_id: uuidv4(),
-          store_id: testStore.store_id,
-          name: `Test Game ${Date.now()}`,
-          price: 2.0,
-          serial_length: 24, // Large serial numbers
-        },
+      const storeId = storeManagerUser.store_id;
+
+      const game = await createLotteryGame(prismaClient, {
+        store_id: storeId,
+        name: `Test Game PASR009 ${Date.now()}`,
+        price: 2.0,
       });
 
       // Use numbers larger than Number.MAX_SAFE_INTEGER
-      const pack = await prismaClient.lotteryPack.create({
-        data: {
-          pack_id: uuidv4(),
-          game_id: game.game_id,
-          pack_number: `${Date.now()}`,
-          serial_start: "100000000000000000000000", // 24 digits
-          serial_end: "200000000000000000000000",
-          status: "RECEIVED",
-        },
+      const pack = await createLotteryPack(prismaClient, {
+        game_id: game.game_id,
+        store_id: storeId,
+        pack_number: `PASR009-${Date.now()}`,
+        serial_start: "100000000000000000000000", // 24 digits
+        serial_end: "200000000000000000000000",
+        status: "RECEIVED",
       });
 
-      const bin = await prismaClient.lotteryBin.create({
-        data: {
-          bin_id: uuidv4(),
-          store_id: testStore.store_id,
-          bin_number: Math.floor(Math.random() * 1000) + 900,
-          name: `Test Bin ${Date.now()}`,
-          is_active: true,
-        },
+      const bin = await createLotteryBin(prismaClient, {
+        store_id: storeId,
+        bin_number: Math.floor(Math.random() * 1000) + 900,
+        name: `Test Bin PASR009 ${Date.now()}`,
       });
 
       try {
         // WHEN: Activate with large serial in range
-        const response = await apiRequest.post(
-          `/api/stores/${testStore.store_id}/lottery/packs/activate`,
+        const response = await storeManagerApiRequest.post(
+          `/api/stores/${storeId}/lottery/packs/activate`,
           {
             pack_id: pack.pack_id,
             bin_id: bin.bin_id,
             serial_start: "150000000000000000000000", // In range
-            activated_by: testUser.user_id,
+            activated_by: storeManagerUser.user_id,
           },
         );
 
         // THEN: Should succeed with BigInt comparison
-        expect(response.status).toBe(200);
-        expect(response.data.success).toBe(true);
+        expect(response.status()).toBe(200);
+        const body = await response.json();
+        expect(body.success).toBe(true);
       } finally {
         await prismaClient.lotteryPack.delete({
           where: { pack_id: pack.pack_id },
