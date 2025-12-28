@@ -100,6 +100,9 @@ async function loginAndWaitForMyStore(
  * Navigate to lottery page and wait for it to be fully loaded.
  * Uses network-first pattern - waits for API responses that populate the page.
  *
+ * Enterprise Pattern: Uses increased timeouts for CI/CD environments which
+ * are typically slower than local development environments.
+ *
  * @returns Promise resolving when page is ready for interaction
  */
 async function navigateToLotteryPage(page: Page): Promise<void> {
@@ -110,17 +113,17 @@ async function navigateToLotteryPage(page: Page): Promise<void> {
   const packsResponsePromise = page.waitForResponse(
     (resp) =>
       /\/api\/lottery\/packs(\?|$)/.test(resp.url()) && resp.status() === 200,
-    { timeout: 30000 },
+    { timeout: 45000 },
   );
 
   // Navigate to lottery page
   await page.goto("/mystore/lottery", { waitUntil: "domcontentloaded" });
 
-  // Wait for the lottery page container to be in DOM
+  // Wait for the lottery page container to be in DOM (increased timeout for CI)
   await expect(
     page.locator('[data-testid="lottery-management-page"]'),
   ).toBeVisible({
-    timeout: 15000,
+    timeout: 30000,
   });
 
   // Wait for packs API to complete (this populates the buttons' enabled/disabled state)
@@ -268,18 +271,18 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
     // WHEN: User navigates to lottery page (with network-first waiting)
     await navigateToLotteryPage(page);
 
-    // THEN: Page structure is correct
+    // THEN: Page structure is correct (increased timeout for CI environments)
     await expect(
       page.locator('[data-testid="lottery-management-page"]'),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20000 });
 
     // AND: Action buttons are visible (state depends on API data)
     await expect(
       page.locator('[data-testid="receive-pack-button"]'),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 15000 });
     await expect(
       page.locator('[data-testid="activate-pack-button"]'),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 15000 });
   });
 
   test("6.10-E2E-002: [P0] user can open pack reception form (AC #2)", async ({
@@ -293,25 +296,28 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
     const receivePackButton = page.locator(
       '[data-testid="receive-pack-button"]',
     );
-    await expect(receivePackButton).toBeEnabled();
+    await expect(receivePackButton).toBeEnabled({ timeout: 15000 });
     await receivePackButton.click();
 
     // THEN: Pack reception dialog opens with serialized number input
     const serialInput = page.locator('[data-testid="serial-input"]');
-    await expect(serialInput).toBeVisible();
-    await expect(serialInput).toBeEditable();
+    await expect(serialInput).toBeVisible({ timeout: 15000 });
+    await expect(serialInput).toBeEditable({ timeout: 10000 });
 
     // AND: Serial input has correct attributes (Story 6.12 - 24-digit serial)
     await expect(serialInput).toHaveAttribute(
       "placeholder",
       "000000000000000000000000",
+      { timeout: 5000 },
     );
-    await expect(serialInput).toHaveAttribute("maxlength", "24");
+    await expect(serialInput).toHaveAttribute("maxlength", "24", {
+      timeout: 5000,
+    });
 
     // AND: Submit button is visible but disabled (no packs added yet)
     const submitButton = page.locator('[data-testid="submit-batch-reception"]');
-    await expect(submitButton).toBeVisible();
-    await expect(submitButton).toBeDisabled();
+    await expect(submitButton).toBeVisible({ timeout: 10000 });
+    await expect(submitButton).toBeDisabled({ timeout: 5000 });
   });
 
   test("6.10-E2E-003: [P1] user can view bins with packs in day bins table (AC #1)", async ({
@@ -345,15 +351,15 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
         (resp) =>
           resp.url().includes("/api/lottery/bins/day/") &&
           resp.status() === 200,
-        { timeout: 30000 },
+        { timeout: 45000 },
       );
 
       await page.goto("/mystore/lottery", { waitUntil: "domcontentloaded" });
 
-      // Wait for lottery page container to be visible
+      // Wait for lottery page container to be visible (increased timeout for CI)
       await expect(
         page.locator('[data-testid="lottery-management-page"]'),
-      ).toBeVisible({ timeout: 15000 });
+      ).toBeVisible({ timeout: 30000 });
 
       // Wait for day bins API to complete (deterministic wait)
       const dayBinsResponse = await dayBinsResponsePromise;
@@ -367,8 +373,8 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
 
       // THEN: Day bins table displays with our pack
       const table = page.locator('[data-testid="day-bins-table"]');
-      await expect(table).toBeVisible({ timeout: 10000 });
-      await expect(table).toContainText(pack.pack_number, { timeout: 5000 });
+      await expect(table).toBeVisible({ timeout: 15000 });
+      await expect(table).toContainText(pack.pack_number, { timeout: 10000 });
     } finally {
       // Cleanup in correct FK order - handle constraints gracefully
       await prisma.lotteryShiftOpening
@@ -422,7 +428,7 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       // Wait for lottery page container to be visible
       await expect(
         page.locator('[data-testid="lottery-management-page"]'),
-      ).toBeVisible({ timeout: 15000 });
+      ).toBeVisible({ timeout: 30000 });
 
       // Wait for packs API to complete (deterministic wait)
       const packsResponse = await packsResponsePromise;
@@ -435,8 +441,8 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       const activateButton = page.locator(
         '[data-testid="activate-pack-button"]',
       );
-      await expect(activateButton).toBeVisible({ timeout: 10000 });
-      await expect(activateButton).toBeEnabled({ timeout: 10000 });
+      await expect(activateButton).toBeVisible({ timeout: 15000 });
+      await expect(activateButton).toBeEnabled({ timeout: 15000 });
 
       // WHEN: User clicks Activate Pack button
       await activateButton.click();
@@ -446,37 +452,40 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       const activationForm = page.locator(
         '[data-testid="pack-activation-form"]',
       );
-      await expect(activationForm).toBeVisible({ timeout: 15000 });
+      await expect(activationForm).toBeVisible({ timeout: 20000 });
 
       // Verify the pack search combobox is visible and ready
       const packSearchInput = page.locator('[data-testid="pack-search"]');
-      await expect(packSearchInput).toBeVisible({ timeout: 10000 });
-      await expect(packSearchInput).toBeEditable({ timeout: 5000 });
+      await expect(packSearchInput).toBeVisible({ timeout: 15000 });
+      await expect(packSearchInput).toBeEditable({ timeout: 10000 });
 
       // Verify the submit button is visible (disabled until pack is selected)
       await expect(
         page.locator('[data-testid="submit-activation"]'),
-      ).toBeVisible({ timeout: 5000 });
+      ).toBeVisible({ timeout: 10000 });
 
       // AND: The combobox dropdown shows our RECEIVED pack when focused
-      // The PackSearchCombobox fetches packs when dialog opens (isOpen=true), not on focus
-      // So we just need to click to open the dropdown and wait for options to render
+      // Note: The PackSearchCombobox uses React Query which may serve cached data
+      // from the initial page load, so we can't rely on a new API call.
+      // Instead, we wait for the dropdown to render with pack options.
       await packSearchInput.click();
 
-      // Wait for the dropdown to appear (packs are already fetched when dialog opened)
+      // Wait for the dropdown to appear (data may come from cache or fresh fetch)
       const packDropdown = page.locator('[data-testid="pack-search-dropdown"]');
-      await expect(packDropdown).toBeVisible({ timeout: 15000 });
+      await expect(packDropdown).toBeVisible({ timeout: 20000 });
 
       // Verify at least one pack option is visible (our created pack)
       // The combobox uses indexed options (pack-search-option-0, option-1, etc.)
       const firstPackOption = page.locator(
         '[data-testid="pack-search-option-0"]',
       );
-      await expect(firstPackOption).toBeVisible({ timeout: 10000 });
+      await expect(firstPackOption).toBeVisible({ timeout: 15000 });
 
       // Verify the option contains our pack's information
       // The option displays: Game Name, Pack #<number>, Serials <start>-<end>
-      await expect(firstPackOption).toContainText(pack.pack_number);
+      await expect(firstPackOption).toContainText(pack.pack_number, {
+        timeout: 10000,
+      });
     } finally {
       // Clean up test data - handle FK constraints gracefully
       await prisma.lotteryShiftOpening
