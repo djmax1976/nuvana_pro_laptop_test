@@ -50,11 +50,15 @@ jobs:
     steps:
       - name: Determine environment
         id: env
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           # Determine environment from branch or manual input
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            ENV="${{ inputs.environment }}"
-          elif [ "${{ github.ref_name }}" = "main" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ENV="$INPUT_ENVIRONMENT"
+          elif [ "$REF_NAME" = "main" ]; then
             ENV="production"
           else
             ENV="staging"
@@ -75,7 +79,7 @@ jobs:
 
           echo "## Environment Configuration" >> $GITHUB_STEP_SUMMARY
           echo "- **Environment:** $ENV" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** $REF_NAME" >> $GITHUB_STEP_SUMMARY
 
   # =============================================================================
   # Pre-deployment validation (fast sanity check)
