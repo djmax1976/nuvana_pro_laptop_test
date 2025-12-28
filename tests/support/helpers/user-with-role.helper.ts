@@ -24,6 +24,8 @@ export interface CreateUserWithRoleInput {
   password?: string;
   roleCode?: string; // Default: "CASHIER" (least privileged role)
   status?: "ACTIVE" | "INACTIVE" | "SUSPENDED";
+  storeId?: string; // Optional: Scope user role to specific store
+  companyId?: string; // Optional: Scope user role to specific company
 }
 
 export interface UserWithRoleResult {
@@ -103,11 +105,13 @@ export async function createUserWithRole(
     },
   });
 
-  // Assign role to user
+  // Assign role to user with optional store/company scoping
   const userRole = await prisma.userRole.create({
     data: {
       user_id: user.user_id,
       role_id: role.role_id,
+      store_id: input.storeId || null,
+      company_id: input.companyId || null,
     },
   });
 
@@ -127,8 +131,8 @@ export async function createUserWithRole(
     role_code: role.code,
     scope: role.scope as "SYSTEM" | "COMPANY" | "STORE" | "CLIENT",
     client_id: null,
-    company_id: null,
-    store_id: null,
+    company_id: input.companyId || null,
+    store_id: input.storeId || null,
     permissions,
   };
   await populateUserRolesCache(user.user_id, [cachedRole]);

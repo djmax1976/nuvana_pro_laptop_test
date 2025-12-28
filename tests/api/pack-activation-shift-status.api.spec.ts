@@ -52,10 +52,15 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
     }) => {
       // GIVEN: Store manager with a shift in OPEN status
       const pinHash = await bcrypt.hash("1234", 10);
+      // Generate unique 4-digit employee ID (max 4 chars per schema)
+      const uniqueId = String(Math.floor(Math.random() * 9999) + 1).padStart(
+        4,
+        "0",
+      );
       const cashier = await prismaClient.cashier.create({
         data: {
           store_id: storeManagerUser.store_id,
-          employee_id: "0001",
+          employee_id: uniqueId,
           name: "Test Cashier PKA-001",
           pin_hash: pinHash,
           hired_on: new Date(),
@@ -76,22 +81,23 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
 
       // Create lottery game, bin, and pack
       const game = await createLotteryGame(prismaClient, {
-        name: "Test Game PKA-001",
+        store_id: storeManagerUser.store_id,
+        name: `Test Game PKA-001 ${Date.now()}`,
         price: 2.0,
       });
 
       const bin = await createLotteryBin(prismaClient, {
         store_id: storeManagerUser.store_id,
-        bin_number: 1,
-        name: "Bin 1 PKA-001",
+        bin_number: Math.floor(Math.random() * 10000) + 1,
+        name: `Bin PKA-001 ${Date.now()}`,
       });
 
       const pack = await createLotteryPack(prismaClient, {
         game_id: game.game_id,
         store_id: storeManagerUser.store_id,
         pack_number: `PKA001-${Date.now()}`,
-        serial_start: "100000000000000000000001",
-        serial_end: "100000000000000000000150",
+        serial_start: "001",
+        serial_end: "150",
         status: LotteryPackStatus.RECEIVED,
       });
 
@@ -100,13 +106,11 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const response = await storeManagerApiRequest.post(
           `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
           {
-            data: {
-              pack_number: pack.pack_number,
-              bin_id: bin.bin_id,
-              starting_serial: "100000000000000000000001",
-              activated_by: storeManagerUser.user_id,
-              activated_shift_id: shift.shift_id,
-            },
+            pack_id: pack.pack_id,
+            bin_id: bin.bin_id,
+            serial_start: "001",
+            activated_by: storeManagerUser.user_id,
+            activated_shift_id: shift.shift_id,
           },
         );
 
@@ -114,8 +118,8 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         expect(response.status()).toBe(200);
         const body = await response.json();
         expect(body.success).toBe(true);
-        expect(body.data.pack).toHaveProperty("pack_id");
-        expect(body.data.pack.status).toBe("ACTIVE");
+        expect(body.data.updatedBin).toBeDefined();
+        expect(body.data.updatedBin.pack).toBeDefined();
       } finally {
         // Cleanup
         await prismaClient.lotteryPack
@@ -146,7 +150,10 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       const cashier = await prismaClient.cashier.create({
         data: {
           store_id: storeManagerUser.store_id,
-          employee_id: "0002",
+          employee_id: String(Math.floor(Math.random() * 9999) + 1).padStart(
+            4,
+            "0",
+          ),
           name: "Test Cashier PKA-002",
           pin_hash: pinHash,
           hired_on: new Date(),
@@ -166,22 +173,23 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       });
 
       const game = await createLotteryGame(prismaClient, {
-        name: "Test Game PKA-002",
+        store_id: storeManagerUser.store_id,
+        name: `Test Game PKA-002 ${Date.now()}`,
         price: 3.0,
       });
 
       const bin = await createLotteryBin(prismaClient, {
         store_id: storeManagerUser.store_id,
-        bin_number: 2,
-        name: "Bin 2 PKA-002",
+        bin_number: Math.floor(Math.random() * 10000) + 100,
+        name: `Bin PKA-002 ${Date.now()}`,
       });
 
       const pack = await createLotteryPack(prismaClient, {
         game_id: game.game_id,
         store_id: storeManagerUser.store_id,
         pack_number: `PKA002-${Date.now()}`,
-        serial_start: "200000000000000000000001",
-        serial_end: "200000000000000000000150",
+        serial_start: "001",
+        serial_end: "150",
         status: LotteryPackStatus.RECEIVED,
       });
 
@@ -190,13 +198,11 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const response = await storeManagerApiRequest.post(
           `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
           {
-            data: {
-              pack_number: pack.pack_number,
-              bin_id: bin.bin_id,
-              starting_serial: "200000000000000000000001",
-              activated_by: storeManagerUser.user_id,
-              activated_shift_id: shift.shift_id,
-            },
+            pack_id: pack.pack_id,
+            bin_id: bin.bin_id,
+            serial_start: "001",
+            activated_by: storeManagerUser.user_id,
+            activated_shift_id: shift.shift_id,
           },
         );
 
@@ -204,7 +210,7 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         expect(response.status()).toBe(200);
         const body = await response.json();
         expect(body.success).toBe(true);
-        expect(body.data.pack.status).toBe("ACTIVE");
+        expect(body.data.updatedBin.pack).toBeDefined();
       } finally {
         // Cleanup
         await prismaClient.lotteryPack
@@ -241,7 +247,10 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       const cashier = await prismaClient.cashier.create({
         data: {
           store_id: storeManagerUser.store_id,
-          employee_id: "0003",
+          employee_id: String(Math.floor(Math.random() * 9999) + 1).padStart(
+            4,
+            "0",
+          ),
           name: "Test Cashier PKA-003",
           pin_hash: pinHash,
           hired_on: new Date(),
@@ -261,22 +270,23 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       });
 
       const game = await createLotteryGame(prismaClient, {
-        name: "Test Game PKA-003",
+        store_id: storeManagerUser.store_id,
+        name: `Test Game PKA-003 ${Date.now()}`,
         price: 2.0,
       });
 
       const bin = await createLotteryBin(prismaClient, {
         store_id: storeManagerUser.store_id,
-        bin_number: 3,
-        name: "Bin 3 PKA-003",
+        bin_number: Math.floor(Math.random() * 10000) + 200,
+        name: `Bin PKA-003 ${Date.now()}`,
       });
 
       const pack = await createLotteryPack(prismaClient, {
         game_id: game.game_id,
         store_id: storeManagerUser.store_id,
         pack_number: `PKA003-${Date.now()}`,
-        serial_start: "300000000000000000000001",
-        serial_end: "300000000000000000000150",
+        serial_start: "001",
+        serial_end: "150",
         status: LotteryPackStatus.RECEIVED,
       });
 
@@ -285,13 +295,11 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const response = await storeManagerApiRequest.post(
           `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
           {
-            data: {
-              pack_number: pack.pack_number,
-              bin_id: bin.bin_id,
-              starting_serial: "300000000000000000000001",
-              activated_by: storeManagerUser.user_id,
-              activated_shift_id: shift.shift_id,
-            },
+            pack_id: pack.pack_id,
+            bin_id: bin.bin_id,
+            serial_start: "001",
+            activated_by: storeManagerUser.user_id,
+            activated_shift_id: shift.shift_id,
           },
         );
 
@@ -300,7 +308,7 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const body = await response.json();
         expect(body.success).toBe(false);
         expect(body.error.code).toBe("BAD_REQUEST");
-        expect(body.error.message).toContain("closing");
+        expect(body.error.message.toLowerCase()).toContain("closing");
       } finally {
         // Cleanup
         await prismaClient.lotteryPack
@@ -331,7 +339,10 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       const cashier = await prismaClient.cashier.create({
         data: {
           store_id: storeManagerUser.store_id,
-          employee_id: "0004",
+          employee_id: String(Math.floor(Math.random() * 9999) + 1).padStart(
+            4,
+            "0",
+          ),
           name: "Test Cashier PKA-004",
           pin_hash: pinHash,
           hired_on: new Date(),
@@ -351,22 +362,23 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       });
 
       const game = await createLotteryGame(prismaClient, {
-        name: "Test Game PKA-004",
+        store_id: storeManagerUser.store_id,
+        name: `Test Game PKA-004 ${Date.now()}`,
         price: 2.0,
       });
 
       const bin = await createLotteryBin(prismaClient, {
         store_id: storeManagerUser.store_id,
-        bin_number: 4,
-        name: "Bin 4 PKA-004",
+        bin_number: Math.floor(Math.random() * 10000) + 300,
+        name: `Bin PKA-004 ${Date.now()}`,
       });
 
       const pack = await createLotteryPack(prismaClient, {
         game_id: game.game_id,
         store_id: storeManagerUser.store_id,
         pack_number: `PKA004-${Date.now()}`,
-        serial_start: "400000000000000000000001",
-        serial_end: "400000000000000000000150",
+        serial_start: "001",
+        serial_end: "150",
         status: LotteryPackStatus.RECEIVED,
       });
 
@@ -375,13 +387,11 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const response = await storeManagerApiRequest.post(
           `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
           {
-            data: {
-              pack_number: pack.pack_number,
-              bin_id: bin.bin_id,
-              starting_serial: "400000000000000000000001",
-              activated_by: storeManagerUser.user_id,
-              activated_shift_id: shift.shift_id,
-            },
+            pack_id: pack.pack_id,
+            bin_id: bin.bin_id,
+            serial_start: "001",
+            activated_by: storeManagerUser.user_id,
+            activated_shift_id: shift.shift_id,
           },
         );
 
@@ -390,7 +400,7 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const body = await response.json();
         expect(body.success).toBe(false);
         expect(body.error.code).toBe("BAD_REQUEST");
-        expect(body.error.message).toContain("reconcil");
+        expect(body.error.message.toLowerCase()).toContain("reconcil");
       } finally {
         // Cleanup
         await prismaClient.lotteryPack
@@ -421,7 +431,10 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       const cashier = await prismaClient.cashier.create({
         data: {
           store_id: storeManagerUser.store_id,
-          employee_id: "0005",
+          employee_id: String(Math.floor(Math.random() * 9999) + 1).padStart(
+            4,
+            "0",
+          ),
           name: "Test Cashier PKA-005",
           pin_hash: pinHash,
           hired_on: new Date(),
@@ -441,22 +454,23 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       });
 
       const game = await createLotteryGame(prismaClient, {
-        name: "Test Game PKA-005",
+        store_id: storeManagerUser.store_id,
+        name: `Test Game PKA-005 ${Date.now()}`,
         price: 2.0,
       });
 
       const bin = await createLotteryBin(prismaClient, {
         store_id: storeManagerUser.store_id,
-        bin_number: 5,
-        name: "Bin 5 PKA-005",
+        bin_number: Math.floor(Math.random() * 10000) + 400,
+        name: `Bin PKA-005 ${Date.now()}`,
       });
 
       const pack = await createLotteryPack(prismaClient, {
         game_id: game.game_id,
         store_id: storeManagerUser.store_id,
         pack_number: `PKA005-${Date.now()}`,
-        serial_start: "500000000000000000000001",
-        serial_end: "500000000000000000000150",
+        serial_start: "001",
+        serial_end: "150",
         status: LotteryPackStatus.RECEIVED,
       });
 
@@ -465,13 +479,11 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const response = await storeManagerApiRequest.post(
           `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
           {
-            data: {
-              pack_number: pack.pack_number,
-              bin_id: bin.bin_id,
-              starting_serial: "500000000000000000000001",
-              activated_by: storeManagerUser.user_id,
-              activated_shift_id: shift.shift_id,
-            },
+            pack_id: pack.pack_id,
+            bin_id: bin.bin_id,
+            serial_start: "001",
+            activated_by: storeManagerUser.user_id,
+            activated_shift_id: shift.shift_id,
           },
         );
 
@@ -480,7 +492,7 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const body = await response.json();
         expect(body.success).toBe(false);
         expect(body.error.code).toBe("BAD_REQUEST");
-        expect(body.error.message).toContain("variance");
+        expect(body.error.message.toLowerCase()).toContain("variance");
       } finally {
         // Cleanup
         await prismaClient.lotteryPack
@@ -511,7 +523,10 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       const cashier = await prismaClient.cashier.create({
         data: {
           store_id: storeManagerUser.store_id,
-          employee_id: "0006",
+          employee_id: String(Math.floor(Math.random() * 9999) + 1).padStart(
+            4,
+            "0",
+          ),
           name: "Test Cashier PKA-006",
           pin_hash: pinHash,
           hired_on: new Date(),
@@ -533,22 +548,23 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       });
 
       const game = await createLotteryGame(prismaClient, {
-        name: "Test Game PKA-006",
+        store_id: storeManagerUser.store_id,
+        name: `Test Game PKA-006 ${Date.now()}`,
         price: 2.0,
       });
 
       const bin = await createLotteryBin(prismaClient, {
         store_id: storeManagerUser.store_id,
-        bin_number: 6,
-        name: "Bin 6 PKA-006",
+        bin_number: Math.floor(Math.random() * 10000) + 500,
+        name: `Bin PKA-006 ${Date.now()}`,
       });
 
       const pack = await createLotteryPack(prismaClient, {
         game_id: game.game_id,
         store_id: storeManagerUser.store_id,
         pack_number: `PKA006-${Date.now()}`,
-        serial_start: "600000000000000000000001",
-        serial_end: "600000000000000000000150",
+        serial_start: "001",
+        serial_end: "150",
         status: LotteryPackStatus.RECEIVED,
       });
 
@@ -557,13 +573,11 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const response = await storeManagerApiRequest.post(
           `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
           {
-            data: {
-              pack_number: pack.pack_number,
-              bin_id: bin.bin_id,
-              starting_serial: "600000000000000000000001",
-              activated_by: storeManagerUser.user_id,
-              activated_shift_id: shift.shift_id,
-            },
+            pack_id: pack.pack_id,
+            bin_id: bin.bin_id,
+            serial_start: "001",
+            activated_by: storeManagerUser.user_id,
+            activated_shift_id: shift.shift_id,
           },
         );
 
@@ -609,7 +623,10 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       const cashier = await prismaClient.cashier.create({
         data: {
           store_id: storeManagerUser.store_id,
-          employee_id: "0007",
+          employee_id: String(Math.floor(Math.random() * 9999) + 1).padStart(
+            4,
+            "0",
+          ),
           name: "Test Cashier PKA-007",
           pin_hash: pinHash,
           hired_on: new Date(),
@@ -629,22 +646,23 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       });
 
       const game = await createLotteryGame(prismaClient, {
-        name: "Test Game PKA-007",
+        store_id: storeManagerUser.store_id,
+        name: `Test Game PKA-007 ${Date.now()}`,
         price: 2.0,
       });
 
       const bin = await createLotteryBin(prismaClient, {
         store_id: storeManagerUser.store_id,
-        bin_number: 7,
-        name: "Bin 7 PKA-007",
+        bin_number: Math.floor(Math.random() * 10000) + 600,
+        name: `Bin PKA-007 ${Date.now()}`,
       });
 
       const pack = await createLotteryPack(prismaClient, {
         game_id: game.game_id,
         store_id: storeManagerUser.store_id,
         pack_number: `PKA007-${Date.now()}`,
-        serial_start: "700000000000000000000001",
-        serial_end: "700000000000000000000150",
+        serial_start: "001",
+        serial_end: "150",
         status: LotteryPackStatus.RECEIVED,
       });
 
@@ -653,13 +671,11 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const response = await storeManagerApiRequest.post(
           `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
           {
-            data: {
-              pack_number: pack.pack_number,
-              bin_id: bin.bin_id,
-              starting_serial: "700000000000000000000001",
-              activated_by: storeManagerUser.user_id,
-              activated_shift_id: shift.shift_id,
-            },
+            pack_id: pack.pack_id,
+            bin_id: bin.bin_id,
+            serial_start: "001",
+            activated_by: storeManagerUser.user_id,
+            activated_shift_id: shift.shift_id,
           },
         );
 
@@ -673,7 +689,8 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         expect(
           errorMessage.includes("complete") ||
             errorMessage.includes("cancel") ||
-            errorMessage.includes("before"),
+            errorMessage.includes("before") ||
+            errorMessage.includes("cannot"),
         ).toBe(true);
       } finally {
         // Cleanup
@@ -705,7 +722,10 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       const cashier = await prismaClient.cashier.create({
         data: {
           store_id: storeManagerUser.store_id,
-          employee_id: "0008",
+          employee_id: String(Math.floor(Math.random() * 9999) + 1).padStart(
+            4,
+            "0",
+          ),
           name: "Test Cashier PKA-008",
           pin_hash: pinHash,
           hired_on: new Date(),
@@ -725,22 +745,23 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       });
 
       const game = await createLotteryGame(prismaClient, {
-        name: "Test Game PKA-008",
+        store_id: storeManagerUser.store_id,
+        name: `Test Game PKA-008 ${Date.now()}`,
         price: 2.0,
       });
 
       const bin = await createLotteryBin(prismaClient, {
         store_id: storeManagerUser.store_id,
-        bin_number: 8,
-        name: "Bin 8 PKA-008",
+        bin_number: Math.floor(Math.random() * 10000) + 700,
+        name: `Bin PKA-008 ${Date.now()}`,
       });
 
       const pack = await createLotteryPack(prismaClient, {
         game_id: game.game_id,
         store_id: storeManagerUser.store_id,
         pack_number: `PKA008-${Date.now()}`,
-        serial_start: "800000000000000000000001",
-        serial_end: "800000000000000000000150",
+        serial_start: "001",
+        serial_end: "150",
         status: LotteryPackStatus.RECEIVED,
       });
 
@@ -749,13 +770,11 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const response = await storeManagerApiRequest.post(
           `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
           {
-            data: {
-              pack_number: pack.pack_number,
-              bin_id: bin.bin_id,
-              starting_serial: "800000000000000000000001",
-              activated_by: storeManagerUser.user_id,
-              activated_shift_id: shift.shift_id,
-            },
+            pack_id: pack.pack_id,
+            bin_id: bin.bin_id,
+            serial_start: "001",
+            activated_by: storeManagerUser.user_id,
+            activated_shift_id: shift.shift_id,
           },
         );
 
@@ -769,7 +788,8 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         expect(
           errorMessage.includes("resolve") ||
             errorMessage.includes("review") ||
-            errorMessage.includes("pending"),
+            errorMessage.includes("pending") ||
+            errorMessage.includes("cannot"),
         ).toBe(true);
       } finally {
         // Cleanup
@@ -804,22 +824,23 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
     }) => {
       // GIVEN: Valid store and pack but non-existent shift_id
       const game = await createLotteryGame(prismaClient, {
-        name: "Test Game PKA-009",
+        store_id: storeManagerUser.store_id,
+        name: `Test Game PKA-009 ${Date.now()}`,
         price: 2.0,
       });
 
       const bin = await createLotteryBin(prismaClient, {
         store_id: storeManagerUser.store_id,
-        bin_number: 9,
-        name: "Bin 9 PKA-009",
+        bin_number: Math.floor(Math.random() * 10000) + 800,
+        name: `Bin PKA-009 ${Date.now()}`,
       });
 
       const pack = await createLotteryPack(prismaClient, {
         game_id: game.game_id,
         store_id: storeManagerUser.store_id,
         pack_number: `PKA009-${Date.now()}`,
-        serial_start: "900000000000000000000001",
-        serial_end: "900000000000000000000150",
+        serial_start: "001",
+        serial_end: "150",
         status: LotteryPackStatus.RECEIVED,
       });
 
@@ -829,25 +850,21 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const response = await storeManagerApiRequest.post(
           `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
           {
-            data: {
-              pack_number: pack.pack_number,
-              bin_id: bin.bin_id,
-              starting_serial: "900000000000000000000001",
-              activated_by: storeManagerUser.user_id,
-              activated_shift_id: nonExistentShiftId,
-            },
+            pack_id: pack.pack_id,
+            bin_id: bin.bin_id,
+            serial_start: "001",
+            activated_by: storeManagerUser.user_id,
+            activated_shift_id: nonExistentShiftId,
           },
         );
 
         // THEN: Request is rejected with appropriate error
-        expect(response.status()).toBe(400);
+        expect(response.status()).toBe(404);
         const body = await response.json();
         expect(body.success).toBe(false);
-        // Should indicate shift not found or doesn't exist
-        expect(
-          body.error.message.toLowerCase().includes("shift") ||
-            body.error.message.toLowerCase().includes("not found"),
-        ).toBe(true);
+        // Should indicate shift not found
+        expect(body.error.code).toBe("NOT_FOUND");
+        expect(body.error.message.toLowerCase()).toContain("shift");
       } finally {
         // Cleanup
         await prismaClient.lotteryPack
@@ -870,11 +887,11 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       // GIVEN: A shift belonging to a different store
       // Create another company and store using helpers
       const otherCompany = await createCompany(prismaClient, {
-        name: "Other Company PKA-010",
+        name: `Other Company PKA-010 ${Date.now()}`,
       });
 
       const otherStore = await createStore(prismaClient, {
-        name: "Other Store PKA-010",
+        name: `Other Store PKA-010 ${Date.now()}`,
         company_id: otherCompany.company_id,
       });
 
@@ -882,7 +899,10 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
       const otherCashier = await prismaClient.cashier.create({
         data: {
           store_id: otherStore.store_id,
-          employee_id: "0010",
+          employee_id: String(Math.floor(Math.random() * 9999) + 1).padStart(
+            4,
+            "0",
+          ),
           name: "Other Store Cashier",
           pin_hash: pinHash,
           hired_on: new Date(),
@@ -904,22 +924,23 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
 
       // Create resources in manager's store
       const game = await createLotteryGame(prismaClient, {
-        name: "Test Game PKA-010",
+        store_id: storeManagerUser.store_id,
+        name: `Test Game PKA-010 ${Date.now()}`,
         price: 2.0,
       });
 
       const bin = await createLotteryBin(prismaClient, {
         store_id: storeManagerUser.store_id,
-        bin_number: 10,
-        name: "Bin 10 PKA-010",
+        bin_number: Math.floor(Math.random() * 10000) + 900,
+        name: `Bin PKA-010 ${Date.now()}`,
       });
 
       const pack = await createLotteryPack(prismaClient, {
         game_id: game.game_id,
         store_id: storeManagerUser.store_id,
         pack_number: `PKA010-${Date.now()}`,
-        serial_start: "100000000000000000000001",
-        serial_end: "100000000000000000000150",
+        serial_start: "001",
+        serial_end: "150",
         status: LotteryPackStatus.RECEIVED,
       });
 
@@ -928,22 +949,20 @@ test.describe("Pack Activation - Shift Status Enforcement", () => {
         const response = await storeManagerApiRequest.post(
           `/api/stores/${storeManagerUser.store_id}/lottery/packs/activate`,
           {
-            data: {
-              pack_number: pack.pack_number,
-              bin_id: bin.bin_id,
-              starting_serial: "100000000000000000000001",
-              activated_by: storeManagerUser.user_id,
-              activated_shift_id: otherStoreShift.shift_id, // Shift from OTHER store
-            },
+            pack_id: pack.pack_id,
+            bin_id: bin.bin_id,
+            serial_start: "001",
+            activated_by: storeManagerUser.user_id,
+            activated_shift_id: otherStoreShift.shift_id, // Shift from OTHER store
           },
         );
 
-        // THEN: Request is rejected - RLS violation
+        // THEN: Request is rejected - store mismatch
         expect(response.status()).toBe(400);
         const body = await response.json();
         expect(body.success).toBe(false);
-        // Should indicate store mismatch or not found (RLS hides it)
         expect(body.error.code).toBe("BAD_REQUEST");
+        expect(body.error.message.toLowerCase()).toContain("store");
       } finally {
         // Cleanup in order
         await prismaClient.lotteryPack

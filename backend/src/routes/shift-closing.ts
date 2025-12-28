@@ -880,6 +880,14 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
                 properties: {
                   code: { type: "string" },
                   message: { type: "string" },
+                  field: { type: "string" },
+                  validRange: {
+                    type: "object",
+                    properties: {
+                      min: { type: "string" },
+                      max: { type: "string" },
+                    },
+                  },
                 },
               },
             },
