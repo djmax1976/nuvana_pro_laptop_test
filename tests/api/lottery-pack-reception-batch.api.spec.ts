@@ -81,10 +81,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     ];
 
     // WHEN: Receiving multiple packs via batch API
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: serializedNumbers,
+        enforce_scan_only: false,
       },
     );
 
@@ -144,10 +146,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     ];
 
     // WHEN: Receiving packs via batch API
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: serializedNumbers,
+        enforce_scan_only: false,
       },
     );
 
@@ -196,10 +200,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     ];
 
     // WHEN: Receiving packs via batch API
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: serializedNumbers,
+        enforce_scan_only: false,
       },
     );
 
@@ -237,10 +243,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     ];
 
     // WHEN: Receiving packs via batch API
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: serializedNumbers,
+        enforce_scan_only: false,
       },
     );
 
@@ -273,10 +281,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     ];
 
     // WHEN: Receiving packs via batch API
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: serializedNumbers,
+        enforce_scan_only: false,
       },
     );
 
@@ -330,10 +340,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     ];
 
     // WHEN: Receiving packs via batch API
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: serializedNumbers,
+        enforce_scan_only: false,
       },
     );
 
@@ -386,10 +398,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     ];
 
     // WHEN: Receiving packs via batch API (should use authenticated user's store)
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: serializedNumbers,
+        enforce_scan_only: false,
       },
     );
 
@@ -492,10 +506,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     const beforeTimestamp = new Date();
 
     // WHEN: Receiving packs via batch API
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: serializedNumbers,
+        enforce_scan_only: false,
       },
     );
 
@@ -642,11 +658,13 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     });
 
     // WHEN: Attempting to receive packs for unauthorized store
+    // Note: enforce_scan_only: false bypasses scan validation to test authorization logic
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: ["000112345670123456789012"],
         store_id: otherStore.store_id, // Attempting to use other store's ID
+        enforce_scan_only: false,
       },
     );
 
@@ -680,16 +698,18 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
   }) => {
     // GIVEN: Non-existent store_id (valid UUID format but doesn't exist in database)
     // WHEN: Attempting to receive packs for non-existent store
+    // Note: enforce_scan_only: false bypasses scan validation to test store lookup logic
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: ["000112345670123456789012"],
         store_id: "00000000-0000-0000-0000-000000000000", // Non-existent UUID
+        enforce_scan_only: false,
       },
     );
 
     // THEN: Request is rejected with 404 (store not found)
-    // The implementation checks store existence first (line 963-977), then access control (line 979-990)
+    // The implementation checks store existence first, then access control
     // So non-existent stores return 404, while existing stores with no access return 403
     expect(response.status(), "Non-existent store should return 404").toBe(404);
   });
@@ -713,10 +733,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     const serial = buildSerialNumber(gameCode, "1234567", "012");
 
     // WHEN: Receiving single pack via batch API
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: [serial],
+        enforce_scan_only: false,
       },
     );
 
@@ -746,10 +768,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     );
 
     // WHEN: Receiving maximum batch
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: maxBatch,
+        enforce_scan_only: false,
       },
     );
 
@@ -785,10 +809,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     const serial = buildSerialNumber(gameCode, "1234567", "012");
 
     // WHEN: Attempting to receive duplicate pack
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: [serial],
+        enforce_scan_only: false,
       },
     );
 
@@ -817,10 +843,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     const invalidSerial3 = buildSerialNumber("8888", "3456789", "012");
 
     // WHEN: Attempting to receive all invalid game code serials
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: [invalidSerial1, invalidSerial2, invalidSerial3],
+        enforce_scan_only: false,
       },
     );
 
@@ -852,10 +880,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     const serial = buildSerialNumber(gameCode, "1234567", "012");
 
     // WHEN: Receiving packs via batch API
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: [serial],
+        enforce_scan_only: false,
       },
     );
 
@@ -942,10 +972,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     const serial = buildSerialNumber(gameCode, "1234567", "000");
 
     // WHEN: Receiving pack with serial_start "000"
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: [serial],
+        enforce_scan_only: false,
       },
     );
 
@@ -1009,10 +1041,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     const serial = buildSerialNumber(gameCode, "1234567", "045");
 
     // WHEN: Receiving pack via batch API
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: [serial],
+        enforce_scan_only: false,
       },
     );
 
@@ -1054,10 +1088,12 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
 
     const serial = buildSerialNumber(gameCode, "7777777", "000");
 
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: [serial],
+        enforce_scan_only: false,
       },
     );
 
@@ -1095,11 +1131,13 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     });
 
     // WHEN: Receiving a pack with this game code
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const serial = buildSerialNumber(gameCode, "1234567", "012");
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: [serial],
+        enforce_scan_only: false,
       },
     );
 
@@ -1132,11 +1170,13 @@ test.describe("6.12-API: Lottery Pack Reception Batch", () => {
     const gameCode = globalGame.game_code;
 
     // WHEN: Receiving a pack with this game code
+    // Note: enforce_scan_only: false bypasses scan validation for API tests
     const serial = buildSerialNumber(gameCode, "9999999", "012");
     const response = await storeManagerApiRequest.post(
       "/api/lottery/packs/receive/batch",
       {
         serialized_numbers: [serial],
+        enforce_scan_only: false,
       },
     );
 
