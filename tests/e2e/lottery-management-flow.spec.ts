@@ -383,8 +383,8 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       game_id: game.game_id,
       store_id: store.store_id,
       pack_number: `E2E-RECEIVED-${Date.now()}`,
-      serial_start: "0001",
-      serial_end: "0100",
+      serial_start: "001",
+      serial_end: "100",
       status: LotteryPackStatus.RECEIVED,
     });
 
@@ -427,20 +427,39 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       // WHEN: User clicks Activate Pack button
       await activateButton.click();
 
-      // THEN: Pack activation dialog opens
-      await expect(page.locator('[data-testid="pack-select"]')).toBeVisible();
+      // THEN: Pack activation dialog opens (EnhancedPackActivationForm)
+      // Verify the dialog container is visible
       await expect(
-        page.locator('[data-testid="submit-pack-activation"]'),
+        page.locator('[data-testid="pack-activation-form"]'),
+      ).toBeVisible({ timeout: 10000 });
+
+      // Verify the pack search combobox is visible
+      const packSearchInput = page.locator('[data-testid="pack-search"]');
+      await expect(packSearchInput).toBeVisible();
+
+      // Verify the submit button is visible (disabled until pack is selected)
+      await expect(
+        page.locator('[data-testid="submit-activation"]'),
       ).toBeVisible();
 
-      // AND: The dropdown contains our RECEIVED pack
-      const packSelect = page.locator('[data-testid="pack-select"]');
-      await packSelect.click();
+      // AND: The combobox dropdown shows our RECEIVED pack when focused
+      // Click the input to open the dropdown showing recent received packs
+      await packSearchInput.click();
 
-      const packOption = page.locator(
-        `[data-testid="pack-option-${pack.pack_id}"]`,
+      // Wait for the dropdown to appear and contain pack options
+      const packDropdown = page.locator('[data-testid="pack-search-dropdown"]');
+      await expect(packDropdown).toBeVisible({ timeout: 10000 });
+
+      // Verify at least one pack option is visible (our created pack)
+      // The combobox uses indexed options (pack-search-option-0, option-1, etc.)
+      const firstPackOption = page.locator(
+        '[data-testid="pack-search-option-0"]',
       );
-      await expect(packOption).toBeVisible();
+      await expect(firstPackOption).toBeVisible({ timeout: 5000 });
+
+      // Verify the option contains our pack's information
+      // The option displays: Game Name, Pack #<number>, Serials <start>-<end>
+      await expect(firstPackOption).toContainText(pack.pack_number);
     } finally {
       await prisma.lotteryPack
         .delete({ where: { pack_id: pack.pack_id } })
