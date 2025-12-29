@@ -48,14 +48,25 @@ test.describe("6.10.1-API: Client Dashboard Lottery - Pack Activation", () => {
     prismaClient,
   }) => {
     // GIVEN: I am authenticated as a Store Manager with LOTTERY_PACK_ACTIVATE permission
+    // Note: Game must have game_code and tickets_per_pack for UPC generation during activation
+    // Serial format must match production: serial_start="000" (3 digits, starts at 0)
+    // This matches the lottery receiving flow which forces serial_start to "000"
+    // Generate unique game_code to avoid unique constraint violations
+    // The factory handles collisions, but using Date.now() adds extra uniqueness
+    const uniqueGameCode = String(Date.now()).slice(-4);
     const game = await createLotteryGame(prismaClient, {
-      name: "Test Game",
+      name: "Test Game Activation",
+      game_code: uniqueGameCode, // 4-digit code required for UPC generation
       price: 5.0,
+      tickets_per_pack: 30, // Standard pack size for UPC generation
     });
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id!,
       status: "RECEIVED",
+      // Production-realistic serials: serial_start is always "000" per lottery receiving flow
+      serial_start: "000",
+      serial_end: "029", // 30 tickets (000-029)
     });
 
     // WHEN: Activating a RECEIVED lottery pack via API

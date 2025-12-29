@@ -845,12 +845,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 },
               },
             },
-            enforce_scan_only: {
-              type: "boolean",
-              default: true,
-              description:
-                "Whether to enforce scan-only input (default true, set false for testing)",
-            },
+            // REMOVED: enforce_scan_only - was a security vulnerability
+            // Clients could bypass scan validation by sending enforce_scan_only: false
+            // Scan validation is now ALWAYS enforced server-side
           },
         },
         response: {
@@ -938,7 +935,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         serialized_numbers: string[];
         store_id?: string;
         scan_metrics?: any[];
-        enforce_scan_only?: boolean;
+        // NOTE: enforce_scan_only is intentionally NOT accepted from client
+        // It was a security vulnerability - clients could bypass scan validation
       };
 
       try {
@@ -980,8 +978,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         }
 
         // SECURITY: Validate scan metrics for scan-only enforcement
-        // Default to enforcing scan-only unless explicitly disabled
-        const enforceScanOnly = body.enforce_scan_only !== false;
+        // ALWAYS enforce scan-only - this is NOT configurable by the client
+        // to prevent bypass attacks. Only server configuration can disable this.
+        const enforceScanOnly = true;
 
         if (enforceScanOnly) {
           // Import scan validation service dynamically to avoid circular deps
@@ -1719,9 +1718,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           return activatedPack;
         });
 
-        // === UPC GENERATION AND POS SYNC ===
-        // Generate UPCs for the pack and sync with POS system (if configured)
-        // This is synchronous - UPCs are generated and pushed before returning success
+        // === UPC-A GENERATION AND POS SYNC (BLOCKING) ===
+        // Generate UPC-A barcodes for the pack and sync with POS system
+        // THIS IS A BLOCKING OPERATION - if POS export fails, activation is blocked
         if (updatedPack.game.game_code && updatedPack.game.tickets_per_pack) {
           try {
             const syncResult = await syncPackActivation({
@@ -1732,7 +1731,54 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               ticketsPerPack: updatedPack.game.tickets_per_pack,
               ticketPrice: Number(updatedPack.game.price),
               storeId: updatedPack.store_id,
+              startingSerial: updatedPack.serial_start || "000",
             });
+
+            // BLOCKING: If POS export fails, block activation and show error
+            if (!syncResult.success) {
+              fastify.log.error(
+                {
+                  packId: updatedPack.pack_id,
+                  error: syncResult.error,
+                  redisStored: syncResult.redisStored,
+                },
+                "Pack activation BLOCKED - POS export failed",
+              );
+
+              // Note: Pack status was already updated to ACTIVE in transaction
+              // We need to revert it back to RECEIVED
+              try {
+                await prisma.lotteryPack.update({
+                  where: { pack_id: updatedPack.pack_id },
+                  data: {
+                    status: "RECEIVED",
+                    activated_at: null,
+                    activated_by: null,
+                    activated_shift_id: null,
+                  },
+                });
+
+                fastify.log.info(
+                  { packId: updatedPack.pack_id },
+                  "Pack status reverted to RECEIVED after POS export failure",
+                );
+              } catch (revertError) {
+                fastify.log.error(
+                  { error: revertError, packId: updatedPack.pack_id },
+                  "Failed to revert pack status after POS export failure",
+                );
+              }
+
+              reply.code(503);
+              return {
+                success: false,
+                error: {
+                  code: "POS_EXPORT_FAILED",
+                  message:
+                    syncResult.error || "Pack activation failed. Try again.",
+                },
+              };
+            }
 
             if (syncResult.posExported) {
               fastify.log.info(
@@ -1741,24 +1787,50 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   upcCount: syncResult.upcCount,
                   posFilePath: syncResult.posFilePath,
                 },
-                "Pack UPCs exported to POS",
+                "Pack UPC-A barcodes exported to POS",
               );
             } else if (syncResult.upcCount > 0) {
               fastify.log.info(
                 {
                   packId: updatedPack.pack_id,
                   upcCount: syncResult.upcCount,
-                  redisStored: syncResult.redisStored,
                 },
-                "Pack UPCs generated (no POS configured)",
+                "Pack UPC-A barcodes generated (no POS configured)",
               );
             }
           } catch (syncError) {
-            // Log but don't fail activation - UPC sync is non-critical
+            // Unexpected error during sync - block activation
             fastify.log.error(
               { error: syncError, packId: updatedPack.pack_id },
-              "Failed to sync pack UPCs with POS (non-fatal)",
+              "Pack activation BLOCKED - Unexpected error during UPC sync",
             );
+
+            // Revert pack status
+            try {
+              await prisma.lotteryPack.update({
+                where: { pack_id: updatedPack.pack_id },
+                data: {
+                  status: "RECEIVED",
+                  activated_at: null,
+                  activated_by: null,
+                  activated_shift_id: null,
+                },
+              });
+            } catch (revertError) {
+              fastify.log.error(
+                { error: revertError, packId: updatedPack.pack_id },
+                "Failed to revert pack status after sync error",
+              );
+            }
+
+            reply.code(503);
+            return {
+              success: false,
+              error: {
+                code: "POS_SYNC_ERROR",
+                message: "Pack activation failed. Try again.",
+              },
+            };
           }
         }
 
@@ -8006,6 +8078,1164 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to close lottery day",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /api/lottery/games/:gameId
+   * Update an existing lottery game's details
+   * Protected route - requires LOTTERY_PACK_RECEIVE permission (game management is part of pack workflow)
+   *
+   * MCP Guidance Applied:
+   * - DB-006: TENANT_ISOLATION - Validate user has store access for store-scoped games
+   * - API-001: VALIDATION - Schema validation for request parameters
+   * - API-003: ERROR_HANDLING - Return generic errors, never leak internals
+   * - API-009: IDOR - Validate ownership before allowing updates
+   * - DB-001: ORM_USAGE - Use Prisma ORM for safe database operations
+   */
+  fastify.put(
+    "/api/lottery/games/:gameId",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_RECEIVE),
+      ],
+      schema: {
+        description: "Update an existing lottery game",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["gameId"],
+          properties: {
+            gameId: {
+              type: "string",
+              format: "uuid",
+              description: "Game UUID to update",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              minLength: 1,
+              maxLength: 255,
+              description: "Game name (will be stored uppercase)",
+            },
+            game_code: {
+              type: "string",
+              pattern: "^\\d{4}$",
+              description: "4-digit game code",
+            },
+            price: {
+              type: "number",
+              minimum: 0.01,
+              description: "Ticket price (must be > 0)",
+            },
+            pack_value: {
+              type: "number",
+              minimum: 1,
+              description: "Total pack value in dollars",
+            },
+            description: {
+              type: "string",
+              maxLength: 500,
+              description: "Optional game description",
+            },
+            status: {
+              type: "string",
+              enum: ["ACTIVE", "INACTIVE", "DISCONTINUED"],
+              description: "Game status",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  game_id: { type: "string", format: "uuid" },
+                  game_code: { type: "string" },
+                  name: { type: "string" },
+                  price: { type: "number", nullable: true },
+                  pack_value: { type: "number", nullable: true },
+                  total_tickets: { type: "integer", nullable: true },
+                  description: { type: "string", nullable: true },
+                  status: { type: "string" },
+                  store_id: { type: "string", format: "uuid", nullable: true },
+                  updated_at: { type: "string", format: "date-time" },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          409: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { gameId: string };
+      const body = request.body as {
+        name?: string;
+        game_code?: string;
+        price?: number;
+        pack_value?: number;
+        description?: string;
+        status?: "ACTIVE" | "INACTIVE" | "DISCONTINUED";
+      };
+
+      try {
+        // Fetch existing game to validate ownership (IDOR - API-009)
+        const existingGame = await prisma.lotteryGame.findUnique({
+          where: { game_id: params.gameId },
+          include: {
+            store: {
+              select: {
+                store_id: true,
+                company_id: true,
+              },
+            },
+          },
+        });
+
+        if (!existingGame) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "GAME_NOT_FOUND",
+              message: "Lottery game not found",
+            },
+          };
+        }
+
+        // Validate user access (TENANT_ISOLATION - DB-006)
+        // For store-scoped games, validate user has access to that store
+        // For global games (store_id = null), only SUPERADMIN can update
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const isSuperAdmin = userRoles.some((role) => role.scope === "SYSTEM");
+
+        if (existingGame.store_id) {
+          // Store-scoped game - validate store access
+          const hasAccess = validateUserStoreAccess(
+            userRoles,
+            existingGame.store_id,
+            existingGame.store!.company_id,
+          );
+
+          if (!hasAccess) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "FORBIDDEN",
+                message:
+                  "You do not have access to update this store's games (RLS violation)",
+              },
+            };
+          }
+        } else {
+          // Global game - only SUPERADMIN can update
+          if (!isSuperAdmin) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "FORBIDDEN",
+                message: "Only system administrators can update global games",
+              },
+            };
+          }
+        }
+
+        // Build update data object (only include provided fields)
+        const updateData: {
+          name?: string;
+          game_code?: string;
+          price?: number;
+          pack_value?: number;
+          tickets_per_pack?: number;
+          description?: string | null;
+          status?: "ACTIVE" | "INACTIVE" | "DISCONTINUED";
+        } = {};
+
+        // Validate and process name (VALIDATION - API-001)
+        if (body.name !== undefined) {
+          const normalizedName = body.name.trim().toUpperCase();
+          if (normalizedName.length === 0) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Game name cannot be empty",
+              },
+            };
+          }
+          updateData.name = normalizedName;
+        }
+
+        // Validate game_code format and uniqueness
+        if (body.game_code !== undefined) {
+          if (!/^\d{4}$/.test(body.game_code)) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Game code must be exactly 4 digits",
+              },
+            };
+          }
+
+          // Check for duplicate game code (excluding self)
+          const duplicateGame = await prisma.lotteryGame.findFirst({
+            where: {
+              game_code: body.game_code,
+              game_id: { not: params.gameId },
+              // For store-scoped games, check within same store
+              // For global games, check global scope
+              store_id: existingGame.store_id,
+            },
+          });
+
+          if (duplicateGame) {
+            reply.code(409);
+            return {
+              success: false,
+              error: {
+                code: "DUPLICATE_GAME_CODE",
+                message: `Game code ${body.game_code} already exists${existingGame.store_id ? " for this store" : ""}`,
+              },
+            };
+          }
+
+          updateData.game_code = body.game_code;
+        }
+
+        // Validate price
+        if (body.price !== undefined) {
+          if (body.price <= 0) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Price must be greater than 0",
+              },
+            };
+          }
+          updateData.price = body.price;
+        }
+
+        // Validate pack_value and recalculate total_tickets
+        if (body.pack_value !== undefined) {
+          if (body.pack_value < 1) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Pack value must be at least 1",
+              },
+            };
+          }
+          updateData.pack_value = body.pack_value;
+        }
+
+        // Recalculate tickets_per_pack if price or pack_value changed
+        const finalPrice =
+          updateData.price ?? (existingGame.price?.toNumber() || null);
+        const finalPackValue =
+          updateData.pack_value ??
+          (existingGame.pack_value?.toNumber() || null);
+
+        if (finalPrice && finalPackValue) {
+          updateData.tickets_per_pack = Math.floor(finalPackValue / finalPrice);
+        }
+
+        // Process description (can be set to null/empty)
+        if (body.description !== undefined) {
+          updateData.description = body.description.trim() || null;
+        }
+
+        // Process status
+        if (body.status !== undefined) {
+          updateData.status = body.status;
+        }
+
+        // Check if there's anything to update
+        if (Object.keys(updateData).length === 0) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "No valid fields provided for update",
+            },
+          };
+        }
+
+        // Perform update (ORM_USAGE - DB-001)
+        const updatedGame = await prisma.lotteryGame.update({
+          where: { game_id: params.gameId },
+          data: updateData,
+        });
+
+        fastify.log.info(
+          {
+            gameId: params.gameId,
+            userId: user.id,
+            updatedFields: Object.keys(updateData),
+          },
+          "Lottery game updated",
+        );
+
+        return {
+          success: true,
+          data: {
+            game_id: updatedGame.game_id,
+            game_code: updatedGame.game_code,
+            name: updatedGame.name,
+            price: updatedGame.price?.toNumber() ?? null,
+            pack_value: updatedGame.pack_value?.toNumber() ?? null,
+            tickets_per_pack: updatedGame.tickets_per_pack,
+            description: updatedGame.description,
+            status: updatedGame.status,
+            store_id: updatedGame.store_id,
+            updated_at: updatedGame.updated_at.toISOString(),
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error(
+          { error, gameId: params.gameId },
+          "Error updating lottery game",
+        );
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update lottery game",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /api/lottery/packs/:packId
+   * Update an existing lottery pack's details
+   * Protected route - requires LOTTERY_PACK_RECEIVE permission
+   *
+   * IMPORTANT: Only RECEIVED packs can be edited. Once a pack is ACTIVE,
+   * it's tied to shift records and cannot be modified to maintain audit integrity.
+   *
+   * MCP Guidance Applied:
+   * - DB-006: TENANT_ISOLATION - Validate user has store access via role scope
+   * - API-001: VALIDATION - Schema validation for request parameters
+   * - API-003: ERROR_HANDLING - Return generic errors, never leak internals
+   * - API-009: IDOR - Validate ownership via store access before allowing updates
+   * - DB-001: ORM_USAGE - Use Prisma ORM with transactions for atomicity
+   */
+  fastify.put(
+    "/api/lottery/packs/:packId",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_RECEIVE),
+      ],
+      schema: {
+        description:
+          "Update an existing lottery pack (only RECEIVED packs can be edited)",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["packId"],
+          properties: {
+            packId: {
+              type: "string",
+              format: "uuid",
+              description: "Pack UUID to update",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          properties: {
+            game_id: {
+              type: "string",
+              format: "uuid",
+              description: "Game UUID to assign pack to",
+            },
+            pack_number: {
+              type: "string",
+              minLength: 1,
+              maxLength: 50,
+              description: "Pack number (unique per store)",
+            },
+            serial_start: {
+              type: "string",
+              minLength: 1,
+              maxLength: 100,
+              pattern: "^\\d+$",
+              description: "Starting serial number (numeric only)",
+            },
+            serial_end: {
+              type: "string",
+              minLength: 1,
+              maxLength: 100,
+              pattern: "^\\d+$",
+              description:
+                "Ending serial number (numeric only, must be >= serial_start)",
+            },
+            bin_id: {
+              type: ["string", "null"],
+              format: "uuid",
+              description: "Bin UUID to assign pack to (null to unassign)",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  pack_id: { type: "string", format: "uuid" },
+                  game_id: { type: "string", format: "uuid" },
+                  pack_number: { type: "string" },
+                  serial_start: { type: "string" },
+                  serial_end: { type: "string" },
+                  status: { type: "string" },
+                  store_id: { type: "string", format: "uuid" },
+                  current_bin_id: {
+                    type: "string",
+                    format: "uuid",
+                    nullable: true,
+                  },
+                  game: {
+                    type: "object",
+                    properties: {
+                      game_id: { type: "string" },
+                      game_code: { type: "string" },
+                      name: { type: "string" },
+                      price: { type: "number", nullable: true },
+                    },
+                  },
+                  bin: {
+                    type: "object",
+                    nullable: true,
+                    properties: {
+                      bin_id: { type: "string" },
+                      name: { type: "string" },
+                    },
+                  },
+                  updated_at: { type: "string", format: "date-time" },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          409: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { packId: string };
+      const body = request.body as {
+        game_id?: string;
+        pack_number?: string;
+        serial_start?: string;
+        serial_end?: string;
+        bin_id?: string | null;
+      };
+
+      try {
+        // Fetch existing pack with relationships (IDOR - API-009)
+        const existingPack = await prisma.lotteryPack.findUnique({
+          where: { pack_id: params.packId },
+          include: {
+            store: {
+              select: {
+                store_id: true,
+                company_id: true,
+              },
+            },
+            game: {
+              select: {
+                game_id: true,
+                name: true,
+                game_code: true,
+                price: true,
+              },
+            },
+            bin: {
+              select: {
+                bin_id: true,
+                name: true,
+              },
+            },
+          },
+        });
+
+        if (!existingPack) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "PACK_NOT_FOUND",
+              message: "Lottery pack not found",
+            },
+          };
+        }
+
+        // Validate user has store access (TENANT_ISOLATION - DB-006)
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasAccess = validateUserStoreAccess(
+          userRoles,
+          existingPack.store_id,
+          existingPack.store.company_id,
+        );
+
+        if (!hasAccess) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message:
+                "You do not have access to this store's lottery packs (RLS violation)",
+            },
+          };
+        }
+
+        // CRITICAL: Only RECEIVED packs can be edited
+        // ACTIVE/DEPLETED/RETURNED packs are tied to shift records
+        if (existingPack.status !== "RECEIVED") {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "INVALID_PACK_STATUS",
+              message: `Only RECEIVED packs can be edited. This pack is ${existingPack.status} and tied to operational records.`,
+            },
+          };
+        }
+
+        // Build update data object
+        const updateData: {
+          game_id?: string;
+          pack_number?: string;
+          serial_start?: string;
+          serial_end?: string;
+          current_bin_id?: string | null;
+        } = {};
+
+        // Validate game_id if provided
+        if (body.game_id !== undefined) {
+          const game = await prisma.lotteryGame.findUnique({
+            where: { game_id: body.game_id },
+            select: { game_id: true, store_id: true, status: true },
+          });
+
+          if (!game) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "INVALID_GAME",
+                message: "Game not found",
+              },
+            };
+          }
+
+          // Ensure game is accessible to this store
+          if (game.store_id && game.store_id !== existingPack.store_id) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "INVALID_GAME",
+                message: "Game is not available for this store",
+              },
+            };
+          }
+
+          if (game.status !== "ACTIVE") {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "INVALID_GAME",
+                message: "Cannot assign pack to inactive or discontinued game",
+              },
+            };
+          }
+
+          updateData.game_id = body.game_id;
+        }
+
+        // Validate pack_number uniqueness
+        if (body.pack_number !== undefined) {
+          const trimmedPackNumber = body.pack_number.trim();
+          if (trimmedPackNumber.length === 0) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Pack number cannot be empty",
+              },
+            };
+          }
+
+          // Check for duplicate pack number (excluding self)
+          const duplicatePack = await prisma.lotteryPack.findFirst({
+            where: {
+              store_id: existingPack.store_id,
+              pack_number: trimmedPackNumber,
+              pack_id: { not: params.packId },
+            },
+          });
+
+          if (duplicatePack) {
+            reply.code(409);
+            return {
+              success: false,
+              error: {
+                code: "DUPLICATE_PACK_NUMBER",
+                message: `Pack number ${trimmedPackNumber} already exists for this store`,
+              },
+            };
+          }
+
+          updateData.pack_number = trimmedPackNumber;
+        }
+
+        // Validate serial numbers
+        const finalSerialStart =
+          body.serial_start?.trim() || existingPack.serial_start;
+        const finalSerialEnd =
+          body.serial_end?.trim() || existingPack.serial_end;
+
+        if (body.serial_start !== undefined) {
+          if (!/^\d+$/.test(body.serial_start.trim())) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Serial start must contain only numeric characters",
+              },
+            };
+          }
+          updateData.serial_start = body.serial_start.trim();
+        }
+
+        if (body.serial_end !== undefined) {
+          if (!/^\d+$/.test(body.serial_end.trim())) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Serial end must contain only numeric characters",
+              },
+            };
+          }
+          updateData.serial_end = body.serial_end.trim();
+        }
+
+        // Validate serial range (end >= start)
+        const startNum = parseInt(finalSerialStart, 10);
+        const endNum = parseInt(finalSerialEnd, 10);
+        if (!isNaN(startNum) && !isNaN(endNum) && endNum < startNum) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message:
+                "Serial end must be greater than or equal to serial start",
+            },
+          };
+        }
+
+        // Validate bin_id if provided
+        if (body.bin_id !== undefined) {
+          if (body.bin_id === null || body.bin_id === "") {
+            // Unassign from bin
+            updateData.current_bin_id = null;
+          } else {
+            // Validate bin exists and belongs to same store
+            const bin = await prisma.lotteryBin.findUnique({
+              where: { bin_id: body.bin_id },
+              select: { bin_id: true, store_id: true, is_active: true },
+            });
+
+            if (!bin) {
+              reply.code(400);
+              return {
+                success: false,
+                error: {
+                  code: "INVALID_BIN",
+                  message: "Bin not found",
+                },
+              };
+            }
+
+            if (bin.store_id !== existingPack.store_id) {
+              reply.code(400);
+              return {
+                success: false,
+                error: {
+                  code: "INVALID_BIN",
+                  message: "Bin does not belong to this store",
+                },
+              };
+            }
+
+            if (!bin.is_active) {
+              reply.code(400);
+              return {
+                success: false,
+                error: {
+                  code: "INVALID_BIN",
+                  message: "Cannot assign pack to inactive bin",
+                },
+              };
+            }
+
+            updateData.current_bin_id = body.bin_id;
+          }
+        }
+
+        // Check if there's anything to update
+        if (Object.keys(updateData).length === 0) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "No valid fields provided for update",
+            },
+          };
+        }
+
+        // Perform update with transaction (ORM_USAGE - DB-001)
+        const updatedPack = await prisma.lotteryPack.update({
+          where: { pack_id: params.packId },
+          data: updateData,
+          include: {
+            game: {
+              select: {
+                game_id: true,
+                game_code: true,
+                name: true,
+                price: true,
+              },
+            },
+            bin: {
+              select: {
+                bin_id: true,
+                name: true,
+              },
+            },
+          },
+        });
+
+        fastify.log.info(
+          {
+            packId: params.packId,
+            userId: user.id,
+            updatedFields: Object.keys(updateData),
+          },
+          "Lottery pack updated",
+        );
+
+        return {
+          success: true,
+          data: {
+            pack_id: updatedPack.pack_id,
+            game_id: updatedPack.game_id,
+            pack_number: updatedPack.pack_number,
+            serial_start: updatedPack.serial_start,
+            serial_end: updatedPack.serial_end,
+            status: updatedPack.status,
+            store_id: updatedPack.store_id,
+            current_bin_id: updatedPack.current_bin_id,
+            game: updatedPack.game
+              ? {
+                  game_id: updatedPack.game.game_id,
+                  game_code: updatedPack.game.game_code,
+                  name: updatedPack.game.name,
+                  price: updatedPack.game.price?.toNumber() ?? null,
+                }
+              : null,
+            bin: updatedPack.bin
+              ? {
+                  bin_id: updatedPack.bin.bin_id,
+                  name: updatedPack.bin.name,
+                }
+              : null,
+            updated_at: updatedPack.updated_at.toISOString(),
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error(
+          { error, packId: params.packId },
+          "Error updating lottery pack",
+        );
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update lottery pack",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * DELETE /api/lottery/packs/:packId
+   * Delete an existing lottery pack
+   * Protected route - requires LOTTERY_PACK_RECEIVE permission
+   *
+   * IMPORTANT: Only RECEIVED packs can be deleted. ACTIVE/DEPLETED/RETURNED packs
+   * are tied to shift records and must be preserved for audit purposes.
+   *
+   * MCP Guidance Applied:
+   * - DB-006: TENANT_ISOLATION - Validate user has store access via role scope
+   * - API-001: VALIDATION - Schema validation for request parameters
+   * - API-003: ERROR_HANDLING - Return generic errors, never leak internals
+   * - API-009: IDOR - Validate ownership via store access before allowing deletion
+   * - DB-001: ORM_USAGE - Use Prisma ORM for safe database operations
+   */
+  fastify.delete(
+    "/api/lottery/packs/:packId",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_RECEIVE),
+      ],
+      schema: {
+        description:
+          "Delete an existing lottery pack (only RECEIVED packs can be deleted)",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["packId"],
+          properties: {
+            packId: {
+              type: "string",
+              format: "uuid",
+              description: "Pack UUID to delete",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  pack_id: { type: "string", format: "uuid" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { packId: string };
+
+      try {
+        // Fetch existing pack (IDOR - API-009)
+        const existingPack = await prisma.lotteryPack.findUnique({
+          where: { pack_id: params.packId },
+          include: {
+            store: {
+              select: {
+                store_id: true,
+                company_id: true,
+              },
+            },
+          },
+        });
+
+        if (!existingPack) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "PACK_NOT_FOUND",
+              message: "Lottery pack not found",
+            },
+          };
+        }
+
+        // Validate user has store access (TENANT_ISOLATION - DB-006)
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasAccess = validateUserStoreAccess(
+          userRoles,
+          existingPack.store_id,
+          existingPack.store.company_id,
+        );
+
+        if (!hasAccess) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message:
+                "You do not have access to this store's lottery packs (RLS violation)",
+            },
+          };
+        }
+
+        // CRITICAL: Only RECEIVED packs can be deleted
+        // ACTIVE/DEPLETED/RETURNED packs have operational history
+        if (existingPack.status !== "RECEIVED") {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "INVALID_PACK_STATUS",
+              message: `Only RECEIVED packs can be deleted. This pack is ${existingPack.status} and has operational history that must be preserved.`,
+            },
+          };
+        }
+
+        // Delete the pack (ORM_USAGE - DB-001)
+        await prisma.lotteryPack.delete({
+          where: { pack_id: params.packId },
+        });
+
+        fastify.log.info(
+          {
+            packId: params.packId,
+            packNumber: existingPack.pack_number,
+            userId: user.id,
+          },
+          "Lottery pack deleted",
+        );
+
+        return {
+          success: true,
+          data: {
+            pack_id: params.packId,
+            message: `Pack ${existingPack.pack_number} has been deleted`,
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error(
+          { error, packId: params.packId },
+          "Error deleting lottery pack",
+        );
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to delete lottery pack",
           },
         };
       }

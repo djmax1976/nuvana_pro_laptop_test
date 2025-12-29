@@ -1,16 +1,18 @@
 /**
- * Pack UPC Retry Cache Service
+ * Pack UPC Cache Service
  *
- * Redis storage layer for lottery pack UPCs - RETRY ONLY.
+ * Redis storage layer for lottery pack UPCs.
  *
- * This cache is TEMPORARY and used only when POS push fails:
- * - On successful POS push: Cache entry is DELETED immediately
- * - On failed POS push: Cache entry stored with 1-hour TTL for retry
- * - The POS system is the source of truth, NOT this cache
+ * BLOCKING WORKFLOW:
+ * - UPCs are stored BEFORE attempting POS export
+ * - On successful POS export: Cache entry is DELETED immediately
+ * - On failed POS export: Cache entry PERSISTS (no TTL) until retry succeeds
+ * - User must manually retry activation if POS export fails
  *
  * Enterprise coding standards applied:
  * - API-003: ERROR_HANDLING - Graceful degradation when Redis unavailable
  * - DB-006: TENANT_ISOLATION - Keys include packId for isolation
+ * - SEC-004: AUDIT_LOGGING - Operations are logged for debugging
  *
  * @module services/lottery/pack-upc-cache.service
  */
@@ -22,17 +24,13 @@ import { getRedisClient, isRedisConnected } from "../../utils/redis";
 // ============================================================================
 
 /**
- * TTL for pack UPC retry data (1 hour)
+ * Cache key prefix for pack UPC entries
  *
- * This is the RETRY WINDOW for failed POS push operations:
- * - Entry is deleted immediately on successful POS push
- * - Entry expires after 1 hour if retry also fails
- * - Short TTL because UPCs can be regenerated from pack data if needed
- */
-export const PACK_UPC_TTL_SECONDS = 60 * 60; // 1 hour (retry window only)
-
-/**
- * Cache key prefix for pack UPC retry entries
+ * Keys are stored WITHOUT TTL - they persist until:
+ * 1. POS export succeeds (deleted immediately)
+ * 2. Manually cleaned up by admin
+ *
+ * This ensures UPCs are never lost during failed activation attempts.
  */
 export const PACK_UPC_KEY_PREFIX = "pack:upc:pending";
 
@@ -102,16 +100,19 @@ export const PackUPCCacheKeys = {
 // ============================================================================
 
 /**
- * Store pack UPCs in Redis for retry after failed POS push
+ * Store pack UPCs in Redis BEFORE attempting POS export
  *
- * Only call this when POS push fails. On successful push, do NOT store.
- * Entry will be deleted automatically after 1 hour if not retried.
+ * UPCs are stored WITHOUT TTL - they persist until:
+ * 1. POS export succeeds (explicitly deleted)
+ * 2. Manually cleaned up
+ *
+ * This ensures UPCs are never lost during failed activation attempts
+ * and can be used for retry.
  *
  * @param data - Pack UPC data to store
  * @returns True if stored successfully, false if Redis unavailable or error
  *
  * @example
- * // Store UPCs for retry after failed POS push
  * const stored = await storePackUPCs({
  *   packId: "uuid",
  *   storeId: "uuid",
@@ -119,9 +120,9 @@ export const PackUPCCacheKeys = {
  *   gameName: "Lucky 7s",
  *   packNumber: "5633005",
  *   ticketPrice: 20,
- *   upcs: ["035633005000", "035633005001", ...],
+ *   upcs: ["356330050004", "356330050012", ...],
  *   generatedAt: new Date().toISOString(),
- *   expiresAt: new Date(Date.now() + 3600000).toISOString(), // 1 hour
+ *   expiresAt: "", // No expiration
  * });
  */
 export async function storePackUPCs(data: PackUPCData): Promise<boolean> {
@@ -141,10 +142,11 @@ export async function storePackUPCs(data: PackUPCData): Promise<boolean> {
     const key = PackUPCCacheKeys.packUpc(data.packId);
     const serialized = JSON.stringify(data);
 
-    await client.setEx(key, PACK_UPC_TTL_SECONDS, serialized);
+    // Store WITHOUT TTL - persists until explicitly deleted after successful POS export
+    await client.set(key, serialized);
 
     console.log(
-      `PackUPCCache: Stored ${data.upcs.length} UPCs for pack ${data.packId} (game: ${data.gameName})`,
+      `PackUPCCache: Stored ${data.upcs.length} UPCs for pack ${data.packId} (game: ${data.gameName}) - NO TTL`,
     );
     return true;
   } catch (error) {
@@ -157,18 +159,21 @@ export async function storePackUPCs(data: PackUPCData): Promise<boolean> {
 }
 
 /**
- * Retrieve pack UPCs from retry cache
+ * Retrieve pack UPCs from cache
  *
- * Used during retry attempts after a failed POS push.
- * Returns null if no pending retry exists.
+ * Used during:
+ * 1. Retry attempts after a failed POS export
+ * 2. Pack deactivation to get UPCs for POS removal
+ *
+ * Returns null if no cached UPCs exist.
  *
  * @param packId - Pack UUID
  * @returns Pack UPC data or null if not found/unavailable
  *
  * @example
- * const pendingData = await getPackUPCs("uuid");
- * if (pendingData) {
- *   // Retry POS push with cached UPCs
+ * const cachedData = await getPackUPCs("uuid");
+ * if (cachedData) {
+ *   // Retry POS export with cached UPCs
  * }
  */
 export async function getPackUPCs(packId: string): Promise<PackUPCData | null> {
@@ -200,17 +205,20 @@ export async function getPackUPCs(packId: string): Promise<PackUPCData | null> {
 }
 
 /**
- * Delete pack UPCs from retry cache
+ * Delete pack UPCs from cache
  *
  * Called after:
- * - Successful POS push (clear pending retry)
+ * - Successful POS export (cache no longer needed)
  * - Pack status changes to DEPLETED or RETURNED
+ *
+ * IMPORTANT: Only delete after SUCCESSFUL POS export.
+ * If POS export fails, keep cached for retry.
  *
  * @param packId - Pack UUID
  * @returns True if deleted (or key didn't exist), false on error
  *
  * @example
- * // After successful POS push
+ * // After successful POS export
  * await deletePackUPCs("uuid");
  */
 export async function deletePackUPCs(packId: string): Promise<boolean> {
@@ -273,59 +281,17 @@ export async function packUPCsExist(packId: string): Promise<boolean> {
 }
 
 /**
- * Get remaining TTL for pending retry
+ * Get creation timestamp for cached UPCs
  *
- * Useful for monitoring retry window status.
- *
- * @param packId - Pack UUID
- * @returns TTL in seconds, -1 if no expiry, -2 if no pending retry
- */
-export async function getPackUPCTTL(packId: string): Promise<number> {
-  if (!isRedisConnected()) {
-    return -2;
-  }
-
-  try {
-    const client = await getRedisClient();
-    if (!client) {
-      return -2;
-    }
-
-    const key = PackUPCCacheKeys.packUpc(packId);
-    return await client.ttl(key);
-  } catch (error) {
-    console.error(`PackUPCCache: Failed to get TTL for pack ${packId}:`, error);
-    return -2;
-  }
-}
-
-/**
- * Refresh TTL for pending retry (extend retry window)
- *
- * Use sparingly - if retries keep failing, investigate the root cause.
+ * Useful for monitoring how long UPCs have been waiting for retry.
+ * Since we no longer use TTL, this helps identify stale entries.
  *
  * @param packId - Pack UUID
- * @returns True if TTL refreshed, false otherwise
+ * @returns ISO timestamp string or null if not found
  */
-export async function refreshPackUPCTTL(packId: string): Promise<boolean> {
-  if (!isRedisConnected()) {
-    return false;
-  }
-
-  try {
-    const client = await getRedisClient();
-    if (!client) {
-      return false;
-    }
-
-    const key = PackUPCCacheKeys.packUpc(packId);
-    const result = await client.expire(key, PACK_UPC_TTL_SECONDS);
-    return result;
-  } catch (error) {
-    console.error(
-      `PackUPCCache: Failed to refresh TTL for pack ${packId}:`,
-      error,
-    );
-    return false;
-  }
+export async function getPackUPCCreatedAt(
+  packId: string,
+): Promise<string | null> {
+  const data = await getPackUPCs(packId);
+  return data?.generatedAt || null;
 }

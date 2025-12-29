@@ -426,6 +426,113 @@ export async function createGame(
 }
 
 /**
+ * Update game input - all fields optional for partial updates
+ *
+ * MCP Guidance Applied:
+ * - FE-002: FORM_VALIDATION - Interface for validated form data
+ * - SEC-014: INPUT_VALIDATION - Optional fields with type constraints
+ */
+export interface UpdateGameInput {
+  name?: string;
+  game_code?: string;
+  price?: number;
+  pack_value?: number;
+  description?: string;
+  status?: "ACTIVE" | "INACTIVE" | "DISCONTINUED";
+}
+
+/**
+ * Update game response
+ */
+export interface UpdateGameResponse {
+  game_id: string;
+  game_code: string;
+  name: string;
+  price: number | null;
+  pack_value: number | null;
+  total_tickets: number | null;
+  description: string | null;
+  status: string;
+  store_id: string | null;
+  updated_at: string;
+}
+
+/**
+ * Update an existing lottery game
+ * PUT /api/lottery/games/:gameId
+ *
+ * MCP Guidance Applied:
+ * - API-001: VALIDATION - Server validates all input fields
+ * - API-009: IDOR - Server validates ownership via store access
+ * - DB-006: TENANT_ISOLATION - Server enforces store-level isolation
+ *
+ * @param gameId - Game UUID
+ * @param data - Partial game data to update
+ * @returns Updated game response
+ */
+export async function updateGame(
+  gameId: string,
+  data: UpdateGameInput,
+): Promise<ApiResponse<UpdateGameResponse>> {
+  const response = await apiClient.put<ApiResponse<UpdateGameResponse>>(
+    `/api/lottery/games/${gameId}`,
+    data,
+  );
+  return response.data;
+}
+
+/**
+ * Get packs filtered by game
+ * GET /api/lottery/packs?game_id={gameId}&store_id={storeId}
+ * @param gameId - Game UUID to filter by
+ * @param storeId - Store UUID for RLS enforcement
+ * @returns List of packs for the specified game
+ */
+export async function getPacksByGame(
+  gameId: string,
+  storeId: string,
+): Promise<ApiResponse<LotteryPackResponse[]>> {
+  const response = await apiClient.get<ApiResponse<LotteryPackResponse[]>>(
+    "/api/lottery/packs",
+    { params: { game_id: gameId, store_id: storeId } },
+  );
+  return response.data;
+}
+
+/**
+ * Mark pack as sold out (deplete)
+ * POST /api/lottery/packs/:packId/deplete
+ *
+ * MCP Guidance Applied:
+ * - API-001: VALIDATION - Server validates pack status and ownership
+ * - DB-006: TENANT_ISOLATION - Server enforces store-level isolation
+ *
+ * @param packId - Pack UUID
+ * @param closingSerial - Optional closing serial number
+ * @returns Depleted pack response
+ */
+export interface DepletePackResponse {
+  pack_id: string;
+  pack_number: string;
+  status: "DEPLETED";
+  depleted_at: string;
+  depletion_reason: "MANUAL_SOLD_OUT";
+  game_name: string;
+  bin_name: string | null;
+}
+
+export async function depletePack(
+  packId: string,
+  closingSerial?: string,
+): Promise<ApiResponse<DepletePackResponse>> {
+  const response = await apiClient.post<ApiResponse<DepletePackResponse>>(
+    `/api/lottery/packs/${packId}/deplete`,
+    closingSerial ? { closing_serial: closingSerial } : {},
+  );
+  return response.data;
+}
+
+/**
  * Activate a lottery pack (change status from RECEIVED to ACTIVE)
  * PUT /api/lottery/packs/:packId/activate
  * @param packId - Pack UUID

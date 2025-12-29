@@ -109,7 +109,6 @@ export function BinSelector({
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-medium">Bin {bin.bin_number}</span>
-                    <span className="text-muted-foreground">- {bin.name}</span>
                     {hasActivePack && (
                       <Badge variant="secondary" className="ml-2 text-xs">
                         {bin.pack?.game_name} #{bin.pack?.pack_number}

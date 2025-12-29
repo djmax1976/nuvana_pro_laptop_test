@@ -1,17 +1,25 @@
 /**
- * UPC Generator Service
+ * UPC-A Generator Service
  *
- * Pure functions for generating 12-digit lottery ticket UPCs from pack data.
+ * Pure functions for generating valid 12-digit UPC-A barcodes for lottery tickets.
  *
- * UPC Formula:
- * [Game Code first 2 digits] + [Pack Number 7 digits] + [Ticket Number 3 digits]
+ * UPC-A Formula:
+ * [Last digit of Game Code] + [Pack Number 7 digits] + [Starting Serial 3 digits] + [Check Digit]
  *
- * Example: Game "0033", Pack "5633005", 15 tickets
- * - UPC[0]:  "035633005000"
- * - UPC[14]: "035633005014"
+ * The check digit is calculated using the standard UPC-A algorithm:
+ * 1. Sum digits at odd positions (1,3,5,7,9,11) and multiply by 3
+ * 2. Sum digits at even positions (2,4,6,8,10)
+ * 3. Check digit = (10 - ((oddSum * 3 + evenSum) mod 10)) mod 10
+ *
+ * Example: Game "0033", Pack "5633005", Starting Serial "000", 15 tickets
+ * - Base 11 digits: "35633005000" (last digit of game + pack + serial)
+ * - UPC[0]:  "356330050004" (with check digit 4)
+ * - UPC[14]: "356330050145" (serial 014, with check digit 5)
  *
  * Enterprise coding standards applied:
- * - API-001: VALIDATION - Strict input validation
+ * - API-001: VALIDATION - Strict input validation with sanitization
+ * - API-003: ERROR_HANDLING - Comprehensive error handling with descriptive messages
+ * - SEC-006: SQL_INJECTION - N/A (pure functions, no DB access)
  * - No side effects - pure functions only
  *
  * @module services/lottery/upc-generator.service
@@ -25,10 +33,12 @@
  * Input for UPC generation
  */
 export interface UPCGenerationInput {
-  /** 4-digit game code (e.g., "0033") */
+  /** 4-digit game code (e.g., "0033") - last digit will be used */
   gameCode: string;
   /** Pack number, up to 7 digits (e.g., "5633005") */
   packNumber: string;
+  /** Starting serial number, up to 3 digits (e.g., "000") - base for ticket numbering */
+  startingSerial: string;
   /** Number of tickets in the pack (e.g., 15 for $20 packs) */
   ticketsPerPack: number;
 }
@@ -51,10 +61,12 @@ export interface UPCGenerationResult {
  * Metadata about generated UPCs
  */
 export interface UPCGenerationMetadata {
-  /** First 2 digits of game code used in UPC */
-  gameCodePrefix: string;
+  /** Last digit of game code used in UPC */
+  gameCodeSuffix: string;
   /** 7-digit pack number (zero-padded) */
   packNumber: string;
+  /** 3-digit starting serial (zero-padded) */
+  startingSerial: string;
   /** Total number of tickets/UPCs generated */
   ticketCount: number;
   /** First UPC in the sequence */
@@ -132,11 +144,44 @@ export function validatePackNumber(packNumber: string): ValidationResult {
 }
 
 /**
+ * Validate starting serial format
+ *
+ * Starting serial must be 1-3 numeric digits. Will be zero-padded to 3 digits.
+ *
+ * @param startingSerial - The starting serial to validate
+ * @returns Validation result
+ *
+ * @example
+ * validateStartingSerial("000"); // { valid: true }
+ * validateStartingSerial("15");  // { valid: true }
+ * validateStartingSerial("1000"); // { valid: false, error: "..." }
+ */
+export function validateStartingSerial(
+  startingSerial: string,
+): ValidationResult {
+  if (!startingSerial || typeof startingSerial !== "string") {
+    return { valid: false, error: "Starting serial is required" };
+  }
+
+  // Sanitize: only allow numeric characters
+  if (!/^\d{1,3}$/.test(startingSerial)) {
+    return {
+      valid: false,
+      error: `Starting serial must be 1-3 digits, got "${startingSerial}" (${startingSerial.length} chars)`,
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
  * Validate tickets per pack count
  *
  * Must be a positive integer between 1 and 999 (3-digit ticket numbers).
+ * Also validates that starting serial + tickets won't overflow 3 digits.
  *
  * @param ticketsPerPack - The ticket count to validate
+ * @param startingSerial - Optional starting serial to check overflow
  * @returns Validation result
  *
  * @example
@@ -145,6 +190,7 @@ export function validatePackNumber(packNumber: string): ValidationResult {
  */
 export function validateTicketsPerPack(
   ticketsPerPack: number,
+  startingSerial?: string,
 ): ValidationResult {
   if (typeof ticketsPerPack !== "number" || !Number.isInteger(ticketsPerPack)) {
     return {
@@ -167,7 +213,83 @@ export function validateTicketsPerPack(
     };
   }
 
+  // Validate that starting serial + tickets won't overflow 3 digits (max 999)
+  if (startingSerial) {
+    const startNum = parseInt(startingSerial, 10);
+    const endSerial = startNum + ticketsPerPack - 1;
+    if (endSerial > 999) {
+      return {
+        valid: false,
+        error: `Starting serial ${startingSerial} plus ${ticketsPerPack} tickets would exceed 999 (ends at ${endSerial})`,
+      };
+    }
+  }
+
   return { valid: true };
+}
+
+// ============================================================================
+// UPC-A Check Digit Calculation
+// ============================================================================
+
+/**
+ * Calculate UPC-A check digit using the standard Modulo 10 algorithm
+ *
+ * Algorithm:
+ * 1. Sum digits at odd positions (1,3,5,7,9,11) and multiply by 3
+ * 2. Sum digits at even positions (2,4,6,8,10)
+ * 3. Check digit = (10 - ((oddSum * 3 + evenSum) mod 10)) mod 10
+ *
+ * @param digits - 11-digit string (data digits without check digit)
+ * @returns Single check digit (0-9)
+ * @throws Error if input is not exactly 11 numeric digits
+ *
+ * @example
+ * calculateUPCACheckDigit("00335633005"); // Returns 7
+ * calculateUPCACheckDigit("35633005000"); // Returns 4
+ */
+export function calculateUPCACheckDigit(digits: string): number {
+  // Strict validation: must be exactly 11 numeric digits
+  if (!/^\d{11}$/.test(digits)) {
+    throw new Error(
+      `UPC-A check digit calculation requires exactly 11 numeric digits, got "${digits}" (${digits.length} chars)`,
+    );
+  }
+
+  let oddSum = 0;
+  let evenSum = 0;
+
+  for (let i = 0; i < 11; i++) {
+    const digit = parseInt(digits.charAt(i), 10);
+    // Positions are 1-indexed: odd positions are 1,3,5,7,9,11 (indices 0,2,4,6,8,10)
+    if (i % 2 === 0) {
+      oddSum += digit;
+    } else {
+      evenSum += digit;
+    }
+  }
+
+  const total = oddSum * 3 + evenSum;
+  const checkDigit = (10 - (total % 10)) % 10;
+
+  return checkDigit;
+}
+
+/**
+ * Generate a complete 12-digit UPC-A barcode from 11 data digits
+ *
+ * Appends the calculated check digit to create a valid UPC-A.
+ *
+ * @param dataDigits - 11-digit string (data portion)
+ * @returns 12-digit UPC-A string with check digit
+ * @throws Error if input is invalid
+ *
+ * @example
+ * generateUPCAWithCheckDigit("35633005000"); // Returns "356330050004"
+ */
+export function generateUPCAWithCheckDigit(dataDigits: string): string {
+  const checkDigit = calculateUPCACheckDigit(dataDigits);
+  return `${dataDigits}${checkDigit}`;
 }
 
 // ============================================================================
@@ -175,26 +297,28 @@ export function validateTicketsPerPack(
 // ============================================================================
 
 /**
- * Generate UPCs for a lottery pack
+ * Generate UPC-A barcodes for a lottery pack
  *
- * Creates one 12-digit UPC for each ticket in the pack.
+ * Creates one valid 12-digit UPC-A for each ticket in the pack.
  *
- * UPC Structure:
- * - Positions 1-2: First 2 digits of game code
- * - Positions 3-9: Pack number (7 digits, zero-padded)
- * - Positions 10-12: Ticket number (000 to ticketsPerPack-1)
+ * UPC-A Structure:
+ * - Position 1: Last digit of game code
+ * - Positions 2-8: Pack number (7 digits, zero-padded)
+ * - Positions 9-11: Serial number (starting serial + ticket offset, zero-padded)
+ * - Position 12: Calculated check digit (UPC-A Modulo 10)
  *
- * @param input - Game code, pack number, and tickets per pack
+ * @param input - Game code, pack number, starting serial, and tickets per pack
  * @returns Generation result with UPCs array
  *
  * @example
  * const result = generatePackUPCs({
  *   gameCode: "0033",
  *   packNumber: "5633005",
+ *   startingSerial: "000",
  *   ticketsPerPack: 15,
  * });
- * // result.upcs[0] = "035633005000"
- * // result.upcs[14] = "035633005014"
+ * // result.upcs[0] = "356330050004" (serial 000, check digit 4)
+ * // result.upcs[14] = "356330050145" (serial 014, check digit 5)
  */
 export function generatePackUPCs(
   input: UPCGenerationInput,
@@ -221,8 +345,22 @@ export function generatePackUPCs(
     };
   }
 
-  // Validate tickets per pack
-  const ticketsValidation = validateTicketsPerPack(input.ticketsPerPack);
+  // Validate starting serial
+  const startingSerialValidation = validateStartingSerial(input.startingSerial);
+  if (!startingSerialValidation.valid) {
+    return {
+      success: false,
+      upcs: [],
+      metadata: {} as UPCGenerationMetadata,
+      error: startingSerialValidation.error,
+    };
+  }
+
+  // Validate tickets per pack (with overflow check against starting serial)
+  const ticketsValidation = validateTicketsPerPack(
+    input.ticketsPerPack,
+    input.startingSerial,
+  );
   if (!ticketsValidation.valid) {
     return {
       success: false,
@@ -232,17 +370,31 @@ export function generatePackUPCs(
     };
   }
 
-  // Extract first 2 digits of game code
-  const gameCodePrefix = input.gameCode.substring(0, 2);
+  // Extract last digit of game code (new formula)
+  const gameCodeSuffix = input.gameCode.substring(3, 4);
 
   // Pad pack number to 7 digits
   const paddedPackNumber = input.packNumber.padStart(7, "0");
 
-  // Generate UPCs for each ticket (0 to ticketsPerPack - 1)
+  // Parse starting serial as number for incrementing
+  const startSerialNum = parseInt(input.startingSerial, 10);
+  const paddedStartingSerial = input.startingSerial.padStart(3, "0");
+
+  // Generate UPC-As for each ticket
   const upcs: string[] = [];
-  for (let ticketNum = 0; ticketNum < input.ticketsPerPack; ticketNum++) {
-    const ticketNumberPadded = ticketNum.toString().padStart(3, "0");
-    const upc = `${gameCodePrefix}${paddedPackNumber}${ticketNumberPadded}`;
+  for (
+    let ticketOffset = 0;
+    ticketOffset < input.ticketsPerPack;
+    ticketOffset++
+  ) {
+    const currentSerial = startSerialNum + ticketOffset;
+    const serialPadded = currentSerial.toString().padStart(3, "0");
+
+    // Build 11 data digits: [gameCodeSuffix(1)] + [packNumber(7)] + [serial(3)]
+    const dataDigits = `${gameCodeSuffix}${paddedPackNumber}${serialPadded}`;
+
+    // Generate complete UPC-A with check digit
+    const upc = generateUPCAWithCheckDigit(dataDigits);
     upcs.push(upc);
   }
 
@@ -250,8 +402,9 @@ export function generatePackUPCs(
     success: true,
     upcs,
     metadata: {
-      gameCodePrefix,
+      gameCodeSuffix,
       packNumber: paddedPackNumber,
+      startingSerial: paddedStartingSerial,
       ticketCount: input.ticketsPerPack,
       firstUpc: upcs[0],
       lastUpc: upcs[upcs.length - 1],
@@ -260,28 +413,63 @@ export function generatePackUPCs(
 }
 
 /**
- * Parse a 12-digit UPC back into its components
+ * Parsed UPC-A components
+ */
+export interface ParsedUPCA {
+  /** Last digit of game code */
+  gameCodeSuffix: string;
+  /** 7-digit pack number */
+  packNumber: string;
+  /** 3-digit serial number */
+  serialNumber: string;
+  /** Check digit */
+  checkDigit: string;
+  /** Whether the check digit is valid */
+  isValidCheckDigit: boolean;
+}
+
+/**
+ * Parse a 12-digit UPC-A back into its components
  *
- * Useful for debugging and validation.
+ * Useful for debugging, validation, and verification.
+ * Also validates the check digit.
  *
- * @param upc - The 12-digit UPC to parse
- * @returns Parsed components or null if invalid
+ * @param upc - The 12-digit UPC-A to parse
+ * @returns Parsed components or null if invalid format
  *
  * @example
- * parseUPC("035633005014");
- * // { gameCodePrefix: "03", packNumber: "5633005", ticketNumber: "014" }
+ * parseUPC("356330050004");
+ * // {
+ * //   gameCodeSuffix: "3",
+ * //   packNumber: "5633005",
+ * //   serialNumber: "000",
+ * //   checkDigit: "4",
+ * //   isValidCheckDigit: true
+ * // }
  */
-export function parseUPC(
-  upc: string,
-): { gameCodePrefix: string; packNumber: string; ticketNumber: string } | null {
+export function parseUPC(upc: string): ParsedUPCA | null {
   if (!upc || typeof upc !== "string" || !/^\d{12}$/.test(upc)) {
     return null;
   }
 
+  const dataDigits = upc.substring(0, 11);
+  const checkDigit = upc.substring(11, 12);
+
+  // Validate check digit
+  let isValidCheckDigit = false;
+  try {
+    const calculatedCheckDigit = calculateUPCACheckDigit(dataDigits);
+    isValidCheckDigit = calculatedCheckDigit === parseInt(checkDigit, 10);
+  } catch {
+    isValidCheckDigit = false;
+  }
+
   return {
-    gameCodePrefix: upc.substring(0, 2),
-    packNumber: upc.substring(2, 9),
-    ticketNumber: upc.substring(9, 12),
+    gameCodeSuffix: upc.substring(0, 1),
+    packNumber: upc.substring(1, 8),
+    serialNumber: upc.substring(8, 11),
+    checkDigit,
+    isValidCheckDigit,
   };
 }
 
@@ -289,8 +477,35 @@ export function parseUPC(
  * Validate that a UPC is well-formed (12 digits)
  *
  * @param upc - The UPC to validate
- * @returns True if valid 12-digit UPC
+ * @returns True if valid 12-digit UPC format
  */
 export function isValidUPC(upc: string): boolean {
   return typeof upc === "string" && /^\d{12}$/.test(upc);
+}
+
+/**
+ * Validate that a UPC-A has a correct check digit
+ *
+ * Parses the UPC and verifies the check digit matches the calculated value.
+ *
+ * @param upc - The 12-digit UPC-A to validate
+ * @returns True if format is valid AND check digit is correct
+ *
+ * @example
+ * isValidUPCACheckDigit("356330050004"); // true (check digit 4 is correct)
+ * isValidUPCACheckDigit("356330050005"); // false (check digit should be 4, not 5)
+ */
+export function isValidUPCACheckDigit(upc: string): boolean {
+  if (!isValidUPC(upc)) {
+    return false;
+  }
+
+  try {
+    const dataDigits = upc.substring(0, 11);
+    const providedCheckDigit = parseInt(upc.substring(11, 12), 10);
+    const calculatedCheckDigit = calculateUPCACheckDigit(dataDigits);
+    return providedCheckDigit === calculatedCheckDigit;
+  } catch {
+    return false;
+  }
 }

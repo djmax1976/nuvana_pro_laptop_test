@@ -47,9 +47,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
-      pack_number: "PACK-001",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633001",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 
@@ -207,9 +207,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
-      pack_number: "PACK-002",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633002",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
       current_bin_id: bin.bin_id,
     });
@@ -250,9 +250,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
-      pack_number: "PACK-002a",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633003",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
       // No current_bin_id - defaults to no bin assigned
     });
@@ -300,9 +300,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: store.store_id,
-      pack_number: "PACK-003",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633004",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 
@@ -341,9 +341,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: store.store_id,
-      pack_number: "PACK-003a",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633005",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 
@@ -388,9 +388,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: store.store_id,
-      pack_number: "PACK-003b",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633006",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 
@@ -428,9 +428,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
-      pack_number: "PACK-004",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633007",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 
@@ -463,9 +463,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: store.store_id,
-      pack_number: "PACK-005",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633008",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 
@@ -503,9 +503,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: otherStore.store_id, // Different store
-      pack_number: "PACK-007",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633009",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 
@@ -553,9 +553,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: store.store_id,
-      pack_number: "PACK-007a",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633010",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 
@@ -583,9 +583,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: clientUser.store_id,
-      pack_number: "PACK-007b-COMPANY",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633011",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 
@@ -623,9 +623,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const otherPack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: otherStore.store_id,
-      pack_number: "PACK-007c-OTHER-COMPANY",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633012",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 
@@ -668,9 +668,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
-      pack_number: "PACK-008",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633013",
+      serial_start: "000",
+      serial_end: "149",
       status: "ACTIVE",
     });
 
@@ -716,9 +716,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
-      pack_number: "PACK-009",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633014",
+      serial_start: "000",
+      serial_end: "149",
       status: "DEPLETED",
     });
 
@@ -763,9 +763,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
-      pack_number: "PACK-010",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633015",
+      serial_start: "000",
+      serial_end: "149",
       status: "RETURNED",
     });
 
@@ -810,9 +810,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
-      pack_number: "PACK-010a",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633016",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 
@@ -1108,9 +1108,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
-      pack_number: "PACK-013",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633017",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 
@@ -1219,9 +1219,9 @@ test.describe("6.3-API: Lottery Pack Activation - Pack Activation", () => {
     const pack = await createLotteryPack(prismaClient, {
       game_id: game.game_id,
       store_id: storeManagerUser.store_id,
-      pack_number: "PACK-014",
-      serial_start: "184303159650093783374530",
-      serial_end: "184303159650093783374680",
+      pack_number: "5633018",
+      serial_start: "000",
+      serial_end: "149",
       status: "RECEIVED",
     });
 

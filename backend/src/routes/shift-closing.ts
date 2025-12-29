@@ -1632,6 +1632,7 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               ticketsPerPack: pack.game.tickets_per_pack,
               ticketPrice: Number(pack.game.price),
               storeId: pack.store_id,
+              startingSerial: body.serial_start,
             });
 
             if (!syncResult.success) {

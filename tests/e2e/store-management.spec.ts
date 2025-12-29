@@ -7,7 +7,22 @@ import {
 } from "../../backend/src/utils/public-id";
 import { cleanupTestData } from "../support/cleanup-helper";
 
-const prisma = new PrismaClient();
+// Initialize Prisma client lazily to ensure DATABASE_URL from test environment is used
+let prisma: PrismaClient | null = null;
+function getPrisma(): PrismaClient {
+  if (!prisma) {
+    prisma = new PrismaClient({
+      datasources: {
+        db: {
+          url:
+            process.env.DATABASE_URL ||
+            "postgresql://postgres:postgres@localhost:5432/nuvana_test",
+        },
+      },
+    });
+  }
+  return prisma;
+}
 
 /**
  * E2E Test Suite: Store Management
@@ -32,41 +47,59 @@ test.describe("Store Management E2E", () => {
   let testStore: any;
 
   test.beforeAll(async () => {
+    console.log("[beforeAll] Starting test setup...");
+    console.log(
+      "[beforeAll] DATABASE_URL:",
+      process.env.DATABASE_URL || "not set",
+    );
+
     // Clean up existing test data (delete userRoles before users to avoid FK violations)
-    const existingUsers = await prisma.user.findMany({
+    const existingUsers = await getPrisma().user.findMany({
       where: { email: "store-e2e@test.com" },
       select: { user_id: true },
     });
+    console.log("[beforeAll] Found existing users:", existingUsers.length);
 
     for (const user of existingUsers) {
-      await prisma.userRole.deleteMany({
+      await getPrisma().userRole.deleteMany({
         where: { user_id: user.user_id },
       });
     }
 
-    await prisma.user.deleteMany({
+    await getPrisma().user.deleteMany({
       where: { email: "store-e2e@test.com" },
     });
 
     // Create superadmin user
     const hashedPassword = await bcrypt.hash("TestPassword123!", 10);
-    superadminUser = await prisma.user.create({
-      data: {
-        public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
-        email: "store-e2e@test.com",
-        name: "Store E2E Tester",
-        password_hash: hashedPassword,
-        status: "ACTIVE",
-      },
-    });
+    console.log(
+      "[beforeAll] Creating user with password hash:",
+      hashedPassword.substring(0, 20) + "...",
+    );
+    try {
+      superadminUser = await getPrisma().user.create({
+        data: {
+          public_id: generatePublicId(PUBLIC_ID_PREFIXES.USER),
+          email: "store-e2e@test.com",
+          name: "Store E2E Tester",
+          password_hash: hashedPassword,
+          status: "ACTIVE",
+        },
+      });
+      console.log("[beforeAll] Created user:", superadminUser.user_id);
+    } catch (err) {
+      console.error("[beforeAll] Failed to create user:", err);
+      throw err;
+    }
 
     // Assign SUPERADMIN role
-    const superadminRole = await prisma.role.findUnique({
+    const superadminRole = await getPrisma().role.findUnique({
       where: { code: "SUPERADMIN" },
     });
+    console.log("[beforeAll] Found superadmin role:", superadminRole?.code);
 
     if (superadminRole) {
-      await prisma.userRole.create({
+      await getPrisma().userRole.create({
         data: {
           user_id: superadminUser.user_id,
           role_id: superadminRole.role_id,
@@ -76,7 +109,7 @@ test.describe("Store Management E2E", () => {
     }
 
     // Create test company owned by superadmin
-    testCompany = await prisma.company.create({
+    testCompany = await getPrisma().company.create({
       data: {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.COMPANY),
         name: "E2E Test Company for Stores",
@@ -86,7 +119,7 @@ test.describe("Store Management E2E", () => {
     });
 
     // Create test store
-    testStore = await prisma.store.create({
+    testStore = await getPrisma().store.create({
       data: {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
 
@@ -104,13 +137,13 @@ test.describe("Store Management E2E", () => {
 
   test.afterAll(async () => {
     // Cleanup: Delete test data using helper (respects FK constraints)
-    await cleanupTestData(prisma, {
+    await cleanupTestData(getPrisma(), {
       stores: testStore ? [testStore.store_id] : [],
       companies: testCompany ? [testCompany.company_id] : [],
       users: superadminUser ? [superadminUser.user_id] : [],
     });
 
-    await prisma.$disconnect();
+    await getPrisma().$disconnect();
   });
 
   test.beforeEach(async ({ page }) => {
@@ -200,13 +233,28 @@ test.describe("Store Management E2E", () => {
   test("[P0] Should successfully edit store name and status", async ({
     page,
   }) => {
+    // Set up API response listener BEFORE navigation (network-first pattern)
+    const storeApiPromise = page.waitForResponse(
+      (resp) =>
+        resp.url().includes(`/api/stores/${testStore.store_id}`) &&
+        resp.request().method() === "GET" &&
+        resp.status() === 200,
+      { timeout: 30000 },
+    );
+
     await page.goto(`http://localhost:3000/stores/${testStore.store_id}/edit`);
     await page.waitForLoadState("load");
 
+    // Wait for store API to complete - ensures form is populated with data
+    await storeApiPromise;
+
     const newName = `Updated Store ${Date.now()}`;
-    // Use accessible selectors - the label is "Store Name"
-    const nameInput = page.getByLabel("Store Name");
+    // Use form-specific selector to avoid conflict with Header loading skeleton
+    // The header has aria-label="Loading store name" which matches getByLabel("Store Name")
+    // Use input[name="name"] within the form context for precision
+    const nameInput = page.locator('form input[name="name"]');
     await expect(nameInput).toBeVisible({ timeout: 10000 });
+    await expect(nameInput).toBeEditable({ timeout: 5000 });
     await nameInput.clear();
     await nameInput.fill(newName);
 
@@ -230,26 +278,39 @@ test.describe("Store Management E2E", () => {
       expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
     ]);
 
-    const updatedStore = await prisma.store.findUnique({
+    const updatedStore = await getPrisma().store.findUnique({
       where: { store_id: testStore.store_id },
     });
     expect(updatedStore?.name).toBe(newName);
     expect(updatedStore?.status).toBe("INACTIVE");
 
     // Restore
-    await prisma.store.update({
+    await getPrisma().store.update({
       where: { store_id: testStore.store_id },
       data: { name: testStore.name, status: testStore.status },
     });
   });
 
   test("[P0] Should successfully edit store location", async ({ page }) => {
+    // Set up API response listener BEFORE navigation (network-first pattern)
+    const storeApiPromise = page.waitForResponse(
+      (resp) =>
+        resp.url().includes(`/api/stores/${testStore.store_id}`) &&
+        resp.request().method() === "GET" &&
+        resp.status() === 200,
+      { timeout: 30000 },
+    );
+
     await page.goto(`http://localhost:3000/stores/${testStore.store_id}/edit`);
     await page.waitForLoadState("load");
 
-    // Use accessible selector for Address textarea
-    const addressInput = page.getByLabel("Address");
+    // Wait for store API to complete - ensures form is populated with data
+    await storeApiPromise;
+
+    // Use form-specific selector for Address textarea
+    const addressInput = page.locator('form textarea[name="address"]');
     await expect(addressInput).toBeVisible({ timeout: 10000 });
+    await expect(addressInput).toBeEditable({ timeout: 5000 });
     await addressInput.clear();
     await addressInput.fill("456 New Address Ave, New City, NC 54321");
 
@@ -268,7 +329,7 @@ test.describe("Store Management E2E", () => {
     ]);
     expect(result).toBeTruthy();
 
-    const updatedStore = await prisma.store.findUnique({
+    const updatedStore = await getPrisma().store.findUnique({
       where: { store_id: testStore.store_id },
     });
     expect(updatedStore?.location_json).toMatchObject({
@@ -276,18 +337,30 @@ test.describe("Store Management E2E", () => {
     });
 
     // Restore
-    await prisma.store.update({
+    await getPrisma().store.update({
       where: { store_id: testStore.store_id },
       data: { location_json: testStore.location_json },
     });
   });
 
   test("[P0] Should successfully change store timezone", async ({ page }) => {
+    // Set up API response listener BEFORE navigation (network-first pattern)
+    const storeApiPromise = page.waitForResponse(
+      (resp) =>
+        resp.url().includes(`/api/stores/${testStore.store_id}`) &&
+        resp.request().method() === "GET" &&
+        resp.status() === 200,
+      { timeout: 30000 },
+    );
+
     await page.goto(`http://localhost:3000/stores/${testStore.store_id}/edit`);
     await page.waitForLoadState("load");
 
-    // Timezone is an Input field, not a Select
-    const timezoneInput = page.getByLabel("Timezone");
+    // Wait for store API to complete - ensures form is populated with data
+    await storeApiPromise;
+
+    // Use form-specific selector for Timezone input
+    const timezoneInput = page.locator('form input[name="timezone"]');
     await expect(timezoneInput).toBeVisible({ timeout: 10000 });
     await expect(timezoneInput).toBeEditable({ timeout: 5000 });
 
@@ -327,13 +400,13 @@ test.describe("Store Management E2E", () => {
       expect(page).toHaveURL(/\/stores/, { timeout: 10000 }),
     ]);
 
-    const updatedStore = await prisma.store.findUnique({
+    const updatedStore = await getPrisma().store.findUnique({
       where: { store_id: testStore.store_id },
     });
     expect(updatedStore?.timezone).toBe("America/Los_Angeles");
 
     // Restore
-    await prisma.store.update({
+    await getPrisma().store.update({
       where: { store_id: testStore.store_id },
       data: { timezone: testStore.timezone },
     });
@@ -392,7 +465,7 @@ test.describe("Store Management E2E", () => {
     ) => {
       const startTime = Date.now();
       while (Date.now() - startTime < timeout) {
-        const store = await prisma.store.findFirst({
+        const store = await getPrisma().store.findFirst({
           where: { name: newStoreName },
         });
         if (store) {
@@ -417,7 +490,7 @@ test.describe("Store Management E2E", () => {
       ) => {
         const startTime = Date.now();
         while (Date.now() - startTime < timeout) {
-          const login = await prisma.user.findFirst({
+          const login = await getPrisma().user.findFirst({
             where: { email: uniqueEmail.toLowerCase() },
           });
           if (login) {
@@ -435,7 +508,7 @@ test.describe("Store Management E2E", () => {
 
       // Re-fetch the store to get the updated store_login_user_id
       // (the initial createdStore was fetched before the login was linked)
-      const updatedStore = await prisma.store.findUnique({
+      const updatedStore = await getPrisma().store.findUnique({
         where: { store_id: createdStore.store_id },
       });
 
@@ -444,18 +517,18 @@ test.describe("Store Management E2E", () => {
 
       // Cleanup: Delete login's user roles, login user, and store
       if (storeLogin) {
-        await prisma.userRole.deleteMany({
+        await getPrisma().userRole.deleteMany({
           where: { user_id: storeLogin.user_id },
         });
-        await prisma.store.update({
+        await getPrisma().store.update({
           where: { store_id: createdStore.store_id },
           data: { store_login_user_id: null },
         });
-        await prisma.user.delete({
+        await getPrisma().user.delete({
           where: { user_id: storeLogin.user_id },
         });
       }
-      await prisma.store.delete({
+      await getPrisma().store.delete({
         where: { store_id: createdStore.store_id },
       });
     }
@@ -501,7 +574,7 @@ test.describe("Store Management E2E", () => {
       timeout: 10000,
     });
 
-    const updatedStore = await prisma.store.findUnique({
+    const updatedStore = await getPrisma().store.findUnique({
       where: { store_id: testStore.store_id },
     });
     expect(updatedStore?.configuration).toMatchObject({
@@ -517,11 +590,25 @@ test.describe("Store Management E2E", () => {
   test("[P1] Should show validation error for empty store name", async ({
     page,
   }) => {
+    // Set up API response listener BEFORE navigation (network-first pattern)
+    const storeApiPromise = page.waitForResponse(
+      (resp) =>
+        resp.url().includes(`/api/stores/${testStore.store_id}`) &&
+        resp.request().method() === "GET" &&
+        resp.status() === 200,
+      { timeout: 30000 },
+    );
+
     await page.goto(`http://localhost:3000/stores/${testStore.store_id}/edit`);
     await page.waitForLoadState("load");
 
-    const nameInput = page.getByLabel("Store Name");
+    // Wait for store API to complete - ensures form is populated with data
+    await storeApiPromise;
+
+    // Use form-specific selector to avoid conflict with Header loading skeleton
+    const nameInput = page.locator('form input[name="name"]');
     await expect(nameInput).toBeVisible({ timeout: 10000 });
+    await expect(nameInput).toBeEditable({ timeout: 5000 });
     await nameInput.clear();
 
     const submitButton = page.getByRole("button", { name: "Update Store" });
@@ -535,12 +622,25 @@ test.describe("Store Management E2E", () => {
   test("[P1] Should show validation error for invalid timezone", async ({
     page,
   }) => {
+    // Set up API response listener BEFORE navigation (network-first pattern)
+    const storeApiPromise = page.waitForResponse(
+      (resp) =>
+        resp.url().includes(`/api/stores/${testStore.store_id}`) &&
+        resp.request().method() === "GET" &&
+        resp.status() === 200,
+      { timeout: 30000 },
+    );
+
     await page.goto(`http://localhost:3000/stores/${testStore.store_id}/edit`);
     await page.waitForLoadState("load");
 
-    // Timezone is an Input field, fill it with invalid value
-    const timezoneInput = page.getByLabel("Timezone");
+    // Wait for store API to complete - ensures form is populated with data
+    await storeApiPromise;
+
+    // Use form-specific selector for Timezone input
+    const timezoneInput = page.locator('form input[name="timezone"]');
     await expect(timezoneInput).toBeVisible({ timeout: 10000 });
+    await expect(timezoneInput).toBeEditable({ timeout: 5000 });
     await timezoneInput.clear();
     await timezoneInput.fill("Invalid/Bad/Timezone/Format");
 
@@ -553,7 +653,7 @@ test.describe("Store Management E2E", () => {
   });
 
   test("[P1] Should prevent deletion of ACTIVE store", async ({ page }) => {
-    await prisma.store.update({
+    await getPrisma().store.update({
       where: { store_id: testStore.store_id },
       data: { status: "ACTIVE" },
     });
@@ -571,7 +671,7 @@ test.describe("Store Management E2E", () => {
   });
 
   test("[P1] Should successfully delete INACTIVE store", async ({ page }) => {
-    const storeToDelete = await prisma.store.create({
+    const storeToDelete = await getPrisma().store.create({
       data: {
         public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
 
@@ -615,7 +715,7 @@ test.describe("Store Management E2E", () => {
     await expect(dialog).not.toBeVisible({ timeout: 10000 });
 
     // Verify the store no longer exists (hard delete)
-    const deletedStore = await prisma.store.findUnique({
+    const deletedStore = await getPrisma().store.findUnique({
       where: { store_id: storeToDelete.store_id },
     });
     expect(deletedStore).toBeNull();
@@ -623,15 +723,28 @@ test.describe("Store Management E2E", () => {
 
   test("[P1] Should display properly on mobile screens", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
+
+    // Set up API response listener BEFORE navigation (network-first pattern)
+    const storeApiPromise = page.waitForResponse(
+      (resp) =>
+        resp.url().includes(`/api/stores/${testStore.store_id}`) &&
+        resp.request().method() === "GET" &&
+        resp.status() === 200,
+      { timeout: 30000 },
+    );
+
     await page.goto(`http://localhost:3000/stores/${testStore.store_id}/edit`);
     await page.waitForLoadState("load");
+
+    // Wait for store API to complete - ensures form is populated with data
+    await storeApiPromise;
 
     // Verify the edit page renders correctly on mobile
     const heading = page.getByRole("heading", { name: "Edit Store" });
     await expect(heading).toBeVisible({ timeout: 10000 });
 
-    // Verify form elements are visible
-    const nameInput = page.getByLabel("Store Name");
+    // Verify form elements are visible - use form-specific selector
+    const nameInput = page.locator('form input[name="name"]');
     await expect(nameInput).toBeVisible();
 
     const viewport = page.viewportSize();
@@ -672,7 +785,7 @@ test.describe("Store Management E2E", () => {
   }) => {
     // Create additional test stores with known values for sorting tests
     const testStores = await Promise.all([
-      prisma.store.create({
+      getPrisma().store.create({
         data: {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
           name: "Alpha Store",
@@ -682,7 +795,7 @@ test.describe("Store Management E2E", () => {
           location_json: { address: "123 Alpha St" },
         },
       }),
-      prisma.store.create({
+      getPrisma().store.create({
         data: {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
           name: "Beta Store",
@@ -692,7 +805,7 @@ test.describe("Store Management E2E", () => {
           location_json: { address: "456 Beta St" },
         },
       }),
-      prisma.store.create({
+      getPrisma().store.create({
         data: {
           public_id: generatePublicId(PUBLIC_ID_PREFIXES.STORE),
           name: "Gamma Store",
@@ -916,7 +1029,7 @@ test.describe("Store Management E2E", () => {
       }
     } finally {
       // Cleanup test stores
-      await prisma.store.deleteMany({
+      await getPrisma().store.deleteMany({
         where: {
           store_id: { in: testStores.map((s) => s.store_id) },
         },

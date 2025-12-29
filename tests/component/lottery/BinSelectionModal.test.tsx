@@ -56,6 +56,7 @@ const TEST_BIN_ID_3 = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 const TEST_PACK_ID = "11111111-1111-1111-1111-111111111111";
 
 // Mock BinSelector to control selection behavior
+// Mock mirrors actual component: displays "Bin {number}" with optional occupation badge
 vi.mock("@/components/lottery/BinSelector", () => ({
   BinSelector: vi.fn(({ bins, value, onValueChange, testId }) => (
     <div data-testid={testId}>
@@ -67,8 +68,10 @@ vi.mock("@/components/lottery/BinSelector", () => ({
         <option value="">Select a bin...</option>
         {bins.map((bin: DayBin) => (
           <option key={bin.bin_id} value={bin.bin_id}>
-            Bin {bin.bin_number} - {bin.name}
-            {bin.pack ? " (occupied)" : ""}
+            Bin {bin.bin_number}
+            {bin.pack
+              ? ` [${bin.pack.game_name} #${bin.pack.pack_number}]`
+              : ""}
           </option>
         ))}
       </select>

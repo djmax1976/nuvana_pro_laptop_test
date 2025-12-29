@@ -372,12 +372,56 @@ export function PackReceptionForm({
   }, []);
 
   /**
+   * Handle paste event - BLOCK paste when scan-only is enforced
+   * Barcode scanners do not use paste - they simulate keystrokes.
+   * Paste is a manual entry bypass attempt.
+   */
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLInputElement>) => {
+      if (enforceScanOnly) {
+        e.preventDefault();
+        toast({
+          title: "Paste Not Allowed",
+          description:
+            "Please use a barcode scanner. Pasting is not permitted for security.",
+          variant: "destructive",
+        });
+      }
+    },
+    [enforceScanOnly, toast],
+  );
+
+  /**
    * Handle input change with debouncing and scan detection
+   * SECURITY: Real-time blocking of manual entry after enough keystrokes
    */
   const handleInputChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
       const detector = scanDetectorRef.current;
       const cleanedValue = detector.handleChange(e);
+
+      // SECURITY: Check for manual entry in real-time after just 2 keystrokes
+      // Block immediately when we detect slow typing (> 50ms between keys)
+      if (enforceScanOnly && cleanedValue.length >= 2) {
+        // Use SYNCHRONOUS check to get current keystroke timing data
+        const quickCheck = detector.getQuickCheckSync();
+        // If not likely a scan, block immediately
+        // likelyScan is false when avgRecent > 50ms (typical human typing is 150-300ms)
+        if (!quickCheck.likelyScan) {
+          toast({
+            title: "Manual Entry Not Allowed",
+            description:
+              "Please use a barcode scanner. Manual keyboard entry is not permitted for security.",
+            variant: "destructive",
+          });
+          // Clear input and reset
+          setInputValue("");
+          scanDetectorRef.current.reset();
+          setTimeout(() => inputRef.current?.focus(), 100);
+          return; // Don't process further
+        }
+      }
+
       setInputValue(cleanedValue);
 
       // Clear existing debounce timer
@@ -395,9 +439,17 @@ export function PackReceptionForm({
           const currentDetector = scanDetectorRef.current;
           const metrics = currentDetector.getMetrics();
 
-          // Check if manual entry should be rejected
+          // Final check - reject if manual entry detected
           if (enforceScanOnly && currentDetector.shouldReject) {
-            // Manual entry detected - already handled by hook callback
+            toast({
+              title: "Manual Entry Not Allowed",
+              description:
+                "Please use a barcode scanner. Manual keyboard entry is not permitted for security.",
+              variant: "destructive",
+            });
+            setInputValue("");
+            scanDetectorRef.current.reset();
+            setTimeout(() => inputRef.current?.focus(), 100);
             return;
           }
 
@@ -405,7 +457,7 @@ export function PackReceptionForm({
         }
       }, delay);
     },
-    [handleSerialComplete, enforceScanOnly],
+    [handleSerialComplete, enforceScanOnly, toast],
   );
 
   /**
@@ -597,6 +649,7 @@ export function PackReceptionForm({
               value={inputValue}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               placeholder="Scan barcode..."
               disabled={isSubmitting || isLoadingGames || isCheckingPack}
               maxLength={24}

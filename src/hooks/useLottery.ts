@@ -16,14 +16,19 @@ import {
   deletePack,
   getPacks,
   getPackDetails,
+  getPacksByGame,
   getVariances,
   approveVariance,
   getLotteryDayBins,
   closeLotteryDay,
   markPackAsSoldOut,
   getCashierActiveShift,
+  getGames,
+  updateGame,
+  depletePack,
   type ReceivePackInput,
   type UpdatePackInput,
+  type UpdateGameInput,
   type ApproveVarianceInput,
   type LotteryPackQueryFilters,
   type VarianceQueryFilters,
@@ -44,12 +49,16 @@ export const lotteryKeys = {
     [...lotteryKeys.packs(), "list", filters || {}] as const,
   packDetail: (packId: string | undefined) =>
     [...lotteryKeys.packs(), "detail", packId] as const,
+  packsByGame: (gameId: string | undefined, storeId: string | undefined) =>
+    [...lotteryKeys.packs(), "byGame", gameId, storeId] as const,
   variances: () => [...lotteryKeys.all, "variances"] as const,
   varianceList: (filters?: VarianceQueryFilters) =>
     [...lotteryKeys.variances(), "list", filters || {}] as const,
   dayBins: () => [...lotteryKeys.all, "dayBins"] as const,
   dayBinsList: (storeId: string | undefined, date?: string) =>
     [...lotteryKeys.dayBins(), storeId, date] as const,
+  games: () => [...lotteryKeys.all, "games"] as const,
+  gameList: () => [...lotteryKeys.games(), "list"] as const,
 };
 
 // ============ Query Hooks ============
@@ -449,5 +458,123 @@ export function useCashierActiveShift(
     refetchOnWindowFocus: false,
     retry: false, // Don't retry 404s (cashier has no active shift)
     select: (response) => response.data,
+  });
+}
+
+// ============ Game Management Hooks ============
+
+/**
+ * Hook to fetch all lottery games
+ * GET /api/lottery/games
+ *
+ * MCP Guidance Applied:
+ * - DB-006: TENANT_ISOLATION - Server filters games by user access
+ * - FE-001: STATE_MANAGEMENT - Proper caching with query keys
+ *
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with games list
+ */
+export function useLotteryGames(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: lotteryKeys.gameList(),
+    queryFn: () => getGames(),
+    enabled: options?.enabled !== false,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 30000, // Consider data fresh for 30 seconds
+    select: (response) => response.data,
+  });
+}
+
+/**
+ * Hook to fetch packs filtered by game ID
+ * GET /api/lottery/packs?game_id={gameId}&store_id={storeId}
+ *
+ * MCP Guidance Applied:
+ * - DB-006: TENANT_ISOLATION - Store-scoped query
+ * - FE-001: STATE_MANAGEMENT - Proper caching with query keys
+ *
+ * @param gameId - Game UUID to filter packs
+ * @param storeId - Store UUID for RLS enforcement
+ * @param options - Query options (enabled, etc.)
+ * @returns TanStack Query result with packs for the game
+ */
+export function usePacksByGame(
+  gameId: string | null | undefined,
+  storeId: string | null | undefined,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: lotteryKeys.packsByGame(
+      gameId ?? undefined,
+      storeId ?? undefined,
+    ),
+    queryFn: () => getPacksByGame(gameId!, storeId!),
+    enabled: options?.enabled !== false && !!gameId && !!storeId,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 30000, // Consider data fresh for 30 seconds
+    select: (response) => response.data,
+  });
+}
+
+/**
+ * Hook to update a lottery game
+ * PUT /api/lottery/games/:gameId
+ *
+ * MCP Guidance Applied:
+ * - API-001: VALIDATION - Server validates all input fields
+ * - API-009: IDOR - Server validates ownership via store access
+ * - FE-001: STATE_MANAGEMENT - Proper cache invalidation after mutation
+ *
+ * @returns Mutation hook for game update
+ */
+export function useUpdateGame() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ gameId, data }: { gameId: string; data: UpdateGameInput }) =>
+      updateGame(gameId, data),
+    onSuccess: () => {
+      // Invalidate games list to refresh after update
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.games() });
+      // Also invalidate packs as game info may be embedded in pack responses
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.packs() });
+    },
+  });
+}
+
+/**
+ * Hook to mark a pack as depleted (sold out)
+ * POST /api/lottery/packs/:packId/deplete
+ *
+ * MCP Guidance Applied:
+ * - API-001: VALIDATION - Server validates pack status and ownership
+ * - DB-006: TENANT_ISOLATION - Server enforces store-level isolation
+ * - FE-001: STATE_MANAGEMENT - Proper cache invalidation after mutation
+ *
+ * @returns Mutation hook for pack depletion
+ */
+export function useDepletePack() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      packId,
+      closingSerial,
+    }: {
+      packId: string;
+      closingSerial?: string;
+    }) => depletePack(packId, closingSerial),
+    onSuccess: (_, { packId }) => {
+      // Invalidate packs list to refresh after depletion
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.packs() });
+      // Invalidate pack detail
+      queryClient.invalidateQueries({
+        queryKey: lotteryKeys.packDetail(packId),
+      });
+      // Invalidate day bins to refresh the bin display
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.dayBins() });
+    },
   });
 }
