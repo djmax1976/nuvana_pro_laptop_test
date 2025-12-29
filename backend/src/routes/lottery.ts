@@ -8325,7 +8325,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           game_code?: string;
           price?: number;
           pack_value?: number;
-          total_tickets?: number;
+          tickets_per_pack?: number;
           description?: string | null;
           status?: "ACTIVE" | "INACTIVE" | "DISCONTINUED";
         } = {};
@@ -8414,7 +8414,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           updateData.pack_value = body.pack_value;
         }
 
-        // Recalculate total_tickets if price or pack_value changed
+        // Recalculate tickets_per_pack if price or pack_value changed
         const finalPrice =
           updateData.price ?? (existingGame.price?.toNumber() || null);
         const finalPackValue =
@@ -8422,7 +8422,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           (existingGame.pack_value?.toNumber() || null);
 
         if (finalPrice && finalPackValue) {
-          updateData.total_tickets = Math.floor(finalPackValue / finalPrice);
+          updateData.tickets_per_pack = Math.floor(finalPackValue / finalPrice);
         }
 
         // Process description (can be set to null/empty)
@@ -8470,7 +8470,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             name: updatedGame.name,
             price: updatedGame.price?.toNumber() ?? null,
             pack_value: updatedGame.pack_value?.toNumber() ?? null,
-            total_tickets: updatedGame.total_tickets,
+            tickets_per_pack: updatedGame.tickets_per_pack,
             description: updatedGame.description,
             status: updatedGame.status,
             store_id: updatedGame.store_id,
