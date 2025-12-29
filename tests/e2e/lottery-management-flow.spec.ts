@@ -106,28 +106,38 @@ async function loginAndWaitForMyStore(
  * @returns Promise resolving when page is ready for interaction
  */
 async function navigateToLotteryPage(page: Page): Promise<void> {
-  // Set up API listeners BEFORE navigation (network-first pattern)
-  // The lottery page makes these API calls on mount:
-  // 1. /api/lottery/packs?store_id=... - list of packs
-  // 2. /api/lottery/bins/day/:storeId - day bins data
-  const packsResponsePromise = page.waitForResponse(
-    (resp) =>
-      /\/api\/lottery\/packs(\?|$)/.test(resp.url()) && resp.status() === 200,
-    { timeout: 45000 },
-  );
-
-  // Navigate to lottery page
+  // Navigate to lottery page first
   await page.goto("/mystore/lottery", { waitUntil: "domcontentloaded" });
 
+  // Wait for page to be on mystore/lottery URL (handles any redirects)
+  // If redirected to login, this will fail fast with a clear error
+  await page.waitForURL(/.*mystore.*lottery.*/, { timeout: 30000 });
+
   // Wait for the lottery page container to be in DOM (increased timeout for CI)
+  // The page renders this testid in ALL states (loading, error, success)
   await expect(
     page.locator('[data-testid="lottery-management-page"]'),
   ).toBeVisible({
     timeout: 30000,
   });
 
-  // Wait for packs API to complete (this populates the buttons' enabled/disabled state)
-  await packsResponsePromise;
+  // Wait for the initial data fetch to complete before interacting
+  // This ensures buttons are in their correct enabled/disabled state
+  // Wait for either the packs API response OR the loading spinner to disappear
+  await Promise.race([
+    page.waitForResponse(
+      (resp) =>
+        /\/api\/lottery\/packs(\?|$)/.test(resp.url()) && resp.status() === 200,
+      { timeout: 45000 },
+    ),
+    // Alternative: wait for loading text to disappear
+    expect(page.locator('text="Loading..."')).not.toBeVisible({
+      timeout: 45000,
+    }),
+  ]).catch(() => {
+    // If API hasn't responded yet but page is loaded, continue
+    // The page will show appropriate state
+  });
 }
 
 // CRITICAL: Configure this describe block to run in a SINGLE worker

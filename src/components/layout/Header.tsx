@@ -60,7 +60,8 @@ export function Header() {
           {dashboardLoading ? (
             <div
               className="h-4 w-24 animate-pulse rounded bg-muted mb-1"
-              aria-label="Loading store name"
+              aria-label="Loading store display name"
+              data-testid="header-store-name-loading"
             />
           ) : (
             storeName && (
