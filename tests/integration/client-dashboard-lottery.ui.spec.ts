@@ -678,7 +678,10 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       await page.locator('[data-testid="add-new-lottery-button"]').click();
 
       // THEN: Pack Reception dialog opens (uses serialized input form per Story 6.12)
-      await expect(page.getByText("Receive Lottery Packs")).toBeVisible({
+      // Use getByRole to target the heading specifically, avoiding the sr-only description
+      await expect(
+        page.getByRole("heading", { name: "Receive Lottery Packs" }),
+      ).toBeVisible({
         timeout: 5000,
       });
 
@@ -694,7 +697,9 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       // Close dialog
       await page.locator('button:has-text("Cancel")').click();
-      await expect(page.getByText("Receive Lottery Packs")).not.toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "Receive Lottery Packs" }),
+      ).not.toBeVisible();
     } finally {
       await cleanupTestFixture(fixture);
     }

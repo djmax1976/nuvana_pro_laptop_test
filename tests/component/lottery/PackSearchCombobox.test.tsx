@@ -23,6 +23,9 @@
  * | PSC-012                    | Dropdown close outside   | Edge Cases       |
  * | PSC-013                    | Special chars in search  | Security         |
  * | PSC-014                    | XSS prevention output    | Security         |
+ * | PSC-015                    | Expose focus via ref     | Integration      |
+ * | PSC-016                    | Expose clear via ref     | Integration      |
+ * | PSC-017                    | Clear selection via ref  | Business Logic   |
  * ============================================================================
  *
  * Key Features Tested:
@@ -149,7 +152,9 @@ function setupMocks(options?: {
 describe("PackSearchCombobox", () => {
   const defaultProps = {
     storeId: "store-123",
-    onValueChange: vi.fn(),
+    searchQuery: "",
+    onSearchQueryChange: vi.fn(),
+    onPackSelect: vi.fn(),
   };
 
   beforeEach(() => {
@@ -259,12 +264,21 @@ describe("PackSearchCombobox", () => {
   // ============================================================================
 
   describe("Search Behavior", () => {
-    it("PSC-004: should switch to search mode when 2+ characters are typed", async () => {
+    it("PSC-004: should switch to search mode when 2+ characters are in searchQuery", async () => {
       const user = userEvent.setup();
-      renderWithProviders(<PackSearchCombobox {...defaultProps} />);
+      const onSearchQueryChange = vi.fn();
+
+      // Render with searchQuery of 2+ chars to enable search mode
+      renderWithProviders(
+        <PackSearchCombobox
+          {...defaultProps}
+          searchQuery="Me"
+          onSearchQueryChange={onSearchQueryChange}
+        />,
+      );
 
       const input = screen.getByRole("combobox");
-      await user.type(input, "Me");
+      await user.click(input);
 
       // Verify usePackSearch is called with search parameter
       await waitFor(() => {
@@ -279,10 +293,12 @@ describe("PackSearchCombobox", () => {
 
     it("PSC-005: should display search results in dropdown", async () => {
       const user = userEvent.setup();
-      renderWithProviders(<PackSearchCombobox {...defaultProps} />);
+      renderWithProviders(
+        <PackSearchCombobox {...defaultProps} searchQuery="Mega" />,
+      );
 
       const input = screen.getByRole("combobox");
-      await user.type(input, "Mega");
+      await user.click(input);
 
       await waitFor(() => {
         expect(screen.getByText("Mega Millions")).toBeInTheDocument();
@@ -297,10 +313,12 @@ describe("PackSearchCombobox", () => {
       const user = userEvent.setup();
       setupMocks({ searchLoading: true });
 
-      renderWithProviders(<PackSearchCombobox {...defaultProps} />);
+      renderWithProviders(
+        <PackSearchCombobox {...defaultProps} searchQuery="Me" />,
+      );
 
       const input = screen.getByRole("combobox");
-      await user.type(input, "Me");
+      await user.click(input);
 
       await waitFor(() => {
         expect(screen.getByText(/searching packs/i)).toBeInTheDocument();
@@ -311,10 +329,12 @@ describe("PackSearchCombobox", () => {
       const user = userEvent.setup();
       setupMocks({ searchPacks: [] });
 
-      renderWithProviders(<PackSearchCombobox {...defaultProps} />);
+      renderWithProviders(
+        <PackSearchCombobox {...defaultProps} searchQuery="NonExistent" />,
+      );
 
       const input = screen.getByRole("combobox");
-      await user.type(input, "NonExistent");
+      await user.click(input);
 
       await waitFor(() => {
         expect(
@@ -329,12 +349,12 @@ describe("PackSearchCombobox", () => {
   // ============================================================================
 
   describe("Selection Behavior", () => {
-    it("PSC-006: should call onValueChange when pack is selected", async () => {
+    it("PSC-006: should call onPackSelect when pack is selected", async () => {
       const user = userEvent.setup();
-      const onValueChange = vi.fn();
+      const onPackSelect = vi.fn();
 
       renderWithProviders(
-        <PackSearchCombobox {...defaultProps} onValueChange={onValueChange} />,
+        <PackSearchCombobox {...defaultProps} onPackSelect={onPackSelect} />,
       );
 
       const input = screen.getByRole("combobox");
@@ -346,8 +366,7 @@ describe("PackSearchCombobox", () => {
 
       await user.click(screen.getByText("Mega Millions"));
 
-      expect(onValueChange).toHaveBeenCalledWith(
-        "pack-1",
+      expect(onPackSelect).toHaveBeenCalledWith(
         expect.objectContaining({
           pack_id: "pack-1",
           game_name: "Mega Millions",
@@ -355,11 +374,18 @@ describe("PackSearchCombobox", () => {
       );
     });
 
-    it("should update input value when pack is selected", async () => {
+    it("should call onSearchQueryChange with display value when pack is selected", async () => {
       const user = userEvent.setup();
-      renderWithProviders(<PackSearchCombobox {...defaultProps} />);
+      const onSearchQueryChange = vi.fn();
 
-      const input = screen.getByRole("combobox") as HTMLInputElement;
+      renderWithProviders(
+        <PackSearchCombobox
+          {...defaultProps}
+          onSearchQueryChange={onSearchQueryChange}
+        />,
+      );
+
+      const input = screen.getByRole("combobox");
       await user.click(input);
 
       await waitFor(() => {
@@ -368,9 +394,10 @@ describe("PackSearchCombobox", () => {
 
       await user.click(screen.getByText("Mega Millions"));
 
-      await waitFor(() => {
-        expect(input.value).toContain("Mega Millions");
-      });
+      // Should update search query with display value
+      expect(onSearchQueryChange).toHaveBeenCalledWith(
+        expect.stringContaining("Mega Millions"),
+      );
     });
 
     it("should close dropdown after selection", async () => {
@@ -391,27 +418,26 @@ describe("PackSearchCombobox", () => {
       });
     });
 
-    it("PSC-011: should clear selection when user modifies search after selection", async () => {
+    it("PSC-011: should call onSearchQueryChange when user types (controlled by parent)", async () => {
       const user = userEvent.setup();
-      const onValueChange = vi.fn();
+      const onSearchQueryChange = vi.fn();
 
       renderWithProviders(
-        <PackSearchCombobox {...defaultProps} onValueChange={onValueChange} />,
+        <PackSearchCombobox
+          {...defaultProps}
+          onSearchQueryChange={onSearchQueryChange}
+        />,
       );
 
       const input = screen.getByRole("combobox");
-      await user.click(input);
-      await user.click(screen.getByText("Mega Millions"));
-
-      // Clear mock
-      onValueChange.mockClear();
-
-      // Modify the search
-      await user.clear(input);
       await user.type(input, "Power");
 
-      // Should call onValueChange with empty values to clear selection
-      expect(onValueChange).toHaveBeenCalledWith("", null);
+      // Parent is notified of each keystroke
+      // Note: In controlled component, the callback receives the NEW input value
+      // (what would be the result after typing each character)
+      expect(onSearchQueryChange).toHaveBeenCalledTimes(5);
+      // First keystroke "P" on empty input
+      expect(onSearchQueryChange).toHaveBeenNthCalledWith(1, "P");
     });
   });
 
@@ -422,10 +448,10 @@ describe("PackSearchCombobox", () => {
   describe("Keyboard Navigation", () => {
     it("PSC-007: should navigate with arrow keys and select with Enter", async () => {
       const user = userEvent.setup();
-      const onValueChange = vi.fn();
+      const onPackSelect = vi.fn();
 
       renderWithProviders(
-        <PackSearchCombobox {...defaultProps} onValueChange={onValueChange} />,
+        <PackSearchCombobox {...defaultProps} onPackSelect={onPackSelect} />,
       );
 
       const input = screen.getByRole("combobox");
@@ -440,8 +466,7 @@ describe("PackSearchCombobox", () => {
       // Select with Enter
       await user.keyboard("{Enter}");
 
-      expect(onValueChange).toHaveBeenCalledWith(
-        "pack-2",
+      expect(onPackSelect).toHaveBeenCalledWith(
         expect.objectContaining({ pack_id: "pack-2" }),
       );
     });
@@ -466,10 +491,12 @@ describe("PackSearchCombobox", () => {
 
     it("should open dropdown on Arrow Down when closed", async () => {
       const user = userEvent.setup();
-      renderWithProviders(<PackSearchCombobox {...defaultProps} />);
+      renderWithProviders(
+        <PackSearchCombobox {...defaultProps} searchQuery="Me" />,
+      );
 
       const input = screen.getByRole("combobox");
-      await user.type(input, "Me");
+      await user.click(input);
 
       // Close dropdown
       await user.keyboard("{Escape}");
@@ -590,20 +617,26 @@ describe("PackSearchCombobox", () => {
   describe("Security", () => {
     it("PSC-013: should handle special characters in search safely", async () => {
       const user = userEvent.setup();
-      renderWithProviders(<PackSearchCombobox {...defaultProps} />);
+      const onSearchQueryChange = vi.fn();
+      const xssString = '<script>alert("xss")</script>';
 
-      const input = screen.getByRole("combobox");
-      await user.type(input, '<script>alert("xss")</script>');
+      // Render with the XSS string already in searchQuery (simulates controlled input)
+      renderWithProviders(
+        <PackSearchCombobox
+          {...defaultProps}
+          searchQuery={xssString}
+          onSearchQueryChange={onSearchQueryChange}
+        />,
+      );
 
-      // Verify the hook is called with the raw value (it will be safely escaped by Prisma)
-      await waitFor(() => {
-        expect(useLotteryModule.usePackSearch).toHaveBeenCalledWith(
-          "store-123",
-          '<script>alert("xss")</script>',
-          expect.any(Object),
-          expect.any(Object),
-        );
-      });
+      const input = screen.getByRole("combobox") as HTMLInputElement;
+
+      // The input should display the special characters safely (not execute them)
+      expect(input.value).toBe(xssString);
+
+      // Type an additional character to verify callback works with special chars
+      await user.type(input, "x");
+      expect(onSearchQueryChange).toHaveBeenCalledWith(xssString + "x");
     });
 
     it("PSC-014: should safely render pack data with special characters (XSS prevention)", async () => {
@@ -631,6 +664,110 @@ describe("PackSearchCombobox", () => {
         // The text is escaped and rendered as text content
         const listbox = screen.getByRole("listbox");
         expect(listbox.textContent).toContain("<script>");
+      });
+    });
+  });
+
+  // ============================================================================
+  // SECTION 9: FORWARD REF IMPERATIVE METHODS (PSC-015, PSC-016, PSC-017)
+  // ============================================================================
+
+  describe("ForwardRef Imperative Methods", () => {
+    it("PSC-015: should expose focus method via ref", async () => {
+      const ref = { current: null } as React.RefObject<{
+        focus: () => void;
+        clear: () => void;
+      }>;
+
+      renderWithProviders(<PackSearchCombobox {...defaultProps} ref={ref} />);
+
+      await waitFor(() => {
+        expect(ref.current).not.toBeNull();
+        expect(typeof ref.current?.focus).toBe("function");
+      });
+    });
+
+    it("PSC-016: should expose clear method via ref", async () => {
+      const ref = { current: null } as React.RefObject<{
+        focus: () => void;
+        clear: () => void;
+      }>;
+
+      renderWithProviders(<PackSearchCombobox {...defaultProps} ref={ref} />);
+
+      await waitFor(() => {
+        expect(ref.current).not.toBeNull();
+        expect(typeof ref.current?.clear).toBe("function");
+      });
+    });
+
+    it("PSC-017: should call onSearchQueryChange with empty string when clear() is called", async () => {
+      const onSearchQueryChange = vi.fn();
+      const onClear = vi.fn();
+      const ref = { current: null } as React.RefObject<{
+        focus: () => void;
+        clear: () => void;
+      }>;
+
+      renderWithProviders(
+        <PackSearchCombobox
+          {...defaultProps}
+          searchQuery="Some Search"
+          onSearchQueryChange={onSearchQueryChange}
+          onClear={onClear}
+          ref={ref}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(ref.current).not.toBeNull();
+      });
+
+      // Now call clear via ref
+      ref.current?.clear();
+
+      // Should call onSearchQueryChange with empty string
+      expect(onSearchQueryChange).toHaveBeenCalledWith("");
+      // Should also call onClear
+      expect(onClear).toHaveBeenCalled();
+    });
+
+    it("should maintain ref through re-renders", async () => {
+      const ref = { current: null } as React.RefObject<{
+        focus: () => void;
+        clear: () => void;
+      }>;
+
+      const { rerender } = renderWithProviders(
+        <PackSearchCombobox {...defaultProps} ref={ref} />,
+      );
+
+      await waitFor(() => {
+        expect(ref.current).not.toBeNull();
+      });
+
+      // Rerender with different props
+      rerender(
+        <QueryClientProvider
+          client={
+            new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            })
+          }
+        >
+          <PackSearchCombobox
+            {...defaultProps}
+            label="Updated Label"
+            ref={ref}
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        // Ref should still be valid
+        expect(ref.current).not.toBeNull();
+        expect(typeof ref.current?.focus).toBe("function");
+        expect(typeof ref.current?.clear).toBe("function");
       });
     });
   });

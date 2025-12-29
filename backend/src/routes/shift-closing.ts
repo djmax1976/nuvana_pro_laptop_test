@@ -19,6 +19,10 @@ import { closeLotteryForShift } from "../services/shift-closing.service";
 import { rbacService } from "../services/rbac.service";
 import { shiftStateMachine } from "../services/shift-state-machine";
 import { validateSerialWithinPackRange } from "../services/lottery-validation.service";
+import {
+  syncPackActivation,
+  syncPackDeactivation,
+} from "../services/lottery/pack-pos-sync.service";
 
 /**
  * Shift closing routes
@@ -814,6 +818,18 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               description:
                 "Reason for the serial override (e.g., 'Pack already partially sold')",
             },
+            mark_sold_approved_by: {
+              type: "string",
+              format: "uuid",
+              description:
+                "Manager user UUID who approved marking the pack as pre-sold during activation",
+            },
+            mark_sold_reason: {
+              type: "string",
+              maxLength: 500,
+              description:
+                "Reason for marking pack as pre-sold (e.g., 'Pack sold before bin placement')",
+            },
           },
         },
         response: {
@@ -940,6 +956,8 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
         deplete_previous?: boolean;
         serial_override_approved_by?: string;
         serial_override_reason?: string;
+        mark_sold_approved_by?: string;
+        mark_sold_reason?: string;
       };
 
       try {
@@ -1093,6 +1111,8 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               select: {
                 name: true,
                 price: true,
+                game_code: true,
+                tickets_per_pack: true,
               },
             },
           },
@@ -1282,6 +1302,76 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
           }
         }
 
+        // SEC-010: AUTHZ - Validate LOTTERY_MARK_SOLD permission for marking pack as pre-sold
+        // Enterprise practice: Backend MUST validate permissions, not just frontend
+        // Dual-auth flow: Cashier activates, Manager approves mark-sold
+        let markSoldApprovedBy: string | null = null;
+        let markSoldApprovedAt: Date | null = null;
+
+        if (body.mark_sold_approved_by) {
+          // Validate the approving manager exists and has the required permission
+          const markSoldApprover = await prisma.user.findUnique({
+            where: { user_id: body.mark_sold_approved_by },
+            select: {
+              user_id: true,
+              name: true,
+              status: true,
+            },
+          });
+
+          if (!markSoldApprover) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "BAD_REQUEST",
+                message: "Mark sold approver not found",
+              },
+            };
+          }
+
+          if (markSoldApprover.status !== "ACTIVE") {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "BAD_REQUEST",
+                message: "Mark sold approver account is not active",
+              },
+            };
+          }
+
+          // Get approver's roles and permissions using rbacService
+          const markSoldApproverRoles = await rbacService.getUserRoles(
+            body.mark_sold_approved_by,
+          );
+          const markSoldApproverPermissions = new Set<string>();
+          for (const userRole of markSoldApproverRoles) {
+            const rolePermissions = await rbacService.getRolePermissions(
+              userRole.role_id,
+            );
+            for (const permCode of rolePermissions) {
+              markSoldApproverPermissions.add(permCode);
+            }
+          }
+
+          if (!markSoldApproverPermissions.has(PERMISSIONS.LOTTERY_MARK_SOLD)) {
+            reply.code(403);
+            return {
+              success: false,
+              error: {
+                code: "PERMISSION_DENIED",
+                message:
+                  "The approving manager does not have permission to mark pack as sold",
+              },
+            };
+          }
+
+          // Valid dual-auth approval for mark sold
+          markSoldApprovedBy = body.mark_sold_approved_by;
+          markSoldApprovedAt = new Date();
+        }
+
         // Use Prisma transaction to ensure atomicity (all-or-nothing)
         const result = await prisma.$transaction(async (tx) => {
           // 1. Check for previous pack in bin (if exists)
@@ -1295,26 +1385,33 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               pack_number: true,
               serial_start: true,
               serial_end: true,
+              store_id: true,
               game: {
                 select: {
                   name: true,
                   price: true,
+                  game_code: true,
+                  tickets_per_pack: true,
                 },
               },
             },
           });
 
-          // Track depleted pack info for response
+          // Track depleted pack info for response and UPC sync
           let depletedPackInfo:
             | {
                 pack_id: string;
                 pack_number: string;
                 game_name: string;
+                store_id: string;
+                game_code: string;
+                tickets_per_pack: number | null;
+                ticket_price: number;
               }
             | undefined;
 
           // 2. Update pack: status = ACTIVE, set current_bin_id, activated_at, activated_by, activated_shift_id
-          // Also set serial override approval fields if manager approved a serial change
+          // Also set serial override and mark sold approval fields if manager approved changes
           await tx.lotteryPack.update({
             where: { pack_id: pack.pack_id },
             data: {
@@ -1327,6 +1424,10 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               serial_override_approved_by: serialOverrideApprovedBy,
               serial_override_approved_at: serialOverrideApprovedAt,
               serial_override_reason: body.serial_override_reason || null,
+              // Mark sold approval tracking (dual-auth for pre-sold packs)
+              mark_sold_approved_by: markSoldApprovedBy,
+              mark_sold_approved_at: markSoldApprovedAt,
+              mark_sold_reason: body.mark_sold_reason || null,
             },
           });
 
@@ -1388,11 +1489,15 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
                 },
               });
 
-              // Set depleted pack info for response
+              // Set depleted pack info for response and UPC sync
               depletedPackInfo = {
                 pack_id: previousPack.pack_id,
                 pack_number: previousPack.pack_number,
                 game_name: previousPack.game.name,
+                store_id: previousPack.store_id,
+                game_code: previousPack.game.game_code,
+                tickets_per_pack: previousPack.game.tickets_per_pack,
+                ticket_price: Number(previousPack.game.price),
               };
             }
             // If deplete_previous is false/undefined, the previous pack remains ACTIVE
@@ -1452,6 +1557,12 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
                   ? serialOverrideApprovedAt.toISOString()
                   : null,
                 serial_override_reason: body.serial_override_reason || null,
+                // Dual-auth: Track who approved marking pack as pre-sold
+                mark_sold_approved_by: markSoldApprovedBy,
+                mark_sold_approved_at: markSoldApprovedAt
+                  ? markSoldApprovedAt.toISOString()
+                  : null,
+                mark_sold_reason: body.mark_sold_reason || null,
               },
             },
           });
@@ -1503,6 +1614,85 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
             fastify.log.warn(
               { error: activationError, shiftId: body.activated_shift_id },
               "Failed to transition shift to ACTIVE status",
+            );
+          }
+        }
+
+        // ============================================================================
+        // UPC Sync: Generate UPCs for activated pack and push to POS
+        // ============================================================================
+        // Skip UPC sync if tickets_per_pack is not set (legacy games without this field)
+        if (pack.game.tickets_per_pack) {
+          try {
+            const syncResult = await syncPackActivation({
+              packId: pack.pack_id,
+              packNumber: pack.pack_number,
+              gameCode: pack.game.game_code,
+              gameName: pack.game.name,
+              ticketsPerPack: pack.game.tickets_per_pack,
+              ticketPrice: Number(pack.game.price),
+              storeId: pack.store_id,
+            });
+
+            if (!syncResult.success) {
+              // Log but don't fail activation - UPC sync is non-blocking
+              fastify.log.warn(
+                { packId: pack.pack_id, error: syncResult.error },
+                "UPC sync failed for activated pack (non-blocking)",
+              );
+            } else {
+              fastify.log.info(
+                {
+                  packId: pack.pack_id,
+                  upcCount: syncResult.upcCount,
+                  redisStored: syncResult.redisStored,
+                  posExported: syncResult.posExported,
+                },
+                "UPC sync completed for activated pack",
+              );
+            }
+          } catch (syncError) {
+            // Never fail pack activation due to UPC sync errors
+            fastify.log.error(
+              { packId: pack.pack_id, error: syncError },
+              "UPC sync error for activated pack (non-blocking)",
+            );
+          }
+        }
+
+        // ============================================================================
+        // UPC Cleanup: Remove UPCs for auto-depleted pack
+        // ============================================================================
+        if (result.depletedPack) {
+          try {
+            const deactivateResult = await syncPackDeactivation(
+              result.depletedPack.pack_id,
+              result.depletedPack.store_id,
+            );
+
+            if (!deactivateResult.success) {
+              fastify.log.warn(
+                {
+                  packId: result.depletedPack.pack_id,
+                  error: deactivateResult.error,
+                },
+                "UPC cleanup failed for auto-depleted pack (non-blocking)",
+              );
+            } else {
+              fastify.log.info(
+                {
+                  packId: result.depletedPack.pack_id,
+                  redisDeleted: deactivateResult.redisDeleted,
+                  posRemoved: deactivateResult.posRemoved,
+                },
+                "UPC cleanup completed for auto-depleted pack",
+              );
+            }
+          } catch (deactivateError) {
+            // Never fail due to UPC cleanup errors
+            fastify.log.error(
+              { packId: result.depletedPack.pack_id, error: deactivateError },
+              "UPC cleanup error for auto-depleted pack (non-blocking)",
             );
           }
         }

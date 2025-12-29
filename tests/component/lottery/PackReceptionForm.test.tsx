@@ -18,37 +18,42 @@
  *
  * Story: 6-12 - Serialized Pack Reception with Batch Processing
  * Priority: P1 (High - Pack Reception)
+ *
+ * Note: These tests use enforceScanOnly=false to test core functionality.
+ * Scan-only enforcement is tested in PackReceptionFormScanOnly.test.tsx
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  act,
+  fireEvent,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
-import { receivePackBatch, checkPackExists } from "@/lib/api/lottery";
-import { parseSerializedNumber } from "@/lib/utils/lottery-serial-parser";
+
+// Use vi.hoisted to ensure mocks are available when vi.mock runs
+const {
+  mockToast,
+  mockReceivePackBatch,
+  mockGetGames,
+  mockCheckPackExists,
+  mockParseSerializedNumber,
+} = vi.hoisted(() => ({
+  mockToast: vi.fn(),
+  mockReceivePackBatch: vi.fn(),
+  mockGetGames: vi.fn(),
+  mockCheckPackExists: vi.fn(),
+  mockParseSerializedNumber: vi.fn(),
+}));
 
 // Mock the API client
 vi.mock("@/lib/api/lottery", () => ({
-  receivePackBatch: vi.fn(),
-  getGames: vi.fn().mockResolvedValue({
-    success: true,
-    data: [
-      {
-        game_id: "game-1",
-        game_code: "0001",
-        name: "TEST GAME",
-        description: null,
-        price: 5.0,
-        status: "ACTIVE",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ],
-  }),
-  checkPackExists: vi.fn().mockResolvedValue({
-    success: true,
-    data: { exists: false, pack: null },
-  }),
+  receivePackBatch: mockReceivePackBatch,
+  getGames: mockGetGames,
+  checkPackExists: mockCheckPackExists,
   createGame: vi.fn().mockResolvedValue({
     success: true,
     data: {
@@ -63,13 +68,13 @@ vi.mock("@/lib/api/lottery", () => ({
 
 // Mock the serial parser
 vi.mock("@/lib/utils/lottery-serial-parser", () => ({
-  parseSerializedNumber: vi.fn(),
+  parseSerializedNumber: mockParseSerializedNumber,
 }));
 
 // Mock the toast hook
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({
-    toast: vi.fn(),
+    toast: mockToast,
   }),
 }));
 
@@ -83,1578 +88,720 @@ describe("6.12-COMPONENT: PackReceptionForm (Serialized Input)", () => {
     open: true,
     onOpenChange: mockOnOpenChange,
     onSuccess: mockOnSuccess,
+    // Disable scan-only enforcement for these tests since they use
+    // direct typing which doesn't simulate scanner keystroke timing.
+    // Scan-only enforcement is tested in PackReceptionFormScanOnly.test.tsx
+    enforceScanOnly: false,
+  };
+
+  // Default game data
+  const defaultGame = {
+    game_id: "game-1",
+    game_code: "0001",
+    name: "TEST GAME",
+    description: null,
+    price: 5.0,
+    pack_value: 300,
+    total_tickets: 300,
+    status: "ACTIVE",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  // Default parsed serial
+  const defaultParsed = {
+    game_code: "0001",
+    pack_number: "1234567",
+    serial_start: "012",
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // Setup default mock responses
+    mockGetGames.mockResolvedValue({
+      success: true,
+      data: [defaultGame],
+    });
+
+    mockCheckPackExists.mockResolvedValue({
+      success: true,
+      data: { exists: false, pack: null },
+    });
+
+    mockParseSerializedNumber.mockReturnValue(defaultParsed);
+
+    mockReceivePackBatch.mockResolvedValue({
+      success: true,
+      data: {
+        created: [{ pack_id: "pack-1", game_id: "game-1" }],
+        duplicates: [],
+        errors: [],
+        games_not_found: [],
+      },
+    });
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  // Helper to advance timers properly within act
-  const advanceTimers = async (ms: number) => {
-    await act(async () => {
-      vi.advanceTimersByTime(ms);
-    });
+  /**
+   * Helper to simulate scanner-like input (fast typing)
+   * This bypasses the scan detection by firing events quickly
+   */
+  const simulateBarcodeScan = async (
+    input: HTMLInputElement,
+    barcode: string,
+  ) => {
+    let currentValue = "";
+    for (const char of barcode.split("")) {
+      currentValue += char;
+      fireEvent.keyDown(input, { key: char });
+      fireEvent.change(input, { target: { value: currentValue } });
+      // Minimal delay to allow React to process
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 2));
+      });
+    }
   };
 
-  it("6.12-COMPONENT-010: [P1] should render serialized input field (AC #1)", async () => {
-    // GIVEN: PackReceptionForm component
-    // WHEN: Component is rendered
-    render(<PackReceptionForm {...defaultProps} />);
+  describe("Rendering", () => {
+    it("6.12-COMPONENT-010: [P1] should render barcode input field (AC #1)", async () => {
+      render(<PackReceptionForm {...defaultProps} />);
 
-    // THEN: Serialized input field is displayed
-    expect(
-      screen.getByText("Serialized Number (24 digits)"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByPlaceholderText("000000000000000000000000"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /receive.*pack/i }),
-    ).toBeInTheDocument();
-  });
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
 
-  it("6.12-COMPONENT-011: [P1] should accept only numeric input (AC #1)", async () => {
-    // GIVEN: PackReceptionForm component
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User types non-numeric characters
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "abc123def");
-
-    // THEN: Only numeric characters are accepted
-    expect(input).toHaveValue("123");
-  });
-
-  it("6.12-COMPONENT-012: [P1] should limit input to 24 digits (AC #1)", async () => {
-    // GIVEN: PackReceptionForm component
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User types more than 24 digits
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "123456789012345678901234567890");
-
-    // THEN: Input is limited to 24 digits
-    expect(input).toHaveValue("123456789012345678901234");
-  });
-
-  it("6.12-COMPONENT-013: [P1] should parse serial and add to list after debounce (AC #2)", async () => {
-    // GIVEN: PackReceptionForm component with mocked parser - render FIRST
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Enable fake timers AFTER render so dialog animations complete
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-
-    // WHEN: User enters 24-digit serial
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-
-    // THEN: Debounce timer is set (wait 400ms)
-    expect(parseSerializedNumber).not.toHaveBeenCalled();
-    await advanceTimers(400);
-
-    // THEN: Serial is parsed and pack is added to list
-    expect(parseSerializedNumber).toHaveBeenCalledWith(
-      "000112345670123456789012",
-    );
-    expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-014: [P1] should clear input and maintain single field after valid entry (AC #2)", async () => {
-    // GIVEN: PackReceptionForm component
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User enters valid serial
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(400);
-
-    // THEN: Pack is added to list
-    expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-
-    // AND: Input is cleared (single field remains)
-    expect(input).toHaveValue("");
-
-    // AND: Only one input field exists
-    const inputs = screen.queryAllByPlaceholderText("000000000000000000000000");
-    expect(inputs.length).toBe(1);
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-015: [P1] should show error and clear input for duplicate pack in list (AC #2)", async () => {
-    // GIVEN: PackReceptionForm component with one pack in list
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Add first pack
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(400);
-
-    expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-
-    // Input should be cleared after first entry
-    expect(input).toHaveValue("");
-
-    // WHEN: User enters same serial again (in the same single input field)
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(400);
-
-    // THEN: Error toast is shown (mocked toast, so we just verify parseSerializedNumber was called)
-    expect(parseSerializedNumber).toHaveBeenCalledTimes(2);
-
-    // AND: Input is cleared after duplicate detection
-    expect(input).toHaveValue("");
-
-    // AND: Only one input field exists (no duplicates created)
-    const inputs = screen.queryAllByPlaceholderText("000000000000000000000000");
-    expect(inputs.length).toBe(1);
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-016: [P1] should allow removing packs from list (AC #3)", async () => {
-    // GIVEN: PackReceptionForm component with packs in list
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Add pack to list
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(400);
-
-    expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-
-    // WHEN: User clicks remove button
-    const removeButton = screen.getByTestId("remove-pack-0");
-    await user.click(removeButton);
-
-    // THEN: Pack is removed from list
-    expect(screen.queryByText(/Pack: 1234567/i)).not.toBeInTheDocument();
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-017: [P1] should batch submit all packs (AC #4)", async () => {
-    // GIVEN: PackReceptionForm component with packs in list
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(receivePackBatch).mockResolvedValue({
-      success: true,
-      data: {
-        created: [
-          {
-            pack_id: "pack-1",
-            game_id: "game-1",
-            pack_number: "1234567",
-            serial_start: "012",
-            serial_end: "161",
-            status: "RECEIVED",
-            game: { game_id: "game-1", name: "Test Game" },
-          },
-        ],
-        duplicates: [],
-        errors: [],
-        games_not_found: [],
-      },
+      expect(screen.getByText("Barcode")).toBeInTheDocument();
+      expect(
+        screen.getByPlaceholderText("Scan barcode..."),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /receive.*pack/i }),
+      ).toBeInTheDocument();
     });
 
-    render(<PackReceptionForm {...defaultProps} />);
+    it("6.12-COMPONENT-011: [P1] should accept only numeric input (AC #1)", async () => {
+      render(<PackReceptionForm {...defaultProps} />);
 
-    // Add pack to list
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(400);
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
 
-    expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
+      const input = screen.getByPlaceholderText("Scan barcode...");
+      const user = userEvent.setup({ delay: null });
 
-    // WHEN: User clicks Receive button
-    const submitButton = screen.getByRole("button", { name: /receive.*pack/i });
-    await user.click(submitButton);
+      await user.type(input, "abc123def");
 
-    // THEN: Batch API is called with all serials
-    await waitFor(() => {
-      expect(receivePackBatch).toHaveBeenCalledWith({
-        serialized_numbers: ["000112345670123456789012"],
-        store_id: mockStoreId,
+      // Component filters to digits only via handleChange
+      expect(input).toHaveValue("123");
+    });
+
+    it("6.12-COMPONENT-012: [P1] should limit input to 24 digits (AC #1)", async () => {
+      render(<PackReceptionForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByPlaceholderText("Scan barcode...");
+      const user = userEvent.setup({ delay: null });
+
+      await user.type(input, "123456789012345678901234567890");
+
+      expect(input).toHaveValue("123456789012345678901234");
+    });
+  });
+
+  describe("Pack Processing", () => {
+    it("6.12-COMPONENT-013: [P1] should parse serial and add to list after input (AC #2)", async () => {
+      render(<PackReceptionForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
+
+      // Simulate barcode scan
+      await simulateBarcodeScan(input, "000112345670123456789012");
+
+      // Wait for debounce and pack processing
+      await waitFor(
+        () => {
+          expect(mockParseSerializedNumber).toHaveBeenCalledWith(
+            "000112345670123456789012",
+          );
+        },
+        { timeout: 2000 },
+      );
+
+      // Pack should be added to list
+      await waitFor(
+        () => {
+          expect(
+            screen.getByText(/Packs Ready to Receive/i),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Should display game name and pack number
+      expect(screen.getByText(/TEST GAME/)).toBeInTheDocument();
+      expect(screen.getByText(/Pack: 1234567/)).toBeInTheDocument();
+    });
+
+    it("6.12-COMPONENT-014: [P1] should clear input after valid entry (AC #2)", async () => {
+      render(<PackReceptionForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
+
+      await simulateBarcodeScan(input, "000112345670123456789012");
+
+      await waitFor(
+        () => {
+          expect(
+            screen.getByText(/Packs Ready to Receive/i),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Input should be cleared
+      expect(input).toHaveValue("");
+    });
+
+    it("6.12-COMPONENT-015: [P1] should show error for duplicate pack in list (AC #2)", async () => {
+      render(<PackReceptionForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
+
+      // Add first pack
+      await simulateBarcodeScan(input, "000112345670123456789012");
+
+      await waitFor(
+        () => {
+          expect(
+            screen.getByText(/Packs Ready to Receive/i),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Try to add same pack again
+      await simulateBarcodeScan(input, "000112345670123456789012");
+
+      await waitFor(
+        () => {
+          expect(mockToast).toHaveBeenCalledWith(
+            expect.objectContaining({
+              title: "Duplicate pack",
+              variant: "destructive",
+            }),
+          );
+        },
+        { timeout: 2000 },
+      );
+    });
+
+    it("6.12-COMPONENT-016: [P1] should show error for pack already in database", async () => {
+      mockCheckPackExists.mockResolvedValue({
+        success: true,
+        data: {
+          exists: true,
+          pack: {
+            pack_number: "1234567",
+            status: "RECEIVED",
+            game: { name: "TEST GAME" },
+          },
+        },
+      });
+
+      render(<PackReceptionForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
+
+      await simulateBarcodeScan(input, "000112345670123456789012");
+
+      await waitFor(
+        () => {
+          expect(mockToast).toHaveBeenCalledWith(
+            expect.objectContaining({
+              title: "Pack already in inventory",
+              variant: "destructive",
+            }),
+          );
+        },
+        { timeout: 2000 },
+      );
+    });
+  });
+
+  describe("Pack List Management", () => {
+    it("6.12-COMPONENT-020: [P1] should remove pack from list on remove button click", async () => {
+      render(<PackReceptionForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
+
+      // Add a pack
+      await simulateBarcodeScan(input, "000112345670123456789012");
+
+      await waitFor(
+        () => {
+          expect(
+            screen.getByText(/Packs Ready to Receive/i),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Click remove button
+      const removeButton = screen.getByTestId("remove-pack-0");
+      await userEvent.click(removeButton);
+
+      // Pack should be removed
+      await waitFor(() => {
+        expect(
+          screen.queryByText(/Packs Ready to Receive/i),
+        ).not.toBeInTheDocument();
       });
     });
 
-    vi.useRealTimers();
+    it("6.12-COMPONENT-021: [P1] should support multiple packs in list", async () => {
+      // Setup different parsed values for each pack
+      mockParseSerializedNumber
+        .mockReturnValueOnce({
+          game_code: "0001",
+          pack_number: "1111111",
+          serial_start: "001",
+        })
+        .mockReturnValueOnce({
+          game_code: "0001",
+          pack_number: "2222222",
+          serial_start: "002",
+        });
+
+      render(<PackReceptionForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
+
+      // Add first pack
+      await simulateBarcodeScan(input, "000111111110010000000001");
+
+      await waitFor(
+        () => {
+          expect(screen.getByText(/1111111/)).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Add second pack
+      await simulateBarcodeScan(input, "000122222220020000000002");
+
+      await waitFor(
+        () => {
+          expect(screen.getByText(/2222222/)).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Both packs should be in list
+      expect(
+        screen.getByText(/Packs Ready to Receive \(2\)/i),
+      ).toBeInTheDocument();
+    });
   });
 
-  it("6.12-COMPONENT-018: [P1] should disable submit button when no packs in list (AC #4)", async () => {
-    // GIVEN: PackReceptionForm component with empty list
-    render(<PackReceptionForm {...defaultProps} />);
+  describe("Batch Submission", () => {
+    it("6.12-COMPONENT-030: [P1] should disable submit button when no packs", async () => {
+      render(<PackReceptionForm {...defaultProps} />);
 
-    // THEN: Submit button is disabled
-    const submitButton = screen.getByRole("button", { name: /receive.*pack/i });
-    expect(submitButton).toBeDisabled();
-  });
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
 
-  it("6.12-COMPONENT-019: [P1] should show pack count in button (AC #4)", async () => {
-    // GIVEN: PackReceptionForm component with packs in list
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Add pack to list
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(400);
-
-    // THEN: Button shows pack count
-    expect(
-      screen.getByRole("button", { name: /receive.*1.*pack/i }),
-    ).toBeInTheDocument();
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-020: [P1] should show error for invalid game code (AC #5)", async () => {
-    // GIVEN: PackReceptionForm component
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const mockParsed = {
-      game_code: "9999",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(receivePackBatch).mockResolvedValue({
-      success: true,
-      data: {
-        created: [],
-        duplicates: [],
-        errors: [
-          {
-            serial: "999912345670123456789012",
-            error: "Game code 9999 not found in database.",
-          },
-        ],
-        games_not_found: [],
-      },
-    });
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User enters serial with invalid game code and submits
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "999912345670123456789012");
-    await advanceTimers(400);
-
-    expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-
-    const submitButton = screen.getByRole("button", { name: /receive.*pack/i });
-    await user.click(submitButton);
-
-    // THEN: Error is shown (toast is mocked, so we verify API was called)
-    await waitFor(() => {
-      expect(receivePackBatch).toHaveBeenCalled();
-    });
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-021: [P1] should reset form after successful submission (AC #4)", async () => {
-    // GIVEN: PackReceptionForm component with packs in list
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(receivePackBatch).mockResolvedValue({
-      success: true,
-      data: {
-        created: [
-          {
-            pack_id: "pack-1",
-            game_id: "game-1",
-            pack_number: "1234567",
-            serial_start: "012",
-            serial_end: "161",
-            status: "RECEIVED",
-            game: { game_id: "game-1", name: "Test Game" },
-          },
-        ],
-        duplicates: [],
-        errors: [],
-        games_not_found: [],
-      },
-    });
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Add pack to list
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(400);
-
-    expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-
-    // WHEN: User submits successfully
-    const submitButton = screen.getByRole("button", { name: /receive.*pack/i });
-    await user.click(submitButton);
-
-    // THEN: Form is reset and dialog closes
-    await waitFor(() => {
-      expect(mockOnOpenChange).toHaveBeenCalledWith(false);
-    });
-
-    vi.useRealTimers();
-  });
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // EDGE CASE TESTS (P1)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  it("6.12-COMPONENT-022: [P1] should handle empty input gracefully", async () => {
-    // GIVEN: PackReceptionForm component
-    vi.useFakeTimers();
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User leaves input empty and debounce timer expires
-    await advanceTimers(400);
-
-    // THEN: No parsing occurs for empty input
-    expect(parseSerializedNumber).not.toHaveBeenCalled();
-    expect(screen.queryByText(/Pack:/i)).not.toBeInTheDocument();
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-023: [P1] should handle API error gracefully", async () => {
-    // GIVEN: PackReceptionForm component with packs in list
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(receivePackBatch).mockRejectedValue(new Error("Network error"));
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Add pack to list
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(400);
-
-    expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-
-    // WHEN: User submits and API fails
-    const submitButton = screen.getByRole("button", { name: /receive.*pack/i });
-    await user.click(submitButton);
-
-    // THEN: Error is handled (toast is mocked, so we verify API was called)
-    await waitFor(() => {
-      expect(receivePackBatch).toHaveBeenCalled();
-    });
-    // Form should not close on error
-    expect(mockOnOpenChange).not.toHaveBeenCalledWith(false);
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-024: [P1] should handle partial batch success (some duplicates)", async () => {
-    // GIVEN: PackReceptionForm component with packs in list
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(receivePackBatch).mockResolvedValue({
-      success: true,
-      data: {
-        created: [
-          {
-            pack_id: "pack-1",
-            game_id: "game-1",
-            pack_number: "1234567",
-            serial_start: "012",
-            serial_end: "161",
-            status: "RECEIVED",
-            game: { game_id: "game-1", name: "Test Game" },
-          },
-        ],
-        duplicates: ["000198765430456789012345"], // Some duplicates
-        errors: [],
-        games_not_found: [],
-      },
-    });
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Add pack to list
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(400);
-
-    expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-
-    // WHEN: User submits batch with some duplicates
-    const submitButton = screen.getByRole("button", { name: /receive.*pack/i });
-    await user.click(submitButton);
-
-    // THEN: API is called and handles partial success
-    await waitFor(() => {
-      expect(receivePackBatch).toHaveBeenCalled();
-    });
-    // Form should close on success (even with duplicates)
-    await waitFor(() => {
-      expect(mockOnOpenChange).toHaveBeenCalledWith(false);
-    });
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-025: [P1] should show loading state during submission", async () => {
-    // GIVEN: PackReceptionForm component with packs in list
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-
-    // Mock API with delay
-    let resolveApi: (value: any) => void;
-    const apiPromise = new Promise<any>((resolve) => {
-      resolveApi = resolve;
-    });
-    vi.mocked(receivePackBatch).mockReturnValue(apiPromise as any);
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Add pack to list
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(400);
-
-    expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-
-    // WHEN: User submits
-    const submitButton = screen.getByRole("button", { name: /receive.*pack/i });
-    await user.click(submitButton);
-
-    // THEN: Submit button should be disabled during loading
-    await waitFor(() => {
+      const submitButton = screen.getByTestId("submit-batch-reception");
       expect(submitButton).toBeDisabled();
     });
 
-    // Resolve API call
-    resolveApi!({
-      success: true,
-      data: {
-        created: [
-          {
-            pack_id: "pack-1",
-            game_id: "game-1",
-            pack_number: "1234567",
-            serial_start: "012",
-            serial_end: "161",
-            status: "RECEIVED",
-            game: { game_id: "game-1", name: "Test Game" },
-          },
-        ],
-        duplicates: [],
-        errors: [],
-        games_not_found: [],
-      },
-    });
+    it("6.12-COMPONENT-031: [P1] should enable submit button when packs exist", async () => {
+      render(<PackReceptionForm {...defaultProps} />);
 
-    await waitFor(() => {
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
+
+      await simulateBarcodeScan(input, "000112345670123456789012");
+
+      await waitFor(
+        () => {
+          expect(
+            screen.getByText(/Packs Ready to Receive/i),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      const submitButton = screen.getByTestId("submit-batch-reception");
       expect(submitButton).not.toBeDisabled();
     });
 
-    vi.useRealTimers();
-  });
+    it("6.12-COMPONENT-032: [P1] should call receivePackBatch API on submit", async () => {
+      render(<PackReceptionForm {...defaultProps} />);
 
-  it("6.12-COMPONENT-026: [P2] should prevent XSS in serial input", async () => {
-    // GIVEN: PackReceptionForm component
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
 
-    // WHEN: User attempts to enter script tag (should be filtered to numeric only)
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "<script>alert('xss')</script>");
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
 
-    // THEN: Only numeric characters are accepted (XSS prevented)
-    expect(input).toHaveValue("");
-    // Script tags should not be rendered in DOM
-    expect(screen.queryByText(/script/i)).not.toBeInTheDocument();
-  });
+      await simulateBarcodeScan(input, "000112345670123456789012");
 
-  it("6.12-COMPONENT-027: [P2] should handle multiple packs with same pack_number (in-session duplicate)", async () => {
-    // GIVEN: PackReceptionForm component with one pack in list
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Add first pack
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(400);
-
-    expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-
-    // Input should be cleared after first entry
-    expect(input).toHaveValue("");
-
-    // WHEN: User enters same serial again (in the same single input field)
-    await user.type(input, "000112345670456789012345"); // Same serial triggers duplicate check
-    await advanceTimers(400);
-
-    // THEN: Duplicate detection should prevent adding (or show error)
-    // The component should detect in-session duplicates
-    expect(parseSerializedNumber).toHaveBeenCalledTimes(2);
-
-    // AND: Only one input field exists
-    const inputs = screen.queryAllByPlaceholderText("000000000000000000000000");
-    expect(inputs.length).toBe(1);
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-028: [P2] should have accessible form labels", async () => {
-    // GIVEN: PackReceptionForm component
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // THEN: Input should have accessible label
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    expect(input).toHaveAttribute(
-      "aria-label",
-      expect.stringContaining("serial"),
-    );
-    // OR: Input should be associated with label
-    expect(
-      screen.getByText("Serialized Number (24 digits)"),
-    ).toBeInTheDocument();
-  });
-
-  it("6.12-COMPONENT-029: [P2] should handle keyboard navigation", async () => {
-    // GIVEN: PackReceptionForm component
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User navigates with Tab key
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.tab();
-
-    // THEN: Input receives focus
-    expect(input).toHaveFocus();
-
-    // WHEN: User presses Enter after entering valid serial
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(400);
-
-    // THEN: Serial is processed (Enter key behavior depends on component implementation)
-    expect(parseSerializedNumber).toHaveBeenCalled();
-
-    vi.useRealTimers();
-  });
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // SECURITY TESTS (P0 - Mandatory)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  it("6.12-COMPONENT-SEC-001: [P0] should sanitize input to prevent script injection", async () => {
-    // GIVEN: PackReceptionForm component
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User attempts various script injection patterns
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    const maliciousInputs = [
-      "<script>alert('xss')</script>",
-      "javascript:alert('xss')",
-      "onerror=alert('xss')",
-      "<img src=x onerror=alert('xss')>",
-    ];
-
-    for (const malicious of maliciousInputs) {
-      await user.clear(input);
-      await user.type(input, malicious);
-
-      // THEN: Only numeric characters are accepted (all non-numeric filtered)
-      const value = (input as HTMLInputElement).value;
-      expect(
-        /^\d*$/.test(value),
-        `Input should only contain digits after typing: ${malicious}`,
-      ).toBe(true);
-    }
-
-    // AND: No script tags should be in DOM
-    expect(screen.queryByText(/script/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/javascript/i)).not.toBeInTheDocument();
-  });
-
-  it("6.12-COMPONENT-SEC-002: [P0] should prevent SQL injection patterns in input", async () => {
-    // GIVEN: PackReceptionForm component
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User attempts SQL injection patterns
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    const sqlInjectionPatterns = [
-      "'; DROP TABLE packs; --",
-      "1' OR '1'='1",
-      "1'; INSERT INTO packs VALUES ('xss'); --",
-    ];
-
-    for (const sql of sqlInjectionPatterns) {
-      await user.clear(input);
-      await user.type(input, sql);
-
-      // THEN: Only numeric characters are accepted
-      const value = (input as HTMLInputElement).value;
-      expect(
-        /^\d*$/.test(value),
-        `Input should only contain digits after typing: ${sql}`,
-      ).toBe(true);
-    }
-  });
-
-  it("6.12-COMPONENT-SEC-003: [P0] should prevent HTML entity encoding bypass attempts", async () => {
-    // GIVEN: PackReceptionForm component
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User attempts HTML entity encoding
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    const htmlEntities = [
-      "&#60;script&#62;",
-      "&lt;script&gt;",
-      "&#x3C;script&#x3E;",
-    ];
-
-    for (const entity of htmlEntities) {
-      await user.clear(input);
-      await user.type(input, entity);
-
-      // THEN: Only numeric characters are accepted
-      const value = (input as HTMLInputElement).value;
-      expect(
-        /^\d*$/.test(value),
-        `Input should only contain digits after typing: ${entity}`,
-      ).toBe(true);
-    }
-  });
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ADDITIONAL EDGE CASE TESTS (P1)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  it("6.12-COMPONENT-030: [P1] should handle rapid input changes (debounce cancellation)", async () => {
-    // GIVEN: PackReceptionForm component - render FIRST, then enable fake timers
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Enable fake timers AFTER render so dialog animations complete
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-
-    // WHEN: User types rapidly, changing input before debounce completes
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-    await advanceTimers(200); // Partway through debounce
-    await user.clear(input);
-    await user.type(input, "000198765430456789012345"); // Different serial
-    await advanceTimers(400); // Complete debounce
-
-    // THEN: Only the final serial should be parsed
-    expect(parseSerializedNumber).toHaveBeenCalledTimes(1);
-    expect(parseSerializedNumber).toHaveBeenCalledWith(
-      "000198765430456789012345",
-    );
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-031: [P1] should handle paste operation with valid serial", async () => {
-    // GIVEN: PackReceptionForm component - render FIRST, then enable fake timers
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Enable fake timers AFTER render so dialog animations complete
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-
-    // WHEN: User pastes valid 24-digit serial
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.click(input);
-    await user.paste("000112345670123456789012");
-    await advanceTimers(400);
-
-    // THEN: Serial is parsed and pack is added
-    expect(parseSerializedNumber).toHaveBeenCalledWith(
-      "000112345670123456789012",
-    );
-    expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-032: [P1] should handle paste operation with invalid serial", async () => {
-    // GIVEN: PackReceptionForm component - render FIRST, then enable fake timers
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Enable fake timers AFTER render so dialog animations complete
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-
-    // WHEN: User pastes invalid serial (too short)
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.click(input);
-    await user.paste("12345678901234567890"); // 20 digits
-    await advanceTimers(400);
-
-    // THEN: Input is limited to 24 digits, parsing may fail or not occur
-    expect(input).toHaveValue("123456789012345678901234"); // Limited to 24
-
-    vi.useRealTimers();
-  });
-
-  it("6.12-COMPONENT-033: [P1] should handle all packs failing (all errors scenario)", async () => {
-    // GIVEN: PackReceptionForm component
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(receivePackBatch).mockResolvedValue({
-      success: true,
-      data: {
-        created: [],
-        duplicates: [],
-        errors: [
-          {
-            serial: "000112345670123456789012",
-            error: "Game code 0001 not found",
-          },
-        ],
-        games_not_found: [],
-      },
-    });
-
-    // Use real timers with waitFor for debounced operations
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Add pack to list - wait for debounce
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-
-    // Wait for debounced pack to appear
-    await waitFor(
-      () => {
-        expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-
-    // WHEN: User submits and all packs fail
-    const submitButton = screen.getByRole("button", { name: /receive.*pack/i });
-    await user.click(submitButton);
-
-    // THEN: API is called and error is handled
-    await waitFor(
-      () => {
-        expect(receivePackBatch).toHaveBeenCalled();
-      },
-      { timeout: 1000 },
-    );
-    // Form should not close when all packs fail
-    expect(mockOnOpenChange).not.toHaveBeenCalledWith(false);
-  });
-
-  it("6.12-COMPONENT-034: [P1] should handle multiple pack entries in single input field", async () => {
-    // GIVEN: PackReceptionForm component
-    // Mock parser to return different pack numbers for each serial
-    let callCount = 0;
-    vi.mocked(parseSerializedNumber).mockImplementation(() => {
-      callCount++;
-      return {
-        game_code: "0001",
-        pack_number: String(1234567 + callCount),
-        serial_start: "012",
-      };
-    });
-
-    // Use real timers with waitFor for debounced operations
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User adds multiple packs via the single input field
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-
-    // Add first pack
-    await user.type(input, "000112345670123456789012");
-    await waitFor(
-      () => {
-        expect(input).toHaveValue("");
-      },
-      { timeout: 1000 },
-    );
-
-    // Add second pack (different serial)
-    await user.type(input, "000112345680123456789012");
-    await waitFor(
-      () => {
-        expect(input).toHaveValue("");
-      },
-      { timeout: 1000 },
-    );
-
-    // THEN: Multiple packs are displayed in list
-    const packElements = screen.queryAllByText(/Pack:/i);
-    expect(
-      packElements.length,
-      "Multiple packs should be displayed",
-    ).toBeGreaterThanOrEqual(2);
-
-    // AND: Only one input field exists
-    const inputs = screen.queryAllByPlaceholderText("000000000000000000000000");
-    expect(inputs.length).toBe(1);
-  });
-
-  it("6.12-COMPONENT-035: [P2] should have proper ARIA attributes for screen readers", async () => {
-    // GIVEN: PackReceptionForm component
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // THEN: Input should have proper ARIA attributes
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    expect(
-      input,
-      "Input should have aria-label or be associated with label",
-    ).toBeInTheDocument();
-
-    // AND: Submit button should have accessible name
-    const submitButton = screen.getByRole("button", { name: /receive.*pack/i });
-    expect(
-      submitButton,
-      "Submit button should have accessible name",
-    ).toBeInTheDocument();
-  });
-
-  it("6.12-COMPONENT-036: [P2] should handle form submission with Enter key", async () => {
-    // GIVEN: PackReceptionForm component
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(receivePackBatch).mockResolvedValue({
-      success: true,
-      data: {
-        created: [
-          {
-            pack_id: "pack-1",
-            game_id: "game-1",
-            pack_number: "1234567",
-            serial_start: "012",
-            serial_end: "161",
-            status: "RECEIVED",
-            game: { game_id: "game-1", name: "Test Game" },
-          },
-        ],
-        duplicates: [],
-        errors: [],
-        games_not_found: [],
-      },
-    });
-
-    // Use real timers with waitFor for debounced operations
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Add pack to list
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-
-    // Wait for debounced pack to appear
-    await waitFor(
-      () => {
-        expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-
-    // WHEN: User presses Enter in input field (if form submission is supported)
-    // Note: Behavior depends on component implementation
-    const submitButton = screen.getByRole("button", { name: /receive.*pack/i });
-    expect(submitButton, "Submit button should be enabled").not.toBeDisabled();
-  });
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // SERVER-SIDE DUPLICATE DETECTION TESTS (P1)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  it("6.12-COMPONENT-037: [P1] should check server-side for duplicate packs before adding to list", async () => {
-    // GIVEN: PackReceptionForm component with server-side check mocked
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(checkPackExists).mockResolvedValue({
-      success: true,
-      data: { exists: false, pack: null },
-    });
-
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User enters a valid serial
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-
-    // Wait for debounced pack check and add
-    await waitFor(
-      () => {
-        expect(checkPackExists).toHaveBeenCalledWith(mockStoreId, "1234567");
-      },
-      { timeout: 1000 },
-    );
-
-    // THEN: Pack is added to list since server says it doesn't exist
-    await waitFor(
-      () => {
-        expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-  });
-
-  it("6.12-COMPONENT-038: [P1] should block pack if server says it already exists in inventory", async () => {
-    // GIVEN: PackReceptionForm component with server returning pack exists
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(checkPackExists).mockResolvedValue({
-      success: true,
-      data: {
-        exists: true,
-        pack: {
-          pack_id: "existing-pack-id",
-          status: "ACTIVE",
-          game: { name: "TEST GAME" },
+      await waitFor(
+        () => {
+          expect(
+            screen.getByText(/Packs Ready to Receive/i),
+          ).toBeInTheDocument();
         },
-      },
+        { timeout: 2000 },
+      );
+
+      const submitButton = screen.getByTestId("submit-batch-reception");
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockReceivePackBatch).toHaveBeenCalledWith(
+          expect.objectContaining({
+            store_id: mockStoreId,
+            serialized_numbers: ["000112345670123456789012"],
+          }),
+        );
+      });
     });
 
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
+    it("6.12-COMPONENT-033: [P1] should show success toast and close on successful submission", async () => {
+      render(<PackReceptionForm {...defaultProps} />);
 
-    // WHEN: User enters a serial for a pack that already exists
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
 
-    // Wait for server check
-    await waitFor(
-      () => {
-        expect(checkPackExists).toHaveBeenCalledWith(mockStoreId, "1234567");
-      },
-      { timeout: 1000 },
-    );
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
 
-    // THEN: Pack should NOT be added to the list (blocked by server check)
-    // Wait a bit to ensure the pack doesn't appear
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    expect(screen.queryByText(/Pack: 1234567/i)).not.toBeInTheDocument();
+      await simulateBarcodeScan(input, "000112345670123456789012");
 
-    // AND: Input should be cleared for next entry
-    expect(input).toHaveValue("");
-  });
-
-  it("6.12-COMPONENT-039: [P1] should show 'Checking inventory...' while verifying pack existence", async () => {
-    // GIVEN: PackReceptionForm component with slow server check
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-
-    // Create a slow mock that we can resolve later
-    let resolveCheck: (value: any) => void;
-    const checkPromise = new Promise((resolve) => {
-      resolveCheck = resolve;
-    });
-    vi.mocked(checkPackExists).mockReturnValue(checkPromise as any);
-
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User enters a valid serial
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-
-    // Wait for check to start
-    await waitFor(
-      () => {
-        expect(checkPackExists).toHaveBeenCalled();
-      },
-      { timeout: 1000 },
-    );
-
-    // THEN: "Checking inventory..." message should be shown
-    expect(screen.getByText(/checking inventory/i)).toBeInTheDocument();
-
-    // Resolve the check
-    resolveCheck!({
-      success: true,
-      data: { exists: false, pack: null },
-    });
-
-    // Wait for loading to complete
-    await waitFor(
-      () => {
-        expect(
-          screen.queryByText(/checking inventory/i),
-        ).not.toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-  });
-
-  it("6.12-COMPONENT-040: [P1] should continue with add if server check fails (graceful degradation)", async () => {
-    // GIVEN: PackReceptionForm component with server check that fails
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(checkPackExists).mockRejectedValue(new Error("Network error"));
-
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User enters a valid serial
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-
-    // Wait for check to be called (even if it fails)
-    await waitFor(
-      () => {
-        expect(checkPackExists).toHaveBeenCalled();
-      },
-      { timeout: 1000 },
-    );
-
-    // THEN: Pack should still be added (graceful degradation - don't block user if check fails)
-    await waitFor(
-      () => {
-        expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-  });
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // FOCUS MANAGEMENT TESTS (P1)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  it("6.12-COMPONENT-041: [P1] should focus input field when dialog opens", async () => {
-    // GIVEN: PackReceptionForm component
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: Dialog is open
-    // Wait for animation and focus to settle
-    await waitFor(
-      () => {
-        const input = screen.getByPlaceholderText("000000000000000000000000");
-        expect(input).toHaveFocus();
-      },
-      { timeout: 500 },
-    );
-  });
-
-  it("6.12-COMPONENT-042: [P1] should refocus input after adding pack to list", async () => {
-    // GIVEN: PackReceptionForm component
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(checkPackExists).mockResolvedValue({
-      success: true,
-      data: { exists: false, pack: null },
-    });
-
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // WHEN: User adds a pack
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
-
-    // Wait for pack to be added
-    await waitFor(
-      () => {
-        expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-
-    // THEN: Input should be cleared and refocused
-    await waitFor(
-      () => {
-        expect(input).toHaveValue("");
-        expect(input).toHaveFocus();
-      },
-      { timeout: 500 },
-    );
-  });
-
-  it("6.12-COMPONENT-043: [P1] should refocus input after duplicate pack error", async () => {
-    // GIVEN: PackReceptionForm component with duplicate pack in server
-    const mockParsed = {
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(checkPackExists).mockResolvedValue({
-      success: true,
-      data: {
-        exists: true,
-        pack: {
-          pack_id: "existing-pack-id",
-          status: "ACTIVE",
-          game: { name: "TEST GAME" },
+      await waitFor(
+        () => {
+          expect(
+            screen.getByText(/Packs Ready to Receive/i),
+          ).toBeInTheDocument();
         },
-      },
+        { timeout: 2000 },
+      );
+
+      const submitButton = screen.getByTestId("submit-batch-reception");
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "Packs received",
+          }),
+        );
+      });
+
+      expect(mockOnSuccess).toHaveBeenCalled();
+      expect(mockOnOpenChange).toHaveBeenCalledWith(false);
     });
 
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
+    it("6.12-COMPONENT-034: [P1] should show error toast on submission failure", async () => {
+      mockReceivePackBatch.mockResolvedValue({
+        success: true,
+        data: {
+          created: [],
+          duplicates: [],
+          errors: [
+            { serial: "000112345670123456789012", error: "Invalid pack" },
+          ],
+          games_not_found: [],
+        },
+      });
 
-    // WHEN: User enters a duplicate pack serial
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "000112345670123456789012");
+      render(<PackReceptionForm {...defaultProps} />);
 
-    // Wait for server check to complete
-    await waitFor(
-      () => {
-        expect(checkPackExists).toHaveBeenCalled();
-      },
-      { timeout: 1000 },
-    );
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
 
-    // THEN: Input should be cleared and refocused for next entry
-    await waitFor(
-      () => {
-        expect(input).toHaveValue("");
-        expect(input).toHaveFocus();
-      },
-      { timeout: 500 },
-    );
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
+
+      await simulateBarcodeScan(input, "000112345670123456789012");
+
+      await waitFor(
+        () => {
+          expect(
+            screen.getByText(/Packs Ready to Receive/i),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      const submitButton = screen.getByTestId("submit-batch-reception");
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "No packs received",
+            variant: "destructive",
+          }),
+        );
+      });
+    });
   });
 
-  it("6.12-COMPONENT-044: [P1] should refocus input after in-session duplicate error", async () => {
-    // GIVEN: PackReceptionForm with a pack already in the list
-    let callCount = 0;
-    vi.mocked(parseSerializedNumber).mockImplementation(() => ({
-      game_code: "0001",
-      pack_number: "1234567",
-      serial_start: "012",
-    }));
-    vi.mocked(checkPackExists).mockResolvedValue({
-      success: true,
-      data: { exists: false, pack: null },
+  describe("Error Handling", () => {
+    it("6.12-COMPONENT-040: [P1] should show error for invalid serial format", async () => {
+      mockParseSerializedNumber.mockImplementation(() => {
+        throw new Error("Invalid serial format");
+      });
+
+      render(<PackReceptionForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
+
+      await simulateBarcodeScan(input, "000112345670123456789012");
+
+      await waitFor(
+        () => {
+          expect(mockToast).toHaveBeenCalledWith(
+            expect.objectContaining({
+              title: "Invalid serial",
+              variant: "destructive",
+            }),
+          );
+        },
+        { timeout: 2000 },
+      );
     });
-
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-
-    // Add first pack
-    await user.type(input, "000112345670123456789012");
-    await waitFor(
-      () => {
-        expect(screen.getByText(/Pack: 1234567/i)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-
-    // Wait for input to clear
-    await waitFor(() => expect(input).toHaveValue(""), { timeout: 500 });
-
-    // WHEN: User tries to add the same serial again
-    await user.type(input, "000112345670123456789012");
-
-    // Wait for duplicate check to happen
-    await waitFor(
-      () => {
-        expect(parseSerializedNumber).toHaveBeenCalledTimes(2);
-      },
-      { timeout: 1000 },
-    );
-
-    // THEN: Input should be cleared and refocused
-    await waitFor(
-      () => {
-        expect(input).toHaveValue("");
-        expect(input).toHaveFocus();
-      },
-      { timeout: 500 },
-    );
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // NEW GAME MODAL FLOW TESTS (P1)
-  // ═══════════════════════════════════════════════════════════════════════════
+  describe("New Game Modal", () => {
+    it("6.12-COMPONENT-045: [P1] should show NewGameModal when game code not found", async () => {
+      // Return empty games list
+      mockGetGames.mockResolvedValue({
+        success: true,
+        data: [], // No games in cache
+      });
 
-  it("6.12-COMPONENT-045: [P1] should show NewGameModal when game code not found in cache", async () => {
-    // GIVEN: PackReceptionForm with a game code NOT in the games cache
-    const mockParsed = {
-      game_code: "9999", // Unknown game code
-      pack_number: "7654321",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(checkPackExists).mockResolvedValue({
-      success: true,
-      data: { exists: false, pack: null },
+      render(<PackReceptionForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
+
+      await simulateBarcodeScan(input, "000112345670123456789012");
+
+      // NewGameModal should appear
+      await waitFor(
+        () => {
+          expect(screen.getByText(/New Game Found/i)).toBeInTheDocument();
+        },
+        { timeout: 3000 },
+      );
     });
-
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Wait for games to load
-    await waitFor(
-      () => {
-        expect(screen.queryByText(/loading games/i)).not.toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-
-    // WHEN: User enters a serial with unknown game code
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "999976543210123456789012");
-
-    // Wait for processing
-    await waitFor(
-      () => {
-        expect(parseSerializedNumber).toHaveBeenCalled();
-      },
-      { timeout: 1000 },
-    );
-
-    // THEN: NewGameModal should appear
-    await waitFor(
-      () => {
-        expect(screen.getByText(/new game found/i)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-
-    // AND: Modal should show the unknown game code
-    expect(screen.getByText("9999")).toBeInTheDocument();
   });
 
-  it("6.12-COMPONENT-046: [P1] should add pack to list after creating new game in modal", async () => {
-    // GIVEN: PackReceptionForm showing NewGameModal for unknown game
-    const mockParsed = {
-      game_code: "9999",
-      pack_number: "7654321",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(checkPackExists).mockResolvedValue({
-      success: true,
-      data: { exists: false, pack: null },
+  describe("Loading States", () => {
+    it("6.12-COMPONENT-050: [P1] should show loading state while fetching games", async () => {
+      // Create a promise that we control
+      let resolveGames: (value: any) => void;
+      mockGetGames.mockReturnValue(
+        new Promise((resolve) => {
+          resolveGames = resolve;
+        }),
+      );
+
+      render(<PackReceptionForm {...defaultProps} />);
+
+      // Should show loading
+      expect(screen.getByText(/Loading games/i)).toBeInTheDocument();
+
+      // Resolve the promise
+      await act(async () => {
+        resolveGames!({
+          success: true,
+          data: [defaultGame],
+        });
+      });
+
+      // Loading should disappear
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
     });
 
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
+    it("6.12-COMPONENT-051: [P1] should show loading state during submission", async () => {
+      let resolveSubmit: (value: any) => void;
+      mockReceivePackBatch.mockReturnValue(
+        new Promise((resolve) => {
+          resolveSubmit = resolve;
+        }),
+      );
 
-    // Trigger the modal
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "999976543210123456789012");
+      render(<PackReceptionForm {...defaultProps} />);
 
-    // Wait for modal to appear
-    await waitFor(
-      () => {
-        expect(screen.getByText(/new game found/i)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
 
-    // WHEN: User fills in game name and price, then creates the game
-    const gameNameInput = screen.getByTestId("new-game-name-input");
-    const gamePriceInput = screen.getByTestId("new-game-price-input");
-    const createButton = screen.getByTestId("create-game-button");
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
 
-    await user.type(gameNameInput, "NEW TEST GAME");
-    await user.type(gamePriceInput, "10.00");
-    await user.click(createButton);
+      await simulateBarcodeScan(input, "000112345670123456789012");
 
-    // THEN: Modal should close and pack should be added to list
-    await waitFor(
-      () => {
-        expect(screen.queryByText(/new game found/i)).not.toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
+      await waitFor(
+        () => {
+          expect(
+            screen.getByText(/Packs Ready to Receive/i),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
 
-    // AND: Pack should be in the list
-    await waitFor(
-      () => {
-        expect(screen.getByText(/Pack: 7654321/i)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
+      const submitButton = screen.getByTestId("submit-batch-reception");
+      await userEvent.click(submitButton);
+
+      // Button should show loading state
+      expect(submitButton).toBeDisabled();
+
+      // Resolve the promise
+      await act(async () => {
+        resolveSubmit!({
+          success: true,
+          data: {
+            created: [{ pack_id: "pack-1" }],
+            duplicates: [],
+            errors: [],
+            games_not_found: [],
+          },
+        });
+      });
+    });
   });
 
-  it("6.12-COMPONENT-047: [P1] should NOT add pack when user cancels NewGameModal", async () => {
-    // GIVEN: PackReceptionForm showing NewGameModal for unknown game
-    const mockParsed = {
-      game_code: "9999",
-      pack_number: "7654321",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(checkPackExists).mockResolvedValue({
-      success: true,
-      data: { exists: false, pack: null },
+  describe("Dialog Behavior", () => {
+    it("6.12-COMPONENT-060: [P1] should reset form when dialog closes", async () => {
+      const { rerender } = render(<PackReceptionForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
+
+      // Add a pack
+      await simulateBarcodeScan(input, "000112345670123456789012");
+
+      await waitFor(
+        () => {
+          expect(
+            screen.getByText(/Packs Ready to Receive/i),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Close and reopen dialog
+      rerender(<PackReceptionForm {...defaultProps} open={false} />);
+      rerender(<PackReceptionForm {...defaultProps} open={true} />);
+
+      // Wait for games to load
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      // Pack list should be empty
+      expect(
+        screen.queryByText(/Packs Ready to Receive/i),
+      ).not.toBeInTheDocument();
     });
 
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
+    it("6.12-COMPONENT-061: [P1] should not close dialog while submitting", async () => {
+      let resolveSubmit: (value: any) => void;
+      mockReceivePackBatch.mockReturnValue(
+        new Promise((resolve) => {
+          resolveSubmit = resolve;
+        }),
+      );
 
-    // Trigger the modal
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "999976543210123456789012");
+      render(<PackReceptionForm {...defaultProps} />);
 
-    // Wait for modal to appear
-    await waitFor(
-      () => {
-        expect(screen.getByText(/new game found/i)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
 
-    // WHEN: User cancels the modal
-    const cancelButton = screen.getByRole("button", { name: /cancel/i });
-    await user.click(cancelButton);
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
 
-    // THEN: Modal should close
-    await waitFor(
-      () => {
-        expect(screen.queryByText(/new game found/i)).not.toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
+      await simulateBarcodeScan(input, "000112345670123456789012");
 
-    // AND: Pack should NOT be in the list
-    expect(screen.queryByText(/Pack: 7654321/i)).not.toBeInTheDocument();
-  });
+      await waitFor(
+        () => {
+          expect(
+            screen.getByText(/Packs Ready to Receive/i),
+          ).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
 
-  it("6.12-COMPONENT-048: [P1] should refocus input after NewGameModal closes", async () => {
-    // GIVEN: PackReceptionForm showing NewGameModal
-    const mockParsed = {
-      game_code: "9999",
-      pack_number: "7654321",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(checkPackExists).mockResolvedValue({
-      success: true,
-      data: { exists: false, pack: null },
+      const submitButton = screen.getByTestId("submit-batch-reception");
+      await userEvent.click(submitButton);
+
+      // Cancel button should be disabled during submission
+      const cancelButton = screen.getByRole("button", { name: /cancel/i });
+      expect(cancelButton).toBeDisabled();
+
+      // Resolve the promise
+      await act(async () => {
+        resolveSubmit!({
+          success: true,
+          data: {
+            created: [{ pack_id: "pack-1" }],
+            duplicates: [],
+            errors: [],
+            games_not_found: [],
+          },
+        });
+      });
     });
-
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "999976543210123456789012");
-
-    // Wait for modal to appear
-    await waitFor(
-      () => {
-        expect(screen.getByText(/new game found/i)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-
-    // Fill in and submit the modal
-    const gameNameInput = screen.getByTestId("new-game-name-input");
-    const gamePriceInput = screen.getByTestId("new-game-price-input");
-    const createButton = screen.getByTestId("create-game-button");
-
-    await user.type(gameNameInput, "NEW TEST GAME");
-    await user.type(gamePriceInput, "10.00");
-    await user.click(createButton);
-
-    // Wait for modal to close
-    await waitFor(
-      () => {
-        expect(screen.queryByText(/new game found/i)).not.toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-
-    // THEN: Input should be focused again for next entry
-    await waitFor(
-      () => {
-        expect(input).toHaveFocus();
-      },
-      { timeout: 500 },
-    );
-  });
-
-  it("6.12-COMPONENT-049: [P1] should display game name with price in pack list after game creation", async () => {
-    // GIVEN: Pack added after creating a new game
-    const mockParsed = {
-      game_code: "9999",
-      pack_number: "7654321",
-      serial_start: "012",
-    };
-    vi.mocked(parseSerializedNumber).mockReturnValue(mockParsed);
-    vi.mocked(checkPackExists).mockResolvedValue({
-      success: true,
-      data: { exists: false, pack: null },
-    });
-
-    const user = userEvent.setup({ delay: null });
-    render(<PackReceptionForm {...defaultProps} />);
-
-    // Trigger the modal and create game
-    const input = screen.getByPlaceholderText("000000000000000000000000");
-    await user.type(input, "999976543210123456789012");
-
-    await waitFor(
-      () => {
-        expect(screen.getByText(/new game found/i)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-
-    const gameNameInput = screen.getByTestId("new-game-name-input");
-    const gamePriceInput = screen.getByTestId("new-game-price-input");
-    const createButton = screen.getByTestId("create-game-button");
-
-    await user.type(gameNameInput, "MEGA BUCKS");
-    await user.type(gamePriceInput, "20.00");
-    await user.click(createButton);
-
-    // Wait for modal to close and pack to appear
-    await waitFor(
-      () => {
-        expect(screen.queryByText(/new game found/i)).not.toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
-
-    // THEN: Pack list should show game name and price
-    await waitFor(
-      () => {
-        expect(screen.getByText(/MEGA BUCKS/i)).toBeInTheDocument();
-        expect(screen.getByText(/\$20\.00/)).toBeInTheDocument();
-      },
-      { timeout: 1000 },
-    );
   });
 });

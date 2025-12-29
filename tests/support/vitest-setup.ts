@@ -36,3 +36,17 @@ Element.prototype.setPointerCapture = function () {
 Element.prototype.releasePointerCapture = function () {
   // No-op
 };
+
+// Polyfill for ResizeObserver (used by Radix ScrollArea)
+class ResizeObserverMock {
+  observe() {
+    // No-op
+  }
+  unobserve() {
+    // No-op
+  }
+  disconnect() {
+    // No-op
+  }
+}
+global.ResizeObserver = ResizeObserverMock;

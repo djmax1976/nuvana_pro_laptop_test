@@ -1,5 +1,5 @@
 # Deploy Pipeline - Railway Deployment
-# Triggered on push to main (production) or development (staging)
+# Triggered ONLY on push to main (after PR merge with passing CI)
 # Railway auto-deploys via GitHub integration when connected
 # This workflow provides deployment verification and optional manual triggers
 
@@ -7,17 +7,16 @@ name: Deploy
 
 on:
   push:
-    branches: [main, development]
+    branches: [main]
   workflow_dispatch:
     inputs:
       environment:
         description: 'Deployment environment'
         required: true
-        default: 'staging'
+        default: 'production'
         type: choice
         options:
           - production
-          - staging
       skip_health_check:
         description: 'Skip post-deployment health check'
         required: false

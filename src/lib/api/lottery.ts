@@ -191,6 +191,10 @@ export interface FullActivatePackInput {
   serial_override_approved_by?: string;
   /** Reason for the serial override (e.g., "Pack already partially sold") */
   serial_override_reason?: string;
+  /** Manager user UUID who approved marking the pack as pre-sold (for dual-auth flow) */
+  mark_sold_approved_by?: string;
+  /** Reason for marking pack as pre-sold (e.g., "Pack sold before bin placement") */
+  mark_sold_reason?: string;
 }
 
 /**
@@ -307,12 +311,18 @@ export async function receivePack(
  * Batch receive lottery packs via serialized numbers
  * POST /api/lottery/packs/receive/batch
  * Story 6.12: Serialized Pack Reception with Batch Processing
- * @param data - Batch reception data with serialized numbers
+ * Story: Scan-Only Pack Reception Security
+ * @param data - Batch reception data with serialized numbers and scan metrics
  * @returns Batch reception response with created packs, duplicates, and errors
  */
 export interface BatchReceivePackInput {
   serialized_numbers: string[];
   store_id?: string;
+  /**
+   * Scan metrics for server-side validation (required when scan enforcement is enabled)
+   * Each entry corresponds to the serialized_number at the same index
+   */
+  scan_metrics?: import("@/types/scan-detection").ScanMetrics[];
 }
 
 export interface BatchReceivePackResponse {
