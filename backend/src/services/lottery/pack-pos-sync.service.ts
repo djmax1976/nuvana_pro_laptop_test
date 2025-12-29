@@ -47,23 +47,28 @@ export interface PackActivationSyncInput {
   ticketPrice: number;
   /** Store UUID */
   storeId: string;
+  /** Starting serial number (e.g., "000") - base for ticket numbering */
+  startingSerial: string;
 }
 
 /**
  * Result of pack activation sync
+ *
+ * IMPORTANT: This is now a BLOCKING operation.
+ * If POS export fails, success will be false and activation must be blocked.
  */
 export interface PackActivationSyncResult {
-  /** Whether sync completed (activation still succeeds if POS fails) */
+  /** Whether sync completed successfully - if false, activation MUST be blocked */
   success: boolean;
   /** Number of UPCs generated */
   upcCount: number;
-  /** Whether UPCs were stored in Redis */
+  /** Whether UPCs were stored in Redis (for retry on failure) */
   redisStored: boolean;
   /** Whether UPCs were exported to POS */
   posExported: boolean;
   /** Path to exported file (if exported) */
   posFilePath?: string;
-  /** Error message if any step failed */
+  /** Error message if any step failed - display to user */
   error?: string;
   /** UPC details for response */
   details?: {
@@ -378,11 +383,17 @@ async function createPOSSyncAuditLog(
 /**
  * Synchronize pack activation with Redis and POS
  *
- * Called after pack status is updated to ACTIVE.
- * Generates UPCs, stores in Redis, and exports to POS.
+ * BLOCKING OPERATION: If POS export fails, activation MUST be blocked.
  *
- * @param input - Pack activation data
- * @returns Sync result with status of each step
+ * Called during pack activation flow:
+ * 1. Generates UPC-A barcodes for all tickets in the pack
+ * 2. Stores UPCs in Redis (persistent until successful export)
+ * 3. Exports UPCs to POS system
+ * 4. On success: deletes from Redis cache
+ * 5. On failure: keeps in Redis for retry, returns error to block activation
+ *
+ * @param input - Pack activation data including starting serial
+ * @returns Sync result - if success=false, activation MUST be blocked
  *
  * @example
  * const result = await syncPackActivation({
@@ -393,7 +404,12 @@ async function createPOSSyncAuditLog(
  *   ticketsPerPack: 15,
  *   ticketPrice: 20,
  *   storeId: "uuid",
+ *   startingSerial: "000",
  * });
+ * if (!result.success) {
+ *   // MUST block activation and show error to user
+ *   throw new Error(result.error);
+ * }
  */
 export async function syncPackActivation(
   input: PackActivationSyncInput,
@@ -402,10 +418,11 @@ export async function syncPackActivation(
     `PackPOSSync: Starting activation sync for pack ${input.packId} (${input.gameName})`,
   );
 
-  // 1. Generate UPCs
+  // 1. Generate UPC-A barcodes with check digits
   const upcResult = generatePackUPCs({
     gameCode: input.gameCode,
     packNumber: input.packNumber,
+    startingSerial: input.startingSerial,
     ticketsPerPack: input.ticketsPerPack,
   });
 
@@ -423,12 +440,33 @@ export async function syncPackActivation(
   }
 
   console.log(
-    `PackPOSSync: Generated ${upcResult.upcs.length} UPCs (${upcResult.metadata.firstUpc} to ${upcResult.metadata.lastUpc})`,
+    `PackPOSSync: Generated ${upcResult.upcs.length} UPC-A barcodes (${upcResult.metadata.firstUpc} to ${upcResult.metadata.lastUpc})`,
   );
 
-  // 2. Store in Redis (for retry if POS push fails)
+  // 2. Get POS configuration first to check if export is needed
+  const posConfig = await getStorePOSConfig(input.storeId);
+
+  if (!posConfig) {
+    // No POS integration configured - activation can proceed without UPC export
+    console.log(
+      `PackPOSSync: No POS integration for store ${input.storeId}, skipping export`,
+    );
+    return {
+      success: true,
+      upcCount: upcResult.upcs.length,
+      redisStored: false,
+      posExported: false,
+      details: {
+        upcs: upcResult.upcs,
+        firstUpc: upcResult.metadata.firstUpc,
+        lastUpc: upcResult.metadata.lastUpc,
+      },
+    };
+  }
+
+  // 3. Store in Redis BEFORE attempting POS export (for retry capability)
+  // No TTL - persists until successful export
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour retry window
 
   const cacheData: PackUPCData = {
     packId: input.packId,
@@ -439,36 +477,18 @@ export async function syncPackActivation(
     ticketPrice: input.ticketPrice,
     upcs: upcResult.upcs,
     generatedAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString(),
+    expiresAt: "", // No expiration - persists until successful export
   };
 
   const redisStored = await storePackUPCs(cacheData);
 
-  // Note: We proceed even if Redis fails - UPCs are ephemeral
-  // The POS export is the critical path
-
-  // 3. Get POS configuration
-  const posConfig = await getStorePOSConfig(input.storeId);
-
-  if (!posConfig) {
-    // No POS integration configured - this is acceptable
-    console.log(
-      `PackPOSSync: No POS integration for store ${input.storeId}, skipping export`,
+  if (!redisStored) {
+    console.warn(
+      `PackPOSSync: Redis storage failed for pack ${input.packId}, proceeding with POS export`,
     );
-    return {
-      success: true,
-      upcCount: upcResult.upcs.length,
-      redisStored,
-      posExported: false,
-      details: {
-        upcs: upcResult.upcs,
-        firstUpc: upcResult.metadata.firstUpc,
-        lastUpc: upcResult.metadata.lastUpc,
-      },
-    };
   }
 
-  // 4. Export to POS
+  // 4. Export to POS - THIS IS THE CRITICAL BLOCKING STEP
   const posResult = await exportUPCsToPOS(
     posConfig,
     upcResult.upcs,
@@ -477,36 +497,55 @@ export async function syncPackActivation(
     input.packId,
   );
 
-  // 5. Create audit log
+  // 5. Handle result based on success/failure
   if (posResult.success) {
+    // SUCCESS: Delete from Redis cache (no longer needed)
+    await deletePackUPCs(input.packId);
+
     await createPOSSyncAuditLog("PACK_UPC_POS_EXPORT_SUCCESS", input.packId, {
       upcCount: upcResult.upcs.length,
       firstUpc: upcResult.metadata.firstUpc,
       lastUpc: upcResult.metadata.lastUpc,
       filePath: posResult.filePath,
-      redisStored,
     });
+
+    return {
+      success: true,
+      upcCount: upcResult.upcs.length,
+      redisStored: false, // Deleted after success
+      posExported: true,
+      posFilePath: posResult.filePath,
+      details: {
+        upcs: upcResult.upcs,
+        firstUpc: upcResult.metadata.firstUpc,
+        lastUpc: upcResult.metadata.lastUpc,
+      },
+    };
   } else {
+    // FAILURE: Keep in Redis for retry, return error to BLOCK activation
     await createPOSSyncAuditLog("PACK_UPC_POS_EXPORT_FAILED", input.packId, {
       upcCount: upcResult.upcs.length,
       error: posResult.error,
       redisStored,
     });
-  }
 
-  return {
-    success: true, // Activation succeeds even if POS export fails
-    upcCount: upcResult.upcs.length,
-    redisStored,
-    posExported: posResult.success,
-    posFilePath: posResult.filePath,
-    error: posResult.success ? undefined : posResult.error,
-    details: {
-      upcs: upcResult.upcs,
-      firstUpc: upcResult.metadata.firstUpc,
-      lastUpc: upcResult.metadata.lastUpc,
-    },
-  };
+    console.error(
+      `PackPOSSync: POS export FAILED for pack ${input.packId}: ${posResult.error}. Activation will be BLOCKED.`,
+    );
+
+    return {
+      success: false, // BLOCKING: Activation must fail
+      upcCount: upcResult.upcs.length,
+      redisStored,
+      posExported: false,
+      error: "Pack activation failed. Try again.",
+      details: {
+        upcs: upcResult.upcs,
+        firstUpc: upcResult.metadata.firstUpc,
+        lastUpc: upcResult.metadata.lastUpc,
+      },
+    };
+  }
 }
 
 /**

@@ -128,6 +128,12 @@ export interface UseScanDetectorReturn {
   quickCheck: { likelyScan: boolean; confidence: number };
 
   /**
+   * SYNCHRONOUS quick check - use this for real-time blocking during onChange
+   * Returns current keystroke timing analysis without React state delay
+   */
+  getQuickCheckSync: () => { likelyScan: boolean; confidence: number };
+
+  /**
    * Whether a rejection should be shown (manual entry detected after completion)
    */
   shouldReject: boolean;
@@ -174,6 +180,10 @@ export function useScanDetector(
   // Track the last keystroke timestamp
   const lastKeystrokeRef = useRef<number | null>(null);
 
+  // CRITICAL: Store keystrokes in ref for SYNCHRONOUS access in real-time detection
+  // React state updates are async, but we need immediate access for timing analysis
+  const keystrokesRef = useRef<KeystrokeEvent[]>([]);
+
   /**
    * Handle keydown event
    * Records keystroke timing for analysis
@@ -197,6 +207,9 @@ export function useScanDetector(
         timestamp: now,
         intervalMs,
       };
+
+      // CRITICAL: Update ref SYNCHRONOUSLY for real-time detection
+      keystrokesRef.current = [...keystrokesRef.current, newKeystroke];
 
       setKeystrokes((prev) => {
         const updated = [...prev, newKeystroke];
@@ -256,6 +269,7 @@ export function useScanDetector(
    */
   const reset = useCallback(() => {
     setKeystrokes([]);
+    keystrokesRef.current = []; // Also reset the ref
     setResult(createDetectionResult(null, config));
     setIsComplete(false);
     lastKeystrokeRef.current = null;
@@ -272,12 +286,23 @@ export function useScanDetector(
   }, [keystrokes, config]);
 
   /**
-   * Quick check for real-time UI feedback
+   * Quick check for real-time UI feedback (uses React state - may be stale)
    */
   const quickCheck = useMemo(
     () => quickScanCheck(keystrokes, config),
     [keystrokes, config],
   );
+
+  /**
+   * SYNCHRONOUS quick check using ref - for real-time blocking
+   * This is called during onChange and must have current data
+   */
+  const getQuickCheckSync = useCallback((): {
+    likelyScan: boolean;
+    confidence: number;
+  } => {
+    return quickScanCheck(keystrokesRef.current, config);
+  }, [config]);
 
   /**
    * Whether rejection should be shown
@@ -294,6 +319,7 @@ export function useScanDetector(
     result,
     reset,
     getMetrics,
+    getQuickCheckSync, // NEW: synchronous check for real-time blocking
     keystrokeCount: keystrokes.length,
     isComplete,
     quickCheck,

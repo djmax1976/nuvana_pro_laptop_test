@@ -43,6 +43,10 @@ vi.mock("@/lib/api/lottery", () => ({
     success: true,
     data: { exists: false },
   }),
+  getLotteryConfigValues: vi.fn().mockResolvedValue({
+    success: true,
+    data: { enforce_scan_only: true },
+  }),
 }));
 
 // Mock toast
@@ -51,15 +55,37 @@ vi.mock("@/hooks/use-toast", () => ({
 }));
 
 describe("PackReceptionForm Scan-Only Enforcement", () => {
+  // Track mock time for scanner simulation
+  // The hook uses: performance.now() + performance.timeOrigin
+  // We mock performance.now() to return controlled incremental values
+  // and set timeOrigin to 0 so the total timestamp = our mock value
+  let mockNow = 0;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mockNow = 0;
     // Mock high-resolution timing
-    vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+    // Hook uses: performance.now() + performance.timeOrigin
+    vi.spyOn(performance, "now").mockImplementation(() => mockNow);
+    // Set timeOrigin to a base value so timestamps look realistic
+    Object.defineProperty(performance, "timeOrigin", {
+      value: Date.now(),
+      writable: true,
+      configurable: true,
+    });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
+
+  /**
+   * Advance mock time by specified milliseconds
+   * Used to simulate scanner timing (fast) vs manual typing (slow)
+   */
+  const advanceMockTime = (ms: number) => {
+    mockNow += ms;
+  };
 
   const defaultProps = {
     storeId: "store-123",
@@ -97,24 +123,32 @@ describe("PackReceptionForm Scan-Only Enforcement", () => {
   describe("Scanner Input Detection", () => {
     /**
      * Helper to simulate scanner input by firing rapid keydown events
-     * This mimics how a barcode scanner sends characters very quickly
-     * Uses fireEvent to properly update React state
+     * This mimics how a barcode scanner sends characters very quickly (10ms between keys)
+     * Uses controlled mock time to ensure timing is detected as scanner input
      */
     const simulateScannerInput = async (
       input: HTMLInputElement,
       barcode: string,
     ) => {
-      // Scanners type very fast - simulate keydown for each character with minimal delay
+      // Scanners type very fast - 10ms between characters
       let currentValue = "";
-      for (const char of barcode.split("")) {
+      for (let i = 0; i < barcode.length; i++) {
+        const char = barcode[i];
         currentValue += char;
+
+        // Advance mock time by 10ms (scanner speed) - except for first char
+        if (i > 0) {
+          advanceMockTime(10);
+        }
+
         // Fire keydown event (triggers scan detection timing)
         fireEvent.keyDown(input, { key: char });
         // Fire change event with updated value (updates React state)
         fireEvent.change(input, { target: { value: currentValue } });
-        // Small delay to simulate scanner timing (still much faster than human typing)
+
+        // Allow React to process
         await act(async () => {
-          await new Promise((r) => setTimeout(r, 5));
+          await new Promise((r) => setTimeout(r, 0));
         });
       }
     };
@@ -159,6 +193,13 @@ describe("PackReceptionForm Scan-Only Enforcement", () => {
   });
 
   describe("Manual Entry Detection", () => {
+    // For manual entry tests, we need REAL performance.now() timing
+    // because userEvent.type with delay uses real time
+    beforeEach(() => {
+      // Restore real performance.now for these tests
+      vi.spyOn(performance, "now").mockRestore();
+    });
+
     it("should show rejection message for slow manual typing", async () => {
       render(<PackReceptionForm {...defaultProps} />);
 
@@ -169,8 +210,9 @@ describe("PackReceptionForm Scan-Only Enforcement", () => {
       const input = screen.getByTestId("serial-input");
       const user = userEvent.setup({ delay: 150 }); // 150ms between keystrokes
 
-      // Type slowly like a human
-      await user.type(input, "000112345670010000000001");
+      // Type slowly like a human - only need 3 chars to trigger detection
+      // (detection happens after 2 keystrokes with slow timing)
+      await user.type(input, "001");
 
       // Wait for the toast to be called with rejection message
       await waitFor(
@@ -182,7 +224,7 @@ describe("PackReceptionForm Scan-Only Enforcement", () => {
             }),
           );
         },
-        { timeout: 10000 }, // Long timeout for slow typing
+        { timeout: 5000 },
       );
     });
 
@@ -196,9 +238,8 @@ describe("PackReceptionForm Scan-Only Enforcement", () => {
       const input = screen.getByTestId("serial-input") as HTMLInputElement;
       const user = userEvent.setup({ delay: 150 });
 
-      // Use userEvent.type for manual entry simulation
-      // The delay simulates slow human typing
-      await user.type(input, "000112345670010000000001");
+      // Type slowly - only need 3 chars to trigger rejection
+      await user.type(input, "001");
 
       // Wait for rejection to be triggered
       await waitFor(
@@ -209,20 +250,15 @@ describe("PackReceptionForm Scan-Only Enforcement", () => {
             }),
           );
         },
-        { timeout: 15000 },
+        { timeout: 5000 },
       );
 
       // Wait for React to process the state update that clears the input
-      // The component calls setInputValue("") when manual entry is detected
       await act(async () => {
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, 200));
       });
 
-      // Input should be cleared - but with controlled components and userEvent
-      // the behavior can vary. The key assertion is the rejection toast above.
-      // If the test is flaky on clearing, we can remove this assertion.
-      // For now, let's just verify the input has been handled (either cleared or
-      // the rejection was shown).
+      // Verify the rejection was shown with destructive variant
       expect(mockToast).toHaveBeenCalledWith(
         expect.objectContaining({
           variant: "destructive",
@@ -287,8 +323,50 @@ describe("PackReceptionForm Scan-Only Enforcement", () => {
   });
 
   describe("Edge Cases", () => {
-    it("should handle paste events as scanner input", async () => {
+    it("should BLOCK paste events when scan-only is enforced", async () => {
       render(<PackReceptionForm {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
+      });
+
+      const input = screen.getByTestId("serial-input") as HTMLInputElement;
+      const barcode = "000112345670010000000001";
+
+      // Simulate paste - should be BLOCKED
+      await act(async () => {
+        fireEvent.paste(input, {
+          clipboardData: { getData: () => barcode },
+        });
+      });
+
+      // Wait a bit for event handling
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 100));
+      });
+
+      // Should show rejection message for paste
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: expect.stringMatching(/Paste Not Allowed/i),
+            variant: "destructive",
+          }),
+        );
+      });
+
+      // Input should remain empty (paste was prevented)
+      expect(input.value).toBe("");
+    });
+
+    it("should allow paste when scan-only is disabled", async () => {
+      const { checkPackExists } = await import("@/lib/api/lottery");
+      (checkPackExists as any).mockResolvedValue({
+        success: true,
+        data: { exists: false },
+      });
+
+      render(<PackReceptionForm {...defaultProps} enforceScanOnly={false} />);
 
       await waitFor(() => {
         expect(screen.queryByText(/Loading games/i)).not.toBeInTheDocument();
@@ -297,14 +375,11 @@ describe("PackReceptionForm Scan-Only Enforcement", () => {
       const input = screen.getByTestId("serial-input");
       const barcode = "000112345670010000000001";
 
-      // Simulate paste using userEvent.paste (more reliable than ClipboardEvent)
-      // Paste behaves like scanner - all characters appear at once without keystroke timing
+      // Simulate paste - should be allowed when enforceScanOnly is false
       await act(async () => {
-        // Use fireEvent to simulate paste behavior
         fireEvent.paste(input, {
           clipboardData: { getData: () => barcode },
         });
-        // Update value to simulate the paste result
         fireEvent.change(input, { target: { value: barcode } });
       });
 
@@ -313,15 +388,12 @@ describe("PackReceptionForm Scan-Only Enforcement", () => {
         await new Promise((r) => setTimeout(r, 500));
       });
 
-      // Should not reject paste as manual entry
-      // (Paste has no keystroke timing, so it shouldn't be flagged as manual)
-      await waitFor(() => {
-        expect(mockToast).not.toHaveBeenCalledWith(
-          expect.objectContaining({
-            title: expect.stringMatching(/Manual Entry Not Allowed/i),
-          }),
-        );
-      });
+      // Should NOT show paste rejection
+      expect(mockToast).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: expect.stringMatching(/Paste Not Allowed/i),
+        }),
+      );
     });
 
     it("should reset detector when input is cleared", async () => {
@@ -350,24 +422,32 @@ describe("PackReceptionForm Scan-Only Enforcement", () => {
   describe("Integration with Form Submission", () => {
     /**
      * Helper to simulate scanner input by firing rapid keydown events
-     * This mimics how a barcode scanner sends characters very quickly
-     * Uses fireEvent to properly update React state
+     * This mimics how a barcode scanner sends characters very quickly (10ms between keys)
+     * Uses controlled mock time to ensure timing is detected as scanner input
      */
     const simulateScannerInput = async (
       input: HTMLInputElement,
       barcode: string,
     ) => {
-      // Scanners type very fast - simulate keydown for each character with minimal delay
+      // Scanners type very fast - 10ms between characters
       let currentValue = "";
-      for (const char of barcode.split("")) {
+      for (let i = 0; i < barcode.length; i++) {
+        const char = barcode[i];
         currentValue += char;
+
+        // Advance mock time by 10ms (scanner speed) - except for first char
+        if (i > 0) {
+          advanceMockTime(10);
+        }
+
         // Fire keydown event (triggers scan detection timing)
         fireEvent.keyDown(input, { key: char });
         // Fire change event with updated value (updates React state)
         fireEvent.change(input, { target: { value: currentValue } });
-        // Small delay to simulate scanner timing (still much faster than human typing)
+
+        // Allow React to process
         await act(async () => {
-          await new Promise((r) => setTimeout(r, 5));
+          await new Promise((r) => setTimeout(r, 0));
         });
       }
     };

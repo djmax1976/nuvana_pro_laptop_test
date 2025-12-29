@@ -11,7 +11,7 @@
  * |----------------------------|--------------------------|------------------|
  * | BS-001                     | Render selector UI       | Component        |
  * | BS-002                     | Render with custom props | Component        |
- * | BS-003                     | Display all bins         | Assertions       |
+ * | BS-003                     | Display bin numbers      | Assertions       |
  * | BS-004                     | Show occupation status   | Business Logic   |
  * | BS-005                     | Selection callback       | Integration      |
  * | BS-006                     | Occupied bin info        | Business Logic   |
@@ -23,10 +23,10 @@
  * ============================================================================
  *
  * Key Features Tested:
- * - Bin selection dropdown with all available bins
- * - Occupation status indication (badge for occupied bins)
+ * - Bin selection dropdown displaying bin numbers (Bin 1, Bin 2, etc.)
+ * - Occupation status indication (badge showing game name and pack number)
  * - Info message when selecting occupied bin (existing pack will be marked as sold)
- * - Selection callback with bin data
+ * - Selection callback with full bin data
  * - Disabled state handling
  * - Error message display
  *
@@ -147,7 +147,7 @@ describe("BinSelector", () => {
   // ============================================================================
 
   describe("Bin Display", () => {
-    it("BS-003: should display all bins in dropdown", async () => {
+    it("BS-003: should display all bins in dropdown with bin numbers", async () => {
       const user = userEvent.setup();
       render(<BinSelector {...defaultProps} />);
 
@@ -155,12 +155,10 @@ describe("BinSelector", () => {
       await user.click(trigger);
 
       await waitFor(() => {
+        // Component now displays "Bin {number}" only, not the redundant name
         expect(screen.getByText("Bin 1")).toBeInTheDocument();
-        expect(screen.getByText("- Bin A")).toBeInTheDocument();
         expect(screen.getByText("Bin 2")).toBeInTheDocument();
-        expect(screen.getByText("- Bin B")).toBeInTheDocument();
         expect(screen.getByText("Bin 3")).toBeInTheDocument();
-        expect(screen.getByText("- Bin C")).toBeInTheDocument();
       });
     });
 
@@ -209,8 +207,8 @@ describe("BinSelector", () => {
         expect(screen.getByText("Bin 1")).toBeInTheDocument();
       });
 
-      // Click on Bin A (the first option)
-      const option = screen.getByText("- Bin A").closest('[role="option"]');
+      // Click on Bin 1 (the first option) - component now shows "Bin {number}" format
+      const option = screen.getByText("Bin 1").closest('[role="option"]');
       if (option) {
         await user.click(option);
       }
@@ -219,6 +217,7 @@ describe("BinSelector", () => {
         "bin-1",
         expect.objectContaining({
           bin_id: "bin-1",
+          bin_number: 1,
           name: "Bin A",
         }),
       );

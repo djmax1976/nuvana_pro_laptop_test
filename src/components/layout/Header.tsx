@@ -1,22 +1,39 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { User, LogOut, Settings } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { CurrentDateTime } from "@/components/layout/CurrentDateTime";
 import { useAuth } from "@/contexts/AuthContext";
+import { useClientDashboard } from "@/lib/api/client-dashboard";
 
+/**
+ * Header Component
+ *
+ * Displays the main header for the dashboard with:
+ * - Store name (right-aligned, above controls)
+ * - Current date/time display
+ * - Dark mode toggle
+ * - Logout button
+ *
+ * @requirements
+ * - Shows store name for authenticated users
+ * - Provides quick access to logout functionality
+ * - Displays current date and time
+ */
 export function Header() {
   const router = useRouter();
   const { user, isLoading, logout } = useAuth();
+  const { data: dashboardData, isLoading: dashboardLoading } =
+    useClientDashboard();
+
+  // Get the first active store or first store
+  const store =
+    dashboardData?.stores.find((s) => s.status === "ACTIVE") ||
+    dashboardData?.stores[0];
+
+  const storeName = store?.name;
 
   const handleLogout = async () => {
     await logout();
@@ -34,81 +51,53 @@ export function Header() {
 
   return (
     <header
-      className="flex h-16 items-center justify-between border-b bg-background px-6"
+      className="flex h-16 items-center justify-end border-b bg-background px-4 sm:px-6"
       data-testid="header"
     >
-      <div className="flex items-center gap-4">
-        {/* Placeholder for breadcrumbs or page title */}
-      </div>
-      <div className="flex items-center gap-4">
-        {user ? (
-          <>
-            <ThemeToggle />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="flex items-center gap-2"
-                  data-testid="user-menu-trigger"
-                >
-                  <User className="h-4 w-4" />
-                  <span
-                    className="hidden sm:inline-block"
-                    data-testid="user-name"
-                  >
-                    {user.name || user.email || "User"}
-                  </span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="w-56"
-                data-testid="user-menu-dropdown"
+      {user ? (
+        <div className="flex flex-col items-end justify-center">
+          {/* Store name - top row */}
+          {dashboardLoading ? (
+            <div
+              className="h-4 w-24 animate-pulse rounded bg-muted mb-1"
+              aria-label="Loading store name"
+            />
+          ) : (
+            storeName && (
+              <span
+                className="text-sm font-semibold text-foreground"
+                data-testid="header-store-name"
               >
-                <DropdownMenuLabel>
-                  <div className="flex flex-col space-y-1">
-                    <p
-                      className="text-sm font-medium leading-none"
-                      data-testid="dropdown-user-name"
-                    >
-                      {user.name || "User"}
-                    </p>
-                    {user.email && (
-                      <p
-                        className="text-xs leading-none text-muted-foreground"
-                        data-testid="user-email"
-                      >
-                        {user.email}
-                      </p>
-                    )}
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem data-testid="user-menu-profile">
-                  <Settings className="mr-2 h-4 w-4" />
-                  <span>Profile Settings</span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={handleLogout}
-                  data-testid="user-menu-logout"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Logout</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        ) : (
-          <Button
-            variant="outline"
-            onClick={() => router.push("/login")}
-            data-testid="login-button"
-          >
-            Login
-          </Button>
-        )}
-      </div>
+                {storeName}
+              </span>
+            )
+          )}
+          {/* Controls row - date/time, dark mode, logout */}
+          <div className="flex items-center gap-2">
+            <CurrentDateTime />
+            <ThemeToggle />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={handleLogout}
+              data-testid="logout-button"
+              aria-label="Logout"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => router.push("/login")}
+          data-testid="login-button"
+        >
+          Login
+        </Button>
+      )}
     </header>
   );
 }

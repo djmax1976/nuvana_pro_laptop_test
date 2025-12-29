@@ -396,6 +396,10 @@ export function formatMetricsForDisplay(metrics: ScanMetrics): string {
  * Check if input appears to be from a scanner based on partial data
  * Used for real-time feedback during input
  *
+ * SECURITY: Detects manual entry as early as possible (after 2 keystrokes)
+ * Scanner threshold: 50ms between keys (20+ chars/second)
+ * Human typing: typically 150-300ms between keys (3-7 chars/second)
+ *
  * @param keystrokes - Current keystroke events
  * @param config - Detection configuration
  * @returns Quick classification for UI feedback
@@ -404,24 +408,32 @@ export function quickScanCheck(
   keystrokes: KeystrokeEvent[],
   config: ScanDetectionConfig = DEFAULT_SCAN_DETECTION_CONFIG,
 ): { likelyScan: boolean; confidence: number } {
-  if (keystrokes.length < 3) {
+  // Need at least 2 keystrokes to have 1 interval
+  if (keystrokes.length < 2) {
     return { likelyScan: true, confidence: 0 }; // Too early to tell
   }
 
   const intervals = calculateIntervals(keystrokes);
-  const recentIntervals = intervals.slice(-5); // Last 5 intervals
 
-  if (recentIntervals.length === 0) {
+  if (intervals.length === 0) {
     return { likelyScan: true, confidence: 0 };
   }
 
+  // Check ALL intervals - if ANY interval is too slow, it's manual entry
+  // This catches manual typing immediately after the second keystroke
+  const maxInterval = Math.max(...intervals);
   const avgRecent =
-    recentIntervals.reduce((sum, val) => sum + val, 0) / recentIntervals.length;
+    intervals.reduce((sum, val) => sum + val, 0) / intervals.length;
 
-  const likelyScan = avgRecent <= config.maxAvgInterKeyDelay;
+  // If max interval exceeds threshold, it's definitely manual
+  // Also check average to catch consistent slow typing
+  const likelyScan =
+    maxInterval <= config.maxAvgInterKeyDelay * 2 &&
+    avgRecent <= config.maxAvgInterKeyDelay;
+
   const confidence = likelyScan
     ? Math.min(1, config.maxAvgInterKeyDelay / Math.max(avgRecent, 1))
-    : Math.min(1, avgRecent / (config.maxAvgInterKeyDelay * 10));
+    : 1; // High confidence it's manual when detected
 
   return { likelyScan, confidence };
 }
