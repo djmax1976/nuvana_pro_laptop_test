@@ -319,26 +319,12 @@ export function validateScanMetrics(
     };
   }
 
-  // Validate timestamps are not too old (max 2 minutes)
-  const firstTimestamp = metrics.keystrokeTimestamps[0];
-  const maxAge = 120000; // 2 minutes
-
-  if (now - firstTimestamp > maxAge) {
-    logger.warn("Scan validation failed: Stale timestamps", {
-      serial,
-      firstTimestamp,
-      now,
-      age: now - firstTimestamp,
-    });
-    return {
-      valid: false,
-      inputMethod: "UNKNOWN",
-      confidence: 0,
-      rejectionReason: "Scan data is too old",
-      tamperedDetected: true,
-      tamperReason: "Timestamps exceed maximum age",
-    };
-  }
+  // NOTE: Timestamp staleness validation removed intentionally
+  // Rationale: Database validations (unique pack number, pack existence, status checks)
+  // already provide security. The staleness check was causing false positives in
+  // legitimate batch scanning scenarios where users scan many packs over time.
+  // The "future timestamps" check above is kept to prevent clock manipulation.
+  // MCP SEC-014: Database-level validation is the authoritative security layer.
 
   // Re-analyze metrics from timestamps
   const reanalyzedMetrics = reanalyzeScanMetrics(

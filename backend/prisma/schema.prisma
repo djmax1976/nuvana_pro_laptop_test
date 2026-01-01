@@ -55,6 +55,7 @@ model User {
   manual_entry_authorizations LotteryShiftClosing[]   @relation("ManualEntryAuthorizer")
   lottery_days_opened         LotteryBusinessDay[]    @relation("LotteryDayOpenedBy")
   lottery_days_closed         LotteryBusinessDay[]    @relation("LotteryDayClosedBy")
+  lottery_days_pending_close  LotteryBusinessDay[]    @relation("LotteryDayPendingCloseBy")
   lottery_games_created       LotteryGame[]           @relation("LotteryGameCreator")
   tender_types_created        TenderType[]            @relation("TenderTypeCreatedBy")
   departments_created         Department[]            @relation("DepartmentCreatedBy")
@@ -188,11 +189,12 @@ model Cashier {
   created_by             String    @db.Uuid
   updated_by             String?   @db.Uuid
 
-  store    Store            @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  creator  User             @relation("CashierCreatedBy", fields: [created_by], references: [user_id])
-  updater  User?            @relation("CashierUpdatedBy", fields: [updated_by], references: [user_id])
-  shifts   Shift[]
-  sessions CashierSession[]
+  store                  Store                  @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  creator                User                   @relation("CashierCreatedBy", fields: [created_by], references: [user_id])
+  updater                User?                  @relation("CashierUpdatedBy", fields: [updated_by], references: [user_id])
+  shifts                 Shift[]
+  sessions               CashierSession[]
+  lotteryShiftClosings   LotteryShiftClosing[]  @relation("LotteryShiftClosingCashier")
 
   @@unique([store_id, employee_id])
   @@unique([store_id, pin_hash])
@@ -1173,6 +1175,7 @@ model LotteryShiftClosing {
   closing_id                 String    @id @default(uuid()) @db.Uuid
   shift_id                   String    @db.Uuid
   pack_id                    String    @db.Uuid
+  cashier_id                 String?   @db.Uuid // Direct cashier reference for efficient querying (nullable for migration)
   closing_serial             String    @db.VarChar(100)
   entry_method               String?   @db.VarChar(10) // 'SCAN' or 'MANUAL'
   manual_entry_authorized_by String?   @db.Uuid
@@ -1181,11 +1184,13 @@ model LotteryShiftClosing {
 
   shift                 Shift       @relation(fields: [shift_id], references: [shift_id], onDelete: Cascade)
   pack                  LotteryPack @relation(fields: [pack_id], references: [pack_id], onDelete: Cascade)
+  cashier               Cashier?    @relation("LotteryShiftClosingCashier", fields: [cashier_id], references: [cashier_id], onDelete: SetNull)
   manualEntryAuthorizer User?       @relation("ManualEntryAuthorizer", fields: [manual_entry_authorized_by], references: [user_id], onDelete: SetNull)
 
   @@unique([shift_id, pack_id])
   @@index([shift_id])
   @@index([pack_id])
+  @@index([cashier_id])
   @@index([manual_entry_authorized_by])
   @@map("lottery_shift_closings")
 }
@@ -1280,23 +1285,52 @@ model LotteryBinConfiguration {
 /// Independent of shifts - day boundaries defined by first/last shift of the day
 /// Story: MyStore Lottery Day-Based Tracking
 /// Tenant isolation enforced via store_id foreign key
+/// Lottery Business Day - Tracks lottery activity for a business day
+/// Uses two-phase commit pattern for atomic day close with lottery
+///
+/// Status Flow:
+///   OPEN -> PENDING_CLOSE -> CLOSED
+///                        \-> OPEN (if day close cancelled/times out)
+///
+/// Enterprise Features:
+/// - PENDING_CLOSE status holds lottery closings until day close completes
+/// - pending_close_data stores closings JSON for atomic commit
+/// - pending_close_expires_at enables automatic cleanup of stale pending states
+/// - Proper locking via SELECT FOR UPDATE during status transitions
+///
+/// Story: MyStore Day Close Atomic Transaction
 model LotteryBusinessDay {
   day_id        String    @id @default(uuid()) @db.Uuid
   store_id      String    @db.Uuid
   business_date DateTime  @db.Date
-  status        String    @default("OPEN") @db.VarChar(20) // OPEN, CLOSED
+  /// Status: OPEN (active), PENDING_CLOSE (lottery scanned, awaiting day close), CLOSED (finalized)
+  status        String    @default("OPEN") @db.VarChar(20)
   opened_at     DateTime  @default(now()) @db.Timestamptz(6)
   opened_by     String?   @db.Uuid
   closed_at     DateTime? @db.Timestamptz(6)
   closed_by     String?   @db.Uuid
   notes         String?   @db.Text
+
+  /// Two-phase commit: Pending close data (JSONB)
+  /// Stores lottery closings data while in PENDING_CLOSE status
+  /// Structure: { closings: [{pack_id, closing_serial}], entry_method, authorized_by_user_id? }
+  pending_close_data       Json?     @db.JsonB
+  /// Two-phase commit: User who initiated pending close
+  pending_close_by         String?   @db.Uuid
+  /// Two-phase commit: When pending close was initiated
+  pending_close_at         DateTime? @db.Timestamptz(6)
+  /// Two-phase commit: Expiration time for pending state (auto-cleanup)
+  /// Default: 1 hour from pending_close_at
+  pending_close_expires_at DateTime? @db.Timestamptz(6)
+
   created_at    DateTime  @default(now()) @db.Timestamptz(6)
   updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
 
-  store        Store            @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
-  openedByUser User?            @relation("LotteryDayOpenedBy", fields: [opened_by], references: [user_id], onDelete: SetNull)
-  closedByUser User?            @relation("LotteryDayClosedBy", fields: [closed_by], references: [user_id], onDelete: SetNull)
-  day_packs    LotteryDayPack[]
+  store              Store            @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  openedByUser       User?            @relation("LotteryDayOpenedBy", fields: [opened_by], references: [user_id], onDelete: SetNull)
+  closedByUser       User?            @relation("LotteryDayClosedBy", fields: [closed_by], references: [user_id], onDelete: SetNull)
+  pendingCloseByUser User?            @relation("LotteryDayPendingCloseBy", fields: [pending_close_by], references: [user_id], onDelete: SetNull)
+  day_packs          LotteryDayPack[]
 
   @@unique([store_id, business_date])
   @@index([store_id])
@@ -1304,6 +1338,9 @@ model LotteryBusinessDay {
   @@index([business_date])
   @@index([opened_by])
   @@index([closed_by])
+  @@index([pending_close_by])
+  /// Index for cleanup job: find expired pending states
+  @@index([status, pending_close_expires_at])
   @@map("lottery_business_days")
 }
 

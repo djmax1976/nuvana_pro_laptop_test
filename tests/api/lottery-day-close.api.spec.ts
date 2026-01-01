@@ -368,10 +368,84 @@ test.describe("MyStore-API: Lottery Day Close Endpoint", () => {
     expect(closing?.entry_method, "Should have correct entry method").toBe(
       "MANUAL",
     );
+    // Verify cashier_id is recorded for direct cashier querying
+    expect(closing?.cashier_id, "Should record cashier_id from the shift").toBe(
+      cashier.cashier_id,
+    );
 
     // Cleanup
     await cleanupTestData({
       closingIds: closing ? [closing.closing_id] : [],
+      shiftIds: [shift.shift_id],
+      cashierIds: [cashier.cashier_id],
+      packIds: [pack.pack_id],
+      binIds: [bin.bin_id],
+      gameIds: [game.game_id],
+    });
+  });
+
+  test("DAY-CLOSE-002B: [P1] Should allow querying lottery closings directly by cashier_id", async ({
+    clientUserApiRequest,
+    clientUser,
+  }) => {
+    // GIVEN: A lottery day close with cashier_id recorded
+    const store = await withBypassClient(async (tx) => {
+      return await tx.store.findFirst({
+        where: { company_id: clientUser.company_id },
+      });
+    });
+
+    if (!store) {
+      test.skip();
+      return;
+    }
+
+    const gameCode = generateUniqueGameCode();
+    const { game, bin, pack } = await createTestBinWithPack(
+      store,
+      gameCode,
+      150,
+    );
+    const { shift, cashier } = await createTodayShift(
+      store,
+      clientUser.user_id,
+      "OPEN",
+    );
+
+    // WHEN: I close the day
+    await clientUserApiRequest.post(
+      `/api/lottery/bins/day/${store.store_id}/close`,
+      {
+        closings: [{ pack_id: pack.pack_id, closing_serial: "025" }],
+        entry_method: "SCAN",
+        current_shift_id: shift.shift_id,
+      },
+    );
+
+    // THEN: I can query closing records directly by cashier_id (no JOIN required)
+    const closingsByCashier = await withBypassClient(async (tx) => {
+      return await tx.lotteryShiftClosing.findMany({
+        where: {
+          cashier_id: cashier.cashier_id,
+        },
+      });
+    });
+
+    expect(
+      closingsByCashier.length,
+      "Should find closing record by cashier_id",
+    ).toBeGreaterThanOrEqual(1);
+    const ourClosing = closingsByCashier.find(
+      (c) => c.pack_id === pack.pack_id,
+    );
+    expect(ourClosing, "Should find our specific closing").toBeDefined();
+    expect(ourClosing?.cashier_id, "Should have correct cashier_id").toBe(
+      cashier.cashier_id,
+    );
+
+    // Cleanup
+    await cleanupTestData({
+      closingIds: closingsByCashier.map((c) => c.closing_id),
       shiftIds: [shift.shift_id],
       cashierIds: [cashier.cashier_id],
       packIds: [pack.pack_id],

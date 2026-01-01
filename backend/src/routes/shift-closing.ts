@@ -830,6 +830,11 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               description:
                 "Reason for marking pack as pre-sold (e.g., 'Pack sold before bin placement')",
             },
+            mark_as_depleted: {
+              type: "boolean",
+              description:
+                "If true, immediately set pack status to DEPLETED (for pre-sold packs that are already sold out)",
+            },
           },
         },
         response: {
@@ -958,6 +963,7 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
         serial_override_reason?: string;
         mark_sold_approved_by?: string;
         mark_sold_reason?: string;
+        mark_as_depleted?: boolean;
       };
 
       try {
@@ -1410,12 +1416,17 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               }
             | undefined;
 
-          // 2. Update pack: status = ACTIVE, set current_bin_id, activated_at, activated_by, activated_shift_id
+          // 2. Update pack: status = ACTIVE (or DEPLETED if mark_as_depleted), set current_bin_id, activated_at, activated_by, activated_shift_id
           // Also set serial override and mark sold approval fields if manager approved changes
+          // For pre-sold packs (mark_as_depleted=true), set status to DEPLETED immediately
+          const packStatus = body.mark_as_depleted
+            ? LotteryPackStatus.DEPLETED
+            : LotteryPackStatus.ACTIVE;
+
           await tx.lotteryPack.update({
             where: { pack_id: pack.pack_id },
             data: {
-              status: LotteryPackStatus.ACTIVE,
+              status: packStatus,
               current_bin_id: body.bin_id,
               activated_at: new Date(),
               activated_by: body.activated_by,
@@ -1428,6 +1439,13 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               mark_sold_approved_by: markSoldApprovedBy,
               mark_sold_approved_at: markSoldApprovedAt,
               mark_sold_reason: body.mark_sold_reason || null,
+              // If pre-sold pack, set depleted fields immediately
+              ...(body.mark_as_depleted && {
+                depleted_at: new Date(),
+                depleted_by: body.activated_by,
+                depleted_shift_id: body.activated_shift_id || null,
+                depletion_reason: "MANUAL_SOLD_OUT" as const,
+              }),
             },
           });
 
@@ -1455,10 +1473,17 @@ export async function shiftClosingRoutes(fastify: FastifyInstance) {
               // Create closing record for depleted pack only if we have a shift
               // Manager override (no shift) skips shift closing record
               if (body.activated_shift_id) {
+                // Fetch cashier_id from the shift for direct cashier reference
+                const shift = await tx.shift.findUnique({
+                  where: { shift_id: body.activated_shift_id },
+                  select: { cashier_id: true },
+                });
+
                 await tx.lotteryShiftClosing.create({
                   data: {
                     shift_id: body.activated_shift_id,
                     pack_id: previousPack.pack_id,
+                    cashier_id: shift?.cashier_id || null, // Direct cashier reference
                     closing_serial: previousPack.serial_end,
                   },
                 });

@@ -374,6 +374,64 @@ describe("AddBinModal (Client Dashboard) - Auto-Add Flow", () => {
         { timeout: 2000 },
       );
     });
+
+    it("should add new packs at TOP of pending list (newest first)", async () => {
+      // GIVEN: Multiple packs scanned sequentially
+      mockFetch
+        .mockResolvedValueOnce(
+          mockPackValidationSuccess("First Game", 1.0, "1111111"),
+        )
+        .mockResolvedValueOnce(
+          mockPackValidationSuccess("Second Game", 2.0, "2222222"),
+        )
+        .mockResolvedValueOnce(
+          mockPackValidationSuccess("Third Game", 3.0, "3333333"),
+        );
+
+      const { AddBinModal } = await import("@/components/lottery/AddBinModal");
+      const user = userEvent.setup();
+      renderWithProviders(<AddBinModal {...defaultProps} />);
+
+      const serialInput = screen.getByTestId("pack-serial-input");
+
+      // Scan first pack
+      await user.type(serialInput, "000111111110123456789012");
+      await waitFor(
+        () => {
+          expect(screen.getByText("First Game")).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Scan second pack
+      await user.type(serialInput, "000222222220123456789012");
+      await waitFor(
+        () => {
+          expect(screen.getByText("Second Game")).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // Scan third pack
+      await user.type(serialInput, "000333333330123456789012");
+      await waitFor(
+        () => {
+          expect(screen.getByText("Third Game")).toBeInTheDocument();
+        },
+        { timeout: 2000 },
+      );
+
+      // THEN: Newest pack (Third Game) should be at TOP of list
+      const pendingList = screen.getByTestId("pending-assignments-list");
+      const listItems = within(pendingList).getAllByRole("listitem");
+
+      // Third Game (newest) should be first in the list
+      expect(listItems[0]).toHaveTextContent("Third Game");
+      // Second Game should be second
+      expect(listItems[1]).toHaveTextContent("Second Game");
+      // First Game (oldest) should be last
+      expect(listItems[2]).toHaveTextContent("First Game");
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

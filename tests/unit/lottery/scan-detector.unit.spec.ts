@@ -365,8 +365,23 @@ describe("Scan Detector Utility", () => {
       expect(result.tamperReason).toContain("future");
     });
 
-    it("should reject stale timestamps", () => {
-      const oldTime = Date.now() - 180000; // 3 minutes ago
+    /**
+     * REMOVED: Stale timestamp validation test
+     *
+     * Story: Scan-Only Pack Reception Security - Staleness Removal
+     * MCP SEC-014: Database-level validation is the authoritative security layer
+     *
+     * The staleness check was removed because:
+     * 1. Database validations (unique pack number, pack existence, status checks)
+     *    already provide sufficient security
+     * 2. The staleness check was causing false positives in legitimate batch
+     *    scanning scenarios where users scan many packs over extended time periods
+     * 3. Future timestamp check is retained to prevent clock manipulation attacks
+     *
+     * Traceability: Requirement removed per user request 2024-12-31
+     */
+    it("should ACCEPT old timestamps (staleness check removed per SEC-014)", () => {
+      const oldTime = Date.now() - 600000; // 10 minutes ago - previously would fail
       const timestamps = Array.from({ length: 24 }, (_, i) => oldTime + i * 10);
 
       const metrics = {
@@ -384,9 +399,38 @@ describe("Scan Detector Utility", () => {
 
       const result = validateScanMetricsServerSide(metrics);
 
-      expect(result.valid).toBe(false);
-      expect(result.tamperedDetected).toBe(true);
-      expect(result.tamperReason).toContain("old");
+      // Should now pass - staleness validation removed
+      expect(result.valid).toBe(true);
+      expect(result.tamperedDetected).toBe(false);
+      expect(result.reanalyzedMetrics?.inputMethod).toBe("SCANNED");
+    });
+
+    it("should accept timestamps from extended batch scanning session (30+ minutes)", () => {
+      // Simulate batch scanning over 30 minutes - realistic enterprise use case
+      const veryOldTime = Date.now() - 1800000; // 30 minutes ago
+      const timestamps = Array.from(
+        { length: 24 },
+        (_, i) => veryOldTime + i * 10,
+      );
+
+      const metrics = {
+        totalInputTimeMs: 230,
+        avgInterKeyDelayMs: 10,
+        maxInterKeyDelayMs: 12,
+        minInterKeyDelayMs: 9,
+        interKeyStdDevMs: 2,
+        charCount: 24,
+        keystrokeTimestamps: timestamps,
+        inputMethod: "SCANNED" as const,
+        confidence: 0.95,
+        analyzedAt: new Date().toISOString(),
+      };
+
+      const result = validateScanMetricsServerSide(metrics);
+
+      // Must accept - supports enterprise batch scanning workflows
+      expect(result.valid).toBe(true);
+      expect(result.tamperedDetected).toBe(false);
     });
   });
 

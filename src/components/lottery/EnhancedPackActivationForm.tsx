@@ -219,12 +219,6 @@ export function EnhancedPackActivationForm({
     null,
   );
 
-  // Mark sold modal state (for cashier needing manager approval to mark pack as pre-sold)
-  const [showMarkSoldModal, setShowMarkSoldModal] = useState(false);
-  const [pendingMarkSoldId, setPendingMarkSoldId] = useState<string | null>(
-    null,
-  );
-
   // Pending activations list (newest first)
   const [pendingActivations, setPendingActivations] = useState<
     PendingActivation[]
@@ -287,31 +281,13 @@ export function EnhancedPackActivationForm({
     return true;
   }, [isManager, authResult]);
 
-  // Check if user can mark pack as sold (requires LOTTERY_MARK_SOLD permission)
-  const canMarkSold = useMemo(() => {
-    if (isManager) {
-      return permissions.includes("LOTTERY_MARK_SOLD");
-    }
-    if (authResult?.auth_type === "management" && authResult.permissions) {
-      return authResult.permissions.includes("LOTTERY_MARK_SOLD");
-    }
-    if (authResult?.auth_type === "cashier") {
-      return permissions.includes("LOTTERY_MARK_SOLD");
-    }
-    return false;
-  }, [isManager, permissions, authResult]);
-
-  // Check if user needs manager approval for marking pack as sold
-  const needsManagerApprovalForMarkSold = useMemo(() => {
-    if (isManager) return false;
-    if (authResult?.auth_type === "management" && authResult.permissions) {
-      return !authResult.permissions.includes("LOTTERY_MARK_SOLD");
-    }
-    if (authResult?.auth_type === "cashier") {
-      return true;
-    }
-    return true;
-  }, [isManager, authResult]);
+  // Get current user info for mark sold tracking (no permission check needed)
+  const currentUserForMarkSold = useMemo(() => {
+    return {
+      id: user?.id || authResult?.cashier_id || "",
+      name: user?.name || authResult?.cashier_name || "Unknown",
+    };
+  }, [user?.id, user?.name, authResult?.cashier_id, authResult?.cashier_name]);
 
   // Get bin IDs already in pending list (for warnings in bin modal)
   const pendingBinIds = useMemo(
@@ -419,6 +395,13 @@ export function EnhancedPackActivationForm({
         }, 100);
         return;
       }
+
+      // CRITICAL FIX: Clear search query BEFORE opening bin modal
+      // This ensures the input is empty when scanner sends next barcode.
+      // Previously, clearing only happened after bin modal closed, allowing
+      // scanner input to append to stale display text.
+      // MCP FE-001: STATE_MANAGEMENT - Clear state immediately on selection
+      setPackSearchQuery("");
 
       // Set current pack and open bin selection modal
       setCurrentScannedPack(pack);
@@ -554,8 +537,8 @@ export function EnhancedPackActivationForm({
 
   /**
    * Handle clicking the Pack Sold button
-   * If user has permission or already has approval, toggles mark_sold state
-   * If needs manager approval, opens the mark sold modal
+   * Simple toggle - no permission check required
+   * Tracks who marked it sold for audit purposes
    */
   const handleMarkSoldClick = useCallback(
     (pendingId: string) => {
@@ -576,66 +559,24 @@ export function EnhancedPackActivationForm({
         return;
       }
 
-      // Check if user can mark sold directly (has permission)
-      if (canMarkSold) {
-        // User has direct permission - mark sold with their info
-        const approval: MarkSoldApproval = {
-          approver_id: user?.id || authResult?.cashier_id || "",
-          approver_name: user?.name || authResult?.cashier_name || "Unknown",
-          approved_at: new Date(),
-          has_permission: true,
-        };
-        setPendingActivations((prev) =>
-          prev.map((p) =>
-            p.id === pendingId ? { ...p, mark_sold_approval: approval } : p,
-          ),
-        );
-        toast({
-          title: "Pack Marked as Sold",
-          description: "Pack will be activated and marked as pre-sold.",
-        });
-      } else if (needsManagerApprovalForMarkSold) {
-        // Needs manager approval - open modal
-        setPendingMarkSoldId(pendingId);
-        setShowMarkSoldModal(true);
-      }
-    },
-    [
-      pendingActivations,
-      canMarkSold,
-      needsManagerApprovalForMarkSold,
-      user?.id,
-      user?.name,
-      authResult?.cashier_id,
-      authResult?.cashier_name,
-      toast,
-    ],
-  );
-
-  /**
-   * Handle mark sold approval from manager
-   */
-  const handleMarkSoldApproved = useCallback(
-    (approval: MarkSoldApproval) => {
-      if (!pendingMarkSoldId) return;
-
-      // Store approval on the pending item
+      // Mark as sold with current user info (no permission check)
+      const approval: MarkSoldApproval = {
+        approver_id: currentUserForMarkSold.id,
+        approver_name: currentUserForMarkSold.name,
+        approved_at: new Date(),
+        has_permission: true,
+      };
       setPendingActivations((prev) =>
         prev.map((p) =>
-          p.id === pendingMarkSoldId
-            ? { ...p, mark_sold_approval: approval }
-            : p,
+          p.id === pendingId ? { ...p, mark_sold_approval: approval } : p,
         ),
       );
-
-      setPendingMarkSoldId(null);
-
       toast({
-        title: "Pack Sold Approved",
-        description: `Approved by ${approval.approver_name}. Pack will be marked as pre-sold.`,
+        title: "Pack Marked as Sold",
+        description: "Pack will be activated and marked as pre-sold.",
       });
     },
-    [pendingMarkSoldId, toast],
+    [pendingActivations, currentUserForMarkSold, toast],
   );
 
   /**
@@ -719,13 +660,18 @@ export function EnhancedPackActivationForm({
         continue;
       }
 
+      // If pack is marked as sold (pre-sold), don't replace existing pack in bin
+      const shouldDepletePrevious = pending.mark_sold_approval
+        ? false
+        : pending.deplete_previous || undefined;
+
       const activationData: FullActivatePackInput = {
         pack_id: pending.pack_id,
         bin_id: pending.bin_id,
         serial_start: pending.custom_serial_start,
         activated_by: activatedByUserId,
         activated_shift_id: authResult?.shift_id || undefined,
-        deplete_previous: pending.deplete_previous || undefined,
+        deplete_previous: shouldDepletePrevious,
         // Serial override approval fields
         serial_override_approved_by:
           pending.serial_override_approval?.approver_id,
@@ -739,6 +685,8 @@ export function EnhancedPackActivationForm({
         mark_sold_reason: pending.mark_sold_approval
           ? "Pack marked as pre-sold during activation"
           : undefined,
+        // If marked as sold, immediately deplete the pack (pre-sold = already sold out)
+        mark_as_depleted: pending.mark_sold_approval ? true : undefined,
       };
 
       try {
@@ -1050,9 +998,7 @@ export function EnhancedPackActivationForm({
                                     title={
                                       pending.mark_sold_approval
                                         ? `Marked sold by ${pending.mark_sold_approval.approver_name} - Click to remove`
-                                        : needsManagerApprovalForMarkSold
-                                          ? "Request manager approval to mark as sold"
-                                          : "Mark pack as pre-sold"
+                                        : "Mark pack as pre-sold"
                                     }
                                     data-testid={`mark-sold-${pending.pack_id}`}
                                   >
@@ -1198,16 +1144,6 @@ export function EnhancedPackActivationForm({
         onAuthenticated={() => {}}
         mode="serial_override"
         onSerialOverrideApproved={handleSerialOverrideApproved}
-      />
-
-      {/* Mark Sold Approval Modal - for manager to approve marking pack as pre-sold */}
-      <LotteryAuthModal
-        open={showMarkSoldModal}
-        onOpenChange={setShowMarkSoldModal}
-        storeId={storeId}
-        onAuthenticated={() => {}}
-        mode="mark_sold"
-        onMarkSoldApproved={handleMarkSoldApproved}
       />
 
       {/* Bin Selection Modal */}

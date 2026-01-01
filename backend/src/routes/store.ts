@@ -4073,6 +4073,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
                         shift_id: { type: "string", format: "uuid" },
                         terminal_name: { type: ["string", "null"] },
                         cashier_name: { type: "string" },
+                        shift_number: { type: ["integer", "null"] },
                         status: { type: "string" },
                         opened_at: { type: "string", format: "date-time" },
                       },
@@ -4182,6 +4183,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             },
             select: {
               shift_id: true,
+              shift_number: true,
               status: true,
               opened_at: true,
               pos_terminal: { select: { name: true } },
@@ -4197,6 +4199,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             },
             select: {
               shift_id: true,
+              shift_number: true,
               status: true,
               opened_at: true,
               pos_terminal: { select: { name: true } },
@@ -4215,6 +4218,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
               shift_id: s.shift_id,
               terminal_name: s.pos_terminal?.name || null,
               cashier_name: s.cashier.name,
+              shift_number: s.shift_number,
               status: s.status,
               opened_at: s.opened_at.toISOString(),
             })),

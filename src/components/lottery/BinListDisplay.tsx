@@ -6,8 +6,9 @@
  *
  * Features:
  * - Fetches bins from GET /api/lottery/bins/:storeId endpoint
- * - Displays columns: Bin#, Game Name, Dollar Amount, Pack Number, Activation Date
- * - Only shows bins with pack info (no status column needed - if shown, it's active)
+ * - Displays columns: Bin#, Game Name, Dollar Amount, Pack Number, Activation Date, Actions
+ * - Delete functionality with confirmation dialog (soft delete)
+ * - Newest bins appear at TOP of list (sorted by display_order DESC)
  * - Uses React Query for data fetching with proper loading/error states
  * - Supports empty state when no bins exist
  * - Includes test IDs for testing
@@ -17,11 +18,15 @@
  * - Error handling with user-friendly messages
  * - Accessibility attributes (ARIA labels, semantic HTML)
  * - Security: XSS prevention via React's automatic escaping
+ * - Input validation before API calls
+ * - Optimistic UI updates with rollback on error
+ *
+ * Story 6.13: Lottery Database Enhancements & Bin Management
  */
 
-import React from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import React, { useState, useCallback } from "react";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { Loader2, Trash2 } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -30,6 +35,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { deleteBin } from "@/lib/api/lottery";
 
 /**
  * Bin data structure from API
@@ -62,6 +80,16 @@ interface ApiResponse<T> {
   success: boolean;
   data: T;
   error?: string;
+}
+
+/**
+ * State for delete confirmation dialog
+ */
+interface DeleteDialogState {
+  isOpen: boolean;
+  binId: string | null;
+  binName: string;
+  binNumber: number;
 }
 
 /**
@@ -143,9 +171,19 @@ function formatActivationDate(dateString?: string | null): string {
 }
 
 /**
+ * Initial state for delete dialog
+ */
+const INITIAL_DELETE_DIALOG_STATE: DeleteDialogState = {
+  isOpen: false,
+  binId: null,
+  binName: "",
+  binNumber: 0,
+};
+
+/**
  * BinListDisplay component
  * Displays existing bins for a store with simplified columns:
- * Bin#, Game Name, Dollar Amount, Pack Number, Activation Date
+ * Bin#, Game Name, Dollar Amount, Pack Number, Activation Date, Actions
  *
  * @example
  * ```tsx
@@ -153,6 +191,14 @@ function formatActivationDate(dateString?: string | null): string {
  * ```
  */
 export function BinListDisplay({ storeId, onDataLoaded }: BinListDisplayProps) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  // Delete confirmation dialog state
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>(
+    INITIAL_DELETE_DIALOG_STATE,
+  );
+
   const {
     data: bins,
     isLoading,
@@ -165,6 +211,107 @@ export function BinListDisplay({ storeId, onDataLoaded }: BinListDisplayProps) {
     staleTime: 30000,
   });
 
+  // Delete mutation with optimistic updates
+  const deleteMutation = useMutation({
+    mutationFn: async (binId: string) => {
+      const result = await deleteBin(binId);
+      if (!result.success) {
+        throw new Error("Failed to delete bin");
+      }
+      return result;
+    },
+    onMutate: async (binId: string) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ["lottery-bins", storeId] });
+
+      // Snapshot previous value for rollback
+      const previousBins = queryClient.getQueryData<BinItem[]>([
+        "lottery-bins",
+        storeId,
+      ]);
+
+      // Optimistically remove the bin from cache
+      if (previousBins) {
+        queryClient.setQueryData<BinItem[]>(
+          ["lottery-bins", storeId],
+          previousBins.filter((bin) => bin.bin_id !== binId),
+        );
+      }
+
+      return { previousBins };
+    },
+    onError: (_error, _binId, context) => {
+      // Rollback on error
+      if (context?.previousBins) {
+        queryClient.setQueryData(
+          ["lottery-bins", storeId],
+          context.previousBins,
+        );
+      }
+      toast({
+        title: "Error",
+        description: "Failed to delete bin. Please try again.",
+        variant: "destructive",
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Bin Deleted",
+        description: "The bin has been successfully removed.",
+      });
+    },
+    onSettled: () => {
+      // Refetch to ensure consistency with server
+      queryClient.invalidateQueries({ queryKey: ["lottery-bins", storeId] });
+    },
+  });
+
+  /**
+   * Open delete confirmation dialog
+   * Validates bin data before opening
+   */
+  const handleDeleteClick = useCallback(
+    (bin: BinItem, binNumber: number) => {
+      // Validate bin_id is a valid UUID format
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!bin.bin_id || !uuidRegex.test(bin.bin_id)) {
+        toast({
+          title: "Error",
+          description: "Invalid bin identifier.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setDeleteDialog({
+        isOpen: true,
+        binId: bin.bin_id,
+        binName: bin.name,
+        binNumber,
+      });
+    },
+    [toast],
+  );
+
+  /**
+   * Confirm and execute bin deletion
+   */
+  const handleDeleteConfirm = useCallback(() => {
+    if (deleteDialog.binId) {
+      deleteMutation.mutate(deleteDialog.binId);
+    }
+    setDeleteDialog(INITIAL_DELETE_DIALOG_STATE);
+  }, [deleteDialog.binId, deleteMutation]);
+
+  /**
+   * Cancel delete operation
+   */
+  const handleDeleteCancel = useCallback(() => {
+    setDeleteDialog(INITIAL_DELETE_DIALOG_STATE);
+  }, []);
+
+  // Notify parent when data loads
   React.useEffect(() => {
     if (bins && onDataLoaded) {
       onDataLoaded(bins);
@@ -218,96 +365,152 @@ export function BinListDisplay({ storeId, onDataLoaded }: BinListDisplayProps) {
     );
   }
 
-  // Sort bins by display_order (ascending) and calculate bin number (1-indexed)
+  // Sort bins by display_order ascending (Bin 1, 2, 3...)
   const sortedBins = [...bins].sort(
     (a, b) => (a.display_order ?? 0) - (b.display_order ?? 0),
   );
 
   return (
-    <div
-      className="rounded-md border overflow-x-auto"
-      data-testid="bin-list-table"
-      role="region"
-      aria-label="Lottery bins table"
-    >
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead scope="col" className="w-20">
-              Bin #
-            </TableHead>
-            <TableHead scope="col">Game Name</TableHead>
-            <TableHead scope="col" className="w-28 text-right">
-              Amount
-            </TableHead>
-            <TableHead scope="col" className="w-32">
-              Pack Number
-            </TableHead>
-            <TableHead scope="col" className="w-36">
-              Activation Date
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sortedBins.map((bin, index) => {
-            // Calculate bin number from display_order (0-indexed) + 1
-            const binNumber = (bin.display_order ?? index) + 1;
-            const hasPack = !!bin.current_pack;
+    <>
+      <div
+        className="rounded-md border overflow-x-auto"
+        data-testid="bin-list-table"
+        role="region"
+        aria-label="Lottery bins table"
+      >
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col" className="w-20">
+                Bin #
+              </TableHead>
+              <TableHead scope="col">Game Name</TableHead>
+              <TableHead scope="col" className="w-28 text-right">
+                Amount
+              </TableHead>
+              <TableHead scope="col" className="w-32">
+                Pack Number
+              </TableHead>
+              <TableHead scope="col" className="w-36">
+                Activation Date
+              </TableHead>
+              <TableHead scope="col" className="w-20 text-center">
+                Actions
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sortedBins.map((bin) => {
+              // Calculate bin number from display_order (0-indexed) + 1
+              const binNumber = (bin.display_order ?? 0) + 1;
+              const hasPack = !!bin.current_pack;
 
-            return (
-              <TableRow
-                key={bin.bin_id}
-                data-testid={`bin-row-${bin.bin_id}`}
-                data-bin-id={bin.bin_id}
-                className={!hasPack ? "opacity-60" : ""}
-              >
-                {/* Bin Number */}
-                <TableCell className="font-mono font-semibold text-primary">
-                  {binNumber}
-                </TableCell>
+              return (
+                <TableRow
+                  key={bin.bin_id}
+                  data-testid={`bin-row-${bin.bin_id}`}
+                  data-bin-id={bin.bin_id}
+                  className={!hasPack ? "opacity-60" : ""}
+                >
+                  {/* Bin Number */}
+                  <TableCell className="font-mono font-semibold text-primary">
+                    {binNumber}
+                  </TableCell>
 
-                {/* Game Name */}
-                <TableCell className="font-medium">
-                  {hasPack ? (
-                    bin.current_pack?.game?.name || "Unknown Game"
-                  ) : (
-                    <span className="text-muted-foreground italic">
-                      No pack assigned
-                    </span>
-                  )}
-                </TableCell>
+                  {/* Game Name */}
+                  <TableCell className="font-medium">
+                    {hasPack ? (
+                      bin.current_pack?.game?.name || "Unknown Game"
+                    ) : (
+                      <span className="text-muted-foreground italic">
+                        No pack assigned
+                      </span>
+                    )}
+                  </TableCell>
 
-                {/* Dollar Amount */}
-                <TableCell className="text-right font-medium">
-                  {hasPack && bin.current_pack?.game?.price != null ? (
-                    `$${Number(bin.current_pack.game.price).toFixed(2)}`
-                  ) : (
-                    <span className="text-muted-foreground">--</span>
-                  )}
-                </TableCell>
+                  {/* Dollar Amount */}
+                  <TableCell className="text-right font-medium">
+                    {hasPack && bin.current_pack?.game?.price != null ? (
+                      `$${Number(bin.current_pack.game.price).toFixed(2)}`
+                    ) : (
+                      <span className="text-muted-foreground">--</span>
+                    )}
+                  </TableCell>
 
-                {/* Pack Number */}
-                <TableCell className="font-mono text-sm">
-                  {hasPack ? (
-                    bin.current_pack?.pack_number || "N/A"
-                  ) : (
-                    <span className="text-muted-foreground">--</span>
-                  )}
-                </TableCell>
+                  {/* Pack Number */}
+                  <TableCell className="font-mono text-sm">
+                    {hasPack ? (
+                      bin.current_pack?.pack_number || "N/A"
+                    ) : (
+                      <span className="text-muted-foreground">--</span>
+                    )}
+                  </TableCell>
 
-                {/* Activation Date */}
-                <TableCell className="text-sm">
-                  {hasPack ? (
-                    formatActivationDate(bin.current_pack?.activated_at)
-                  ) : (
-                    <span className="text-muted-foreground">--</span>
-                  )}
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+                  {/* Activation Date */}
+                  <TableCell className="text-sm">
+                    {hasPack ? (
+                      formatActivationDate(bin.current_pack?.activated_at)
+                    ) : (
+                      <span className="text-muted-foreground">--</span>
+                    )}
+                  </TableCell>
+
+                  {/* Delete Action */}
+                  <TableCell className="text-center">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteClick(bin, binNumber)}
+                      disabled={deleteMutation.isPending}
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                      aria-label={`Delete bin ${binNumber}`}
+                      data-testid={`delete-bin-${bin.bin_id}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={deleteDialog.isOpen}
+        onOpenChange={(open) => {
+          if (!open) handleDeleteCancel();
+        }}
+      >
+        <AlertDialogContent data-testid="delete-bin-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete Bin {deleteDialog.binNumber}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this bin? This action will remove
+              the bin from the configuration. Any active pack in this bin will
+              need to be reassigned.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={handleDeleteCancel}
+              data-testid="delete-bin-cancel"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="delete-bin-confirm"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

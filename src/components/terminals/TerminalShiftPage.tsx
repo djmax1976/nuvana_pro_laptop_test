@@ -9,16 +9,16 @@
  * - Cashier name
  * - Shift start time
  * - Shift number
- * - Starting cash input (optional)
+ * - Starting cash (read-only, set during shift start)
  * - Placeholder metrics (Total Sales, Tax, Voids)
  * - End Shift button (placeholder)
+ *
+ * @security
+ * - SEC-001: Requires authenticated cashier session
+ * - FE-001: No sensitive data exposed in UI
  */
 
-import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
 import { format } from "date-fns";
 import {
   Card,
@@ -28,42 +28,19 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { useUpdateStartingCash } from "@/lib/api/shifts";
-import {
-  Loader2,
-  DollarSign,
-  Receipt,
-  XCircle,
-  CalendarCheck,
-} from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useCashierSession } from "@/contexts/CashierSessionContext";
+import { DollarSign, Receipt, XCircle, CalendarCheck } from "lucide-react";
 
 /**
- * Starting cash form validation schema
- * Validates that starting cash is a non-negative number or zero
+ * Props for TerminalShiftPageContent
+ *
+ * @property shift - Shift data including ID, timing, and cash information
+ * @property cashierName - Display name of the authenticated cashier
+ * @property terminalName - Human-readable terminal name for display
+ *
+ * @security
+ * - SEC-014: Input validation - shift_id validated as UUID by backend
+ * - FE-001: No sensitive data (tokens, passwords) in props
  */
-const startingCashSchema = z.object({
-  starting_cash: z
-    .number({
-      error: "Starting cash must be a number",
-    })
-    .nonnegative("Starting cash must be a non-negative number or zero")
-    .optional()
-    .or(z.literal("")),
-});
-
-type StartingCashFormValues = z.infer<typeof startingCashSchema>;
-
 interface TerminalShiftPageContentProps {
   shift: {
     shift_id: string;
@@ -73,191 +50,86 @@ interface TerminalShiftPageContentProps {
     opening_cash: number;
   };
   cashierName: string;
-  terminalId: string;
+  terminalName: string;
+}
+
+/**
+ * Format currency for display
+ * @param amount - Numeric amount to format
+ * @returns Formatted currency string
+ */
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
 }
 
 /**
  * TerminalShiftPageContent component
- * Displays shift information and allows updating starting cash
+ *
+ * Displays shift information with starting cash shown as read-only.
+ * Starting cash is now set during shift start in the auth modal
+ * and cannot be modified once the shift has begun.
+ *
+ * @security
+ * - SEC-001: Requires authenticated cashier session
+ * - FE-001: Session token managed via context, not exposed in UI
  */
 export function TerminalShiftPageContent({
   shift,
   cashierName,
-  terminalId,
+  terminalName,
 }: TerminalShiftPageContentProps) {
   const router = useRouter();
-  const [sessionError, setSessionError] = useState<string | null>(null);
-  const { session } = useCashierSession();
-  const updateStartingCashMutation = useUpdateStartingCash();
 
-  const form = useForm<StartingCashFormValues>({
-    resolver: zodResolver(startingCashSchema),
-    defaultValues: {
-      starting_cash: shift.opening_cash > 0 ? shift.opening_cash : undefined,
-    },
-  });
+  // Format shift start date and time combined
+  const shiftStartDateTime = format(
+    new Date(shift.opened_at),
+    "MMM d, yyyy 'at' h:mm a",
+  );
 
-  // Clear session error when a valid session exists
-  useEffect(() => {
-    if (session?.sessionToken) {
-      setSessionError(null);
-    }
-  }, [session?.sessionToken]);
-
-  const handleUpdateStartingCash = async (values: StartingCashFormValues) => {
-    if (values.starting_cash === undefined || values.starting_cash === "") {
-      // Optional field - allow empty
-      return;
-    }
-
-    // Clear any previous session error when retrying
-    setSessionError(null);
-
-    // Session token required for terminal operations
-    if (!session?.sessionToken) {
-      setSessionError(
-        "No active cashier session. Please re-authenticate to continue.",
-      );
-      return;
-    }
-
-    try {
-      await updateStartingCashMutation.mutateAsync({
-        shiftId: shift.shift_id,
-        startingCash: values.starting_cash || 0,
-        sessionToken: session.sessionToken,
-      });
-    } catch (error) {
-      // Error is handled by mutation state
-      console.error("Failed to update starting cash:", error);
-    }
-  };
-
-  // Format shift start time
-  const shiftStartTime = format(new Date(shift.opened_at), "h:mm a");
-  const shiftStartDate = format(new Date(shift.opened_at), "MMMM d, yyyy");
-
-  // Format shift number display
+  // Format shift number for display
   const shiftNumberDisplay = shift.shift_number
-    ? `Shift ${shift.shift_number} - ${shiftStartDate}`
-    : "Shift";
+    ? `#${shift.shift_number}`
+    : null;
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold">Terminal Shift</h1>
-        <p className="text-muted-foreground">
-          Terminal ID: {terminalId.slice(0, 8)}...
-        </p>
+      {/* Header - Terminal Name and Shift Number */}
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-bold">{terminalName}</h1>
+        {shiftNumberDisplay && (
+          <span className="text-lg text-muted-foreground">
+            Shift {shiftNumberDisplay}
+          </span>
+        )}
       </div>
 
-      {/* Shift Information Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Shift Information</CardTitle>
-          <CardDescription>Current shift details</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Cashier Name */}
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">Cashier</p>
-            <p className="text-2xl font-bold">{cashierName}</p>
-          </div>
-
-          {/* Shift Start Time */}
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">
-              Started at
-            </p>
-            <p className="text-lg">{shiftStartTime}</p>
-          </div>
-
-          {/* Shift Number */}
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">
-              Shift Number
-            </p>
-            <p className="text-lg">{shiftNumberDisplay}</p>
-          </div>
-
-          {/* Starting Cash Input */}
-          <Form {...form}>
-            <form
-              onSubmit={form.handleSubmit(handleUpdateStartingCash)}
-              className="space-y-4"
+      {/* Shift Information - Compact Single Line with Starting Cash */}
+      <Card className="border-muted">
+        <CardContent className="py-3 px-4">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Cashier:</span>
+              <span className="font-semibold">{cashierName}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Started:</span>
+              <span className="font-medium">{shiftStartDateTime}</span>
+            </div>
+            <div
+              className="flex items-center gap-2"
+              data-testid="opening-cash-display"
             >
-              <FormField
-                control={form.control}
-                name="starting_cash"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Starting Cash (Optional)</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          placeholder="0.00"
-                          className="pl-9"
-                          {...field}
-                          value={
-                            field.value === undefined || field.value === ""
-                              ? ""
-                              : field.value
-                          }
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            field.onChange(
-                              value === "" ? undefined : parseFloat(value) || 0,
-                            );
-                          }}
-                        />
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              {sessionError && (
-                <Alert variant="destructive">
-                  <AlertDescription>{sessionError}</AlertDescription>
-                </Alert>
-              )}
-              {updateStartingCashMutation.isPending && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Saving...</span>
-                </div>
-              )}
-              {updateStartingCashMutation.isSuccess && (
-                <Alert>
-                  <AlertDescription>
-                    Starting cash updated successfully.
-                  </AlertDescription>
-                </Alert>
-              )}
-              {updateStartingCashMutation.isError && (
-                <Alert variant="destructive">
-                  <AlertDescription>
-                    Failed to update starting cash. Please try again.
-                  </AlertDescription>
-                </Alert>
-              )}
-              <Button
-                type="submit"
-                disabled={updateStartingCashMutation.isPending}
-                size="sm"
-              >
-                {updateStartingCashMutation.isPending && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                Update Starting Cash
-              </Button>
-            </form>
-          </Form>
+              <span className="text-muted-foreground">Opening Cash:</span>
+              <span className="font-semibold text-green-600">
+                {formatCurrency(shift.opening_cash)}
+              </span>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -327,6 +199,8 @@ export function TerminalShiftPageContent({
           <Button
             variant="destructive"
             onClick={() => {
+              // Navigate to Day Close Wizard
+              // The wizard has 3 steps: Lottery Close, Report Scanning, Day Close
               router.push(`/mystore/day-close?shiftId=${shift.shift_id}`);
             }}
             className="w-full md:w-auto"

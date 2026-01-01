@@ -27,8 +27,6 @@ import {
 import { validateManualEntryEnding } from "@/lib/services/lottery-closing-validation";
 import { DepletedPacksSection } from "@/components/lottery/DepletedPacksSection";
 import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
-// CloseDayModal removed from lottery page - lottery close now only available via day-close page
-// This ensures lottery closing is part of the proper day close workflow
 import { EnhancedPackActivationForm } from "@/components/lottery/EnhancedPackActivationForm";
 import {
   PackDetailsModal,
@@ -405,6 +403,7 @@ export default function LotteryManagementPage() {
     toast,
   ]);
 
+  // ============ RENDER ============
   // Loading state - waiting for auth or dashboard data
   if (authLoading || dashboardLoading) {
     return (
