@@ -19,8 +19,8 @@ wait_for_database() {
 
   while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
     # Use npx prisma migrate status as a connectivity check (more reliable than db execute)
-    # It will fail fast if DB is unreachable
-    npx prisma migrate status > /dev/null 2>&1
+    # Capture output and exit code
+    OUTPUT=$(npx prisma migrate status 2>&1)
     RESULT=$?
 
     if [ $RESULT -eq 0 ]; then
@@ -29,7 +29,15 @@ wait_for_database() {
     fi
 
     RETRY_COUNT=$((RETRY_COUNT + 1))
-    echo "⏳ Database not ready (attempt $RETRY_COUNT/$MAX_RETRIES, exit code: $RESULT). Waiting ${WAIT_TIME}s..."
+
+    # Show error on first and last attempt for debugging
+    if [ $RETRY_COUNT -eq 1 ] || [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+      echo "⏳ Database not ready (attempt $RETRY_COUNT/$MAX_RETRIES). Error:"
+      echo "$OUTPUT" | head -10
+    else
+      echo "⏳ Database not ready (attempt $RETRY_COUNT/$MAX_RETRIES). Waiting ${WAIT_TIME}s..."
+    fi
+
     sleep $WAIT_TIME
 
     # Exponential backoff: 2, 4, 8, 16, 32, 60, 60, 60...
@@ -37,10 +45,6 @@ wait_for_database() {
       WAIT_TIME=$((WAIT_TIME * 2))
     fi
   done
-
-  # Final attempt with verbose output for debugging
-  echo "Final connection attempt with verbose output:"
-  npx prisma migrate status 2>&1
 
   echo "❌ Database not reachable after $MAX_RETRIES attempts"
   return 1
