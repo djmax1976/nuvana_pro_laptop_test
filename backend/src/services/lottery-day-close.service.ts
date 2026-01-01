@@ -142,9 +142,6 @@ export class DayCloseError extends Error {
 /** Default expiration time for pending close (1 hour) */
 const PENDING_CLOSE_EXPIRY_MS = 60 * 60 * 1000;
 
-/** Valid status values for lottery business day */
-const VALID_STATUSES = ["OPEN", "PENDING_CLOSE", "CLOSED"] as const;
-
 // ============================================================================
 // VALIDATION HELPERS
 // ============================================================================
@@ -345,7 +342,7 @@ export async function prepareClose(
             shift_id: { not: options.currentShiftId },
           }),
         },
-        select: { shift_id: true, terminal_id: true },
+        select: { shift_id: true, pos_terminal_id: true },
       });
 
       if (openShifts.length > 0) {
@@ -366,7 +363,7 @@ export async function prepareClose(
         },
         include: {
           game: { select: { name: true, price: true } },
-          lottery_bin: { select: { display_order: true } },
+          bin: { select: { display_order: true } },
         },
       });
 
@@ -423,7 +420,7 @@ export async function prepareClose(
         estimatedTotal += salesAmount;
 
         return {
-          bin_number: (pack.lottery_bin?.display_order ?? 0) + 1,
+          bin_number: (pack.bin?.display_order ?? 0) + 1,
           pack_number: pack.pack_number,
           game_name: pack.game.name,
           starting_serial: startingSerial,
@@ -551,7 +548,7 @@ export async function commitClose(
           where: { day_id: businessDay.day_id },
           data: {
             status: "OPEN",
-            pending_close_data: null,
+            pending_close_data: Prisma.JsonNull,
             pending_close_by: null,
             pending_close_at: null,
             pending_close_expires_at: null,
@@ -586,7 +583,7 @@ export async function commitClose(
         },
         include: {
           game: { select: { name: true, price: true } },
-          lottery_bin: { select: { bin_id: true, display_order: true } },
+          bin: { select: { bin_id: true, display_order: true } },
         },
       });
 
@@ -622,7 +619,7 @@ export async function commitClose(
           create: {
             day_id: businessDay.day_id,
             pack_id: pack.pack_id,
-            bin_id: pack.lottery_bin?.bin_id || null,
+            bin_id: pack.bin?.bin_id || null,
             starting_serial: startingSerial,
             ending_serial: closing.closing_serial,
             tickets_sold: ticketsSold,
@@ -651,7 +648,7 @@ export async function commitClose(
         });
 
         binsClosed.push({
-          bin_number: (pack.lottery_bin?.display_order ?? 0) + 1,
+          bin_number: (pack.bin?.display_order ?? 0) + 1,
           pack_number: pack.pack_number,
           game_name: pack.game.name,
           starting_serial: startingSerial,
@@ -670,7 +667,7 @@ export async function commitClose(
           closed_at: closedAt,
           closed_by: rlsContext.userId,
           // Clear pending close data
-          pending_close_data: null,
+          pending_close_data: Prisma.JsonNull,
           pending_close_by: null,
           pending_close_at: null,
           pending_close_expires_at: null,
@@ -722,7 +719,7 @@ export async function cancelClose(
         },
         data: {
           status: "OPEN",
-          pending_close_data: null,
+          pending_close_data: Prisma.JsonNull,
           pending_close_by: null,
           pending_close_at: null,
           pending_close_expires_at: null,
@@ -799,7 +796,7 @@ export async function cleanupExpiredPendingCloses(): Promise<number> {
     },
     data: {
       status: "OPEN",
-      pending_close_data: null,
+      pending_close_data: Prisma.JsonNull,
       pending_close_by: null,
       pending_close_at: null,
       pending_close_expires_at: null,

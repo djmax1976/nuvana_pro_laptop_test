@@ -8282,7 +8282,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
 
       try {
         // Import the service dynamically to avoid circular dependencies
-        const { prepareClose, DayCloseError } =
+        const { prepareClose } =
           await import("../services/lottery-day-close.service");
 
         // Build RLS context from user identity
@@ -8426,7 +8426,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
       const params = request.params as { storeId: string };
 
       try {
-        const { commitClose, DayCloseError } =
+        const { commitClose } =
           await import("../services/lottery-day-close.service");
 
         const rlsContext = {
