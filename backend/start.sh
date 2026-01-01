@@ -18,31 +18,44 @@ wait_for_database() {
   echo "DATABASE_URL: ${DATABASE_URL:0:50}..." # Print first 50 chars for debugging
 
   while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    # Use npx prisma migrate status as a connectivity check (more reliable than db execute)
-    # Capture output and exit code
+    # Use prisma migrate status to check connectivity
+    # Note: migrate status returns non-zero if there are pending migrations,
+    # so we check the output for connection errors instead of exit code
     OUTPUT=$(npx prisma migrate status 2>&1)
-    RESULT=$?
 
-    if [ $RESULT -eq 0 ]; then
+    # Check if we can see the datasource info - this means connection succeeded
+    if echo "$OUTPUT" | grep -q "Datasource.*PostgreSQL"; then
       echo "✅ Database is reachable"
+      if echo "$OUTPUT" | grep -q "Following migrations have not yet been applied"; then
+        echo "📋 Pending migrations detected - will be applied in next step"
+      fi
       return 0
     fi
 
-    RETRY_COUNT=$((RETRY_COUNT + 1))
+    # Check for specific connection errors
+    if echo "$OUTPUT" | grep -qE "P1001|P1002|Can't reach|ECONNREFUSED|ETIMEDOUT|getaddrinfo"; then
+      RETRY_COUNT=$((RETRY_COUNT + 1))
 
-    # Show error on first and last attempt for debugging
-    if [ $RETRY_COUNT -eq 1 ] || [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-      echo "⏳ Database not ready (attempt $RETRY_COUNT/$MAX_RETRIES). Error:"
-      echo "$OUTPUT" | head -10
+      # Show error on first and last attempt for debugging
+      if [ $RETRY_COUNT -eq 1 ] || [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+        echo "⏳ Database not ready (attempt $RETRY_COUNT/$MAX_RETRIES). Error:"
+        echo "$OUTPUT" | head -10
+      else
+        echo "⏳ Database not ready (attempt $RETRY_COUNT/$MAX_RETRIES). Waiting ${WAIT_TIME}s..."
+      fi
+
+      sleep $WAIT_TIME
+
+      # Exponential backoff: 2, 4, 8, 16, 32, 60, 60, 60...
+      if [ $WAIT_TIME -lt 60 ]; then
+        WAIT_TIME=$((WAIT_TIME * 2))
+      fi
     else
-      echo "⏳ Database not ready (attempt $RETRY_COUNT/$MAX_RETRIES). Waiting ${WAIT_TIME}s..."
-    fi
-
-    sleep $WAIT_TIME
-
-    # Exponential backoff: 2, 4, 8, 16, 32, 60, 60, 60...
-    if [ $WAIT_TIME -lt 60 ]; then
-      WAIT_TIME=$((WAIT_TIME * 2))
+      # Some other output - log it and assume connection works
+      echo "⚠️  Unexpected output from migrate status:"
+      echo "$OUTPUT" | head -5
+      echo "✅ Proceeding (no connection error detected)"
+      return 0
     fi
   done
 
