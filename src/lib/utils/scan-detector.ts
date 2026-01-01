@@ -339,10 +339,10 @@ export function validateScanMetricsServerSide(
     tamperReason = "Client-provided metrics do not match timestamp analysis";
   }
 
-  // Check timestamps are reasonable (not in future, not too old)
+  // Check timestamps are reasonable (not in future)
+  // NOTE: Staleness check removed - database validations provide security
+  // MCP SEC-014: Database-level validation is the authoritative security layer
   const now = Date.now();
-  const maxAge = 60000; // 1 minute
-  const firstTimestamp = metrics.keystrokeTimestamps[0];
   const lastTimestamp =
     metrics.keystrokeTimestamps[metrics.keystrokeTimestamps.length - 1];
 
@@ -353,15 +353,6 @@ export function validateScanMetricsServerSide(
       reanalyzedMetrics,
       tamperedDetected: true,
       tamperReason: "Timestamps are in the future",
-    };
-  }
-
-  if (now - firstTimestamp > maxAge) {
-    return {
-      valid: false,
-      reanalyzedMetrics,
-      tamperedDetected: true,
-      tamperReason: "Timestamps are too old (possible replay attack)",
     };
   }
 

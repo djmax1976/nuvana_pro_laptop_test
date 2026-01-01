@@ -116,6 +116,7 @@ export async function closeLotteryForShift(
         select: {
           shift_id: true,
           store_id: true,
+          cashier_id: true, // Include for lottery closing records
           opened_at: true,
         },
       });
@@ -221,6 +222,7 @@ export async function closeLotteryForShift(
           data: {
             shift_id: shiftId,
             pack_id: soldPack.pack_id,
+            cashier_id: shift.cashier_id, // Direct cashier reference for efficient querying
             closing_serial: soldPack.serial_end, // AC #4: ending = serial_end for sold packs
             entry_method: "SCAN", // Auto-closed packs are treated as scanned
             manual_entry_authorized_by: null,
@@ -358,6 +360,7 @@ export async function closeLotteryForShift(
           data: {
             shift_id: shiftId,
             pack_id: closing.pack_id,
+            cashier_id: shift.cashier_id, // Direct cashier reference for efficient querying
             closing_serial: closing.ending_serial,
             entry_method: closing.entry_method,
             manual_entry_authorized_by:

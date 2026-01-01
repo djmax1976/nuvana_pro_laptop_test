@@ -22,8 +22,16 @@ export type ClosingMode = "day" | "shift";
 
 /**
  * Lottery status for the current business day
+ * - not_closed: Lottery bins haven't been scanned yet
+ * - pending: Lottery bins scanned, awaiting day close commit (two-phase commit)
+ * - closed: Lottery day fully committed/closed
+ * - closed_earlier: Lottery was closed before current session started
  */
-export type LotteryStatus = "not_closed" | "closed" | "closed_earlier";
+export type LotteryStatus =
+  | "not_closed"
+  | "pending"
+  | "closed"
+  | "closed_earlier";
 
 /**
  * Money received line item for cash reconciliation
@@ -130,8 +138,8 @@ export interface LotteryStatusBannerProps {
   lotteryTotal: number;
   /** Whether lottery is required (day close) or optional (shift close) */
   isRequired: boolean;
-  /** Callback when user clicks to open lottery modal */
-  onOpenLotteryModal: () => void;
+  /** Callback when user clicks to open lottery modal (optional when status is closed) */
+  onOpenLotteryModal?: () => void;
 }
 
 /**

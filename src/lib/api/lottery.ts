@@ -195,6 +195,8 @@ export interface FullActivatePackInput {
   mark_sold_approved_by?: string;
   /** Reason for marking pack as pre-sold (e.g., "Pack sold before bin placement") */
   mark_sold_reason?: string;
+  /** If true, immediately set pack status to DEPLETED (for pre-sold packs) */
+  mark_as_depleted?: boolean;
 }
 
 /**
@@ -834,6 +836,52 @@ export async function getBinDisplay(
   return response.data;
 }
 
+// ============ Bin Delete API ============
+
+/**
+ * Delete bin response
+ * Response from DELETE /api/lottery/bins/:binId
+ */
+export interface DeleteBinResponse {
+  bin_id: string;
+  message: string;
+}
+
+/**
+ * Soft delete a lottery bin
+ * DELETE /api/lottery/bins/:binId
+ * Sets bin is_active = false (soft delete for audit trail preservation)
+ * Requires LOTTERY_BIN_MANAGE permission
+ * Story 6.13: Lottery Database Enhancements & Bin Management (AC #1)
+ *
+ * @param binId - Bin UUID to delete
+ * @returns Delete confirmation with bin_id and message
+ * @throws ApiError on 403 (forbidden), 404 (not found), or 500 (server error)
+ *
+ * @example
+ * ```typescript
+ * const result = await deleteBin('bin-uuid-here');
+ * if (result.success) {
+ *   console.log(result.data.message); // "Bin successfully soft deleted"
+ * }
+ * ```
+ */
+export async function deleteBin(
+  binId: string,
+): Promise<ApiResponse<DeleteBinResponse>> {
+  // Validate binId format (UUID) before making API call
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!binId || !uuidRegex.test(binId)) {
+    throw new Error("Invalid bin ID format");
+  }
+
+  const response = await apiClient.delete<ApiResponse<DeleteBinResponse>>(
+    `/api/lottery/bins/${binId}`,
+  );
+  return response.data;
+}
+
 // ============ Configuration Values API ============
 
 /**
@@ -991,6 +1039,8 @@ export interface CloseLotteryDayInput {
   /** Current shift ID - this shift will be excluded from open shifts check
    * because the cashier closing the day is doing so from their own shift */
   current_shift_id?: string;
+  /** User ID who authorized manual entry - for audit trail */
+  authorized_by_user_id?: string;
 }
 
 /**
@@ -1021,6 +1071,7 @@ export interface CloseLotteryDayResponse {
  * @param storeId - Store UUID
  * @param data - Closing data with pack_id and closing_serial pairs
  * @returns Closing response with summary
+ * @deprecated Use prepareLotteryDayClose + commitLotteryDayClose for atomic day close
  */
 export async function closeLotteryDay(
   storeId: string,
@@ -1030,6 +1081,173 @@ export async function closeLotteryDay(
     `/api/lottery/bins/day/${storeId}/close`,
     data,
   );
+  return response.data;
+}
+
+// ============ Two-Phase Day Close API (Enterprise Atomic Pattern) ============
+
+/**
+ * Input for Phase 1: Prepare lottery day close
+ */
+export interface PrepareLotteryDayCloseInput {
+  closings: Array<{
+    pack_id: string;
+    closing_serial: string;
+  }>;
+  entry_method?: "SCAN" | "MANUAL";
+  current_shift_id?: string;
+  authorized_by_user_id?: string;
+}
+
+/**
+ * Response from Phase 1: Prepare lottery day close
+ * Contains preview data for UI display before final commit
+ */
+export interface PrepareLotteryDayCloseResponse {
+  day_id: string;
+  business_date: string;
+  status: "PENDING_CLOSE";
+  pending_close_at: string;
+  pending_close_expires_at: string;
+  closings_count: number;
+  /** Calculated lottery total for UI display (not yet committed) */
+  estimated_lottery_total: number;
+  /** Estimated bin breakdown for UI preview */
+  bins_preview: Array<{
+    bin_number: number;
+    pack_number: string;
+    game_name: string;
+    starting_serial: string;
+    closing_serial: string;
+    game_price: number;
+    tickets_sold: number;
+    sales_amount: number;
+  }>;
+}
+
+/**
+ * Response from Phase 2: Commit lottery day close
+ * Final committed data with same structure as original close endpoint
+ */
+export interface CommitLotteryDayCloseResponse {
+  day_id: string;
+  business_date: string;
+  closed_at: string;
+  closings_created: number;
+  lottery_total: number;
+  bins_closed: Array<{
+    bin_number: number;
+    pack_number: string;
+    game_name: string;
+    starting_serial: string;
+    closing_serial: string;
+    game_price: number;
+    tickets_sold: number;
+    sales_amount: number;
+  }>;
+}
+
+/**
+ * Response from cancel lottery day close
+ */
+export interface CancelLotteryDayCloseResponse {
+  cancelled: boolean;
+  message: string;
+}
+
+/**
+ * Response from get lottery day status
+ */
+export interface LotteryDayStatusResponse {
+  day_id: string;
+  status: "OPEN" | "PENDING_CLOSE" | "CLOSED";
+  pending_close_at?: string;
+  pending_close_expires_at?: string;
+}
+
+/**
+ * Phase 1: Prepare lottery day close
+ * POST /api/lottery/bins/day/:storeId/prepare-close
+ *
+ * This endpoint validates closings and stores them in PENDING_CLOSE state
+ * without committing any lottery records. Call commitLotteryDayClose to finalize.
+ *
+ * Story: MyStore Day Close Atomic Transaction
+ *
+ * @param storeId - Store UUID
+ * @param data - Closing data with pack_id and closing_serial pairs
+ * @returns Prepare response with preview data and expiration time
+ */
+export async function prepareLotteryDayClose(
+  storeId: string,
+  data: PrepareLotteryDayCloseInput,
+): Promise<ApiResponse<PrepareLotteryDayCloseResponse>> {
+  const response = await apiClient.post<
+    ApiResponse<PrepareLotteryDayCloseResponse>
+  >(`/api/lottery/bins/day/${storeId}/prepare-close`, data);
+  return response.data;
+}
+
+/**
+ * Phase 2: Commit lottery day close
+ * POST /api/lottery/bins/day/:storeId/commit-close
+ *
+ * This endpoint atomically commits both lottery close and day close.
+ * Must be called after prepareLotteryDayClose and before pending close expires.
+ *
+ * Story: MyStore Day Close Atomic Transaction
+ *
+ * @param storeId - Store UUID
+ * @returns Commit response with final lottery totals and closed bins
+ */
+export async function commitLotteryDayClose(
+  storeId: string,
+): Promise<ApiResponse<CommitLotteryDayCloseResponse>> {
+  const response = await apiClient.post<
+    ApiResponse<CommitLotteryDayCloseResponse>
+  >(`/api/lottery/bins/day/${storeId}/commit-close`);
+  return response.data;
+}
+
+/**
+ * Cancel pending lottery day close
+ * POST /api/lottery/bins/day/:storeId/cancel-close
+ *
+ * Reverts PENDING_CLOSE status back to OPEN. Call this when user
+ * cancels the day close wizard or navigates away.
+ *
+ * Story: MyStore Day Close Atomic Transaction
+ *
+ * @param storeId - Store UUID
+ * @returns Cancel response with status
+ */
+export async function cancelLotteryDayClose(
+  storeId: string,
+): Promise<ApiResponse<CancelLotteryDayCloseResponse>> {
+  const response = await apiClient.post<
+    ApiResponse<CancelLotteryDayCloseResponse>
+  >(`/api/lottery/bins/day/${storeId}/cancel-close`);
+  return response.data;
+}
+
+/**
+ * Get lottery day close status
+ * GET /api/lottery/bins/day/:storeId/close-status
+ *
+ * Returns the current status of the lottery business day.
+ * Use this to resume the wizard if the user navigates away.
+ *
+ * Story: MyStore Day Close Atomic Transaction
+ *
+ * @param storeId - Store UUID
+ * @returns Status response with pending close info if applicable
+ */
+export async function getLotteryDayCloseStatus(
+  storeId: string,
+): Promise<ApiResponse<LotteryDayStatusResponse | null>> {
+  const response = await apiClient.get<
+    ApiResponse<LotteryDayStatusResponse | null>
+  >(`/api/lottery/bins/day/${storeId}/close-status`);
   return response.data;
 }
 

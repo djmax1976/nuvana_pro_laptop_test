@@ -44,7 +44,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, User } from "lucide-react";
+import { Loader2, User, DollarSign } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useCashiers, useAuthenticateCashier } from "@/lib/api/cashiers";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -56,6 +56,11 @@ import { useCashierSession } from "@/contexts/CashierSessionContext";
  * Form validation schema for terminal authentication
  * - cashier_name: Required for new shifts, optional for resume mode
  * - pin_number: Always required, exactly 4 numeric digits
+ * - starting_cash: Optional, non-negative number for new shifts only
+ *
+ * @security
+ * - SEC-014: Input validation with strict constraints
+ * - FE-002: Schema validation mirrors backend validation
  */
 const terminalAuthFormSchema = z.object({
   cashier_name: z.string().optional(),
@@ -63,6 +68,10 @@ const terminalAuthFormSchema = z.object({
     .string({ message: "PIN number is required" })
     .min(1, { message: "PIN number is required" })
     .regex(/^\d{4}$/, { message: "PIN must be exactly 4 numeric digits" }),
+  starting_cash: z
+    .number()
+    .nonnegative("Starting cash must be a non-negative number")
+    .optional(),
 });
 
 type TerminalAuthFormValues = z.infer<typeof terminalAuthFormSchema>;
@@ -71,6 +80,7 @@ type TerminalAuthFormValues = z.infer<typeof terminalAuthFormSchema>;
 interface NewShiftFormValues {
   cashier_name: string;
   pin_number: string;
+  starting_cash?: number;
 }
 
 interface TerminalAuthModalProps {
@@ -128,6 +138,7 @@ export function TerminalAuthModal({
     defaultValues: {
       cashier_name: "",
       pin_number: "",
+      starting_cash: undefined,
     },
   });
 
@@ -156,6 +167,7 @@ export function TerminalAuthModal({
       form.reset({
         cashier_name: "",
         pin_number: "",
+        starting_cash: undefined,
       });
       authenticateMutation.reset();
       startShiftMutation.reset();
@@ -246,6 +258,7 @@ export function TerminalAuthModal({
       await onSubmit({
         cashier_name: values.cashier_name,
         pin_number: values.pin_number,
+        starting_cash: values.starting_cash,
       });
       return;
     }
@@ -278,10 +291,11 @@ export function TerminalAuthModal({
         expiresAt: authResult.session.expires_at,
       });
 
-      // Start a new shift
+      // Start a new shift with optional starting cash
       await startShiftMutation.mutateAsync({
         terminalId,
         sessionToken: authResult.session.session_token,
+        openingCash: values.starting_cash,
       });
 
       // Navigate to shift page
@@ -433,6 +447,41 @@ export function TerminalAuthModal({
                       </SelectContent>
                     </Select>
                     <FormMessage data-testid="cashier-name-error" />
+                  </FormItem>
+                )}
+              />
+            )}
+
+            {/* Starting Cash field - only shown for new shifts */}
+            {!isResumeMode && (
+              <FormField
+                control={form.control}
+                name="starting_cash"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Starting Cash (Optional)</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="0.00"
+                          className="pl-9"
+                          disabled={isSubmitting}
+                          data-testid="starting-cash-input"
+                          value={field.value === undefined ? "" : field.value}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            field.onChange(
+                              value === "" ? undefined : parseFloat(value) || 0,
+                            );
+                          }}
+                        />
+                      </div>
+                    </FormControl>
+                    <FormMessage data-testid="starting-cash-error" />
                   </FormItem>
                 )}
               />

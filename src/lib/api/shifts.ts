@@ -315,16 +315,22 @@ export async function reconcileCash(
  *
  * @param terminalId - Terminal UUID
  * @param sessionToken - Cashier session token from authenticateCashier()
+ * @param openingCash - Optional opening cash amount (defaults to 0)
+ *
+ * @security
+ * - SEC-014: openingCash validated as non-negative number on backend
+ * - API-001: Request validated via Fastify schema
  */
 export async function startShift(
   terminalId: string,
   sessionToken: string,
+  openingCash?: number,
 ): Promise<ApiResponse<ShiftResponse & { shift_number: number | null }>> {
   const response = await apiClient.post<
     ApiResponse<ShiftResponse & { shift_number: number | null }>
   >(
     `/api/terminals/${terminalId}/shifts/start`,
-    {}, // No body needed - cashier_id from session
+    openingCash !== undefined ? { opening_cash: openingCash } : {},
     {
       headers: {
         "X-Cashier-Session": sessionToken,
@@ -543,6 +549,10 @@ export function useShiftDetail(
  * Requires a valid cashier session token from authenticateCashier().
  *
  * Story 4.92: Terminal Shift Page
+ *
+ * @security
+ * - SEC-014: openingCash validated as non-negative on backend
+ * - FE-002: Form validation ensures valid input before submission
  */
 export function useShiftStart() {
   const queryClient = useQueryClient();
@@ -551,10 +561,12 @@ export function useShiftStart() {
     mutationFn: ({
       terminalId,
       sessionToken,
+      openingCash,
     }: {
       terminalId: string;
       sessionToken: string;
-    }) => startShift(terminalId, sessionToken),
+      openingCash?: number;
+    }) => startShift(terminalId, sessionToken, openingCash),
     onSuccess: (_, variables) => {
       // Invalidate active shift query for this terminal
       queryClient.invalidateQueries({
@@ -635,6 +647,7 @@ export interface OpenShiftDetail {
   shift_id: string;
   terminal_name: string | null;
   cashier_name: string;
+  shift_number: number | null;
   status: string;
   opened_at: string;
 }

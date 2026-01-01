@@ -2244,6 +2244,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           },
           select: {
             shift_id: true,
+            cashier_id: true, // Include for lottery closing records
           },
         });
 
@@ -2284,6 +2285,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 data: {
                   shift_id: activeShift.shift_id,
                   pack_id: params.packId,
+                  cashier_id: activeShift.cashier_id, // Direct cashier reference
                   closing_serial: closingSerial,
                   entry_method: "MANUAL",
                   manual_entry_authorized_by: user.id,
@@ -4364,10 +4366,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         }
 
         // Query bins using Prisma ORM (prevents SQL injection)
-        // RLS enforced via store_id filter
+        // RLS enforced via store_id filter, only active bins (soft-deleted excluded)
         const bins = await prisma.lotteryBin.findMany({
           where: {
-            store_id: query.store_id, // RLS enforced via store_id filter
+            store_id: query.store_id,
+            is_active: true,
           },
           orderBy: {
             name: "asc",
@@ -6705,6 +6708,38 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                       },
                     },
                   },
+                  // Lottery summary - populated when day is CLOSED
+                  // Provides lottery totals from the closed day for display
+                  lottery_summary: {
+                    type: "object",
+                    nullable: true,
+                    description:
+                      "Lottery totals from the closed day. Only populated when business_day.status is CLOSED.",
+                    properties: {
+                      lottery_total: {
+                        type: "number",
+                        description:
+                          "Total lottery sales for the closed day (sum of all bins)",
+                      },
+                      bins_closed: {
+                        type: "array",
+                        description: "Detailed breakdown per bin",
+                        items: {
+                          type: "object",
+                          properties: {
+                            bin_number: { type: "integer" },
+                            pack_number: { type: "string" },
+                            game_name: { type: "string" },
+                            starting_serial: { type: "string" },
+                            closing_serial: { type: "string" },
+                            game_price: { type: "number" },
+                            tickets_sold: { type: "integer" },
+                            sales_amount: { type: "number" },
+                          },
+                        },
+                      },
+                    },
+                  },
                   // Enterprise close-to-close business period metadata
                   // Provides information about the current open business period for UI warnings
                   // and multi-day depleted pack visibility
@@ -7629,16 +7664,18 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   lte: dayEndUtc,
                 },
               },
-              // Currently open shifts (opened any time, not yet closed)
+              // Currently unclosed shifts (opened any time, not yet closed)
+              // Must check ALL active statuses - a shift from yesterday could be ACTIVE, not OPEN
               {
                 closed_at: null,
-                status: "OPEN",
+                status: { in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"] },
               },
             ],
           },
           orderBy: { opened_at: "desc" },
           select: {
             shift_id: true,
+            cashier_id: true, // Include cashier_id for lottery closing records
             opened_at: true,
             closed_at: true,
             status: true,
@@ -7892,6 +7929,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         const closingsToCreate = body.closings.map((closing) => ({
           shift_id: targetShift.shift_id,
           pack_id: closing.pack_id,
+          cashier_id: targetShift.cashier_id, // Direct cashier reference for efficient querying
           closing_serial: closing.closing_serial,
           entry_method: entryMethod,
           manual_entry_authorized_by: entryMethod === "MANUAL" ? user.id : null,
@@ -8078,6 +8116,520 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to close lottery day",
+          },
+        };
+      }
+    },
+  );
+
+  // ============================================================================
+  // TWO-PHASE COMMIT ENDPOINTS FOR ATOMIC DAY CLOSE
+  // ============================================================================
+  // These endpoints implement the two-phase commit pattern:
+  //   1. prepare-close: Store lottery closings as PENDING_CLOSE (Step 1 of wizard)
+  //   2. commit-close: Atomically finalize lottery and day close (Step 3 of wizard)
+  //   3. cancel-close: Revert pending state if user cancels
+  //   4. status: Get current lottery day status (for resuming wizard)
+  // ============================================================================
+
+  /**
+   * POST /api/lottery/bins/day/:storeId/prepare-close
+   * Phase 1: Prepare lottery day close by validating and storing pending close data
+   *
+   * This endpoint does NOT commit any lottery records. It only:
+   * 1. Validates all closings (serial ranges, pack existence, etc.)
+   * 2. Stores the closings in pending_close_data JSONB column
+   * 3. Updates status to PENDING_CLOSE
+   * 4. Sets expiration time (1 hour by default)
+   *
+   * Protected route - requires LOTTERY_SHIFT_CLOSE permission
+   * Story: MyStore Day Close Atomic Transaction
+   *
+   * MCP Guidance Applied:
+   * - DB-006: TENANT_ISOLATION - Store-scoped operations with RLS
+   * - API-001: VALIDATION - Schema validation for all inputs
+   * - SEC-006: SQL_INJECTION - Uses Prisma ORM
+   * - API-003: ERROR_HANDLING - Standardized error responses
+   */
+  fastify.post(
+    "/api/lottery/bins/day/:storeId/prepare-close",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_SHIFT_CLOSE),
+      ],
+      schema: {
+        description:
+          "Phase 1: Prepare lottery day close by storing pending closings without committing",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          required: ["closings"],
+          properties: {
+            closings: {
+              type: "array",
+              description: "Array of pack closings with ending serial numbers",
+              items: {
+                type: "object",
+                required: ["pack_id", "closing_serial"],
+                properties: {
+                  pack_id: {
+                    type: "string",
+                    format: "uuid",
+                    description: "UUID of the pack",
+                  },
+                  closing_serial: {
+                    type: "string",
+                    pattern: "^[0-9]{3}$",
+                    description: "3-digit ending serial number (e.g., '045')",
+                  },
+                },
+              },
+            },
+            entry_method: {
+              type: "string",
+              enum: ["SCAN", "MANUAL"],
+              default: "SCAN",
+              description: "Method used to enter the serial numbers",
+            },
+            current_shift_id: {
+              type: "string",
+              format: "uuid",
+              description: "Current shift ID - excluded from open shifts check",
+            },
+            authorized_by_user_id: {
+              type: "string",
+              format: "uuid",
+              description: "User who authorized manual entry (for audit)",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  day_id: { type: "string", format: "uuid" },
+                  business_date: { type: "string", format: "date" },
+                  status: { type: "string", enum: ["PENDING_CLOSE"] },
+                  pending_close_at: { type: "string", format: "date-time" },
+                  pending_close_expires_at: {
+                    type: "string",
+                    format: "date-time",
+                  },
+                  closings_count: { type: "integer" },
+                  estimated_lottery_total: { type: "number" },
+                  bins_preview: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        bin_number: { type: "integer" },
+                        pack_number: { type: "string" },
+                        game_name: { type: "string" },
+                        starting_serial: { type: "string" },
+                        closing_serial: { type: "string" },
+                        game_price: { type: "number" },
+                        tickets_sold: { type: "integer" },
+                        sales_amount: { type: "number" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                  details: { type: "object" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { storeId: string };
+      const body = request.body as {
+        closings: Array<{ pack_id: string; closing_serial: string }>;
+        entry_method?: "SCAN" | "MANUAL";
+        current_shift_id?: string;
+        authorized_by_user_id?: string;
+      };
+
+      try {
+        // Import the service dynamically to avoid circular dependencies
+        const { prepareClose } =
+          await import("../services/lottery-day-close.service");
+
+        // Build RLS context from user identity
+        const rlsContext = {
+          userId: user.id,
+          isAdmin: false, // Day close is store-level, not admin
+          companyIds: user.company_ids || [],
+          storeIds: user.store_ids || [],
+        };
+
+        const result = await prepareClose(
+          rlsContext,
+          params.storeId,
+          body.closings,
+          body.entry_method || "SCAN",
+          {
+            currentShiftId: body.current_shift_id,
+            authorizedByUserId: body.authorized_by_user_id,
+          },
+        );
+
+        return {
+          success: true,
+          data: result,
+        };
+      } catch (error: any) {
+        // Handle DayCloseError with specific error codes
+        if (error.name === "DayCloseError") {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+            },
+          };
+        }
+
+        fastify.log.error({ error }, "Error preparing lottery day close");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to prepare lottery day close",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * POST /api/lottery/bins/day/:storeId/commit-close
+   * Phase 2: Atomically commit lottery close and day close together
+   *
+   * This endpoint:
+   * 1. Validates the day is in PENDING_CLOSE status
+   * 2. Validates pending close hasn't expired
+   * 3. Creates LotteryDayPack records from pending_close_data
+   * 4. Updates pack status if depleted
+   * 5. Updates business day to CLOSED status with same timestamp
+   *
+   * Protected route - requires LOTTERY_SHIFT_CLOSE permission
+   * Story: MyStore Day Close Atomic Transaction
+   */
+  fastify.post(
+    "/api/lottery/bins/day/:storeId/commit-close",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_SHIFT_CLOSE),
+      ],
+      schema: {
+        description:
+          "Phase 2: Atomically commit lottery close and day close together",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  day_id: { type: "string", format: "uuid" },
+                  business_date: { type: "string", format: "date" },
+                  closed_at: { type: "string", format: "date-time" },
+                  closings_created: { type: "integer" },
+                  lottery_total: { type: "number" },
+                  bins_closed: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        bin_number: { type: "integer" },
+                        pack_number: { type: "string" },
+                        game_name: { type: "string" },
+                        starting_serial: { type: "string" },
+                        closing_serial: { type: "string" },
+                        game_price: { type: "number" },
+                        tickets_sold: { type: "integer" },
+                        sales_amount: { type: "number" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                  details: { type: "object" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { storeId: string };
+
+      try {
+        const { commitClose } =
+          await import("../services/lottery-day-close.service");
+
+        const rlsContext = {
+          userId: user.id,
+          isAdmin: false,
+          companyIds: user.company_ids || [],
+          storeIds: user.store_ids || [],
+        };
+
+        const result = await commitClose(rlsContext, params.storeId);
+
+        return {
+          success: true,
+          data: result,
+        };
+      } catch (error: any) {
+        if (error.name === "DayCloseError") {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+            },
+          };
+        }
+
+        fastify.log.error({ error }, "Error committing lottery day close");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to commit lottery day close",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * POST /api/lottery/bins/day/:storeId/cancel-close
+   * Cancel pending lottery day close and revert to OPEN status
+   *
+   * Protected route - requires LOTTERY_SHIFT_CLOSE permission
+   * Story: MyStore Day Close Atomic Transaction
+   */
+  fastify.post(
+    "/api/lottery/bins/day/:storeId/cancel-close",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_SHIFT_CLOSE),
+      ],
+      schema: {
+        description: "Cancel pending lottery day close and revert to OPEN",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  cancelled: { type: "boolean" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { storeId: string };
+
+      try {
+        const { cancelClose } =
+          await import("../services/lottery-day-close.service");
+
+        const rlsContext = {
+          userId: user.id,
+          isAdmin: false,
+          companyIds: user.company_ids || [],
+          storeIds: user.store_ids || [],
+        };
+
+        const cancelled = await cancelClose(rlsContext, params.storeId);
+
+        return {
+          success: true,
+          data: {
+            cancelled,
+            message: cancelled
+              ? "Pending lottery close cancelled successfully"
+              : "No pending close found to cancel",
+          },
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error cancelling lottery day close");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to cancel lottery day close",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/lottery/bins/day/:storeId/close-status
+   * Get current lottery day close status
+   *
+   * Protected route - requires LOTTERY_SHIFT_CLOSE permission
+   * Story: MyStore Day Close Atomic Transaction
+   */
+  fastify.get(
+    "/api/lottery/bins/day/:storeId/close-status",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_SHIFT_CLOSE),
+      ],
+      schema: {
+        description: "Get current lottery day close status",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                nullable: true,
+                properties: {
+                  day_id: { type: "string", format: "uuid" },
+                  status: { type: "string" },
+                  pending_close_at: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
+                  pending_close_expires_at: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const params = request.params as { storeId: string };
+
+      try {
+        const { getDayStatus } =
+          await import("../services/lottery-day-close.service");
+
+        const status = await getDayStatus(params.storeId);
+
+        return {
+          success: true,
+          data: status,
+        };
+      } catch (error: any) {
+        fastify.log.error({ error }, "Error getting lottery day status");
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to get lottery day status",
           },
         };
       }

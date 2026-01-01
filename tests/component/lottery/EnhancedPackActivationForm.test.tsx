@@ -1194,7 +1194,7 @@ describe("EnhancedPackActivationForm (Batch Mode)", () => {
       ).toHaveTextContent("Pack Sold");
     });
 
-    it("BATCH-022: should toggle pack sold status when button is clicked (with permission)", async () => {
+    it("BATCH-022: should toggle pack sold status when button is clicked", async () => {
       const user = setupUser();
       renderWithProviders(<EnhancedPackActivationForm {...defaultProps} />);
 
@@ -1301,6 +1301,8 @@ describe("EnhancedPackActivationForm (Batch Mode)", () => {
             pack_id: TEST_PACK_ID_1,
             mark_sold_approved_by: "user-1",
             mark_sold_reason: "Pack marked as pre-sold during activation",
+            mark_as_depleted: true,
+            deplete_previous: false,
           }),
         });
       });

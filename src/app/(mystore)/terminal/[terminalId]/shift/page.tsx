@@ -6,13 +6,18 @@
  * Story 4.92: Terminal Shift Page
  *
  * Displays active shift information for a terminal after cashier authentication.
- * Shows cashier name, shift start time, shift number, starting cash input,
- * and placeholder metrics for sales, tax, and voids.
+ * Shows terminal name, shift number, cashier name, shift start time,
+ * starting cash input, and placeholder metrics for sales, tax, and voids.
+ *
+ * @security
+ * - SEC-001: Requires authenticated user session (enforced by layout)
+ * - DB-006: Terminal access validated via store association
  */
 
 import { useParams } from "next/navigation";
 import { useActiveShift } from "@/lib/api/shifts";
 import { useCashiers } from "@/lib/api/cashiers";
+import { useStoreTerminals } from "@/lib/api/stores";
 import { TerminalShiftPageContent } from "@/components/terminals/TerminalShiftPage";
 import { Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -28,9 +33,17 @@ export default function TerminalShiftPage() {
     error: shiftError,
   } = useActiveShift(terminalId, { enabled: !!terminalId });
 
-  // Get cashiers to find cashier name (we'll need storeId for this)
-  // For now, we'll get it from the shift when available
+  // Get store ID from shift to fetch related data
   const storeId = activeShift?.store_id;
+
+  // Fetch terminals for the store to get terminal name
+  const { data: terminals = [], isLoading: isLoadingTerminals } =
+    useStoreTerminals(storeId, { enabled: !!storeId });
+
+  // Find terminal info by ID
+  const terminal = terminals.find((t) => t.pos_terminal_id === terminalId);
+
+  // Get cashiers to find cashier name
   const { data: cashiers = [], isLoading: isLoadingCashiers } = useCashiers(
     storeId || "",
     { is_active: true },
@@ -42,8 +55,8 @@ export default function TerminalShiftPage() {
     ? cashiers.find((c) => c.cashier_id === activeShift.cashier_id)
     : null;
 
-  // Loading state
-  if (isLoadingShift || isLoadingCashiers) {
+  // Loading state - wait for all required data
+  if (isLoadingShift || isLoadingCashiers || isLoadingTerminals) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="space-y-4 text-center">
@@ -84,7 +97,7 @@ export default function TerminalShiftPage() {
     <TerminalShiftPageContent
       shift={activeShift}
       cashierName={cashier?.name || "Unknown Cashier"}
-      terminalId={terminalId}
+      terminalName={terminal?.name || "Terminal"}
     />
   );
 }

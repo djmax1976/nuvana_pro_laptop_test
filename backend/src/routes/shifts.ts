@@ -1821,9 +1821,19 @@ export async function shiftRoutes(fastify: FastifyInstance) {
             },
           },
         },
-        // Note: No body required - cashier_id is extracted from the validated
-        // X-Cashier-Session token by cashierSessionWithPermission middleware.
-        // This ensures the authenticated cashier is the one starting the shift.
+        // Note: cashier_id is extracted from the validated X-Cashier-Session token
+        // by cashierSessionWithPermission middleware. Body only contains opening_cash.
+        body: {
+          type: "object",
+          properties: {
+            opening_cash: {
+              type: "number",
+              minimum: 0,
+              description:
+                "Opening cash amount (non-negative, defaults to 0 if not provided)",
+            },
+          },
+        },
         response: {
           201: {
             type: "object",
@@ -1872,7 +1882,12 @@ export async function shiftRoutes(fastify: FastifyInstance) {
         const cashierSession = (request as RequestWithCashierSession)
           .cashierSession!;
         const { terminalId } = request.params as { terminalId: string };
+        const body = request.body as { opening_cash?: number } | undefined;
         const auditContext = getAuditContext(request, user);
+
+        // SEC-014: Validate opening_cash is non-negative (schema enforces minimum: 0)
+        const openingCash =
+          body?.opening_cash !== undefined ? body.opening_cash : 0;
 
         // Use cashier_id from validated session (not from request body)
         // This ensures the cashier who authenticated via PIN is the one starting the shift
@@ -1880,6 +1895,7 @@ export async function shiftRoutes(fastify: FastifyInstance) {
           terminalId,
           cashierSession.cashierId,
           auditContext,
+          openingCash,
         );
 
         // Link the session to the shift for audit trail
@@ -3083,6 +3099,7 @@ export async function shiftRoutes(fastify: FastifyInstance) {
             data: {
               shift_id: validatedShiftId,
               pack_id: validatedPack.pack.pack_id,
+              cashier_id: shift.cashier_id, // Direct cashier reference for efficient querying
               closing_serial: validatedPack.closingSerial,
               entry_method: validatedPack.entry_method,
               manual_entry_authorized_by:

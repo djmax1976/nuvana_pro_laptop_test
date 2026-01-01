@@ -25,7 +25,7 @@ function getBannerConfig(
   status: LotteryStatus,
   isRequired: boolean,
 ): {
-  variant: "success" | "warning" | "info";
+  variant: "success" | "warning" | "info" | "pending";
   icon: React.ReactNode;
   title: string;
   subtitle: string;
@@ -40,6 +40,20 @@ function getBannerConfig(
       ),
       title: "Lottery Day Closed",
       subtitle: status === "closed_earlier" ? "Closed earlier today" : "",
+      showButton: false,
+      buttonLabel: "",
+    };
+  }
+
+  // Pending - Lottery scanned, awaiting day close commit
+  if (status === "pending") {
+    return {
+      variant: "pending",
+      icon: (
+        <CheckCircle2 className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+      ),
+      title: "Lottery Scanned - Ready to Close",
+      subtitle: "Click 'Complete Day Close' to finalize",
       showButton: false,
       buttonLabel: "",
     };
@@ -73,7 +87,9 @@ function getBannerConfig(
 /**
  * Get CSS classes for banner variant
  */
-function getVariantClasses(variant: "success" | "warning" | "info"): {
+function getVariantClasses(
+  variant: "success" | "warning" | "info" | "pending",
+): {
   card: string;
   title: string;
   subtitle: string;
@@ -85,6 +101,14 @@ function getVariantClasses(variant: "success" | "warning" | "info"): {
         card: "border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30",
         title: "text-green-700 dark:text-green-300",
         subtitle: "text-green-600 dark:text-green-400",
+        button: "",
+      };
+    case "pending":
+      // Pending uses blue theme with a subtle pulsing indication
+      return {
+        card: "border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/30",
+        title: "text-blue-700 dark:text-blue-300",
+        subtitle: "text-blue-600 dark:text-blue-400",
         button: "",
       };
     case "warning":
@@ -124,11 +148,13 @@ export function LotteryStatusBanner({
 
   // Determine subtitle text
   const subtitleText =
-    status === "closed" && lotteryData
-      ? `${lotteryData.closings_created} pack(s) closed`
+    (status === "closed" || status === "pending") && lotteryData
+      ? `${lotteryData.closings_created} pack(s) ${status === "pending" ? "scanned" : "closed"}`
       : config.subtitle;
 
-  const isClosed = status === "closed" || status === "closed_earlier";
+  // Show lottery total for closed, pending, or closed_earlier statuses
+  const showLotteryTotal =
+    status === "closed" || status === "closed_earlier" || status === "pending";
 
   return (
     <Card className={classes.card} data-testid="lottery-status-banner">
@@ -146,9 +172,11 @@ export function LotteryStatusBanner({
           </div>
 
           {/* Right side - Total or Button */}
-          {isClosed ? (
+          {showLotteryTotal ? (
             <div className="text-right">
-              <p className={`text-sm ${classes.subtitle}`}>Lottery Sales</p>
+              <p className={`text-sm ${classes.subtitle}`}>
+                {status === "pending" ? "Estimated Sales" : "Lottery Sales"}
+              </p>
               <p className={`text-2xl font-bold ${classes.title}`}>
                 {formatCurrency(lotteryTotal)}
               </p>

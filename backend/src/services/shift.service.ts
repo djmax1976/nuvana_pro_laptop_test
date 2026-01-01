@@ -502,13 +502,19 @@ export class ShiftService {
    * @param terminalId - POS terminal UUID
    * @param cashierId - Cashier UUID
    * @param auditContext - Audit context for logging
+   * @param openingCash - Optional opening cash amount (defaults to 0)
    * @returns Created shift with shift_number
    * @throws ShiftServiceError if validation fails or active shift exists
+   *
+   * @security
+   * - SEC-014: openingCash validated as non-negative number
+   * - SEC-010: Store access validated via RLS
    */
   async startShift(
     terminalId: string,
     cashierId: string,
     auditContext: AuditContext,
+    openingCash: number = 0,
   ): Promise<Prisma.ShiftGetPayload<{}>> {
     // Get terminal to access store_id and store timezone
     const terminal = await prisma.pOSTerminal.findUnique({
@@ -536,6 +542,14 @@ export class ShiftService {
     // Validate cashier exists and is active
     await this.validateCashier(cashierId);
 
+    // SEC-014: Validate opening_cash is non-negative
+    if (openingCash < 0) {
+      throw new ShiftServiceError(
+        ShiftErrorCode.INVALID_OPENING_CASH,
+        "Opening cash must be a non-negative number",
+      );
+    }
+
     // Check for existing active shift on the POS terminal
     const activeShift = await this.checkActiveShift(terminalId);
     if (activeShift) {
@@ -561,14 +575,14 @@ export class ShiftService {
         tx,
       );
 
-      // Create shift record with shift_number
+      // Create shift record with shift_number and opening_cash
       const newShift = await tx.shift.create({
         data: {
           store_id: terminal.store_id,
           opened_by: auditContext.userId,
           cashier_id: cashierId,
           pos_terminal_id: terminalId,
-          opening_cash: 0, // Default to 0, can be updated via starting-cash endpoint
+          opening_cash: openingCash,
           status: ShiftStatus.OPEN,
           opened_at: new Date(),
           shift_number: shiftNumber,

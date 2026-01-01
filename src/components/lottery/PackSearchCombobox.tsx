@@ -43,6 +43,10 @@ import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown, Loader2, Package } from "lucide-react";
 import { useLotteryPacks, usePackSearch } from "@/hooks/useLottery";
 import type { LotteryPackResponse } from "@/lib/api/lottery";
+import {
+  isValidSerialNumber,
+  parseSerializedNumber,
+} from "@/lib/utils/lottery-serial-parser";
 
 /**
  * Pack option for selection
@@ -150,6 +154,8 @@ export const PackSearchCombobox = forwardRef<
   // ============================================================================
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  // Track if Enter was pressed while search was pending (scanner race condition fix)
+  const [pendingEnterSelect, setPendingEnterSelect] = useState(false);
 
   // Refs
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -182,17 +188,34 @@ export const PackSearchCombobox = forwardRef<
   // Determine if we're in search mode (2+ characters typed)
   const isSearchMode = debouncedSearch.trim().length >= 2;
 
-  // Fetch recent packs (shown on focus when no search query)
+  // CRITICAL: Extract pack number from 24-digit barcode for searching
+  // Barcode format: [game_code:4][pack_number:7][serial_start:3][identifier:10]
+  // Example: "182501032300005216695473" → pack_number = "0103230"
+  // If input is 24 digits, extract positions 5-11 (pack number)
+  // Otherwise, use the input as-is (could be game name or partial pack number)
+  const effectiveSearchTerm = useMemo(() => {
+    const trimmed = debouncedSearch.trim();
+    if (isValidSerialNumber(trimmed)) {
+      // It's a 24-digit barcode - extract pack number
+      const parsed = parseSerializedNumber(trimmed);
+      return parsed.pack_number;
+    }
+    // Not a barcode - use as-is (game name or partial match)
+    return trimmed;
+  }, [debouncedSearch]);
+
+  // Fetch recent packs - disabled, only show results after user types 2+ characters
   const { data: recentPacksData, isLoading: isLoadingRecent } = useLotteryPacks(
     storeId,
     { status: statusFilter },
-    { enabled: isOpen && !isSearchMode },
+    { enabled: false }, // Disabled: only show suggestions after 2+ characters typed
   );
 
   // Fetch packs based on search query (only when searching)
+  // Uses effectiveSearchTerm which extracts pack_number from barcodes
   const { data: searchPacksData, isLoading: isLoadingSearch } = usePackSearch(
     storeId,
-    isSearchMode ? debouncedSearch : undefined,
+    isSearchMode ? effectiveSearchTerm : undefined,
     { status: statusFilter },
     { enabled: isSearchMode },
   );
@@ -251,8 +274,13 @@ export const PackSearchCombobox = forwardRef<
     (pack: PackSearchOption) => {
       // Notify parent of selection
       onPackSelect(pack);
-      // Update display value
-      onSearchQueryChange(`${pack.game_name} - ${pack.pack_number}`);
+      // CRITICAL FIX: Clear search query instead of setting to display name
+      // Setting to display name caused scanner input to append to existing text,
+      // resulting in garbled searches that always matched the same pack.
+      // Parent component (EnhancedPackActivationForm) owns the state and will
+      // clear it after processing the selection.
+      // MCP FE-001: STATE_MANAGEMENT - Parent owns state, child notifies only
+      onSearchQueryChange("");
       // Close dropdown
       setIsOpen(false);
     },
@@ -281,6 +309,16 @@ export const PackSearchCombobox = forwardRef<
           break;
         case "Enter":
           e.preventDefault();
+          // CRITICAL FIX: Handle scanner race condition
+          // Scanners send Enter before the 500ms debounce completes.
+          // If search is pending, queue the selection for when results arrive.
+          // MCP SEC-014: INPUT_VALIDATION - Validate search state before selection
+          if (searchQuery.trim() !== debouncedSearch.trim()) {
+            // Search is still pending - queue selection for when results arrive
+            setPendingEnterSelect(true);
+            return;
+          }
+          // Search is current - select immediately
           // eslint-disable-next-line security/detect-object-injection -- highlightedIndex is a controlled number index
           if (packs[highlightedIndex]) {
             // eslint-disable-next-line security/detect-object-injection -- highlightedIndex is a controlled number index
@@ -293,12 +331,57 @@ export const PackSearchCombobox = forwardRef<
           break;
       }
     },
-    [isOpen, packs, highlightedIndex, handleSelectPack],
+    [
+      isOpen,
+      packs,
+      highlightedIndex,
+      handleSelectPack,
+      searchQuery,
+      debouncedSearch,
+    ],
   );
 
   const handleInputFocus = useCallback(() => {
     setIsOpen(true);
   }, []);
+
+  // ============================================================================
+  // SCANNER RACE CONDITION FIX - Effects after handlers
+  // ============================================================================
+
+  // CRITICAL FIX: Auto-select first result when search completes after pending Enter
+  // This handles the scanner race condition where Enter arrives before debounce completes.
+  // When pendingEnterSelect is true and FILTERED search results arrive, auto-select first match.
+  //
+  // IMPORTANT: Must check isSearchMode to ensure we're selecting from FILTERED results,
+  // not the unfiltered list of all packs. The sequence is:
+  // 1. Scanner types barcode → searchQuery updates character by character
+  // 2. Scanner sends Enter → pendingEnterSelect = true
+  // 3. 500ms later → debouncedSearch updates → isSearchMode = true → API call starts
+  // 4. API returns → isLoading = false → NOW we can safely select
+  //
+  // MCP FE-001: STATE_MANAGEMENT - Handle async state transitions correctly
+  useEffect(() => {
+    // Only auto-select when:
+    // 1. pendingEnterSelect is true (Enter was pressed)
+    // 2. isSearchMode is true (debounce completed, we have filtered results)
+    // 3. isLoading is false (API call completed)
+    // 4. packs.length > 0 (we have results to select from)
+    if (pendingEnterSelect && isSearchMode && !isLoading && packs.length > 0) {
+      // Search completed with FILTERED results - auto-select first pack
+      handleSelectPack(packs[0]);
+      setPendingEnterSelect(false);
+    } else if (
+      pendingEnterSelect &&
+      isSearchMode &&
+      !isLoading &&
+      packs.length === 0
+    ) {
+      // Search completed but no results - clear pending state
+      setPendingEnterSelect(false);
+    }
+    // Note: If pendingEnterSelect && !isSearchMode, we wait for debounce to complete
+  }, [pendingEnterSelect, isSearchMode, isLoading, packs, handleSelectPack]);
 
   return (
     <div ref={dropdownRef} className="relative space-y-2">
@@ -344,7 +427,7 @@ export const PackSearchCombobox = forwardRef<
 
       {error && <p className="text-sm text-red-500">{error}</p>}
 
-      {isOpen && (
+      {isOpen && isSearchMode && (
         <div
           id="pack-listbox"
           role="listbox"

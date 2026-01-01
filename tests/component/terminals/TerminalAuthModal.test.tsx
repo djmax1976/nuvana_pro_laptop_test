@@ -115,7 +115,7 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("[P0] 4.9-COMPONENT-011: should render form with Cashier Name dropdown and PIN Number input", () => {
+  it("[P0] 4.9-COMPONENT-011: should render form with Cashier Name dropdown, Starting Cash, and PIN Number input", () => {
     // GIVEN: Component is rendered
     renderWithProviders(
       <TerminalAuthModal
@@ -132,6 +132,9 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     // Use getAllByText since there are multiple elements with "Cashier Name" text
     const cashierNameElements = screen.getAllByText(/cashier name/i);
     expect(cashierNameElements.length).toBeGreaterThan(0);
+    // THEN: Starting Cash input should be visible
+    expect(screen.getByTestId("starting-cash-input")).toBeInTheDocument();
+    expect(screen.getByText(/starting cash/i)).toBeInTheDocument();
     // THEN: PIN Number input should be visible
     expect(screen.getByTestId("pin-number-input")).toBeInTheDocument();
     expect(screen.getByText(/pin number/i)).toBeInTheDocument();
@@ -203,6 +206,10 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
         onOpenChange={mockOnOpenChange}
       />,
     );
+
+    // WHEN: PIN is filled but cashier name is not selected
+    const pinInput = screen.getByTestId("pin-number-input");
+    await user.type(pinInput, "1234");
 
     // WHEN: Form is submitted without cashier name
     const submitButton = screen.getByTestId("terminal-auth-submit-button");
@@ -303,11 +310,56 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     const submitButton = screen.getByTestId("terminal-auth-submit-button");
     await user.click(submitButton);
 
-    // THEN: onSubmit should be called with form values
+    // THEN: onSubmit should be called with form values (starting_cash is optional)
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith({
         cashier_name: "John Doe",
         pin_number: "1234",
+        starting_cash: undefined,
+      });
+    });
+  });
+
+  it("[P1] 4.9-COMPONENT-017b: should submit form with valid data including starting cash", async () => {
+    // GIVEN: Component is rendered with onSubmit handler
+    const user = userEvent.setup();
+    renderWithProviders(
+      <TerminalAuthModal
+        terminalId={mockTerminalId}
+        storeId={mockStoreId}
+        terminalName={mockTerminalName}
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        onSubmit={mockOnSubmit}
+      />,
+    );
+
+    // WHEN: Form is filled with valid data including starting cash
+    const selectTrigger = screen.getByTestId("cashier-name-select");
+    await user.click(selectTrigger);
+    await waitFor(() => {
+      expect(
+        screen.getByRole("option", { name: "John Doe" }),
+      ).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("option", { name: "John Doe" }));
+
+    const startingCashInput = screen.getByTestId("starting-cash-input");
+    await user.type(startingCashInput, "150.50");
+
+    const pinInput = screen.getByTestId("pin-number-input");
+    await user.type(pinInput, "1234");
+
+    // WHEN: Form is submitted
+    const submitButton = screen.getByTestId("terminal-auth-submit-button");
+    await user.click(submitButton);
+
+    // THEN: onSubmit should be called with form values including starting_cash
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith({
+        cashier_name: "John Doe",
+        pin_number: "1234",
+        starting_cash: 150.5,
       });
     });
   });
@@ -376,5 +428,109 @@ describe("4.9-COMPONENT: TerminalAuthModal Component", () => {
     // THEN: PIN input should have password type
     const pinInput = screen.getByTestId("pin-number-input");
     expect(pinInput).toHaveAttribute("type", "password");
+  });
+
+  // ============ RESUME MODE TESTS ============
+
+  describe("Resume Mode (Active Shift Exists)", () => {
+    const mockActiveShift = {
+      shift_id: "shift-123",
+      cashier_id: "cashier-1",
+      cashier_name: "John Doe",
+      opened_at: "2025-01-28T10:00:00Z",
+      shift_number: 1,
+      opening_cash: 150.0,
+    };
+
+    beforeEach(() => {
+      // Mock active shift exists for resume mode
+      vi.mocked(shiftsApi.useActiveShift).mockReturnValue({
+        data: mockActiveShift,
+        isLoading: false,
+        error: null,
+        isError: false,
+      } as any);
+    });
+
+    it("[P0] 4.9-COMPONENT-020: should NOT show starting cash input when resuming an active shift", () => {
+      // GIVEN: Component is rendered with an active shift (resume mode)
+      renderWithProviders(
+        <TerminalAuthModal
+          terminalId={mockTerminalId}
+          storeId={mockStoreId}
+          terminalName={mockTerminalName}
+          open={true}
+          onOpenChange={mockOnOpenChange}
+        />,
+      );
+
+      // THEN: Starting Cash input should NOT be visible in resume mode
+      expect(
+        screen.queryByTestId("starting-cash-input"),
+      ).not.toBeInTheDocument();
+      // THEN: Cashier Name dropdown should NOT be visible (read-only display instead)
+      expect(
+        screen.queryByTestId("cashier-name-select"),
+      ).not.toBeInTheDocument();
+      // THEN: PIN input should still be visible
+      expect(screen.getByTestId("pin-number-input")).toBeInTheDocument();
+    });
+
+    it("[P0] 4.9-COMPONENT-021: should show shift owner display in resume mode", () => {
+      // GIVEN: Component is rendered with an active shift (resume mode)
+      renderWithProviders(
+        <TerminalAuthModal
+          terminalId={mockTerminalId}
+          storeId={mockStoreId}
+          terminalName={mockTerminalName}
+          open={true}
+          onOpenChange={mockOnOpenChange}
+        />,
+      );
+
+      // THEN: Shift owner display should be visible with cashier name
+      expect(screen.getByTestId("shift-owner-display")).toBeInTheDocument();
+      expect(screen.getByTestId("shift-owner-name")).toHaveTextContent(
+        "John Doe",
+      );
+    });
+
+    it("[P0] 4.9-COMPONENT-022: should show 'Resume Shift' button text in resume mode", () => {
+      // GIVEN: Component is rendered with an active shift (resume mode)
+      renderWithProviders(
+        <TerminalAuthModal
+          terminalId={mockTerminalId}
+          storeId={mockStoreId}
+          terminalName={mockTerminalName}
+          open={true}
+          onOpenChange={mockOnOpenChange}
+        />,
+      );
+
+      // THEN: Submit button should show "Resume Shift" instead of "Start Shift"
+      const submitButton = screen.getByTestId("terminal-auth-submit-button");
+      expect(submitButton).toHaveTextContent(/resume shift/i);
+      expect(submitButton).not.toHaveTextContent(/start shift/i);
+    });
+
+    it("[P1] 4.9-COMPONENT-023: should show resume mode description text", () => {
+      // GIVEN: Component is rendered with an active shift (resume mode)
+      renderWithProviders(
+        <TerminalAuthModal
+          terminalId={mockTerminalId}
+          storeId={mockStoreId}
+          terminalName={mockTerminalName}
+          open={true}
+          onOpenChange={mockOnOpenChange}
+        />,
+      );
+
+      // THEN: Description should indicate resume mode
+      expect(
+        screen.getByText(
+          new RegExp(`Resume shift on terminal: ${mockTerminalName}`, "i"),
+        ),
+      ).toBeInTheDocument();
+    });
   });
 });

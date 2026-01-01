@@ -58,8 +58,10 @@ const EXPECTED_BARCODE_LENGTH = 24;
 
 /**
  * Pack item in reception list
+ * Exported for parent component state management
+ * MCP FE-001: STATE_MANAGEMENT - Type exported for lifted state pattern
  */
-interface PackItem {
+export interface PackItem {
   serial: string;
   game_code: string;
   pack_number: string;
@@ -73,8 +75,16 @@ interface PackItem {
   isValidating?: boolean;
   /** Scan metrics for server-side validation */
   scanMetrics?: ScanMetrics;
+  /** Timestamp when pack was added (for display/debugging) */
+  addedAt?: number;
 }
 
+/**
+ * Props for PackReceptionForm
+ *
+ * MCP FE-001: STATE_MANAGEMENT - Supports lifted state pattern
+ * Parent can optionally manage packList state to persist across modal close/reopen
+ */
 interface PackReceptionFormProps {
   storeId: string;
   open: boolean;
@@ -85,6 +95,27 @@ interface PackReceptionFormProps {
    * Set to false for testing or accessibility exceptions
    */
   enforceScanOnly?: boolean;
+  /**
+   * Optional: Pack list managed by parent (lifted state pattern)
+   * When provided, packList state is controlled by parent
+   * MCP FE-001: STATE_MANAGEMENT - Parent owns data for persistence
+   */
+  packList?: PackItem[];
+  /**
+   * Optional: Callback when a pack is added (lifted state pattern)
+   * Required when packList is provided
+   */
+  onPackAdd?: (pack: PackItem) => void;
+  /**
+   * Optional: Callback when a pack is removed (lifted state pattern)
+   * Required when packList is provided
+   */
+  onPackRemove?: (index: number) => void;
+  /**
+   * Optional: Callback to clear all packs (lifted state pattern)
+   * Called on successful submission or explicit cancel
+   */
+  onPacksClear?: () => void;
 }
 
 /**
@@ -94,6 +125,10 @@ interface PackReceptionFormProps {
  *
  * SECURITY: Manual keyboard entry is detected and rejected.
  * Uses keystroke timing analysis to distinguish scanner vs typing.
+ *
+ * MCP FE-001: STATE_MANAGEMENT - Supports both local and lifted state patterns
+ * When packList prop is provided, component uses controlled mode (parent owns state)
+ * When packList prop is not provided, component uses internal state (backward compatible)
  */
 export function PackReceptionForm({
   storeId,
@@ -101,11 +136,23 @@ export function PackReceptionForm({
   onOpenChange,
   onSuccess,
   enforceScanOnly = true,
+  // Lifted state props (optional - for parent-controlled mode)
+  packList: externalPackList,
+  onPackAdd,
+  onPackRemove,
+  onPacksClear,
 }: PackReceptionFormProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingGames, setIsLoadingGames] = useState(false);
-  const [packList, setPackList] = useState<PackItem[]>([]);
+
+  // Internal state for backward compatibility (used when props not provided)
+  const [internalPackList, setInternalPackList] = useState<PackItem[]>([]);
+
+  // MCP FE-001: STATE_MANAGEMENT - Determine if using controlled or uncontrolled mode
+  const isControlled = externalPackList !== undefined;
+  const packList = isControlled ? externalPackList : internalPackList;
+
   const [inputValue, setInputValue] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
@@ -189,10 +236,16 @@ export function PackReceptionForm({
     }
   }, [open]);
 
-  // Reset form when dialog closes
+  // Reset form state when dialog closes
+  // MCP FE-001: STATE_MANAGEMENT - In controlled mode, DO NOT clear packList
+  // (parent owns state and decides when to clear). Only clear internal state.
   useEffect(() => {
     if (!open) {
-      setPackList([]);
+      // Only clear packList in uncontrolled mode (parent controls in controlled mode)
+      if (!isControlled) {
+        setInternalPackList([]);
+      }
+      // Always clear input and transient modal states
       setInputValue("");
       setPendingGameToCreate(null);
       setShowNewGameModal(false);
@@ -202,7 +255,7 @@ export function PackReceptionForm({
         debounceTimer.current = null;
       }
     }
-  }, [open]);
+  }, [open, isControlled]);
 
   // Focus input when dialog opens (after animation completes)
   useEffect(() => {
@@ -228,6 +281,7 @@ export function PackReceptionForm({
 
   /**
    * Add pack to list after game is validated/created
+   * MCP FE-001: STATE_MANAGEMENT - Supports both controlled and uncontrolled modes
    */
   const addPackToList = useCallback(
     (
@@ -247,12 +301,19 @@ export function PackReceptionForm({
         game_pack_value: game.pack_value ?? undefined,
         game_total_tickets: game.total_tickets ?? undefined,
         scanMetrics,
+        addedAt: Date.now(),
       };
 
-      setPackList((prev) => [...prev, newPack]);
+      // Prepend to list (newest first) for immediate visual feedback
+      // MCP FE-001: STATE_MANAGEMENT - Use callback in controlled mode, internal state otherwise
+      if (isControlled && onPackAdd) {
+        onPackAdd(newPack);
+      } else {
+        setInternalPackList((prev) => [newPack, ...prev]);
+      }
       clearInputAndFocus();
     },
-    [clearInputAndFocus],
+    [clearInputAndFocus, isControlled, onPackAdd],
   );
 
   // State for checking pack existence
@@ -462,14 +523,24 @@ export function PackReceptionForm({
 
   /**
    * Remove pack from list
+   * MCP FE-001: STATE_MANAGEMENT - Supports both controlled and uncontrolled modes
    */
-  const handleRemovePack = useCallback((index: number) => {
-    setPackList((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  const handleRemovePack = useCallback(
+    (index: number) => {
+      if (isControlled && onPackRemove) {
+        onPackRemove(index);
+      } else {
+        setInternalPackList((prev) => prev.filter((_, i) => i !== index));
+      }
+    },
+    [isControlled, onPackRemove],
+  );
 
   /**
    * Handle batch submission
    * Includes scan metrics for server-side validation
+   *
+   * MCP SEC-014: INPUT_VALIDATION - Validate scan metrics array integrity before submission
    */
   const handleSubmit = useCallback(async () => {
     const serials = packList.map((pack) => pack.serial);
@@ -484,15 +555,30 @@ export function PackReceptionForm({
       return;
     }
 
+    // MCP SEC-014: Validate that ALL packs have scan metrics when enforcement is enabled
+    // Filter(Boolean) was causing array length mismatch - server expects 1:1 correlation
+    if (enforceScanOnly) {
+      const packsWithoutMetrics = packList.filter((pack) => !pack.scanMetrics);
+      if (packsWithoutMetrics.length > 0) {
+        toast({
+          title: "Scan validation error",
+          description: `${packsWithoutMetrics.length} pack(s) missing scan data. Please remove and re-scan them.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
       // Submit all packs via batch API with scan metrics
+      // Note: scanMetricsArray is guaranteed to have same length as serials when enforceScanOnly=true
       const response = await receivePackBatch({
         serialized_numbers: serials,
         store_id: storeId,
-        // Include scan metrics for server-side validation
+        // Include scan metrics for server-side validation (array length matches serials)
         scan_metrics: enforceScanOnly
-          ? (scanMetricsArray.filter(Boolean) as ScanMetrics[])
+          ? (scanMetricsArray as ScanMetrics[])
           : undefined,
       });
 
@@ -511,8 +597,13 @@ export function PackReceptionForm({
             }${errorCount > 0 ? `, ${errorCount} error(s)` : ""}`,
           });
 
-          // Reset form
-          setPackList([]);
+          // Reset form - clear packs using appropriate method based on mode
+          // MCP FE-001: STATE_MANAGEMENT - Use callback in controlled mode
+          if (isControlled && onPacksClear) {
+            onPacksClear();
+          } else {
+            setInternalPackList([]);
+          }
           setInputValue("");
           scanDetectorRef.current.reset();
           onOpenChange(false);
@@ -550,7 +641,16 @@ export function PackReceptionForm({
     } finally {
       setIsSubmitting(false);
     }
-  }, [packList, storeId, toast, onOpenChange, onSuccess, enforceScanOnly]);
+  }, [
+    packList,
+    storeId,
+    toast,
+    onOpenChange,
+    onSuccess,
+    enforceScanOnly,
+    isControlled,
+    onPacksClear,
+  ]);
 
   /**
    * Handle game created callback - add the pack to list after game creation

@@ -464,7 +464,8 @@ export function AddBinModal({
             : undefined,
         };
 
-        setPendingAssignments((prev) => [...prev, newAssignment]);
+        // Add new assignment at TOP of list (newest first)
+        setPendingAssignments((prev) => [newAssignment, ...prev]);
 
         // Show warning toast if assigning to an occupied bin
         if (isOccupied) {

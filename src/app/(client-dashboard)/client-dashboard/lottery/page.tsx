@@ -5,7 +5,10 @@ import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
 import { StoreTabs } from "@/components/lottery/StoreTabs";
 import { LotteryTable } from "@/components/lottery/LotteryTable";
-import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
+import {
+  PackReceptionForm,
+  type PackItem,
+} from "@/components/lottery/PackReceptionForm";
 import { EditLotteryDialog } from "@/components/lottery/EditLotteryDialog";
 import { DeleteLotteryDialog } from "@/components/lottery/DeleteLotteryDialog";
 import { AddBinModal } from "@/components/lottery/AddBinModal";
@@ -40,6 +43,11 @@ export default function ClientDashboardLotteryPage() {
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isAddBinDialogOpen, setIsAddBinDialogOpen] = useState(false);
+
+  // MCP FE-001: STATE_MANAGEMENT - Lifted state for pack reception
+  // Pack list is owned by parent to persist across modal close/reopen
+  // Prevents data loss if user accidentally closes modal during batch scanning
+  const [receptionPackList, setReceptionPackList] = useState<PackItem[]>([]);
   const [editingPackId, setEditingPackId] = useState<string | null>(null);
   const [deletingPackId, setDeletingPackId] = useState<string | null>(null);
   const [occupiedBinNumbers, setOccupiedBinNumbers] = useState<number[]>([]);
@@ -51,6 +59,21 @@ export default function ClientDashboardLotteryPage() {
       .filter((bin) => bin.current_pack != null)
       .map((bin) => bin.display_order + 1); // display_order is 0-indexed, bin numbers are 1-indexed
     setOccupiedBinNumbers(occupied);
+  }, []);
+
+  // MCP FE-001: STATE_MANAGEMENT - Lifted state callbacks for PackReceptionForm
+  // These handlers manage pack list state at parent level for persistence
+  const handlePackAdd = useCallback((pack: PackItem) => {
+    // Prepend new pack to list (newest first for immediate visual feedback)
+    setReceptionPackList((prev) => [pack, ...prev]);
+  }, []);
+
+  const handlePackRemove = useCallback((index: number) => {
+    setReceptionPackList((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const handlePacksClear = useCallback(() => {
+    setReceptionPackList([]);
   }, []);
 
   // Set first store as selected when stores are loaded
@@ -199,11 +222,17 @@ export default function ClientDashboardLotteryPage() {
       </Tabs>
 
       {/* Pack Reception Form (Serialized Input) */}
+      {/* MCP FE-001: STATE_MANAGEMENT - Parent owns pack list state for persistence */}
+      {/* Pack list survives modal close/reopen to prevent accidental data loss */}
       {selectedStoreId && (
         <PackReceptionForm
           open={isAddDialogOpen}
           onOpenChange={setIsAddDialogOpen}
           storeId={selectedStoreId}
+          packList={receptionPackList}
+          onPackAdd={handlePackAdd}
+          onPackRemove={handlePackRemove}
+          onPacksClear={handlePacksClear}
           onSuccess={() => {
             setIsAddDialogOpen(false);
             // Invalidate the lottery packs query to refresh the table

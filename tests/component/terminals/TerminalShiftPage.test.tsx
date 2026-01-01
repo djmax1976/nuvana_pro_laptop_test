@@ -5,6 +5,7 @@
  * - End Shift button navigation to shift-end page
  * - Close Day button navigation to day-close page
  * - Shift ID passed as query parameter
+ * - Terminal name display in header
  *
  * @test-level Component
  * @justification Tests navigation behavior for shift and day closing flows
@@ -34,31 +35,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-// Mock useUpdateStartingCash
-vi.mock("@/lib/api/shifts", () => ({
-  useUpdateStartingCash: () => ({
-    mutate: vi.fn(),
-    isPending: false,
-    isSuccess: false,
-    isError: false,
-  }),
-}));
-
-// Mock CashierSessionContext
-const mockSession = {
-  sessionToken: "test-token",
-  cashierId: "cashier-1",
-  storeId: "store-1",
-  terminalId: "terminal-1",
-};
-
-vi.mock("@/contexts/CashierSessionContext", () => ({
-  useCashierSession: () => ({
-    session: mockSession,
-  }),
-  CashierSessionProvider: ({ children }: { children: React.ReactNode }) =>
-    children,
-}));
+// No mocks needed - component no longer has starting cash form
 
 describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
   const mockShift = {
@@ -81,7 +58,7 @@ describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
       <TerminalShiftPageContent
         shift={mockShift}
         cashierName="Test Cashier"
-        terminalId="terminal-1"
+        terminalName="Register 1"
       />,
     );
 
@@ -94,7 +71,7 @@ describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
     );
   });
 
-  it("4.92-NAV-002: should navigate to day-close page when Close Day button is clicked", async () => {
+  it("4.92-NAV-002: should navigate to day-close wizard when Close Day button is clicked", async () => {
     // GIVEN: TerminalShiftPageContent with active shift
     // WHEN: User clicks Close Day button
     const user = userEvent.setup();
@@ -102,14 +79,15 @@ describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
       <TerminalShiftPageContent
         shift={mockShift}
         cashierName="Test Cashier"
-        terminalId="terminal-1"
+        terminalName="Register 1"
       />,
     );
 
     const closeDayButton = screen.getByTestId("close-day-button");
     await user.click(closeDayButton);
 
-    // THEN: Router navigates to day-close page with shiftId query parameter
+    // THEN: Router navigates to day-close wizard with shiftId
+    // Day Close Wizard has 3 steps: Lottery Close, Report Scanning, Day Close
     expect(mockPush).toHaveBeenCalledWith(
       "/mystore/day-close?shiftId=shift-123",
     );
@@ -126,7 +104,7 @@ describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
       <TerminalShiftPageContent
         shift={differentShift}
         cashierName="Test Cashier"
-        terminalId="terminal-1"
+        terminalName="Register 1"
       />,
     );
 
@@ -147,7 +125,7 @@ describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
       <TerminalShiftPageContent
         shift={mockShift}
         cashierName="Test Cashier"
-        terminalId="terminal-1"
+        terminalName="Register 1"
       />,
     );
 
@@ -171,7 +149,7 @@ describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
       <TerminalShiftPageContent
         shift={mockShift}
         cashierName="Test Cashier"
-        terminalId="terminal-1"
+        terminalName="Register 1"
       />,
     );
 
@@ -197,16 +175,20 @@ describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
       <TerminalShiftPageContent
         shift={mockShift}
         cashierName="Test Cashier"
-        terminalId="terminal-1"
+        terminalName="Register 1"
       />,
     );
 
     const closeDayButton = screen.getByTestId("close-day-button");
     await user.click(closeDayButton);
 
-    // THEN: Navigation URL contains valid shiftId (not malicious input)
+    // THEN: Navigation URL contains valid shiftId
+    // Now navigates directly to day-close wizard
     expect(mockPush).toHaveBeenCalledWith(
-      expect.stringMatching(/shiftId=shift-123$/),
+      expect.stringContaining("shiftId=shift-123"),
+    );
+    expect(mockPush).toHaveBeenCalledWith(
+      expect.stringContaining("/mystore/day-close"),
     );
     // Verify no path traversal or injection attempts
     expect(mockPush).not.toHaveBeenCalledWith(expect.stringContaining("../"));
@@ -224,7 +206,7 @@ describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
       <TerminalShiftPageContent
         shift={mockShift}
         cashierName="Test Cashier"
-        terminalId="terminal-1"
+        terminalName="Register 1"
       />,
     );
 
@@ -247,7 +229,7 @@ describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
       <TerminalShiftPageContent
         shift={mockShift}
         cashierName="Test Cashier"
-        terminalId="terminal-1"
+        terminalName="Register 1"
       />,
     );
 
@@ -256,6 +238,68 @@ describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
     const closeDayButton = screen.getByTestId("close-day-button");
     expect(endShiftButton).toBeInTheDocument();
     expect(closeDayButton).toBeInTheDocument();
+  });
+
+  // ============ OPENING CASH DISPLAY TESTS ============
+
+  it("4.92-DISPLAY-001: should display opening cash in shift information header", () => {
+    // GIVEN: TerminalShiftPageContent with shift containing opening_cash
+    // WHEN: Component is rendered
+    renderWithProviders(
+      <TerminalShiftPageContent
+        shift={mockShift}
+        cashierName="Test Cashier"
+        terminalName="Register 1"
+      />,
+    );
+
+    // THEN: Opening cash should be displayed with correct formatting
+    const openingCashDisplay = screen.getByTestId("opening-cash-display");
+    expect(openingCashDisplay).toBeInTheDocument();
+    expect(openingCashDisplay).toHaveTextContent("Opening Cash:");
+    expect(openingCashDisplay).toHaveTextContent("$100.00");
+  });
+
+  it("4.92-DISPLAY-002: should format opening cash as currency correctly", () => {
+    // GIVEN: TerminalShiftPageContent with different opening_cash values
+    const shiftWithDecimal = {
+      ...mockShift,
+      opening_cash: 250.75,
+    };
+
+    // WHEN: Component is rendered
+    renderWithProviders(
+      <TerminalShiftPageContent
+        shift={shiftWithDecimal}
+        cashierName="Test Cashier"
+        terminalName="Register 1"
+      />,
+    );
+
+    // THEN: Opening cash should be formatted correctly
+    const openingCashDisplay = screen.getByTestId("opening-cash-display");
+    expect(openingCashDisplay).toHaveTextContent("$250.75");
+  });
+
+  it("4.92-DISPLAY-003: should display zero opening cash correctly", () => {
+    // GIVEN: TerminalShiftPageContent with zero opening_cash
+    const shiftWithZeroCash = {
+      ...mockShift,
+      opening_cash: 0,
+    };
+
+    // WHEN: Component is rendered
+    renderWithProviders(
+      <TerminalShiftPageContent
+        shift={shiftWithZeroCash}
+        cashierName="Test Cashier"
+        terminalName="Register 1"
+      />,
+    );
+
+    // THEN: Opening cash should show $0.00
+    const openingCashDisplay = screen.getByTestId("opening-cash-display");
+    expect(openingCashDisplay).toHaveTextContent("$0.00");
   });
 
   it("4.92-NAV-EDGE-002: should handle navigation errors gracefully", async () => {
@@ -272,7 +316,7 @@ describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
       <TerminalShiftPageContent
         shift={mockShift}
         cashierName="Test Cashier"
-        terminalId="terminal-1"
+        terminalName="Register 1"
       />,
     );
 
@@ -292,7 +336,7 @@ describe("4.92-COMPONENT: TerminalShiftPage Navigation", () => {
       <TerminalShiftPageContent
         shift={mockShift}
         cashierName="Test Cashier"
-        terminalId="terminal-1"
+        terminalName="Register 1"
       />,
     );
 
