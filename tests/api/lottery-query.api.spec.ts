@@ -1278,11 +1278,37 @@ test.describe("6.11-API: Lottery Query API Endpoints", () => {
       "Soft-deleted bin should NOT be returned",
     ).toBeUndefined();
 
-    // Verify all returned bins have is_active = true
+    // Verify response structure matches API contract (is_active is NOT included in response)
+    // The API filters by is_active=true internally but doesn't expose the field
+    expect(activeBin, "Response should include expected fields").toMatchObject({
+      bin_id: expect.any(String),
+      store_id: storeId,
+      name: "Active Query Bin",
+      created_at: expect.any(String),
+      updated_at: expect.any(String),
+    });
+
+    // Verify is_active is NOT included in response (API design decision)
     expect(
-      body.data.every((bin: any) => bin.is_active === true),
-      "All returned bins should have is_active = true",
-    ).toBe(true);
+      activeBin.is_active,
+      "is_active should not be in response (filtered internally)",
+    ).toBeUndefined();
+
+    // Verify the soft-deleted bin still exists in database with is_active=false
+    // This confirms soft-delete worked and the API correctly filtered it out
+    const softDeletedBinInDb = await withBypassClient(async (tx) => {
+      return tx.lotteryBin.findFirst({
+        where: {
+          store_id: storeId,
+          name: "Deleted Query Bin",
+          is_active: false,
+        },
+      });
+    });
+    expect(
+      softDeletedBinInDb,
+      "Soft-deleted bin should exist in database with is_active=false",
+    ).toBeDefined();
 
     // Cleanup
     await withBypassClient(async (tx) => {

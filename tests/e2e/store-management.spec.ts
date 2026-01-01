@@ -258,13 +258,27 @@ test.describe("Store Management E2E", () => {
     await nameInput.clear();
     await nameInput.fill(newName);
 
-    // Use accessible selector for status combobox
-    const statusSelect = page.getByRole("combobox", { name: "Status" });
-    await statusSelect.click();
-    await page.locator('div[role="option"]:has-text("Inactive")').click();
+    // Enterprise Pattern: Use form context + label text for reliable selection
+    // The Shadcn Select trigger is inside FormItem with FormLabel "Status"
+    // Using parent context ensures we get the correct combobox
+    const statusFormItem = page
+      .locator("form")
+      .getByText("Status")
+      .locator("..");
+    const statusTrigger = statusFormItem.locator('button[role="combobox"]');
+    await expect(statusTrigger).toBeVisible({ timeout: 10000 });
+    await statusTrigger.click();
+
+    // Wait for select content to be visible then click option
+    const inactiveOption = page
+      .locator('[role="option"]')
+      .filter({ hasText: "Inactive" });
+    await expect(inactiveOption).toBeVisible({ timeout: 5000 });
+    await inactiveOption.click();
 
     // Use accessible selector for submit button
     const submitButton = page.getByRole("button", { name: "Update Store" });
+    await expect(submitButton).toBeEnabled({ timeout: 5000 });
     await submitButton.click();
 
     // Wait for success message or navigation instead of hard wait

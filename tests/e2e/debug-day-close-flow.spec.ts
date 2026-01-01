@@ -4,7 +4,12 @@
  */
 import { test, expect } from "@playwright/test";
 
-test.describe("Debug Day Close Flow", () => {
+/**
+ * DEBUG TEST - Skip in CI/CD
+ * This test uses hardcoded credentials and is only for manual debugging.
+ * Run manually with: npx playwright test tests/e2e/debug-day-close-flow.spec.ts --headed
+ */
+test.describe.skip("Debug Day Close Flow", () => {
   test("should navigate to lottery scanner wizard when clicking Close Day", async ({
     page,
   }) => {
