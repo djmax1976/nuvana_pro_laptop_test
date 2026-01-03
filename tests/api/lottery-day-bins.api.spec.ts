@@ -336,14 +336,19 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     );
     expect(testBin, "Test bin should be present").toBeDefined();
     expect(testBin.pack, "Pack should be present in bin").toBeDefined();
+
     expect(
       testBin.pack.starting_serial,
       "Starting serial should be from LotteryDayPack (day-based tracking)",
     ).toBe("015");
+    // is_first_period is determined by historicalClosingByPack, which checks for
+    // previous LotteryShiftClosing records (not LotteryDayPack records).
+    // Since this is a newly created pack with no historical shift closings,
+    // is_first_period will be true (first ticket is inclusive in counting).
     expect(
       testBin.pack.is_first_period,
-      "Should NOT be first period (has day pack history)",
-    ).toBe(false);
+      "Should be first period (new pack, no historical shift closings)",
+    ).toBe(true);
 
     // Cleanup in correct order (FK constraints)
     await withBypassClient(async (tx) => {
