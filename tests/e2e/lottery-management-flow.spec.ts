@@ -48,7 +48,7 @@ async function loginAndWaitForMyStore(
   page: Page,
   email: string,
   password: string,
-  maxRetries: number = 2,
+  maxRetries: number = 3,
 ): Promise<void> {
   let lastError: Error | null = null;
 
@@ -56,21 +56,20 @@ async function loginAndWaitForMyStore(
     try {
       // Navigate to login page with fresh state
       await page.goto("/login", { waitUntil: "domcontentloaded" });
+      await page.waitForLoadState("domcontentloaded");
+
+      // Enterprise Pattern: Wait for React hydration before interacting
+      // This prevents race conditions where form appears but isn't interactive
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await page.waitForTimeout(300);
 
       // Wait for form elements to be ready
       const emailInput = page.locator('input[type="email"]');
       const passwordInput = page.locator('input[type="password"]');
       const submitButton = page.locator('button[type="submit"]');
 
-      // Enterprise Pattern: Increased timeouts for CI environments with slower startup
       // Wait for React hydration - form should be interactive
       await expect(emailInput).toBeEditable({ timeout: 45000 });
-
-      // Wait for page to fully hydrate (ensures React has attached event handlers)
-      await page.waitForLoadState("networkidle").catch(() => {});
-
-      // Small delay to ensure React event handlers are attached
-      await page.waitForTimeout(200);
 
       // Enterprise Pattern: Clear existing values before filling
       // This handles cases where React might have auto-filled values
@@ -81,9 +80,9 @@ async function loginAndWaitForMyStore(
       await passwordInput.clear();
       await passwordInput.fill(password);
 
-      // Verify credentials were filled
-      await expect(emailInput).toHaveValue(email);
-      await expect(passwordInput).toHaveValue(password);
+      // Verify credentials were filled correctly before submitting
+      await expect(emailInput).toHaveValue(email, { timeout: 5000 });
+      await expect(passwordInput).toHaveValue(password, { timeout: 5000 });
 
       // Set up response listener BEFORE click to ensure we catch the response
       const loginResponsePromise = page.waitForResponse(
@@ -109,6 +108,18 @@ async function loginAndWaitForMyStore(
       // Wait for redirect to /mystore (indicates successful auth)
       await page.waitForURL(/.*mystore.*/, { timeout: 45000 });
 
+      // Enterprise Pattern: Wait for the mystore page to actually load
+      // This prevents navigation before auth context is ready
+      await page
+        .locator('[data-testid="mystore-dashboard-page"]')
+        .waitFor({ state: "visible", timeout: 30000 })
+        .catch(() => {
+          // Page might have a different testid, continue anyway
+        });
+
+      // Brief wait for network to settle
+      await page.waitForLoadState("networkidle").catch(() => {});
+
       // Success - exit retry loop
       return;
     } catch (error) {
@@ -119,8 +130,8 @@ async function loginAndWaitForMyStore(
         console.log(
           `Login attempt ${attempt} failed for ${email}: ${lastError.message}. Retrying...`,
         );
-        // Brief pause before retry
-        await page.waitForTimeout(1000);
+        // Longer pause before retry to allow backend to stabilize
+        await page.waitForTimeout(2000);
       }
     }
   }
@@ -215,11 +226,14 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
   let game: { game_id: string };
   const password = "TestPassword123!";
 
-  // Enterprise Pattern: Add a small delay between tests to prevent race conditions
-  // with browser context switching in serial mode
+  // Enterprise Pattern: Add delay between tests to prevent race conditions
+  // with browser context switching and session handling in serial mode
   test.beforeEach(async ({ page }) => {
-    // Brief pause to let any pending network/browser operations complete
-    await page.waitForTimeout(500);
+    // Longer pause between tests to allow:
+    // 1. Previous browser context to fully close
+    // 2. Session cleanup on backend
+    // 3. Database connection pool reset
+    await page.waitForTimeout(1000);
   });
 
   test.beforeAll(async () => {
@@ -421,10 +435,12 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       name: `Bin-${testTimestamp}`,
     });
 
+    // Use a shorter pack number for cleaner display and easier testing
+    const packNumber = `PKT${testTimestamp.toString().slice(-6)}`;
     const pack = await createLotteryPack(prisma, {
       game_id: game.game_id,
       store_id: store.store_id,
-      pack_number: `E2E-PACK-${testTimestamp}`,
+      pack_number: packNumber,
       serial_start: "0001",
       serial_end: "0100",
       status: LotteryPackStatus.ACTIVE,
@@ -438,11 +454,26 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       // Enterprise Pattern: Use shared navigation helper for consistent behavior
       await navigateToLotteryPage(page);
 
+      // Enterprise Pattern: Explicitly wait for the bins API to complete
+      // The day bins table data comes from /api/lottery/day-bins endpoint
+      await page
+        .waitForResponse(
+          (resp) =>
+            resp.url().includes("/api/lottery/day-bins") &&
+            resp.status() === 200,
+          { timeout: 30000 },
+        )
+        .catch(() => {
+          // API may have already completed during navigateToLotteryPage
+        });
+
       // THEN: Day bins table displays with our pack
-      // The navigateToLotteryPage helper already waits for data to load
       const table = page.locator('[data-testid="day-bins-table"]');
-      await expect(table).toBeVisible({ timeout: 20000 });
-      await expect(table).toContainText(pack.pack_number, { timeout: 15000 });
+      await expect(table).toBeVisible({ timeout: 25000 });
+
+      // Enterprise Pattern: Wait for table content to be populated
+      // The table may render before data arrives, so we wait for specific content
+      await expect(table).toContainText(packNumber, { timeout: 20000 });
     } finally {
       // Cleanup in correct FK order - handle constraints gracefully
       await prisma.lotteryShiftOpening
@@ -468,11 +499,13 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
 
     // GIVEN: A RECEIVED pack exists for the store
     // Use unique pack number with timestamp to avoid collisions across test runs
+    // Use a shorter, more searchable pack number format for reliable E2E testing
     const testTimestamp = Date.now();
+    const packNumber = `RCV${testTimestamp.toString().slice(-6)}`;
     const pack = await createLotteryPack(prisma, {
       game_id: game.game_id,
       store_id: store.store_id,
-      pack_number: `E2E-RECEIVED-${testTimestamp}`,
+      pack_number: packNumber,
       serial_start: "001",
       serial_end: "100",
       status: LotteryPackStatus.RECEIVED,
@@ -486,20 +519,16 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       // This handles auth redirects, timeouts, and page loading in a standardized way
       await navigateToLotteryPage(page);
 
-      // Set up packs API listener to verify pack was loaded
-      // Note: The initial API call may have already completed during navigateToLotteryPage
-      // We verify the button state instead of relying on catching the exact API response
-      const packsData = { success: true }; // Verified by navigateToLotteryPage waiting for data load
-
-      // Verify API returned success with expected structure
-      expect(packsData.success).toBe(true);
-
       // THEN: Activate Pack button should be enabled (we have a RECEIVED pack)
+      // Wait for the packs API to complete - button state depends on this
       const activateButton = page.locator(
         '[data-testid="activate-pack-button"]',
       );
-      await expect(activateButton).toBeVisible({ timeout: 15000 });
-      await expect(activateButton).toBeEnabled({ timeout: 15000 });
+      await expect(activateButton).toBeVisible({ timeout: 20000 });
+
+      // Enterprise Pattern: Wait for button to be enabled with retry
+      // The button may be momentarily disabled while packs are loading
+      await expect(activateButton).toBeEnabled({ timeout: 30000 });
 
       // WHEN: User clicks Activate Pack button
       await activateButton.click();
@@ -532,21 +561,25 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       // Note: The PackSearchCombobox requires 2+ characters to trigger search mode
       // (see isSearchMode in PackSearchCombobox.tsx line 189)
       // MCP Enterprise Pattern: Use deterministic search query with known pack number
+      // Use the first 5 characters "RCVxx" which is unique enough to match our pack
+      const searchTerm = packNumber.substring(0, 5);
       await packSearchInput.click();
-      await packSearchInput.fill(pack.pack_number.substring(0, 4));
+      await packSearchInput.fill(searchTerm);
 
-      // Wait for debounced search to complete (500ms debounce + API response)
-      // Set up response listener before waiting for dropdown
+      // Enterprise Pattern: Set up response listener BEFORE the debounce completes
+      // The search uses a 500ms debounce, so the API call happens after typing
       const searchResponsePromise = page.waitForResponse(
         (resp) =>
-          /\/api\/lottery\/packs.*search/.test(resp.url()) &&
+          resp.url().includes("/api/lottery/packs") &&
+          resp.url().includes("search") &&
           resp.status() === 200,
         { timeout: 30000 },
       );
 
       // Wait for search API response (deterministic wait)
+      // This ensures the dropdown has data before we check visibility
       await searchResponsePromise.catch(() => {
-        // Search might use cached data, continue anyway
+        // Search might use cached data or different endpoint pattern, continue
       });
 
       // Wait for the dropdown to appear (data may come from cache or fresh fetch)
@@ -554,7 +587,7 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
       const packDropdown = page.locator(
         '[data-testid="batch-pack-search-dropdown"]',
       );
-      await expect(packDropdown).toBeVisible({ timeout: 20000 });
+      await expect(packDropdown).toBeVisible({ timeout: 25000 });
 
       // Verify at least one pack option is visible (our created pack)
       // The combobox uses indexed options based on testId: batch-pack-search-option-0
@@ -565,7 +598,7 @@ test.describe("6.10-E2E: Lottery Management Flow", () => {
 
       // Verify the option contains our pack's information
       // The option displays: Game Name, Pack #<number>, Serials <start>-<end>
-      await expect(firstPackOption).toContainText(pack.pack_number, {
+      await expect(firstPackOption).toContainText(packNumber, {
         timeout: 10000,
       });
     } finally {

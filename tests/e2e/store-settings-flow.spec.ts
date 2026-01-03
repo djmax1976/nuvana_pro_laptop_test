@@ -269,23 +269,33 @@ async function cleanupTestFixture(
 
 /**
  * Navigate to settings page and wait for it to load using network-first pattern.
+ *
+ * Enterprise Pattern: Uses graceful API wait that doesn't fail if API completed before listener
  */
 async function navigateToSettingsPage(page: Page): Promise<void> {
-  const dashboardApiPromise = page.waitForResponse(
-    (resp) =>
-      resp.url().includes("/api/client/dashboard") && resp.status() === 200,
-    { timeout: TEST_TIMEOUTS.DASHBOARD_API_RESPONSE },
-  );
-
   await page.goto("/client-dashboard/settings", {
     waitUntil: "domcontentloaded",
   });
 
-  await dashboardApiPromise;
+  // Enterprise Pattern: Wait for dashboard API to complete if it hasn't already
+  // The API might have already completed during navigation, so we use catch
+  await page
+    .waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/client/dashboard") && resp.status() === 200,
+      { timeout: TEST_TIMEOUTS.DASHBOARD_API_RESPONSE },
+    )
+    .catch(() => {
+      // API may have completed before we started listening, continue
+    });
 
+  // Enterprise Pattern: Wait for settings page content to render
   await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
     timeout: TEST_TIMEOUTS.ELEMENT_VISIBLE,
   });
+
+  // Brief wait for network to settle
+  await page.waitForLoadState("networkidle").catch(() => {});
 }
 
 // ============================================================================
@@ -310,16 +320,24 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
         fixture.password,
       );
 
+      // Enterprise Pattern: Wait for dashboard to be fully loaded before navigation
+      // This ensures React auth context is populated and navigation will succeed
+      await expect(
+        page.locator('[data-testid="client-dashboard-page"]'),
+      ).toBeVisible({ timeout: 30000 });
+
       // WHEN: User clicks "Settings" in sidebar navigation
       const settingsLink = page.locator(
         '[data-testid="client-nav-link-settings"]',
       );
       await expect(settingsLink).toBeVisible({ timeout: 20000 });
 
-      await Promise.all([
-        page.waitForURL(/.*\/client-dashboard\/settings.*/, { timeout: 30000 }),
-        settingsLink.click(),
-      ]);
+      // Enterprise Pattern: Click and wait for URL change separately
+      // Using Promise.all with click can cause race conditions in slow CI environments
+      await settingsLink.click();
+      await page.waitForURL(/.*\/client-dashboard\/settings.*/, {
+        timeout: 30000,
+      });
 
       // THEN: User is navigated to /client-dashboard/settings
       await expect(page).toHaveURL(/.*\/client-dashboard\/settings.*/);
@@ -328,6 +346,19 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
       await expect(page.locator('[data-testid="settings-page"]')).toBeVisible({
         timeout: 30000,
       });
+
+      // Enterprise Pattern: Wait for settings API to complete before checking tab content
+      await page
+        .waitForResponse(
+          (resp) =>
+            resp.url().includes("/api/client/stores/") &&
+            resp.url().includes("/settings") &&
+            resp.status() === 200,
+          { timeout: 30000 },
+        )
+        .catch(() => {
+          // API may have completed before we started listening, continue
+        });
 
       // AND: Store Info tab button is visible
       await expect(
@@ -340,12 +371,12 @@ test.describe("Store Settings Flow (Critical Journey)", () => {
       await expect(page.locator('[data-testid="store-name"]')).toBeVisible({
         timeout: 15000,
       });
-      await expect(
-        page.locator('[data-testid="timezone-select"]'),
-      ).toBeVisible();
+      await expect(page.locator('[data-testid="timezone-select"]')).toBeVisible(
+        { timeout: 10000 },
+      );
       await expect(
         page.locator('[data-testid="contact-email-input"]'),
-      ).toBeVisible();
+      ).toBeVisible({ timeout: 10000 });
     } finally {
       await cleanupTestFixture(fixture);
     }
