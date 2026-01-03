@@ -3,14 +3,18 @@
 /**
  * Report Scanning Step Component
  *
- * Step 2 of the Day Close Wizard - allows users to scan or photograph
- * vendor invoices and reports for automatic data extraction.
+ * Shared component used by both Shift Close (Step 1) and Day Close (Step 2) wizards.
+ * Allows users to enter vendor invoices and reports for data extraction.
  *
  * Report Categories:
  * - Lottery Reports: Daily lottery settlement (instant sales, online sales, cashes)
  * - Gaming Reports: Video gaming terminal daily report
  * - Vendor Invoices: Delivery invoices received today
  * - Cash Payouts: Lottery winners, money orders, check cashing
+ *
+ * @usage
+ * - Shift Close: Used as Step 1 (no prior lottery step)
+ * - Day Close: Used as Step 2 (after lottery close step)
  *
  * @security
  * - FE-001: STATE_MANAGEMENT - Secure state with useCallback/useMemo
@@ -31,7 +35,6 @@ import {
   Camera,
   ArrowRight,
   ArrowLeft,
-  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -301,15 +304,7 @@ export function ReportScanningStep({
   return (
     <div className="space-y-6" data-testid="report-scanning-step">
       <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="text-2xl">Step 2: Scan Reports</CardTitle>
-          <p className="text-muted-foreground">
-            Scan or enter vendor invoices and reports for automatic data
-            extraction
-          </p>
-        </CardHeader>
-
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-6 pt-6">
           {/* Lottery Reports */}
           <ReportSection
             title="Lottery Reports"
@@ -556,7 +551,7 @@ export function ReportScanningStep({
       {/* Summary Card */}
       <Card className="bg-primary/5 border-primary/20">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Data to Import to Day Close</CardTitle>
+          <CardTitle className="text-lg">Summary</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
@@ -599,13 +594,13 @@ export function ReportScanningStep({
               data-testid="report-scanning-back-btn"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Lottery
+              Back
             </Button>
             <Button
               onClick={handleComplete}
               data-testid="report-scanning-next-btn"
             >
-              Next: Day Close
+              Next
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </div>

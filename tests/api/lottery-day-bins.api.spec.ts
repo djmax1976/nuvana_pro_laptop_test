@@ -225,11 +225,19 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
   // Starting Serial Logic Tests
   // ═══════════════════════════════════════════════════════════════════════════
 
-  test("DAY-BINS-003: [P0] Starting serial should use today's opening serial when shift opened today", async ({
+  test("DAY-BINS-003: [P0] Starting serial should use LotteryDayPack starting_serial when business day is OPEN", async ({
     clientUserApiRequest,
     clientUser,
   }) => {
-    // GIVEN: A pack with a shift opening today
+    // GIVEN: A pack with a LotteryBusinessDay in OPEN status and LotteryDayPack tracking
+    //
+    // Enterprise Business Day Model (Close-to-Close):
+    // Starting serial determination prioritizes:
+    // 1. Previous closed day's ending serial (carry-forward)
+    // 2. LotteryDayPack.starting_serial when business day is OPEN
+    // 3. pack.serial_start for new packs (never through day close)
+    //
+    // This test validates Priority 2: day-based tracking via LotteryDayPack
     const storeId = clientUser.store_id;
 
     // Create test data
@@ -237,19 +245,19 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
     const testData = await withBypassClient(async (tx) => {
       const game = await tx.lotteryGame.create({
         data: {
-          name: "Opening Test Game",
+          name: "Day Tracking Test Game",
           game_code: gameCode,
           price: 2.0,
           pack_value: 60,
           status: "ACTIVE",
-          store_id: storeId, // Store-scoped game
+          store_id: storeId,
         },
       });
 
       const bin = await tx.lotteryBin.create({
         data: {
           store_id: storeId,
-          name: "Opening Test Bin",
+          name: "Day Tracking Test Bin",
           display_order: 50,
           is_active: true,
         },
@@ -259,7 +267,7 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
         data: {
           game_id: game.game_id,
           store_id: storeId,
-          pack_number: `OPEN-${Date.now()}`,
+          pack_number: `DAYTRACK-${Date.now()}`,
           serial_start: "001",
           serial_end: "030",
           status: "ACTIVE",
@@ -268,46 +276,46 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
         },
       });
 
-      // Create a cashier for the shift
-      const cashier = await tx.cashier.create({
-        data: {
-          store_id: storeId,
-          employee_id: `${Math.floor(1000 + Math.random() * 9000)}`,
-          name: "Test Cashier",
-          pin_hash: "$2b$10$abcdefghijklmnopqrstuvwxyz1234567890",
-          hired_on: new Date(),
-          created_by: clientUser.user_id,
-        },
-      });
-
-      // Create a shift that opened today - use timezone-aware timestamp
-      // The API filters shifts by opened_at within the store's timezone "today"
+      // Create a LotteryBusinessDay in OPEN status with a specific starting serial
+      // This simulates a day that has been initialized but not yet closed
+      // The API uses LotteryDayPack.starting_serial when business day status is OPEN
       const todayNoon = getTodayNoonInTimezone("America/New_York");
-      const shift = await tx.shift.create({
+      const formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/New_York",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      const todayStr = formatter.format(new Date());
+      const businessDate = new Date(todayStr + "T00:00:00");
+
+      const businessDay = await tx.lotteryBusinessDay.create({
         data: {
           store_id: storeId,
-          cashier_id: cashier.cashier_id,
-          opened_by: clientUser.user_id,
+          business_date: businessDate,
           status: "OPEN",
           opened_at: todayNoon,
-          opening_cash: 100.0,
+          opened_by: clientUser.user_id,
         },
       });
 
-      // Create a shift opening with starting serial "015"
-      const opening = await tx.lotteryShiftOpening.create({
+      // Create LotteryDayPack with starting_serial = "015" (simulating carry-forward from prior close)
+      const dayPack = await tx.lotteryDayPack.create({
         data: {
-          shift_id: shift.shift_id,
+          day_id: businessDay.day_id,
           pack_id: pack.pack_id,
-          opening_serial: "015",
+          bin_id: bin.bin_id,
+          starting_serial: "015",
+          ending_serial: null, // Not yet closed
+          tickets_sold: 0,
+          sales_amount: 0,
         },
       });
 
-      return { game, bin, pack, shift, opening, cashier };
+      return { game, bin, pack, businessDay, dayPack };
     });
 
     // WHEN: I query day bins for today in store timezone
-    // We must pass the same date string the API would use for "today"
     const formatter = new Intl.DateTimeFormat("en-CA", {
       timeZone: "America/New_York",
       year: "numeric",
@@ -320,26 +328,35 @@ test.describe("MyStore-API: Lottery Day Bins Query Endpoint", () => {
       `/api/lottery/bins/day/${storeId}?date=${todayInStoreTimezone}`,
     );
 
-    // THEN: Starting serial should be today's opening serial
+    // THEN: Starting serial should be from LotteryDayPack.starting_serial
     expect(response.status()).toBe(200);
     const body = await response.json();
     const testBin = body.data.bins.find(
       (b: any) => b.bin_id === testData.bin.bin_id,
     );
     expect(testBin, "Test bin should be present").toBeDefined();
+    expect(testBin.pack, "Pack should be present in bin").toBeDefined();
+
     expect(
       testBin.pack.starting_serial,
-      "Starting serial should be today's opening",
+      "Starting serial should be from LotteryDayPack (day-based tracking)",
     ).toBe("015");
+    // is_first_period is determined by historicalClosingByPack, which checks for
+    // previous LotteryShiftClosing records (not LotteryDayPack records).
+    // Since this is a newly created pack with no historical shift closings,
+    // is_first_period will be true (first ticket is inclusive in counting).
+    expect(
+      testBin.pack.is_first_period,
+      "Should be first period (new pack, no historical shift closings)",
+    ).toBe(true);
 
     // Cleanup in correct order (FK constraints)
     await withBypassClient(async (tx) => {
-      await tx.lotteryShiftOpening.delete({
-        where: { opening_id: testData.opening.opening_id },
+      await tx.lotteryDayPack.delete({
+        where: { day_pack_id: testData.dayPack.day_pack_id },
       });
-      await tx.shift.delete({ where: { shift_id: testData.shift.shift_id } });
-      await tx.cashier.delete({
-        where: { cashier_id: testData.cashier.cashier_id },
+      await tx.lotteryBusinessDay.delete({
+        where: { day_id: testData.businessDay.day_id },
       });
       await tx.lotteryPack.delete({
         where: { pack_id: testData.pack.pack_id },

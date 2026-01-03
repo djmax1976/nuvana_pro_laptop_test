@@ -66,6 +66,12 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
   // Determine if Lottery link is active
   const isLotteryActive = pathname === "/mystore/lottery";
 
+  // Extract terminal ID from pathname if on a terminal page
+  // Matches: /terminal/{terminalId}/shift or /terminal/{terminalId}/*
+  const activeTerminalId = pathname.startsWith("/terminal/")
+    ? pathname.split("/")[2]
+    : null;
+
   // Show lottery link using centralized menu permission configuration
   // Uses the same permission logic as ClientSidebar for consistency
   const showLotteryLink = canAccessMenuByKey("lottery");
@@ -176,6 +182,9 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
             terminals.map((terminal) => {
               // Generate terminal link testid
               const terminalTestId = `terminal-link-${terminal.pos_terminal_id}`;
+              // Check if this terminal is currently selected (URL-based)
+              const isTerminalActive =
+                activeTerminalId === terminal.pos_terminal_id;
               return (
                 <button
                   key={terminal.pos_terminal_id}
@@ -183,24 +192,28 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
                   onClick={() => handleTerminalClick(terminal)}
                   className={cn(
                     "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors",
-                    "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    isTerminalActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   )}
                 >
                   <span className="flex-1 truncate">{terminal.name}</span>
-                  {terminal.terminal_status && (
+                  {/* Show badge only when terminal has an active shift */}
+                  {terminal.has_active_shift && (
                     <span
                       className={cn(
                         "rounded-full px-2 py-0.5 text-xs",
-                        terminal.terminal_status === "ACTIVE"
-                          ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                          : terminal.terminal_status === "INACTIVE"
-                            ? "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200"
-                            : terminal.terminal_status === "ERROR"
-                              ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                              : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+                        isTerminalActive
+                          ? "bg-primary-foreground/20 text-primary-foreground"
+                          : "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
                       )}
+                      title={
+                        terminal.active_shift_cashier_name
+                          ? `Active shift: ${terminal.active_shift_cashier_name}`
+                          : "Active shift"
+                      }
                     >
-                      {terminal.terminal_status}
+                      {terminal.active_shift_cashier_name || "Active"}
                     </span>
                   )}
                 </button>

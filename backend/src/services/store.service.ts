@@ -830,7 +830,13 @@ export class StoreService {
             },
             take: 1, // We only need to know if at least one exists
             select: {
-              shift_id: true, // Minimal data - just need to check existence
+              shift_id: true,
+              // Include cashier relation to get the name for active shift display
+              cashier: {
+                select: {
+                  name: true,
+                },
+              },
             },
           },
         },
@@ -839,23 +845,28 @@ export class StoreService {
         },
       });
 
-      // Map terminals to response format with has_active_shift boolean
+      // Map terminals to response format with has_active_shift boolean and cashier name
       // This is an O(N) in-memory operation, much faster than N database queries
-      const terminalsWithStatus = terminals.map((terminal) => ({
-        pos_terminal_id: terminal.pos_terminal_id,
-        store_id: terminal.store_id,
-        name: terminal.name,
-        device_id: terminal.device_id,
-        connection_type: terminal.connection_type,
-        connection_config: terminal.connection_config,
-        vendor_type: terminal.vendor_type,
-        terminal_status: terminal.terminal_status,
-        last_sync_at: terminal.last_sync_at,
-        sync_status: terminal.sync_status,
-        has_active_shift: terminal.shifts.length > 0,
-        created_at: terminal.created_at,
-        updated_at: terminal.updated_at,
-      }));
+      const terminalsWithStatus = terminals.map((terminal) => {
+        const activeShift = terminal.shifts[0];
+        return {
+          pos_terminal_id: terminal.pos_terminal_id,
+          store_id: terminal.store_id,
+          name: terminal.name,
+          device_id: terminal.device_id,
+          connection_type: terminal.connection_type,
+          connection_config: terminal.connection_config,
+          vendor_type: terminal.vendor_type,
+          terminal_status: terminal.terminal_status,
+          last_sync_at: terminal.last_sync_at,
+          sync_status: terminal.sync_status,
+          has_active_shift: terminal.shifts.length > 0,
+          // Include cashier name when there's an active shift
+          active_shift_cashier_name: activeShift?.cashier?.name ?? null,
+          created_at: terminal.created_at,
+          updated_at: terminal.updated_at,
+        };
+      });
 
       return terminalsWithStatus;
     } catch (error: any) {

@@ -601,6 +601,13 @@ export async function shiftRoutes(fastify: FastifyInstance) {
                       "VARIANCE_REVIEW",
                     ],
                   },
+                  // @security SEC-014: shift_number is a sequential business identifier, safe for display
+                  shift_number: {
+                    type: "integer",
+                    nullable: true,
+                    description:
+                      "Sequential shift number for display (not a UUID, safe for UI)",
+                  },
                   opening_cash: { type: "number" },
                   closing_cash: { type: "number", nullable: true },
                   expected_cash: { type: "number", nullable: true },

@@ -299,21 +299,36 @@ export const DEFAULT_MONEY_RECEIVED_STATE: MoneyReceivedState = {
 
 /**
  * Default initial state for sales breakdown
- * Includes sample POS data for testing
+ *
+ * Column layout:
+ * - Reports Totals: OUR data (lottery tracking, manual entries)
+ * - POS Totals: 3rd party POS data (placeholder until integration)
+ *
+ * Data flow for lottery:
+ * 1. Step 1 (Lottery Close): Our calculated lottery_total → reports.scratchOff
+ * 2. Step 2 (Report Scanning): Online lottery entry → reports.onlineLottery
+ *
+ * @business-rule All our lottery data goes to REPORTS column
+ * @business-rule POS column is placeholder for future 3rd party POS integration
+ *
+ * Includes sample POS data for department sales (placeholder until POS integration)
  */
 export const DEFAULT_SALES_BREAKDOWN_STATE: SalesBreakdownState = {
   pos: {
+    // Department sales - placeholder values until POS integration
     gasSales: 2500.0,
     grocery: 1200.0,
     tobacco: 800.0,
     beverages: 450.0,
     snacks: 320.0,
     other: 180.0,
-    scratchOff: 500.0,
-    onlineLottery: 350.0,
+    // Lottery POS values - populated from lottery terminal report in Step 2
+    scratchOff: 0,
+    onlineLottery: 0,
     salesTax: 245.0,
   },
   reports: {
+    // Lottery values from our internal lottery system (populated from Step 1 lottery close)
     scratchOff: 0,
     onlineLottery: 0,
   },

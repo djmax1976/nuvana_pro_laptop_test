@@ -82,6 +82,7 @@ describe("CloseDayModal Component", () => {
         starting_serial: "001",
         ending_serial: null,
         serial_end: "050",
+        is_first_period: true,
       },
     },
     {
@@ -97,6 +98,7 @@ describe("CloseDayModal Component", () => {
         starting_serial: "010",
         ending_serial: null,
         serial_end: "100",
+        is_first_period: true,
       },
     },
     {
@@ -119,6 +121,7 @@ describe("CloseDayModal Component", () => {
         starting_serial: "001",
         ending_serial: null,
         serial_end: "030",
+        is_first_period: true,
       },
     },
   ];

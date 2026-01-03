@@ -639,6 +639,8 @@ export interface TerminalWithStatus {
   device_id: string | null;
   deleted_at: string | null;
   has_active_shift: boolean;
+  /** Cashier name when there's an active shift on this terminal */
+  active_shift_cashier_name: string | null;
   created_at: string;
   updated_at: string;
   // Connection fields (Story 4.82)

@@ -78,8 +78,12 @@ export interface ShiftResponse {
  * Shift detail response
  * Extended response for shift detail view with transaction count and variance details
  * Story 4.7: Shift Management UI
+ *
+ * @security SEC-014: shift_number is a business identifier, not a UUID - safe for display
  */
 export interface ShiftDetailResponse extends ShiftResponse {
+  /** Sequential shift number for display (not a UUID, safe for UI) */
+  shift_number: number | null;
   transaction_count: number;
   variance_reason: string | null;
   approved_by: string | null;

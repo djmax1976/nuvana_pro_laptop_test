@@ -42,6 +42,7 @@ describe("DayBinsTable Component", () => {
         starting_serial: "001",
         ending_serial: "025",
         serial_end: "050",
+        is_first_period: true,
       },
     },
     {
@@ -64,6 +65,7 @@ describe("DayBinsTable Component", () => {
         starting_serial: "050",
         ending_serial: null, // No closing yet
         serial_end: "100",
+        is_first_period: true,
       },
     },
   ];
@@ -196,6 +198,7 @@ describe("DayBinsTable Component", () => {
           starting_serial: "001",
           ending_serial: null,
           serial_end: "050",
+          is_first_period: true,
         },
       },
     ];
@@ -312,6 +315,7 @@ describe("DayBinsTable Component", () => {
           starting_serial: "001",
           ending_serial: null,
           serial_end: "050",
+          is_first_period: true,
         },
       },
       {
@@ -327,6 +331,7 @@ describe("DayBinsTable Component", () => {
           starting_serial: "001",
           ending_serial: null,
           serial_end: "050",
+          is_first_period: true,
         },
       },
     ];
@@ -360,6 +365,7 @@ describe("DayBinsTable Component", () => {
           starting_serial: "001",
           ending_serial: null,
           serial_end: "050",
+          is_first_period: true,
         },
       },
     ];
@@ -390,6 +396,7 @@ describe("DayBinsTable Component", () => {
           starting_serial: "001",
           ending_serial: null,
           serial_end: "050",
+          is_first_period: true,
         },
       },
     ];
@@ -419,6 +426,7 @@ describe("DayBinsTable Component", () => {
           starting_serial: xssStarting,
           ending_serial: xssEnding,
           serial_end: "050",
+          is_first_period: true,
         },
       },
     ];
@@ -451,6 +459,7 @@ describe("DayBinsTable Component", () => {
           starting_serial: "001",
           ending_serial: null,
           serial_end: "050",
+          is_first_period: true,
         },
       },
     ];
@@ -478,6 +487,7 @@ describe("DayBinsTable Component", () => {
           starting_serial: "001",
           ending_serial: null,
           serial_end: "050",
+          is_first_period: true,
         },
       },
     ];
@@ -505,6 +515,7 @@ describe("DayBinsTable Component", () => {
           starting_serial: "001",
           ending_serial: null,
           serial_end: "050",
+          is_first_period: true,
         },
       },
     ];
@@ -532,6 +543,7 @@ describe("DayBinsTable Component", () => {
           starting_serial: "001",
           ending_serial: null,
           serial_end: "050",
+          is_first_period: true,
         },
       },
     ];
@@ -560,6 +572,7 @@ describe("DayBinsTable Component", () => {
               starting_serial: `${String(i).padStart(3, "0")}`,
               ending_serial: null,
               serial_end: "050",
+              is_first_period: true,
             }
           : null,
     }));
@@ -925,6 +938,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "050",
+            is_first_period: true,
           },
         },
         {
@@ -940,6 +954,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "100",
+            is_first_period: true,
           },
         },
       ];
@@ -984,6 +999,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "050",
+            is_first_period: true,
           },
         },
         {
@@ -999,6 +1015,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "100",
+            is_first_period: true,
           },
         },
       ];
@@ -1045,6 +1062,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "050",
+            is_first_period: true,
           },
         },
       ];
@@ -1094,6 +1112,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "050",
+            is_first_period: true,
           },
         },
         {
@@ -1116,6 +1135,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "100",
+            is_first_period: true,
           },
         },
       ];
@@ -1253,6 +1273,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "050",
+            is_first_period: true,
           },
         },
         {
@@ -1268,6 +1289,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "100",
+            is_first_period: true,
           },
         },
         {
@@ -1283,6 +1305,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "150",
+            is_first_period: true,
           },
         },
       ];
@@ -1518,6 +1541,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "029", // Max 029
+            is_first_period: true,
           },
         },
         {
@@ -1533,6 +1557,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "100",
+            is_first_period: true,
           },
         },
       ];
@@ -1613,6 +1638,7 @@ describe("DayBinsTable Component", () => {
           starting_serial: "001",
           ending_serial: "025",
           serial_end: "050",
+          is_first_period: true,
         },
       },
       {
@@ -1635,6 +1661,7 @@ describe("DayBinsTable Component", () => {
           starting_serial: "050",
           ending_serial: null,
           serial_end: "100",
+          is_first_period: true,
         },
       },
     ];
@@ -1804,6 +1831,7 @@ describe("DayBinsTable Component", () => {
             starting_serial: "001",
             ending_serial: null,
             serial_end: "050",
+            is_first_period: true,
           },
         },
       ];

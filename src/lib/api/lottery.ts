@@ -935,6 +935,14 @@ export interface DayBinPack {
   starting_serial: string; // First opening of the day OR last closing OR pack's serial_start
   ending_serial: string | null; // Most recent closing of the day, null if none
   serial_end: string; // Pack's max serial (for reference)
+  /**
+   * Whether this is the pack's first period (affects ticket counting).
+   *
+   * Ticket counting formula (fencepost error prevention):
+   * - true: tickets = closing - starting + 1 (new pack, starting serial is first ticket)
+   * - false: tickets = closing - starting (continuing, starting serial was last sold ticket)
+   */
+  is_first_period: boolean;
 }
 
 export interface DayBin {
@@ -977,6 +985,10 @@ export interface OpenBusinessPeriod {
 /**
  * Depleted pack for the current open business period
  * Shows all packs depleted since the last day close, not just today
+ *
+ * MCP Guidance Applied:
+ * - SEC-014: INPUT_VALIDATION - Strict type definitions for API response
+ * - FE-001: STATE_MANAGEMENT - Immutable data structure for safe consumption
  */
 export interface DepletedPackDay {
   pack_id: string;
@@ -984,7 +996,89 @@ export interface DepletedPackDay {
   game_name: string;
   game_price: number;
   bin_number: number;
-  depleted_at: string; // ISO datetime
+  activated_at: string; // ISO datetime - when the pack was activated
+  depleted_at: string; // ISO datetime - when the pack was sold out
+}
+
+/**
+ * Activated pack for the current open business period
+ * Shows all packs activated since the last day close, regardless of current status.
+ * This includes packs that are still ACTIVE, have been DEPLETED (sold out),
+ * or have been RETURNED.
+ *
+ * Enterprise Business Rule:
+ * - A pack activated during the business period appears here even if subsequently
+ *   depleted (e.g., when replaced by a new pack via auto-depletion)
+ * - The status field enables the UI to show differentiated display (e.g., "Sold Out" badge)
+ *
+ * MCP Guidance Applied:
+ * - SEC-014: INPUT_VALIDATION - Strict type definitions for API response with enum constraint
+ * - FE-001: STATE_MANAGEMENT - Immutable data structure for safe consumption
+ * - API-001: VALIDATION - Schema matches backend response structure exactly
+ */
+export interface ActivatedPackDay {
+  pack_id: string;
+  pack_number: string;
+  game_name: string;
+  game_price: number;
+  bin_number: number;
+  activated_at: string; // ISO datetime
+  /**
+   * Current pack status - allows UI to differentiate active packs from those sold out
+   * - ACTIVE: Pack is currently in use in a bin
+   * - DEPLETED: Pack was sold out (manually or auto-replaced by new pack)
+   * - RETURNED: Pack was returned to inventory
+   */
+  status: "ACTIVE" | "DEPLETED" | "RETURNED";
+}
+
+/**
+ * Day close summary bin data
+ * Pre-calculated data for a single bin from the closed day
+ *
+ * This contains the ACTUAL calculation data (not transformed for next day display).
+ * Essential because bins[].pack.starting_serial shows the NEXT day's starting position
+ * after close, not the value used for today's calculations.
+ *
+ * MCP Guidance Applied:
+ * - API-008: OUTPUT_FILTERING - Whitelisted response fields, no internal IDs
+ * - SEC-014: INPUT_VALIDATION - Validated numeric data from backend
+ */
+export interface DayCloseSummaryBin {
+  bin_number: number;
+  pack_number: string;
+  game_name: string;
+  game_price: number;
+  /** The starting serial used for calculation (from previous day close or pack activation) */
+  starting_serial: string;
+  /** The ending serial recorded during close (closing_serial) */
+  ending_serial: string;
+  tickets_sold: number;
+  sales_amount: number;
+}
+
+/**
+ * Day close summary
+ * Pre-calculated lottery totals when the business day is CLOSED
+ *
+ * This summary provides the correct calculation data that was used when
+ * the day was closed. The bins[].pack data is transformed after close
+ * to show the starting position for the NEXT day, so this summary
+ * preserves the original calculation values.
+ *
+ * MCP Guidance Applied:
+ * - API-003: ERROR_HANDLING - Null when day is not closed
+ * - FE-001: STATE_MANAGEMENT - Immutable data from backend
+ */
+export interface DayCloseSummary {
+  /** Total lottery sales for the closed day (sum of all bins' sales_amount) */
+  lottery_total: number;
+  /** Number of bins/packs that were closed */
+  closings_count: number;
+  /** Timestamp when the day was closed (ISO 8601) */
+  closed_at: string | null;
+  /** Detailed breakdown per bin with original calculation data */
+  bins_closed: DayCloseSummaryBin[];
 }
 
 /**
@@ -993,7 +1087,13 @@ export interface DepletedPackDay {
  *
  * Uses enterprise close-to-close business day model:
  * - depleted_packs: All packs depleted since last closed day (not just today)
+ * - activated_packs: All packs activated since last closed day (not just today)
  * - open_business_period: Metadata about current open period for UI display
+ * - day_close_summary: Pre-calculated totals when day is CLOSED
+ *
+ * MCP Guidance Applied:
+ * - API-001: VALIDATION - Schema matches backend response structure
+ * - DB-006: TENANT_ISOLATION - Data scoped to store via API
  */
 export interface DayBinsResponse {
   bins: DayBin[];
@@ -1002,6 +1102,14 @@ export interface DayBinsResponse {
   open_business_period: OpenBusinessPeriod;
   /** All packs depleted since last day close (enterprise model) */
   depleted_packs: DepletedPackDay[];
+  /** All packs activated since last day close (enterprise model) */
+  activated_packs: ActivatedPackDay[];
+  /**
+   * Pre-calculated lottery close summary. Only present when business_day.status is CLOSED.
+   * Contains the actual calculation data (not transformed for next day display).
+   * Use this instead of recalculating from bins[].pack data when displaying closed day totals.
+   */
+  day_close_summary: DayCloseSummary | null;
 }
 
 /**

@@ -22,82 +22,156 @@ import {
 /**
  * Login as a CLIENT_OWNER and wait for auth context to be fully populated.
  *
- * This function implements the network-first authentication pattern:
+ * This function implements the network-first authentication pattern with retry:
  * 1. Navigate to login page and wait for form
- * 2. Fill credentials and submit
- * 3. Wait for redirect to /client-dashboard
- * 4. CRITICAL: Wait for authenticated content to render
- * 5. Wait for dashboard API to complete (populates stores/user data)
- * 6. Wait for network idle to ensure React context is ready
+ * 2. Fill credentials and verify they're entered correctly
+ * 3. Submit and wait for login API response
+ * 4. Wait for redirect to /client-dashboard
+ * 5. CRITICAL: Wait for authenticated content to render
+ * 6. Wait for dashboard API to complete (populates stores/user data)
+ * 7. Wait for network idle to ensure React context is ready
  *
  * @param page - Playwright Page instance
  * @param email - User email address
  * @param password - User password
- * @throws Error with actionable message if login fails
+ * @param maxRetries - Maximum number of retry attempts (default: 3)
+ * @throws Error with actionable message if login fails after all retries
  */
 export async function loginAsClientOwner(
   page: Page,
   email: string,
   password: string,
+  maxRetries: number = 3,
 ): Promise<void> {
-  // Navigate to login page
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
-  await page.waitForLoadState("domcontentloaded");
+  let lastError: Error | null = null;
 
-  // Wait for login form to be visible and interactive
-  const emailInput = page.locator('input[name="email"], input[type="email"]');
-  await emailInput.waitFor({
-    state: "visible",
-    timeout: TEST_TIMEOUTS.LOGIN_FORM_VISIBLE,
-  });
-  await expect(emailInput).toBeEditable({
-    timeout: TEST_TIMEOUTS.LOGIN_FORM_EDITABLE,
-  });
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Navigate to login page
+      await page.goto("/login", { waitUntil: "domcontentloaded" });
+      await page.waitForLoadState("domcontentloaded");
 
-  // Fill credentials
-  await emailInput.fill(email);
-  await page.fill('input[name="password"], input[type="password"]', password);
+      // Enterprise Pattern: Wait for React hydration
+      // Form may render but not be interactive until hydration completes
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await page.waitForTimeout(300);
 
-  // Submit form and wait for redirect
-  const submitButton = page.locator('button[type="submit"]');
-  await submitButton.waitFor({
-    state: "visible",
-    timeout: TEST_TIMEOUTS.BUTTON_ENABLED,
-  });
+      // Wait for login form to be visible and interactive
+      const emailInput = page.locator(
+        'input[name="email"], input[type="email"]',
+      );
+      await emailInput.waitFor({
+        state: "visible",
+        timeout: TEST_TIMEOUTS.LOGIN_FORM_VISIBLE,
+      });
+      await expect(emailInput).toBeEditable({
+        timeout: TEST_TIMEOUTS.LOGIN_FORM_EDITABLE,
+      });
 
-  await Promise.all([
-    page.waitForURL(/.*client-dashboard.*/, {
-      timeout: TEST_TIMEOUTS.URL_CHANGE,
-    }),
-    submitButton.click(),
-  ]);
+      // Enterprise Pattern: Click before fill for more reliable React form handling
+      await emailInput.click();
+      await emailInput.clear();
+      await emailInput.fill(email);
 
-  // CRITICAL: Wait for authenticated content to render before returning
-  // This ensures the React auth context is fully populated before navigating
-  // to other pages. Without this, navigation to subpages may fail because
-  // the auth context hasn't initialized yet.
-  await page
-    .locator(TEST_SELECTORS.CLIENT_DASHBOARD_PAGE)
-    .waitFor({ state: "visible", timeout: TEST_TIMEOUTS.AUTH_CONTEXT_READY });
+      const passwordInput = page.locator(
+        'input[name="password"], input[type="password"]',
+      );
+      await passwordInput.click();
+      await passwordInput.clear();
+      await passwordInput.fill(password);
 
-  // Wait for dashboard API call to complete (provides stores/user data)
-  await page
-    .waitForResponse(
-      (resp) =>
-        resp.url().includes(TEST_API_ENDPOINTS.CLIENT_DASHBOARD) &&
-        resp.status() === 200,
-      { timeout: TEST_TIMEOUTS.DASHBOARD_API_RESPONSE },
-    )
-    .catch(() => {
-      // API might already have completed before we started listening
-    });
+      // Enterprise Pattern: Verify credentials were entered correctly
+      // React forms may have reset issues during hydration
+      await expect(emailInput).toHaveValue(email, {
+        timeout: TEST_TIMEOUTS.ASSERTION_VALUE,
+      });
+      await expect(passwordInput).toHaveValue(password, {
+        timeout: TEST_TIMEOUTS.ASSERTION_VALUE,
+      });
 
-  // Wait for network idle to ensure all React context updates are complete
-  await page
-    .waitForLoadState("networkidle", { timeout: TEST_TIMEOUTS.NETWORK_IDLE })
-    .catch(() => {
-      // networkidle might timeout if there are long-polling requests
-    });
+      // Submit form and wait for redirect
+      const submitButton = page.locator('button[type="submit"]');
+      await submitButton.waitFor({
+        state: "visible",
+        timeout: TEST_TIMEOUTS.BUTTON_ENABLED,
+      });
+
+      // Enterprise Pattern: Set up login API listener before clicking
+      // This ensures we capture the response even if it's fast
+      const loginResponsePromise = page.waitForResponse(
+        (resp) =>
+          resp.url().includes("/api/auth/login") &&
+          resp.request().method() === "POST",
+        { timeout: TEST_TIMEOUTS.LOGIN_API_RESPONSE },
+      );
+
+      // Click submit
+      await submitButton.click();
+
+      // Wait for login API response
+      const loginResponse = await loginResponsePromise;
+      if (loginResponse.status() !== 200) {
+        const body = await loginResponse.json().catch(() => ({}));
+        throw new Error(
+          `Login API failed with status ${loginResponse.status()}: ${body.message || body.error?.message || "Unknown error"}`,
+        );
+      }
+
+      // Wait for redirect to client-dashboard
+      await page.waitForURL(/.*client-dashboard.*/, {
+        timeout: TEST_TIMEOUTS.URL_CHANGE,
+      });
+
+      // CRITICAL: Wait for authenticated content to render before returning
+      // This ensures the React auth context is fully populated before navigating
+      // to other pages. Without this, navigation to subpages may fail because
+      // the auth context hasn't initialized yet.
+      await page.locator(TEST_SELECTORS.CLIENT_DASHBOARD_PAGE).waitFor({
+        state: "visible",
+        timeout: TEST_TIMEOUTS.AUTH_CONTEXT_READY,
+      });
+
+      // Wait for dashboard API call to complete (provides stores/user data)
+      await page
+        .waitForResponse(
+          (resp) =>
+            resp.url().includes(TEST_API_ENDPOINTS.CLIENT_DASHBOARD) &&
+            resp.status() === 200,
+          { timeout: TEST_TIMEOUTS.DASHBOARD_API_RESPONSE },
+        )
+        .catch(() => {
+          // API might already have completed before we started listening
+        });
+
+      // Wait for network idle to ensure all React context updates are complete
+      await page
+        .waitForLoadState("networkidle", {
+          timeout: TEST_TIMEOUTS.NETWORK_IDLE,
+        })
+        .catch(() => {
+          // networkidle might timeout if there are long-polling requests
+        });
+
+      // Success - exit retry loop
+      return;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      if (attempt < maxRetries) {
+        // Log retry attempt (useful for debugging)
+        console.log(
+          `[AUTH] Login attempt ${attempt} failed for ${email}: ${lastError.message}. Retrying...`,
+        );
+        // Longer pause before retry to allow backend to stabilize
+        await page.waitForTimeout(2000);
+      }
+    }
+  }
+
+  // All retries exhausted
+  throw new Error(
+    `Login failed for ${email} after ${maxRetries} attempts: ${lastError?.message}`,
+  );
 }
 
 /**
@@ -117,6 +191,10 @@ export async function loginAsClientUser(
   await page.goto("/login", { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("domcontentloaded");
 
+  // Enterprise Pattern: Wait for React hydration
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.waitForTimeout(200);
+
   const emailInput = page.locator('input[name="email"], input[type="email"]');
   await emailInput.waitFor({
     state: "visible",
@@ -126,8 +204,25 @@ export async function loginAsClientUser(
     timeout: TEST_TIMEOUTS.LOGIN_FORM_EDITABLE,
   });
 
+  // Enterprise Pattern: Click before fill for more reliable React form handling
+  await emailInput.click();
+  await emailInput.clear();
   await emailInput.fill(email);
-  await page.fill('input[name="password"], input[type="password"]', password);
+
+  const passwordInput = page.locator(
+    'input[name="password"], input[type="password"]',
+  );
+  await passwordInput.click();
+  await passwordInput.clear();
+  await passwordInput.fill(password);
+
+  // Enterprise Pattern: Verify credentials were entered correctly
+  await expect(emailInput).toHaveValue(email, {
+    timeout: TEST_TIMEOUTS.ASSERTION_VALUE,
+  });
+  await expect(passwordInput).toHaveValue(password, {
+    timeout: TEST_TIMEOUTS.ASSERTION_VALUE,
+  });
 
   const submitButton = page.locator('button[type="submit"]');
   await submitButton.waitFor({
@@ -135,10 +230,27 @@ export async function loginAsClientUser(
     timeout: TEST_TIMEOUTS.BUTTON_ENABLED,
   });
 
-  await Promise.all([
-    page.waitForURL(/.*mystore.*/, { timeout: TEST_TIMEOUTS.URL_CHANGE }),
-    submitButton.click(),
-  ]);
+  // Enterprise Pattern: Set up login API listener before clicking
+  const loginResponsePromise = page.waitForResponse(
+    (resp) =>
+      resp.url().includes("/api/auth/login") &&
+      resp.request().method() === "POST",
+    { timeout: TEST_TIMEOUTS.LOGIN_API_RESPONSE },
+  );
+
+  await submitButton.click();
+
+  // Wait for login API response
+  const loginResponse = await loginResponsePromise;
+  if (loginResponse.status() !== 200) {
+    const body = await loginResponse.json().catch(() => ({}));
+    throw new Error(
+      `Login API failed with status ${loginResponse.status()}: ${body.message || body.error?.message || "Unknown error"}`,
+    );
+  }
+
+  // Wait for redirect to mystore
+  await page.waitForURL(/.*mystore.*/, { timeout: TEST_TIMEOUTS.URL_CHANGE });
 
   // Wait for mystore page to be visible
   await page

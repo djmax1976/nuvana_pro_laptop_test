@@ -27,6 +27,7 @@ describe("CLIENT-DASHBOARD-COMPONENT: ClosedShiftSummary Component", () => {
     cashier_id: "cashier-1",
     pos_terminal_id: "terminal-1",
     status: "CLOSED",
+    shift_number: 2,
     opening_cash: 200.0,
     closing_cash: 850.0,
     expected_cash: 800.0,
