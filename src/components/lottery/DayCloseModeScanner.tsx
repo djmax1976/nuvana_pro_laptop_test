@@ -63,17 +63,29 @@ import {
   ArrowRight,
   Scan,
   AlertCircle,
+  AlertTriangle,
   PenLine,
 } from "lucide-react";
 import {
   prepareLotteryDayClose,
   type DayBin,
   type PrepareLotteryDayCloseResponse,
+  type DepletedPackDay,
+  type ActivatedPackDay,
+  type OpenBusinessPeriod,
 } from "@/lib/api/lottery";
 import { parseSerializedNumber } from "@/lib/utils/lottery-serial-parser";
 import { cn } from "@/lib/utils";
 import { ManualEntryAuthModal } from "@/components/lottery/ManualEntryAuthModal";
+import {
+  UnscannedBinWarningModal,
+  type UnscannedBinInfo,
+  type UnscannedBinModalResult,
+  type BinDecision,
+} from "@/components/lottery/UnscannedBinWarningModal";
 import { validateManualEntryEnding } from "@/lib/services/lottery-closing-validation";
+import { DepletedPacksSection } from "@/components/lottery/DepletedPacksSection";
+import { ActivatedPacksSection } from "@/components/lottery/ActivatedPacksSection";
 
 /**
  * Scanned bin state - tracks which bins have been scanned and their ending serials
@@ -155,6 +167,10 @@ export interface PendingClosingsData {
 
 /**
  * Props interface for DayCloseModeScanner
+ *
+ * MCP Guidance Applied:
+ * - SEC-014: INPUT_VALIDATION - Strict type definitions for component props
+ * - FE-001: STATE_MANAGEMENT - Clear separation of controlled vs uncontrolled state
  */
 interface DayCloseModeScannerProps {
   /** Store UUID for API calls */
@@ -184,6 +200,12 @@ interface DayCloseModeScannerProps {
   deferCommit?: boolean;
   /** Callback with pending closings data when deferCommit is true */
   onPendingClosings?: (data: PendingClosingsData) => void;
+  /** Depleted packs for the current business period (enterprise close-to-close model) */
+  depletedPacks?: DepletedPackDay[];
+  /** Activated packs for the current business period (enterprise close-to-close model) */
+  activatedPacks?: ActivatedPackDay[];
+  /** Open business period metadata for context display */
+  openBusinessPeriod?: OpenBusinessPeriod;
 }
 
 /**
@@ -211,6 +233,9 @@ export function DayCloseModeScanner({
   scannedBins: externalScannedBins,
   onScannedBinsChange,
   blockingShifts = [],
+  depletedPacks,
+  activatedPacks,
+  openBusinessPeriod,
 }: DayCloseModeScannerProps) {
   const { toast } = useToast();
   const { playSuccess, playError, isMuted, toggleMute } =
@@ -283,6 +308,13 @@ export function DayCloseModeScanner({
     binNumber: number | null;
     message: string;
   }>({ open: false, binNumber: null, message: "" });
+
+  // Unscanned bin warning modal state
+  // Shown when user tries to proceed with bins that have no ending serial
+  const [unscannedBinWarningModal, setUnscannedBinWarningModal] = useState<{
+    open: boolean;
+    unscannedBins: UnscannedBinInfo[];
+  }>({ open: false, unscannedBins: [] });
 
   // Refs for DOM and timers
   const inlineInputRef = useRef<HTMLInputElement>(null);
@@ -359,6 +391,39 @@ export function DayCloseModeScanner({
 
   // Is scanning blocked by open shifts?
   const isBlocked = blockingShifts.length > 0;
+
+  /**
+   * Get bins that have no ending serial (neither scanned nor manually entered)
+   * Used to determine if warning modal should be shown before proceeding
+   */
+  const binsWithoutEnding = useMemo((): UnscannedBinInfo[] => {
+    return activeBins
+      .filter((bin) => {
+        // Check if this bin was scanned
+        const wasScanned = scannedBins.some((s) => s.bin_id === bin.bin_id);
+        if (wasScanned) return false;
+
+        // In manual entry mode, check if there's a valid 3-digit value
+        if (manualEntryState.isActive) {
+          const manualValue = manualEndingValues[bin.bin_id];
+          if (manualValue && /^\d{3}$/.test(manualValue)) return false;
+        }
+
+        // Bin has no ending serial
+        return true;
+      })
+      .map((bin) => ({
+        bin_id: bin.bin_id,
+        bin_number: bin.bin_number,
+        pack_id: bin.pack!.pack_id,
+        pack_number: bin.pack!.pack_number,
+        game_name: bin.pack!.game_name,
+        game_price: bin.pack!.game_price,
+        starting_serial: bin.pack!.starting_serial,
+        serial_end: bin.pack!.serial_end,
+        is_first_period: bin.pack!.is_first_period,
+      }));
+  }, [activeBins, scannedBins, manualEntryState.isActive, manualEndingValues]);
 
   // ============ SCROLL DETECTION FOR FLOATING BAR ============
   useEffect(() => {
@@ -859,10 +924,7 @@ export function DayCloseModeScanner({
 
       if (response.success && response.data) {
         playSuccess();
-        toast({
-          title: "Lottery scanning complete",
-          description: `Scanned ${response.data.closings_count} pack(s). Complete day close in Step 3 to finalize.`,
-        });
+        // No toast needed - page transition provides visual confirmation
 
         // Reset state and notify parent with prepare response data
         setScannedBins([]);
@@ -968,10 +1030,7 @@ export function DayCloseModeScanner({
 
       if (response.success && response.data) {
         playSuccess();
-        toast({
-          title: "Lottery entry complete",
-          description: `Entered ${response.data.closings_count} pack(s) via manual entry. Complete day close in Step 3 to finalize.`,
-        });
+        // No toast needed - page transition provides visual confirmation
 
         // Reset all state and notify parent with prepare response data
         setScannedBins([]);
@@ -1037,6 +1096,99 @@ export function DayCloseModeScanner({
   ]);
 
   /**
+   * Handle result from UnscannedBinWarningModal
+   * Processes user decisions for bins without ending serials
+   *
+   * MCP Guidance Applied:
+   * - FE-002: FORM_VALIDATION - Validate decisions before processing
+   * - SEC-014: INPUT_VALIDATION - Strict validation of user choices
+   */
+  const handleUnscannedBinModalResult = useCallback(
+    (result: UnscannedBinModalResult) => {
+      // Process any sold out decisions - add directly to scannedBins (not manual entry)
+      if (result.decisions && result.decisions.length > 0) {
+        // Add sold out bins to scannedBins so they show green on main page
+        const newScannedBins: ScannedBin[] = result.decisions.map(
+          (decision) => ({
+            bin_id: decision.bin_id,
+            bin_number: decision.bin_number,
+            pack_id: decision.pack_id,
+            pack_number: decision.pack_number,
+            game_name: decision.game_name,
+            closing_serial: decision.ending_serial,
+          }),
+        );
+
+        setScannedBins((prev) =>
+          [...prev, ...newScannedBins].sort(
+            (a, b) => a.bin_number - b.bin_number,
+          ),
+        );
+        // No toast needed - green highlighting in table provides visual confirmation
+      }
+
+      setUnscannedBinWarningModal({ open: false, unscannedBins: [] });
+
+      // If returning to scan, focus back on scan input
+      if (result.returnToScan) {
+        setTimeout(() => {
+          inlineInputRef.current?.focus();
+        }, 100);
+      }
+    },
+    [setScannedBins],
+  );
+
+  /**
+   * Handle attempt to proceed when bins have no ending serial
+   * Opens the warning modal to get user decisions
+   */
+  const handleProceedWithUnscannedBins = useCallback(() => {
+    if (binsWithoutEnding.length > 0) {
+      setUnscannedBinWarningModal({
+        open: true,
+        unscannedBins: binsWithoutEnding,
+      });
+    }
+  }, [binsWithoutEnding]);
+
+  /**
+   * Calculate tickets sold with correct fencepost handling
+   *
+   * @param closingSerial - The closing/ending serial number (3 digits)
+   * @param startingSerial - The starting serial number (3 digits)
+   * @param isFirstPeriod - Whether this is the pack's first period
+   * @returns Number of tickets sold (never negative)
+   */
+  const calculateTicketsSold = useCallback(
+    (
+      closingSerial: string,
+      startingSerial: string,
+      isFirstPeriod: boolean,
+    ): number => {
+      const closingNum = parseInt(closingSerial, 10);
+      const startingNum = parseInt(startingSerial, 10);
+
+      // Guard against NaN
+      if (Number.isNaN(closingNum) || Number.isNaN(startingNum)) {
+        return 0;
+      }
+
+      // Fencepost error prevention:
+      // - New pack (first period): tickets = closing - starting + 1 (inclusive)
+      //   Example: serial_start=000, closing=029 → 30 tickets (000-029 inclusive)
+      // - Continuing pack: tickets = closing - starting (exclusive of starting)
+      //   Example: prev_ending=045, closing=089 → 44 tickets (046-089, exclusive of 045)
+      const ticketsSold = isFirstPeriod
+        ? closingNum - startingNum + 1
+        : closingNum - startingNum;
+
+      return Math.max(0, ticketsSold);
+    },
+    [],
+  );
+
+  /**
    * Calculate total lottery sales from scanned bins + manual entry values
    */
   const calculateTotalSales = useMemo(() => {
@@ -1055,12 +1207,21 @@ export function DayCloseModeScanner({
 
       if (!closingSerial || closingSerial.length !== 3) return total;
 
-      const closingNum = parseInt(closingSerial, 10);
-      const startingNum = parseInt(bin.pack.starting_serial, 10);
-      const ticketsSold = Math.max(0, closingNum - startingNum + 1);
+      // Use helper with correct fencepost handling
+      const ticketsSold = calculateTicketsSold(
+        closingSerial,
+        bin.pack.starting_serial,
+        bin.pack.is_first_period,
+      );
       return total + ticketsSold * bin.pack.game_price;
     }, 0);
-  }, [activeBins, scannedBins, manualEntryState.isActive, manualEndingValues]);
+  }, [
+    activeBins,
+    scannedBins,
+    manualEntryState.isActive,
+    manualEndingValues,
+    calculateTicketsSold,
+  ]);
 
   // ============ RENDER ============
   return (
@@ -1163,7 +1324,7 @@ export function DayCloseModeScanner({
       {/* Main Content */}
       <div
         className={cn(
-          "bg-card rounded-lg border overflow-hidden flex flex-col max-h-[calc(100vh-280px)]",
+          "bg-card rounded-lg border overflow-hidden flex flex-col min-h-[400px]",
           isBlocked && "opacity-60 pointer-events-none",
         )}
       >
@@ -1283,7 +1444,7 @@ export function DayCloseModeScanner({
         </div>
 
         {/* Bins Table - scrollable content */}
-        <div className="overflow-x-auto flex-1 overflow-y-auto">
+        <div className="overflow-x-auto flex-1">
           <table className="w-full">
             <thead className="bg-card border-b sticky top-0 z-10">
               <tr>
@@ -1302,7 +1463,7 @@ export function DayCloseModeScanner({
                 <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">
                   Starting
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase min-w-[5.5rem]">
                   Ending
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase">
@@ -1314,6 +1475,22 @@ export function DayCloseModeScanner({
               </tr>
             </thead>
             <tbody className="divide-y">
+              {activeBins.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={8}
+                    className="px-4 py-8 text-center text-muted-foreground"
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <AlertCircle className="h-8 w-8 text-muted-foreground/50" />
+                      <p className="font-medium">No Active Bins</p>
+                      <p className="text-sm">
+                        There are no bins with active lottery packs to close.
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              )}
               {activeBins
                 .sort((a, b) => a.bin_number - b.bin_number)
                 .map((bin) => {
@@ -1344,9 +1521,12 @@ export function DayCloseModeScanner({
                   }
 
                   if (closingSerial && bin.pack) {
-                    const closingNum = parseInt(closingSerial, 10);
-                    const startingNum = parseInt(bin.pack.starting_serial, 10);
-                    ticketsSold = Math.max(0, closingNum - startingNum + 1);
+                    // Use helper with correct fencepost handling
+                    ticketsSold = calculateTicketsSold(
+                      closingSerial,
+                      bin.pack.starting_serial,
+                      bin.pack.is_first_period,
+                    );
                     salesAmount = ticketsSold * bin.pack.game_price;
                   }
 
@@ -1357,7 +1537,7 @@ export function DayCloseModeScanner({
                       key={bin.bin_id}
                       id={`bin-row-${bin.bin_id}`}
                       className={cn(
-                        "transition-colors",
+                        "transition-colors h-14",
                         isScanned && !manualEntryState.isActive
                           ? "bg-green-50 dark:bg-green-950/20 cursor-pointer hover:bg-green-100 dark:hover:bg-green-950/30"
                           : manualEntryState.isActive && hasValidEntry
@@ -1393,7 +1573,7 @@ export function DayCloseModeScanner({
                       <td className="px-4 py-3 font-mono">
                         {bin.pack?.starting_serial}
                       </td>
-                      <td className="px-4 py-3 font-mono">
+                      <td className="px-4 py-3 font-mono min-w-[5.5rem]">
                         {/* In manual entry mode, show editable inputs for unscanned bins */}
                         {manualEntryState.isActive && !isScanned && bin.pack ? (
                           <div className="flex flex-col gap-1">
@@ -1440,14 +1620,16 @@ export function DayCloseModeScanner({
                         ) : isScanned ||
                           (manualEntryState.isActive &&
                             manualValue.length === 3) ? (
-                          <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 font-bold">
-                            <CheckCircle2 className="w-4 h-4" />
+                          <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 font-bold min-w-[4rem]">
+                            <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
                             {isScanned
                               ? scannedBin.closing_serial
                               : manualValue}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground">---</span>
+                          <span className="inline-block min-w-[4rem] text-muted-foreground">
+                            ---
+                          </span>
                         )}
                       </td>
                       <td
@@ -1501,12 +1683,13 @@ export function DayCloseModeScanner({
                         closingSerial = manualEndingValues[bin.bin_id];
                       }
                       if (!closingSerial) return total;
-                      const closingNum = parseInt(closingSerial, 10);
-                      const startingNum = parseInt(
+                      // Use helper with correct fencepost handling
+                      const ticketsSold = calculateTicketsSold(
+                        closingSerial,
                         bin.pack.starting_serial,
-                        10,
+                        bin.pack.is_first_period,
                       );
-                      return total + Math.max(0, closingNum - startingNum + 1);
+                      return total + ticketsSold;
                     }, 0)}
                   </td>
                   <td className="px-4 py-3 text-right text-lg text-green-600 dark:text-green-400">
@@ -1544,6 +1727,41 @@ export function DayCloseModeScanner({
           </div>
         )}
 
+        {/* ============================================================================
+         * DEPLETED & ACTIVATED PACKS SECTIONS
+         * Enterprise close-to-close business day model
+         *
+         * MCP Guidance Applied:
+         * - FE-001: STATE_MANAGEMENT - Props passed from parent, no local state needed
+         * - SEC-014: INPUT_VALIDATION - Components handle null/empty gracefully
+         * - SEC-004: XSS - React auto-escapes all output in child components
+         * ============================================================================ */}
+        {(depletedPacks && depletedPacks.length > 0) ||
+        (activatedPacks && activatedPacks.length > 0) ? (
+          <div
+            className="px-6 py-4 space-y-4 border-t"
+            data-testid="packs-sections-container"
+          >
+            {/* Depleted Packs Section */}
+            {depletedPacks && depletedPacks.length > 0 && (
+              <DepletedPacksSection
+                depletedPacks={depletedPacks}
+                openBusinessPeriod={openBusinessPeriod}
+                defaultOpen={false}
+              />
+            )}
+
+            {/* Activated Packs Section */}
+            {activatedPacks && activatedPacks.length > 0 && (
+              <ActivatedPacksSection
+                activatedPacks={activatedPacks}
+                openBusinessPeriod={openBusinessPeriod}
+                defaultOpen={false}
+              />
+            )}
+          </div>
+        ) : null}
+
         {/* Footer Actions */}
         <div className="px-6 py-4 border-t bg-muted/30 flex justify-between items-center">
           <Button
@@ -1556,42 +1774,59 @@ export function DayCloseModeScanner({
             Cancel
           </Button>
 
-          {/* Submit button - different behavior for scan vs manual mode */}
-          {manualEntryState.isActive ? (
-            <Button
-              onClick={handleManualSubmit}
-              disabled={isSubmitting || !canCloseManualEntry}
-              data-testid="close-lottery-manual-button"
-              className={cn(
-                canCloseManualEntry
-                  ? "bg-green-600 hover:bg-green-700 text-white"
-                  : "",
-              )}
-            >
-              {isSubmitting && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Close Lottery (Manual)
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          ) : (
-            <Button
-              onClick={handleSubmit}
-              disabled={isSubmitting || !allBinsScanned}
-              data-testid="close-lottery-button"
-              className={cn(
-                allBinsScanned
-                  ? "bg-green-600 hover:bg-green-700 text-white"
-                  : "",
-              )}
-            >
-              {isSubmitting && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Close Lottery & Continue
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          )}
+          {/* Submit button area - shows different buttons based on state */}
+          <div className="flex items-center gap-2">
+            {/* Show warning button when bins have no ending serial */}
+            {binsWithoutEnding.length > 0 && !isSubmitting && (
+              <Button
+                onClick={handleProceedWithUnscannedBins}
+                variant="outline"
+                className="border-amber-500 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                data-testid="resolve-unscanned-bins-button"
+              >
+                <AlertTriangle className="mr-2 h-4 w-4" />
+                {binsWithoutEnding.length} Bin
+                {binsWithoutEnding.length > 1 ? "s" : ""} Need Attention
+              </Button>
+            )}
+
+            {/* Submit button - different behavior for scan vs manual mode */}
+            {manualEntryState.isActive ? (
+              <Button
+                onClick={handleManualSubmit}
+                disabled={isSubmitting || !canCloseManualEntry}
+                data-testid="close-lottery-manual-button"
+                className={cn(
+                  canCloseManualEntry
+                    ? "bg-green-600 hover:bg-green-700 text-white"
+                    : "",
+                )}
+              >
+                {isSubmitting && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Close Lottery (Manual)
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSubmit}
+                disabled={isSubmitting || !allBinsScanned}
+                data-testid="close-lottery-button"
+                className={cn(
+                  allBinsScanned
+                    ? "bg-green-600 hover:bg-green-700 text-white"
+                    : "",
+                )}
+              >
+                {isSubmitting && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Close Lottery & Continue
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1641,6 +1876,19 @@ export function DayCloseModeScanner({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Unscanned Bin Warning Modal */}
+      <UnscannedBinWarningModal
+        open={unscannedBinWarningModal.open}
+        onOpenChange={(open) =>
+          setUnscannedBinWarningModal((prev) => ({ ...prev, open }))
+        }
+        unscannedBins={unscannedBinWarningModal.unscannedBins}
+        onConfirm={handleUnscannedBinModalResult}
+        onCancel={() =>
+          setUnscannedBinWarningModal({ open: false, unscannedBins: [] })
+        }
+      />
     </div>
   );
 }

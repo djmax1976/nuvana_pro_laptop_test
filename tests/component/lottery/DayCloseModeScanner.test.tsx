@@ -28,12 +28,12 @@ import { screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DayCloseModeScanner } from "@/components/lottery/DayCloseModeScanner";
 import type { DayBin } from "@/lib/api/lottery";
-import { closeLotteryDay } from "@/lib/api/lottery";
+import { prepareLotteryDayClose } from "@/lib/api/lottery";
 import { renderWithProviders } from "../../support/test-utils";
 
 // Mock the API functions
 vi.mock("@/lib/api/lottery", () => ({
-  closeLotteryDay: vi.fn(),
+  prepareLotteryDayClose: vi.fn(),
 }));
 
 // Mock toast hook
@@ -88,6 +88,7 @@ describe("DayCloseModeScanner Component", () => {
         starting_serial: "001",
         ending_serial: null,
         serial_end: "050",
+        is_first_period: true,
       },
     },
     {
@@ -103,6 +104,7 @@ describe("DayCloseModeScanner Component", () => {
         starting_serial: "010",
         ending_serial: null,
         serial_end: "100",
+        is_first_period: true,
       },
     },
     {
@@ -125,6 +127,7 @@ describe("DayCloseModeScanner Component", () => {
         starting_serial: "001",
         ending_serial: null,
         serial_end: "030",
+        is_first_period: true,
       },
     },
   ];
@@ -142,20 +145,25 @@ describe("DayCloseModeScanner Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Mock closeLotteryDay API - return success
-    vi.mocked(closeLotteryDay).mockResolvedValue({
+    // Mock prepareLotteryDayClose API - return success
+    // Uses PrepareLotteryDayCloseResponse format (two-phase commit pattern)
+    vi.mocked(prepareLotteryDayClose).mockResolvedValue({
       success: true,
       data: {
-        closings_created: 2,
-        business_day: "2025-12-15",
-        day_closed: true,
-        bins_closed: [
+        day_id: "day-123",
+        business_date: "2025-12-15",
+        status: "PENDING_CLOSE",
+        pending_close_at: new Date().toISOString(),
+        pending_close_expires_at: new Date(Date.now() + 3600000).toISOString(),
+        closings_count: 2,
+        estimated_lottery_total: 275,
+        bins_preview: [
           {
             bin_number: 1,
             pack_number: "1234567",
             game_name: "Lucky 7s",
-            closing_serial: "025",
             starting_serial: "000",
+            closing_serial: "025",
             game_price: 1,
             tickets_sold: 25,
             sales_amount: 25,
@@ -164,14 +172,13 @@ describe("DayCloseModeScanner Component", () => {
             bin_number: 2,
             pack_number: "7654321",
             game_name: "Money Bags",
-            closing_serial: "050",
             starting_serial: "000",
+            closing_serial: "050",
             game_price: 5,
             tickets_sold: 50,
             sales_amount: 250,
           },
         ],
-        lottery_total: 275,
       },
     });
   });
@@ -603,7 +610,7 @@ describe("DayCloseModeScanner Component", () => {
   // API INTEGRATION TESTS (P1)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  it("SCANNER-024: [P1] should call closeLotteryDay API with correct data", async () => {
+  it("SCANNER-024: [P1] should call prepareLotteryDayClose API with correct data", async () => {
     // GIVEN: DayCloseModeScanner with all bins scanned
     const user = userEvent.setup({ delay: null });
     renderWithProviders(<DayCloseModeScanner {...defaultProps} />);
@@ -617,9 +624,9 @@ describe("DayCloseModeScanner Component", () => {
     const closeButton = screen.getByTestId("close-lottery-button");
     await user.click(closeButton);
 
-    // THEN: API is called with correct data
+    // THEN: API is called with correct data (two-phase commit pattern)
     await waitFor(() => {
-      expect(closeLotteryDay).toHaveBeenCalledWith("store-123", {
+      expect(prepareLotteryDayClose).toHaveBeenCalledWith("store-123", {
         closings: expect.arrayContaining([
           { pack_id: "pack-1", closing_serial: "025" },
           { pack_id: "pack-2", closing_serial: "050" },
@@ -659,7 +666,9 @@ describe("DayCloseModeScanner Component", () => {
   it("SCANNER-026: [P1] should show error toast on API failure", async () => {
     // GIVEN: DayCloseModeScanner with failing API
     const user = userEvent.setup({ delay: null });
-    vi.mocked(closeLotteryDay).mockRejectedValue(new Error("Network error"));
+    vi.mocked(prepareLotteryDayClose).mockRejectedValue(
+      new Error("Network error"),
+    );
 
     renderWithProviders(<DayCloseModeScanner {...defaultProps} />);
 

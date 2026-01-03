@@ -47,6 +47,7 @@ function createMockBin(overrides: Partial<DayBin> = {}): DayBin {
       starting_serial: "001",
       ending_serial: null,
       serial_end: "050",
+      is_first_period: true,
     },
     ...overrides,
   };
@@ -61,6 +62,7 @@ function createMockPack(overrides: Partial<DayBinPack> = {}): DayBinPack {
     starting_serial: "001",
     ending_serial: null,
     serial_end: "050",
+    is_first_period: true,
     ...overrides,
   };
 }

@@ -22,6 +22,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,8 @@ import { useClientDashboard } from "@/lib/api/client-dashboard";
 import { useLotteryDayBins } from "@/hooks/useLottery";
 import { ShiftClosingForm } from "@/components/shifts/ShiftClosingForm";
 import { useShiftDetail, useOpenShiftsCheck } from "@/lib/api/shifts";
+import { useStoreTerminals } from "@/lib/api/stores";
+import { useCashiers } from "@/lib/api/cashiers";
 import {
   commitLotteryDayClose,
   cancelLotteryDayClose,
@@ -57,7 +60,6 @@ import {
   LotteryStatusBanner,
   LotterySalesDetails,
   formatBusinessDate,
-  truncateUuid,
   type MoneyReceivedState,
   type MoneyReceivedReportsState,
   type SalesBreakdownState,
@@ -69,6 +71,10 @@ import {
 // Import Step 2 component
 import { ReportScanningStep } from "@/components/day-close/ReportScanningStep";
 import type { ReportScanningState } from "@/components/day-close/ReportScanningStep";
+
+// Import lottery pack sections for Step 3
+import { DepletedPacksSection } from "@/components/lottery/DepletedPacksSection";
+import { ActivatedPacksSection } from "@/components/lottery/ActivatedPacksSection";
 
 // ============ TYPES ============
 
@@ -181,9 +187,34 @@ export default function DayCloseWizardPage() {
   const { data: shiftData, isLoading: shiftLoading } = useShiftDetail(shiftId);
   const isShiftClosed = shiftData?.status === "CLOSED";
 
+  // Fetch terminals for the store to get terminal name
+  const { data: terminals = [], isLoading: isLoadingTerminals } =
+    useStoreTerminals(storeId, { enabled: !!storeId });
+
+  // Find terminal info by ID from shift data
+  const terminal = shiftData
+    ? terminals.find((t) => t.pos_terminal_id === shiftData.pos_terminal_id)
+    : null;
+
+  // Get cashiers to find cashier name (fallback if not in shiftData)
+  const { data: cashiers = [], isLoading: isLoadingCashiers } = useCashiers(
+    storeId || "",
+    { is_active: true },
+    { enabled: !!storeId },
+  );
+
+  // Find cashier info from shift - prefer shiftData.cashier_name, fallback to lookup
+  const cashierName =
+    shiftData?.cashier_name ||
+    cashiers.find((c) => c.cashier_id === shiftData?.cashier_id)?.name ||
+    "Unknown Cashier";
+
   // Lottery day bins data
-  const { data: dayBinsData, isLoading: dayBinsLoading } =
-    useLotteryDayBins(storeId);
+  const {
+    data: dayBinsData,
+    isLoading: dayBinsLoading,
+    isError: dayBinsError,
+  } = useLotteryDayBins(storeId);
 
   // Open shifts check - BUSINESS RULE: All shifts must be closed before day close
   const {
@@ -203,24 +234,91 @@ export default function DayCloseWizardPage() {
   const isLotteryAlreadyClosed =
     !!dayBinsData && dayBinsData.business_day?.status === "CLOSED";
 
-  // Calculate lottery close result from dayBinsData when lottery was closed earlier
-  // This allows Step 3 to display lottery details even when we didn't close it in this session
+  // ============================================================================
+  // LOTTERY CLOSE DATA FROM API (Enterprise Pattern)
+  // ============================================================================
+  // When lottery is already closed, use the pre-calculated day_close_summary
+  // from the API response. This contains the CORRECT calculation data:
+  // - starting_serial: The actual starting position used for calculation
+  //   (from previous day close or pack activation)
+  // - ending_serial: The recorded closing serial
+  //
+  // IMPORTANT: Do NOT recalculate from bins[].pack data because after close:
+  // - bins[].pack.starting_serial is updated to show NEXT day's starting position
+  // - bins[].pack.ending_serial becomes null
+  //
+  // MCP Guidance Applied:
+  // - FE-001: STATE_MANAGEMENT - Use immutable API data, no recalculation
+  // - API-008: OUTPUT_FILTERING - Use pre-validated backend data
+  // - SEC-014: INPUT_VALIDATION - Backend validates all calculation inputs
+  // ============================================================================
   const calculatedLotteryData = useMemo((): LotteryCloseResult | null => {
     if (!isLotteryAlreadyClosed || !dayBinsData) return null;
 
-    // Get bins with active packs that have ending serials (closed)
+    // Prefer pre-calculated day_close_summary from API (correct calculation data)
+    const summary = dayBinsData.day_close_summary;
+    if (summary && summary.bins_closed.length > 0) {
+      return {
+        closings_created: summary.closings_count,
+        business_day: dayBinsData.business_day?.date || "",
+        lottery_total: summary.lottery_total,
+        bins_closed: summary.bins_closed.map((bin) => ({
+          bin_number: bin.bin_number,
+          pack_number: bin.pack_number,
+          game_name: bin.game_name,
+          // Use ending_serial as closing_serial (API uses different field name)
+          closing_serial: bin.ending_serial,
+          starting_serial: bin.starting_serial,
+          game_price: bin.game_price,
+          tickets_sold: bin.tickets_sold,
+          sales_amount: bin.sales_amount,
+        })),
+      };
+    }
+
+    // Fallback: For backward compatibility with older API responses
+    // that don't have day_close_summary yet (during deployment transition)
+    // This path uses the potentially incorrect bins data but is better than nothing
     const closedBins = dayBinsData.bins.filter(
       (bin) => bin.is_active && bin.pack && bin.pack.ending_serial,
     );
 
     if (closedBins.length === 0) return null;
 
-    // Calculate lottery totals from closed bins
+    // DEPRECATED: This calculation path produces incorrect results
+    // Two known issues in this fallback:
+    // 1. bins[].pack.starting_serial is transformed after close to show NEXT day's starting position
+    // 2. Off-by-one error: doesn't account for first ticket (fencepost error)
+    // These issues are acceptable since this path is only for backward compatibility
+    // during deployment transition. New API responses include day_close_summary.
+    console.warn(
+      "[DayClosePage] Using fallback calculation - day_close_summary not available. " +
+        "Results may be inaccurate due to transformed starting_serial values.",
+    );
+
     let lotteryTotal = 0;
     const binsClosedData = closedBins.map((bin) => {
       const pack = bin.pack!;
-      const startingSerialNum = parseInt(pack.starting_serial, 10) || 0;
-      const closingSerialNum = parseInt(pack.ending_serial!, 10) || 0;
+      // SEC-014: Safe numeric parsing with NaN protection
+      const startingSerialNum = parseInt(pack.starting_serial, 10);
+      const closingSerialNum = parseInt(pack.ending_serial!, 10);
+
+      // Skip calculation if parsing fails
+      if (Number.isNaN(startingSerialNum) || Number.isNaN(closingSerialNum)) {
+        return {
+          bin_number: bin.bin_number,
+          pack_number: pack.pack_number,
+          game_name: pack.game_name,
+          closing_serial: pack.ending_serial!,
+          starting_serial: pack.starting_serial,
+          game_price: pack.game_price,
+          tickets_sold: 0,
+          sales_amount: 0,
+        };
+      }
+
+      // NOTE: This calculation is known to be incorrect (see deprecation notice above)
+      // Cannot be fixed here since we don't have the original starting_serial or isFirstPeriod flag
       const ticketsSold = Math.max(0, closingSerialNum - startingSerialNum);
       const salesAmount = ticketsSold * pack.game_price;
       lotteryTotal += salesAmount;
@@ -292,12 +390,15 @@ export default function DayCloseWizardPage() {
         lotteryData: calculatedLotteryData, // Populate with calculated data
       }));
 
-      // Also update sales breakdown with calculated lottery total
+      // Update sales breakdown with calculated lottery total in REPORTS column only
+      // - Reports column: Our calculated lottery total (internal system data)
+      // - POS column: Will be populated from lottery terminal report in Step 2
+      // @business-rule: Our lottery calculation goes to Reports, terminal report goes to POS
       if (calculatedLotteryData) {
         setSalesBreakdownState((prev) => ({
           ...prev,
-          pos: {
-            ...prev.pos,
+          reports: {
+            ...prev.reports,
             scratchOff: calculatedLotteryData.lottery_total,
           },
         }));
@@ -328,11 +429,14 @@ export default function DayCloseWizardPage() {
       pendingLotteryCloseExpiresAt: data.pending_close_expires_at || null,
     }));
 
-    // Update sales breakdown with lottery total
+    // Update sales breakdown with lottery total in REPORTS column only
+    // - Reports column: Our calculated lottery total (internal system data)
+    // - POS column: Will be populated from lottery terminal report in Step 2
+    // @business-rule: Our lottery calculation goes to Reports, terminal report goes to POS
     setSalesBreakdownState((prev) => ({
       ...prev,
-      pos: {
-        ...prev.pos,
+      reports: {
+        ...prev.reports,
         scratchOff: data.lottery_total,
       },
     }));
@@ -381,12 +485,16 @@ export default function DayCloseWizardPage() {
         },
       }));
 
-      // Lottery sales go into sales breakdown reports
+      // Lottery data from Step 2 goes into Reports column (our recorded data)
+      // - Reports column: Our data - scratch-off from Step 1 calc, online from Step 2 entry
+      // - POS column: Placeholder data from 3rd party POS (future integration)
+      // @business-rule: All our lottery data goes to Reports column
+      // NOTE: Don't overwrite reports.scratchOff - it has our calculated value from Step 1
       setSalesBreakdownState((prev) => ({
         ...prev,
         reports: {
           ...prev.reports,
-          scratchOff: data.lotteryReports?.instantSales ?? 0,
+          // scratchOff already set from Step 1 - don't overwrite
           onlineLottery: data.lotteryReports?.onlineSales ?? 0,
         },
       }));
@@ -540,6 +648,8 @@ export default function DayCloseWizardPage() {
     authLoading ||
     dashboardLoading ||
     shiftLoading ||
+    isLoadingTerminals ||
+    isLoadingCashiers ||
     dayBinsLoading ||
     openShiftsLoading
   ) {
@@ -557,7 +667,7 @@ export default function DayCloseWizardPage() {
   }
 
   // ============ ERROR STATE ============
-  if (dashboardError) {
+  if (dashboardError || dayBinsError) {
     return (
       <div
         className="container mx-auto p-6"
@@ -567,7 +677,11 @@ export default function DayCloseWizardPage() {
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 text-destructive">
               <AlertCircle className="h-5 w-5" />
-              <p>Failed to load dashboard data. Please try again.</p>
+              <p>
+                {dayBinsError
+                  ? "Failed to load lottery bins data. Please restart the backend server and try again."
+                  : "Failed to load dashboard data. Please try again."}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -609,26 +723,66 @@ export default function DayCloseWizardPage() {
     shift_number: shift.shift_number,
   }));
 
+  // Terminal and shift display values (matching TerminalShiftPage format)
+  // @security SEC-014: shift_number is a business identifier, safe for display
+  const terminalName = terminal?.name || "Terminal";
+  const shiftNumber = shiftData?.shift_number;
+  const shiftNumberDisplay = shiftNumber ? `#${shiftNumber}` : null;
+  const shiftStartDateTime = shiftData?.opened_at
+    ? format(new Date(shiftData.opened_at), "MMM d, yyyy 'at' h:mm a")
+    : "";
+  const openingCash = shiftData?.opening_cash ?? 0;
+
+  // Format currency helper
+  const formatCurrency = (amount: number): string => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  };
+
   // ============ RENDER ============
   return (
-    <div className="min-h-screen bg-background" data-testid="day-close-wizard">
-      {/* Top Navigation Bar */}
-      <nav className="bg-card border-b px-6 py-3">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-4">
-            <span className="text-xl font-bold">Nuvana</span>
-            <span className="text-muted-foreground">|</span>
-            <span className="text-muted-foreground">{storeName}</span>
-          </div>
-          <div className="flex items-center gap-4">
-            {shiftId && (
-              <Badge variant="outline" className="text-xs">
-                Shift: {truncateUuid(shiftId)}
-              </Badge>
+    <div
+      className="container mx-auto p-6 space-y-6"
+      data-testid="day-close-wizard"
+    >
+      {/* Header - All shift info in one card on one line */}
+      <Card className="border-muted" data-testid="shift-info-header">
+        <CardContent className="py-3 px-4">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Terminal:</span>
+              <span className="font-semibold">{terminalName}</span>
+            </div>
+            {shiftNumberDisplay && (
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Shift:</span>
+                <span className="font-semibold">{shiftNumberDisplay}</span>
+              </div>
             )}
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Cashier:</span>
+              <span className="font-semibold">{cashierName}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Started:</span>
+              <span className="font-medium">{shiftStartDateTime}</span>
+            </div>
+            <div
+              className="flex items-center gap-2"
+              data-testid="opening-cash-display"
+            >
+              <span className="text-muted-foreground">Opening Cash:</span>
+              <span className="font-semibold text-green-600">
+                {formatCurrency(openingCash)}
+              </span>
+            </div>
           </div>
-        </div>
-      </nav>
+        </CardContent>
+      </Card>
 
       {/* Step Progress Indicator */}
       <StepIndicator
@@ -638,7 +792,7 @@ export default function DayCloseWizardPage() {
       />
 
       {/* Main Content Area */}
-      <main className="max-w-7xl mx-auto p-6">
+      <main>
         {/* ============ STEP 1: LOTTERY CLOSE ============ */}
         {currentStep === 1 && (
           <div data-testid="step-1-content">
@@ -651,6 +805,9 @@ export default function DayCloseWizardPage() {
               scannedBins={scannedBins}
               onScannedBinsChange={handleScannedBinsChange}
               blockingShifts={blockingShifts}
+              depletedPacks={dayBinsData?.depleted_packs}
+              activatedPacks={dayBinsData?.activated_packs}
+              openBusinessPeriod={dayBinsData?.open_business_period}
             />
           </div>
         )}
@@ -756,6 +913,42 @@ export default function DayCloseWizardPage() {
 
             {/* Lottery Breakdown Details */}
             {lotteryData && <LotterySalesDetails data={lotteryData} />}
+
+            {/* ============================================================================
+             * DEPLETED & ACTIVATED PACKS SECTIONS
+             * Enterprise close-to-close business day model for Step 3
+             *
+             * MCP Guidance Applied:
+             * - FE-001: STATE_MANAGEMENT - Data from dayBinsData, no local state needed
+             * - SEC-014: INPUT_VALIDATION - Components handle null/empty gracefully
+             * - SEC-004: XSS - React auto-escapes all output in child components
+             * ============================================================================ */}
+            {((dayBinsData?.depleted_packs &&
+              dayBinsData.depleted_packs.length > 0) ||
+              (dayBinsData?.activated_packs &&
+                dayBinsData.activated_packs.length > 0)) && (
+              <div className="space-y-4" data-testid="step3-packs-sections">
+                {/* Depleted Packs Section */}
+                {dayBinsData?.depleted_packs &&
+                  dayBinsData.depleted_packs.length > 0 && (
+                    <DepletedPacksSection
+                      depletedPacks={dayBinsData.depleted_packs}
+                      openBusinessPeriod={dayBinsData.open_business_period}
+                      defaultOpen={false}
+                    />
+                  )}
+
+                {/* Activated Packs Section */}
+                {dayBinsData?.activated_packs &&
+                  dayBinsData.activated_packs.length > 0 && (
+                    <ActivatedPacksSection
+                      activatedPacks={dayBinsData.activated_packs}
+                      openBusinessPeriod={dayBinsData.open_business_period}
+                      defaultOpen={false}
+                    />
+                  )}
+              </div>
+            )}
 
             {/* Action Buttons */}
             <Card>

@@ -63,14 +63,13 @@ async function createTestCashier(
 test.describe("4.8-API: Store Terminals Endpoint", () => {
   test("4.8-API-001: [P1] should return terminals with has_active_shift flag", async ({
     authenticatedApiRequest,
+    superadminUser,
     prismaClient,
   }) => {
     // GIVEN: A store with terminals (some with active shifts)
-    const user = await prismaClient.user.create({
-      data: createUser(),
-    });
+    // authenticatedApiRequest uses superadminUser's token
     const company = await prismaClient.company.create({
-      data: createCompany({ owner_user_id: user.user_id }),
+      data: createCompany({ owner_user_id: superadminUser.user_id }),
     });
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
@@ -87,7 +86,7 @@ test.describe("4.8-API: Store Terminals Endpoint", () => {
     const cashier = await prismaClient.cashier.create({
       data: await createCashier({
         store_id: store.store_id,
-        created_by: user.user_id,
+        created_by: superadminUser.user_id,
       }),
     });
 
@@ -95,7 +94,7 @@ test.describe("4.8-API: Store Terminals Endpoint", () => {
     await prismaClient.shift.create({
       data: createShift({
         store_id: store.store_id,
-        opened_by: user.user_id,
+        opened_by: superadminUser.user_id,
         cashier_id: cashier.cashier_id,
         pos_terminal_id: terminal1.pos_terminal_id,
         status: "OPEN",
@@ -107,7 +106,7 @@ test.describe("4.8-API: Store Terminals Endpoint", () => {
       `/api/stores/${store.store_id}/terminals`,
     );
 
-    // THEN: Should return terminals with has_active_shift flag (array directly)
+    // THEN: Should return terminals with has_active_shift flag and cashier name (array directly)
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(Array.isArray(body)).toBe(true);
@@ -116,11 +115,15 @@ test.describe("4.8-API: Store Terminals Endpoint", () => {
       (t: any) => t.pos_terminal_id === terminal1.pos_terminal_id,
     );
     expect(terminal1Data.has_active_shift).toBe(true);
+    // Should include the cashier name for terminals with active shifts
+    expect(terminal1Data.active_shift_cashier_name).toBe(cashier.name);
 
     const terminal2Data = body.find(
       (t: any) => t.pos_terminal_id === terminal2.pos_terminal_id,
     );
     expect(terminal2Data.has_active_shift).toBe(false);
+    // Should be null when no active shift
+    expect(terminal2Data.active_shift_cashier_name).toBeNull();
   });
 
   test("4.8-API-002: [P1] should return empty array when no terminals exist", async ({
@@ -1087,14 +1090,12 @@ test.describe("4.8-API: Edge Cases", () => {
 
   test("4.8-API-022: [P1] should return proper response structure for terminal endpoint", async ({
     authenticatedApiRequest,
+    superadminUser,
     prismaClient,
   }) => {
-    // GIVEN: A store with terminal
-    const user = await prismaClient.user.create({
-      data: createUser(),
-    });
+    // GIVEN: A store with terminal (authenticatedApiRequest uses superadminUser)
     const company = await prismaClient.company.create({
-      data: createCompany({ owner_user_id: user.user_id }),
+      data: createCompany({ owner_user_id: superadminUser.user_id }),
     });
     const store = await prismaClient.store.create({
       data: createStore({ company_id: company.company_id }),
@@ -1121,6 +1122,11 @@ test.describe("4.8-API: Edge Cases", () => {
       expect(typeof terminalData.store_id).toBe("string");
       expect(typeof terminalData.name).toBe("string");
       expect(typeof terminalData.has_active_shift).toBe("boolean");
+      // active_shift_cashier_name should be string or null
+      expect(
+        terminalData.active_shift_cashier_name === null ||
+          typeof terminalData.active_shift_cashier_name === "string",
+      ).toBe(true);
       expect(terminalData.pos_terminal_id).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       );

@@ -115,6 +115,7 @@ const mockBins: DayBin[] = [
       starting_serial: "001",
       ending_serial: "050",
       serial_end: "100",
+      is_first_period: true,
     },
   },
   {

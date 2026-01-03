@@ -1,30 +1,18 @@
 "use client";
 
 /**
- * Shift End Page
+ * Shift End Wizard Page
  *
- * Comprehensive shift closing workflow including:
- * - Optional lottery day close (not required, but available)
- * - Payment methods breakdown with dual columns (left)
- * - Department sales breakdown with dual columns (right)
- * - Cash reconciliation
- *
- * Dual-column layout:
- * - Reports Totals: Manual input for payouts and lottery items
- * - POS Totals: Read-only values from POS system
+ * 2-step wizard for ending a shift (separate from Day Close):
+ * - Step 1: Report Scanning - Scan vendor invoices, lottery reports, gaming reports
+ * - Step 2: Shift Closing - Cash reconciliation and final summary
  *
  * Route: /mystore/shift-end
  *
- * Flow:
- * 1. Page loads -> Check if lottery already closed
- * 2. If not closed -> Show optional banner (user can proceed without closing)
- * 3. User can optionally close lottery via button
- * 4. "Complete Shift Close" button is always enabled (lottery not required)
- *
- * Key difference from Day Close:
- * - Lottery close is OPTIONAL, not mandatory
- * - Modal does NOT auto-open
- * - Shift can be closed without lottery being closed
+ * This is a SINGLE PAGE with internal step state (not separate routes).
+ * Key difference from Day Close (3 steps):
+ * - Shift Close does NOT include Lottery Close as a mandatory step
+ * - Lottery is optional and can be done via banner button
  *
  * @security
  * - SEC-001: Requires authenticated user session
@@ -38,18 +26,25 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Loader2, AlertCircle } from "lucide-react";
+import { Clock, Loader2, AlertCircle, Check, ArrowLeft } from "lucide-react";
 
 import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
 import { useLotteryDayBins } from "@/hooks/useLottery";
 import { useShiftDetail } from "@/lib/api/shifts";
+import { useStoreTerminals } from "@/lib/api/stores";
+import { useCashiers } from "@/lib/api/cashiers";
+import { ShiftClosingForm } from "@/components/shifts/ShiftClosingForm";
+import { ShiftInfoHeader } from "@/components/shifts/ShiftInfoHeader";
+import {
+  ShiftCloseStepIndicator,
+  type ShiftCloseStep,
+} from "@/components/shifts/ShiftCloseStepIndicator";
 import {
   CloseDayModal,
   type LotteryCloseResult,
   type ScannedBin,
 } from "@/components/lottery/CloseDayModal";
-import { ShiftClosingForm } from "@/components/shifts/ShiftClosingForm";
 
 // Import shared shift-closing components
 import {
@@ -58,20 +53,34 @@ import {
   LotteryStatusBanner,
   LotterySalesDetails,
   formatBusinessDate,
-  truncateUuid,
   type MoneyReceivedState,
   type MoneyReceivedReportsState,
-  type MoneyReceivedPOSState,
   type SalesBreakdownState,
   type SalesBreakdownReportsState,
-  type SalesBreakdownPOSState,
   type LotteryStatus,
   DEFAULT_MONEY_RECEIVED_STATE,
   DEFAULT_SALES_BREAKDOWN_STATE,
 } from "@/components/shift-closing";
 
+// Import Step 1 component (shared with Day Close)
+import { ReportScanningStep } from "@/components/day-close/ReportScanningStep";
+import type { ReportScanningState } from "@/components/day-close/ReportScanningStep";
+
+// ============ TYPES ============
+
+interface WizardState {
+  currentStep: ShiftCloseStep;
+  // Step 1: Report scanning data
+  reportScanningData: ReportScanningState | null;
+  reportScanningCompleted: boolean;
+}
+
+// ============ HELPER FUNCTIONS ============
+
 /**
  * Determine lottery status for the banner
+ *
+ * @security SEC-014: Validates boolean inputs
  */
 function determineLotteryStatus(
   lotteryCompleted: boolean,
@@ -82,15 +91,19 @@ function determineLotteryStatus(
   return "not_closed";
 }
 
+// ============ MAIN COMPONENT ============
+
 /**
- * Shift End Page Component
+ * Shift End Wizard Page Component
+ *
+ * Enterprise-grade 2-step wizard for shift closing workflow.
  */
-export default function ShiftEndPage() {
+export default function ShiftEndWizardPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const shiftId = searchParams.get("shiftId");
 
-  // Auth and dashboard data
+  // ============ AUTH & DATA HOOKS ============
   const { isLoading: authLoading } = useClientAuth();
   const {
     data: dashboardData,
@@ -107,11 +120,44 @@ export default function ShiftEndPage() {
   const { data: shiftData, isLoading: shiftLoading } = useShiftDetail(shiftId);
   const isShiftClosed = shiftData?.status === "CLOSED";
 
+  // Fetch terminals for the store to get terminal name
+  const { data: terminals = [], isLoading: isLoadingTerminals } =
+    useStoreTerminals(storeId, { enabled: !!storeId });
+
+  // Find terminal info by ID from shift data
+  const terminal = shiftData
+    ? terminals.find((t) => t.pos_terminal_id === shiftData.pos_terminal_id)
+    : null;
+
+  // Get cashiers to find cashier name (fallback if not in shiftData)
+  const { data: cashiers = [], isLoading: isLoadingCashiers } = useCashiers(
+    storeId || "",
+    { is_active: true },
+    { enabled: !!storeId },
+  );
+
+  // Find cashier info from shift - prefer shiftData.cashier_name, fallback to lookup
+  const cashierName =
+    shiftData?.cashier_name ||
+    cashiers.find((c) => c.cashier_id === shiftData?.cashier_id)?.name ||
+    "Unknown Cashier";
+
   // Lottery day bins data
   const { data: dayBinsData, isLoading: dayBinsLoading } =
     useLotteryDayBins(storeId);
 
-  // Lottery modal state
+  // Check if lottery is already closed for today
+  const isLotteryAlreadyClosed =
+    dayBinsData?.business_day?.last_shift_closed_at !== null;
+
+  // ============ WIZARD STATE ============
+  const [wizardState, setWizardState] = useState<WizardState>({
+    currentStep: 1,
+    reportScanningData: null,
+    reportScanningCompleted: false,
+  });
+
+  // Lottery modal state (optional for Shift Close)
   const [closeDayModalOpen, setCloseDayModalOpen] = useState(false);
   const [lotteryCompleted, setLotteryCompleted] = useState(false);
   const [lotteryData, setLotteryData] = useState<LotteryCloseResult | null>(
@@ -123,17 +169,17 @@ export default function ShiftEndPage() {
   // Shift closing form state
   const [shiftClosingFormOpen, setShiftClosingFormOpen] = useState(false);
 
-  // Money received state (dual-column)
+  // Money received state (Step 2 - dual-column)
   const [moneyReceivedState, setMoneyReceivedState] =
     useState<MoneyReceivedState>(DEFAULT_MONEY_RECEIVED_STATE);
 
-  // Sales breakdown state (dual-column)
+  // Sales breakdown state (Step 2 - dual-column)
   const [salesBreakdownState, setSalesBreakdownState] =
     useState<SalesBreakdownState>(DEFAULT_SALES_BREAKDOWN_STATE);
 
-  // Check if lottery is already closed for today
-  const isLotteryAlreadyClosed =
-    dayBinsData?.business_day?.last_shift_closed_at !== null;
+  // ============ DERIVED STATE ============
+  const { currentStep, reportScanningData, reportScanningCompleted } =
+    wizardState;
 
   // Determine lottery status
   const lotteryStatus = determineLotteryStatus(
@@ -143,6 +189,65 @@ export default function ShiftEndPage() {
 
   // Calculate scratch off total from lottery data
   const scratchOffTotal = lotteryData?.lottery_total ?? 0;
+
+  // ============ STEP 1 HANDLERS ============
+  const handleReportScanningComplete = useCallback(
+    (data: ReportScanningState) => {
+      setWizardState((prev) => ({
+        ...prev,
+        reportScanningData: data,
+        reportScanningCompleted: true,
+        currentStep: 2, // Auto-advance to step 2
+      }));
+
+      // Import report data into Step 2 state
+      // Lottery payouts go into money received reports
+      setMoneyReceivedState((prev) => ({
+        ...prev,
+        reports: {
+          ...prev.reports,
+          lotteryPayouts: data.lotteryReports?.payouts ?? 0,
+        },
+      }));
+
+      // Lottery sales go into sales breakdown reports
+      setSalesBreakdownState((prev) => ({
+        ...prev,
+        reports: {
+          ...prev.reports,
+          scratchOff: data.lotteryReports?.instantSales ?? 0,
+          onlineLottery: data.lotteryReports?.onlineSales ?? 0,
+        },
+      }));
+    },
+    [],
+  );
+
+  const handleReportScanningBack = useCallback(() => {
+    // Navigate back to terminal shift page
+    router.back();
+  }, [router]);
+
+  // ============ STEP 2 HANDLERS ============
+  const handleMoneyReportsChange = useCallback(
+    (changes: Partial<MoneyReceivedReportsState>) => {
+      setMoneyReceivedState((prev) => ({
+        ...prev,
+        reports: { ...prev.reports, ...changes },
+      }));
+    },
+    [],
+  );
+
+  const handleSalesReportsChange = useCallback(
+    (changes: Partial<SalesBreakdownReportsState>) => {
+      setSalesBreakdownState((prev) => ({
+        ...prev,
+        reports: { ...prev.reports, ...changes },
+      }));
+    },
+    [],
+  );
 
   // Handle lottery close success
   const handleLotterySuccess = useCallback((data: LotteryCloseResult) => {
@@ -160,51 +265,7 @@ export default function ShiftEndPage() {
     }));
   }, []);
 
-  // Handle money received reports state changes (manual inputs)
-  const handleMoneyReportsChange = useCallback(
-    (changes: Partial<MoneyReceivedReportsState>) => {
-      setMoneyReceivedState((prev) => ({
-        ...prev,
-        reports: { ...prev.reports, ...changes },
-      }));
-    },
-    [],
-  );
-
-  // Handle money received POS state changes (for testing)
-  const handleMoneyPOSChange = useCallback(
-    (changes: Partial<MoneyReceivedPOSState>) => {
-      setMoneyReceivedState((prev) => ({
-        ...prev,
-        pos: { ...prev.pos, ...changes },
-      }));
-    },
-    [],
-  );
-
-  // Handle sales breakdown reports state changes (manual inputs)
-  const handleSalesReportsChange = useCallback(
-    (changes: Partial<SalesBreakdownReportsState>) => {
-      setSalesBreakdownState((prev) => ({
-        ...prev,
-        reports: { ...prev.reports, ...changes },
-      }));
-    },
-    [],
-  );
-
-  // Handle sales breakdown POS state changes (for testing)
-  const handleSalesPOSChange = useCallback(
-    (changes: Partial<SalesBreakdownPOSState>) => {
-      setSalesBreakdownState((prev) => ({
-        ...prev,
-        pos: { ...prev.pos, ...changes },
-      }));
-    },
-    [],
-  );
-
-  // Handle opening lottery modal
+  // Handle opening lottery modal (optional for Shift Close)
   const handleOpenLotteryModal = useCallback(() => {
     setCloseDayModalOpen(true);
   }, []);
@@ -217,46 +278,56 @@ export default function ShiftEndPage() {
   // Handle shift closing success - navigate to mystore dashboard
   const handleShiftClosingSuccess = useCallback(() => {
     setShiftClosingFormOpen(false);
-    // Navigate to mystore home after successful shift close
     router.push("/mystore");
   }, [router]);
 
-  // Redirect to dashboard if shift is already closed
-  // Users should start a new shift from the dashboard, not view this page for closed shifts
-  // NOTE: This useEffect must be placed before any conditional returns to comply with
-  // React's Rules of Hooks - hooks must be called in the same order every render
+  // Handle going back to step 1
+  const handleStep2Back = useCallback(() => {
+    setWizardState((prev) => ({
+      ...prev,
+      currentStep: 1,
+    }));
+  }, []);
+
+  // ============ REDIRECT IF SHIFT CLOSED ============
   useEffect(() => {
     if (isShiftClosed) {
       router.replace("/mystore");
     }
   }, [isShiftClosed, router]);
 
-  // Loading state
-  if (authLoading || dashboardLoading || shiftLoading) {
+  // ============ LOADING STATE ============
+  if (
+    authLoading ||
+    dashboardLoading ||
+    shiftLoading ||
+    isLoadingTerminals ||
+    isLoadingCashiers
+  ) {
     return (
       <div
-        className="container mx-auto p-6 flex items-center justify-center min-h-[400px]"
-        data-testid="shift-end-page-loading"
+        className="flex items-center justify-center min-h-[400px]"
+        data-testid="shift-end-wizard-loading"
       >
         <div className="flex flex-col items-center gap-4">
-          <Loader2
-            className="h-8 w-8 animate-spin text-muted-foreground"
-            aria-hidden="true"
-          />
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           <p className="text-muted-foreground">Loading...</p>
         </div>
       </div>
     );
   }
 
-  // Error state
+  // ============ ERROR STATE ============
   if (dashboardError) {
     return (
-      <div className="container mx-auto p-6" data-testid="shift-end-page-error">
+      <div
+        className="container mx-auto p-6"
+        data-testid="shift-end-wizard-error"
+      >
         <Card className="border-destructive">
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 text-destructive">
-              <AlertCircle className="h-5 w-5" aria-hidden="true" />
+              <AlertCircle className="h-5 w-5" />
               <p>Failed to load dashboard data. Please try again.</p>
             </div>
           </CardContent>
@@ -265,10 +336,13 @@ export default function ShiftEndPage() {
     );
   }
 
-  // No store available
+  // ============ NO STORE STATE ============
   if (!storeId) {
     return (
-      <div className="container mx-auto p-6" data-testid="shift-end-page">
+      <div
+        className="container mx-auto p-6"
+        data-testid="shift-end-wizard-no-store"
+      >
         <Card>
           <CardContent className="pt-6">
             <p className="text-muted-foreground text-center">
@@ -280,100 +354,145 @@ export default function ShiftEndPage() {
     );
   }
 
-  // Get store name
+  // Get store name and format date
   const storeName =
     dashboardData?.stores.find((s) => s.store_id === storeId)?.name ||
     "Your Store";
-
-  // Format the business date for display
   const businessDate =
     lotteryData?.business_day || dayBinsData?.business_day?.date;
   const formattedDate = formatBusinessDate(businessDate);
 
+  // Terminal and shift display values
+  const terminalName = terminal?.name || "Terminal";
+  const shiftNumber = shiftData?.shift_number ?? null;
+  const shiftStartTime = shiftData?.opened_at ?? new Date().toISOString();
+  const openingCash = shiftData?.opening_cash ?? 0;
+
+  // ============ RENDER ============
   return (
     <div
       className="container mx-auto p-6 space-y-6"
-      data-testid="shift-end-page"
+      data-testid="shift-end-wizard"
     >
-      {/* Header */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
-              <Clock className="h-8 w-8" aria-hidden="true" />
-              End Shift
-            </h1>
-            <p className="text-muted-foreground">
-              {storeName} - {formattedDate}
-            </p>
+      {/* Shared Header Component */}
+      <ShiftInfoHeader
+        terminalName={terminalName}
+        shiftNumber={shiftNumber}
+        cashierName={cashierName}
+        shiftStartTime={shiftStartTime}
+        openingCash={openingCash}
+      />
+
+      {/* Step Progress Indicator */}
+      <ShiftCloseStepIndicator
+        currentStep={currentStep}
+        reportScanningCompleted={reportScanningCompleted}
+      />
+
+      {/* Main Content Area */}
+      <main>
+        {/* ============ STEP 1: REPORT SCANNING ============ */}
+        {currentStep === 1 && (
+          <div data-testid="shift-close-step-1-content">
+            <ReportScanningStep
+              storeId={storeId}
+              onComplete={handleReportScanningComplete}
+              onBack={handleReportScanningBack}
+              canGoBack={true}
+              initialData={reportScanningData}
+            />
           </div>
-          {shiftId && (
-            <Badge variant="outline" className="text-xs">
-              Shift: {truncateUuid(shiftId)}
-            </Badge>
-          )}
-        </div>
-      </div>
+        )}
 
-      {/* Lottery Status Banner - Optional for Shift Close */}
-      {!dayBinsLoading && (
-        <LotteryStatusBanner
-          status={lotteryStatus}
-          lotteryData={lotteryData}
-          lotteryTotal={scratchOffTotal}
-          isRequired={false} // Lottery is OPTIONAL for shift close
-          onOpenLotteryModal={handleOpenLotteryModal}
-        />
-      )}
-
-      {/* Main Content - Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Column - Payment Methods */}
-        <MoneyReceivedCard
-          state={moneyReceivedState}
-          onReportsChange={handleMoneyReportsChange}
-          onPOSChange={handleMoneyPOSChange}
-          editablePOS={true}
-        />
-
-        {/* Right Column - Department Sales */}
-        <SalesBreakdownCard
-          state={salesBreakdownState}
-          onReportsChange={handleSalesReportsChange}
-          onPOSChange={handleSalesPOSChange}
-          editablePOS={true}
-        />
-      </div>
-
-      {/* Lottery Breakdown Details (shown after close) */}
-      {lotteryData && <LotterySalesDetails data={lotteryData} />}
-
-      {/* Action Buttons */}
-      <Card>
-        <CardContent className="py-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              {lotteryCompleted || isLotteryAlreadyClosed
-                ? "Lottery is closed. Complete the shift close when ready."
-                : "Lottery close is optional. You can complete shift close without it."}
-            </p>
-            <div className="flex gap-3">
-              <Button variant="outline" disabled>
-                Cancel
-              </Button>
-              <Button
-                data-testid="complete-shift-close-btn"
-                onClick={handleOpenShiftClosingForm}
-                disabled={!shiftId}
-              >
-                Complete Shift Close
-              </Button>
+        {/* ============ STEP 2: CLOSE SHIFT ============ */}
+        {currentStep === 2 && (
+          <div data-testid="shift-close-step-2-content" className="space-y-6">
+            {/* Header */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold flex items-center gap-2">
+                    <Clock className="h-7 w-7" />
+                    Step 2: Close Shift
+                  </h2>
+                  <p className="text-muted-foreground">
+                    {storeName} - {formattedDate}
+                  </p>
+                </div>
+              </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
 
-      {/* Lottery Close Modal */}
+            {/* Lottery Status Banner - Optional for Shift Close */}
+            {!dayBinsLoading && (
+              <LotteryStatusBanner
+                status={lotteryStatus}
+                lotteryData={lotteryData}
+                lotteryTotal={scratchOffTotal}
+                isRequired={false} // Lottery is OPTIONAL for shift close
+                onOpenLotteryModal={handleOpenLotteryModal}
+              />
+            )}
+
+            {/* Main Content - Two Column Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Left Column - Payment Methods */}
+              <MoneyReceivedCard
+                state={moneyReceivedState}
+                onReportsChange={handleMoneyReportsChange}
+              />
+
+              {/* Right Column - Department Sales */}
+              <SalesBreakdownCard
+                state={salesBreakdownState}
+                onReportsChange={handleSalesReportsChange}
+              />
+            </div>
+
+            {/* Lottery Breakdown Details (shown after close) */}
+            {lotteryData && <LotterySalesDetails data={lotteryData} />}
+
+            {/* Action Buttons */}
+            <Card>
+              <CardContent className="py-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    {lotteryCompleted || isLotteryAlreadyClosed
+                      ? "Lottery is closed. Complete the shift close when ready."
+                      : "Lottery close is optional. You can complete shift close without it."}
+                  </p>
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={handleStep2Back}
+                      data-testid="shift-close-back-btn"
+                    >
+                      <ArrowLeft className="mr-2 h-4 w-4" />
+                      Back
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => router.push("/mystore")}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      data-testid="complete-shift-close-btn"
+                      onClick={handleOpenShiftClosingForm}
+                      disabled={!shiftId}
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      <Check className="mr-2 h-4 w-4" />
+                      Complete Shift Close
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </main>
+
+      {/* Lottery Close Modal (Optional) */}
       {dayBinsData && (
         <CloseDayModal
           storeId={storeId}

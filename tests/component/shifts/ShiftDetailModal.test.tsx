@@ -60,6 +60,7 @@ describe("4.7-COMPONENT: ShiftDetailModal Component", () => {
 
   const mockShiftDetail: ShiftDetailResponse = {
     ...mockShift,
+    shift_number: 1,
     transaction_count: 50,
     variance_reason: "Minor cash discrepancy",
     approved_by: "user-2",

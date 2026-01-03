@@ -27,6 +27,7 @@ describe("CLIENT-DASHBOARD-COMPONENT: ActiveShiftView Component", () => {
     cashier_id: "cashier-1",
     pos_terminal_id: "terminal-1",
     status: "ACTIVE",
+    shift_number: 1,
     opening_cash: 150.0,
     closing_cash: null,
     expected_cash: null,

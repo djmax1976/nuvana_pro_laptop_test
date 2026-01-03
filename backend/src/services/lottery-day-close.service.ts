@@ -378,21 +378,24 @@ export async function prepareClose(
       }
 
       // Get starting serials from previous day or pack activation
+      // Returns StartingSerialInfo with isFirstPeriod flag for correct counting
       const startingSerials = await getStartingSerials(tx, storeId, packs);
 
       // Validate closing serials against pack ranges
       for (const closing of closings) {
         const pack = packs.find((p) => p.pack_id === closing.pack_id)!;
-        const startingSerial =
-          startingSerials.get(pack.pack_id) || pack.serial_start;
+        const startingInfo = startingSerials.get(pack.pack_id) || {
+          serial: pack.serial_start,
+          isFirstPeriod: true,
+        };
         const closingNum = parseInt(closing.closing_serial, 10);
-        const startNum = parseInt(startingSerial, 10);
+        const startNum = parseInt(startingInfo.serial, 10);
         const endNum = parseInt(pack.serial_end, 10);
 
         if (closingNum < startNum) {
           throw new DayCloseError(
             DAY_CLOSE_ERROR_CODES.SERIAL_VALIDATION_FAILED,
-            `Closing serial ${closing.closing_serial} is less than starting serial ${startingSerial} for pack ${pack.pack_number}`,
+            `Closing serial ${closing.closing_serial} is less than starting serial ${startingInfo.serial} for pack ${pack.pack_number}`,
             { pack_id: pack.pack_id, pack_number: pack.pack_number },
           );
         }
@@ -407,14 +410,20 @@ export async function prepareClose(
       }
 
       // Calculate estimated totals for preview
+      // Uses calculateTicketsSold helper for correct fencepost handling
       let estimatedTotal = 0;
       const binsPreview = closings.map((closing) => {
         const pack = packs.find((p) => p.pack_id === closing.pack_id)!;
-        const startingSerial =
-          startingSerials.get(pack.pack_id) || pack.serial_start;
-        const closingNum = parseInt(closing.closing_serial, 10);
-        const startNum = parseInt(startingSerial, 10);
-        const ticketsSold = Math.max(0, closingNum - startNum);
+        const startingInfo = startingSerials.get(pack.pack_id) || {
+          serial: pack.serial_start,
+          isFirstPeriod: true,
+        };
+        // Use helper function for correct ticket counting (fencepost prevention)
+        const ticketsSold = calculateTicketsSold(
+          closing.closing_serial,
+          startingInfo.serial,
+          startingInfo.isFirstPeriod,
+        );
         const gamePrice = Number(pack.game.price);
         const salesAmount = ticketsSold * gamePrice;
         estimatedTotal += salesAmount;
@@ -423,7 +432,7 @@ export async function prepareClose(
           bin_number: (pack.bin?.display_order ?? 0) + 1,
           pack_number: pack.pack_number,
           game_name: pack.game.name,
-          starting_serial: startingSerial,
+          starting_serial: startingInfo.serial,
           closing_serial: closing.closing_serial,
           game_price: gamePrice,
           tickets_sold: ticketsSold,
@@ -599,11 +608,18 @@ export async function commitClose(
         const pack = packs.find((p) => p.pack_id === closing.pack_id);
         if (!pack) continue;
 
-        const startingSerial =
-          startingSerials.get(pack.pack_id) || pack.serial_start;
+        // Get starting serial info with isFirstPeriod flag for correct counting
+        const startingInfo = startingSerials.get(pack.pack_id) || {
+          serial: pack.serial_start,
+          isFirstPeriod: true, // New pack - inclusive counting
+        };
+        // Use helper function for correct ticket counting (fencepost prevention)
+        const ticketsSold = calculateTicketsSold(
+          closing.closing_serial,
+          startingInfo.serial,
+          startingInfo.isFirstPeriod,
+        );
         const closingNum = parseInt(closing.closing_serial, 10);
-        const startNum = parseInt(startingSerial, 10);
-        const ticketsSold = Math.max(0, closingNum - startNum);
         const gamePrice = Number(pack.game.price);
         const salesAmount = ticketsSold * gamePrice;
         lotteryTotal += salesAmount;
@@ -620,7 +636,7 @@ export async function commitClose(
             day_id: businessDay.day_id,
             pack_id: pack.pack_id,
             bin_id: pack.bin?.bin_id || null,
-            starting_serial: startingSerial,
+            starting_serial: startingInfo.serial,
             ending_serial: closing.closing_serial,
             tickets_sold: ticketsSold,
             sales_amount: new Prisma.Decimal(salesAmount),
@@ -651,7 +667,7 @@ export async function commitClose(
           bin_number: (pack.bin?.display_order ?? 0) + 1,
           pack_number: pack.pack_number,
           game_name: pack.game.name,
-          starting_serial: startingSerial,
+          starting_serial: startingInfo.serial,
           closing_serial: closing.closing_serial,
           game_price: gamePrice,
           tickets_sold: ticketsSold,
@@ -811,18 +827,47 @@ export async function cleanupExpiredPendingCloses(): Promise<number> {
 // ============================================================================
 
 /**
+ * Starting serial info for a pack
+ * Includes whether this is a "new pack" (using serial_start) vs "continuing pack"
+ * (using previous day's ending_serial) for correct ticket counting.
+ */
+interface StartingSerialInfo {
+  /** The starting serial number (3 digits) */
+  serial: string;
+  /**
+   * True if this pack has never been closed before (using pack's serial_start).
+   * For new packs, the starting serial is the FIRST ticket (inclusive),
+   * so tickets_sold = closing - starting + 1.
+   *
+   * False if this is a continuing pack (using previous day's ending_serial).
+   * For continuing packs, the starting serial is the LAST ticket sold previously,
+   * so tickets_sold = closing - starting (exclusive of starting).
+   */
+  isFirstPeriod: boolean;
+}
+
+/**
  * Get starting serials for packs from previous day close or pack activation
  *
  * Priority:
  * 1. Previous day's ending serial (from most recent CLOSED day's LotteryDayPack)
  * 2. Pack's serial_start (if never closed before)
+ *
+ * Returns metadata about each pack's starting position including whether it's
+ * the first period for that pack (affects ticket counting formula).
+ *
+ * Ticket Counting Logic (Fencepost Error Prevention):
+ * - New pack (isFirstPeriod=true): tickets = closing - starting + 1
+ *   Example: serial_start=000, closing=029 → 30 tickets (000-029 inclusive)
+ * - Continuing pack (isFirstPeriod=false): tickets = closing - starting
+ *   Example: prev_ending=045, closing=089 → 44 tickets (046-089, exclusive of 045)
  */
 async function getStartingSerials(
   tx: Prisma.TransactionClient,
   storeId: string,
   packs: Array<{ pack_id: string; serial_start: string }>,
-): Promise<Map<string, string>> {
-  const result = new Map<string, string>();
+): Promise<Map<string, StartingSerialInfo>> {
+  const result = new Map<string, StartingSerialInfo>();
   const packIds = packs.map((p) => p.pack_id);
 
   // Find most recent closed day with ending serials for these packs
@@ -846,21 +891,57 @@ async function getStartingSerials(
     },
   });
 
-  // Use previous day's ending serials as starting serials
+  // Use previous day's ending serials as starting serials (continuing packs)
   if (lastClosedDay?.day_packs) {
     for (const dayPack of lastClosedDay.day_packs) {
       if (dayPack.ending_serial) {
-        result.set(dayPack.pack_id, dayPack.ending_serial);
+        result.set(dayPack.pack_id, {
+          serial: dayPack.ending_serial,
+          isFirstPeriod: false, // Continuing pack - exclusive counting
+        });
       }
     }
   }
 
-  // For packs without previous closing, use serial_start
+  // For packs without previous closing, use serial_start (new packs)
   for (const pack of packs) {
     if (!result.has(pack.pack_id)) {
-      result.set(pack.pack_id, pack.serial_start);
+      result.set(pack.pack_id, {
+        serial: pack.serial_start,
+        isFirstPeriod: true, // New pack - inclusive counting
+      });
     }
   }
 
   return result;
+}
+
+/**
+ * Calculate tickets sold with correct fencepost handling
+ *
+ * @param closingSerial - The closing/ending serial number
+ * @param startingSerial - The starting serial number
+ * @param isFirstPeriod - True if this is the pack's first period (inclusive counting)
+ * @returns Number of tickets sold (never negative)
+ */
+function calculateTicketsSold(
+  closingSerial: string,
+  startingSerial: string,
+  isFirstPeriod: boolean,
+): number {
+  const closingNum = parseInt(closingSerial, 10);
+  const startingNum = parseInt(startingSerial, 10);
+
+  // Guard against NaN
+  if (Number.isNaN(closingNum) || Number.isNaN(startingNum)) {
+    return 0;
+  }
+
+  // For new packs (first period): tickets = closing - starting + 1 (inclusive)
+  // For continuing packs: tickets = closing - starting (exclusive of starting)
+  const ticketsSold = isFirstPeriod
+    ? closingNum - startingNum + 1
+    : closingNum - startingNum;
+
+  return Math.max(0, ticketsSold);
 }

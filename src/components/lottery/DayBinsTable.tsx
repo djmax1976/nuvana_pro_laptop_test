@@ -10,7 +10,7 @@
  * Shows starting serial (first of day) and ending serial (last closing).
  *
  * @requirements
- * - Display table with columns (Bin, Name, Amount, Pack #, Starting, Ending)
+ * - Display table with columns (Bin, Name, Price, Pack #, Starting, Ending)
  * - Show all bins ordered by display_order
  * - Greyed rows for empty bins
  * - Ending column is grayed out/disabled by default (read-only)
@@ -253,7 +253,7 @@ export function DayBinsTable({
                 Name
               </TableHead>
               <TableHead scope="col" className="w-20 md:w-24">
-                Amount
+                Price
               </TableHead>
               <TableHead scope="col" className="w-24 md:w-28">
                 Pack #
@@ -311,7 +311,7 @@ export function DayBinsTable({
                     {isEmpty ? "(Empty)" : bin.pack!.game_name}
                   </TableCell>
 
-                  {/* Amount (per ticket price) */}
+                  {/* Price (per ticket) */}
                   <TableCell
                     className={`text-sm md:text-base ${isEmpty ? "text-muted-foreground" : ""}`}
                   >

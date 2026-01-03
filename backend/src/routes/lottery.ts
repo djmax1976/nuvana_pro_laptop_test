@@ -6666,6 +6666,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                             starting_serial: { type: "string" },
                             ending_serial: { type: "string", nullable: true },
                             serial_end: { type: "string" },
+                            is_first_period: {
+                              type: "boolean",
+                              description:
+                                "Whether this is the pack's first period (affects ticket counting formula)",
+                            },
                           },
                         },
                       },
@@ -6696,6 +6701,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   },
                   depleted_packs: {
                     type: "array",
+                    description:
+                      "Packs that were depleted (sold out) during the current open business period",
                     items: {
                       type: "object",
                       properties: {
@@ -6704,35 +6711,86 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                         game_name: { type: "string" },
                         game_price: { type: "number" },
                         bin_number: { type: "integer" },
-                        depleted_at: { type: "string", format: "date-time" },
+                        activated_at: {
+                          type: "string",
+                          format: "date-time",
+                          description: "When the pack was originally activated",
+                        },
+                        depleted_at: {
+                          type: "string",
+                          format: "date-time",
+                          description: "When the pack was sold out",
+                        },
                       },
                     },
                   },
-                  // Lottery summary - populated when day is CLOSED
-                  // Provides lottery totals from the closed day for display
-                  lottery_summary: {
+                  activated_packs: {
+                    type: "array",
+                    description:
+                      "Packs that were activated during the current open business period (includes all statuses: ACTIVE, DEPLETED, RETURNED)",
+                    items: {
+                      type: "object",
+                      properties: {
+                        pack_id: { type: "string", format: "uuid" },
+                        pack_number: { type: "string" },
+                        game_name: { type: "string" },
+                        game_price: { type: "number" },
+                        bin_number: { type: "integer" },
+                        activated_at: { type: "string", format: "date-time" },
+                        status: {
+                          type: "string",
+                          enum: ["ACTIVE", "DEPLETED", "RETURNED"],
+                          description:
+                            "Current pack status - allows UI to show which activated packs have been sold out",
+                        },
+                      },
+                    },
+                  },
+                  // Day close summary - populated when day is CLOSED
+                  // Provides pre-calculated lottery totals with correct starting/ending serials
+                  // Essential because bins[].pack.starting_serial shows NEXT day's position after close
+                  day_close_summary: {
                     type: "object",
                     nullable: true,
                     description:
-                      "Lottery totals from the closed day. Only populated when business_day.status is CLOSED.",
+                      "Pre-calculated lottery close summary. Only populated when business_day.status is CLOSED. Contains the actual calculation data (not transformed for next day display).",
                     properties: {
                       lottery_total: {
                         type: "number",
                         description:
-                          "Total lottery sales for the closed day (sum of all bins)",
+                          "Total lottery sales for the closed day (sum of all bins' sales_amount)",
+                      },
+                      closings_count: {
+                        type: "integer",
+                        description: "Number of bins/packs that were closed",
+                      },
+                      closed_at: {
+                        type: "string",
+                        format: "date-time",
+                        nullable: true,
+                        description: "Timestamp when the day was closed",
                       },
                       bins_closed: {
                         type: "array",
-                        description: "Detailed breakdown per bin",
+                        description:
+                          "Detailed breakdown per bin with original calculation data",
                         items: {
                           type: "object",
                           properties: {
                             bin_number: { type: "integer" },
                             pack_number: { type: "string" },
                             game_name: { type: "string" },
-                            starting_serial: { type: "string" },
-                            closing_serial: { type: "string" },
                             game_price: { type: "number" },
+                            starting_serial: {
+                              type: "string",
+                              description:
+                                "The starting serial used for calculation (from previous day close or pack activation)",
+                            },
+                            ending_serial: {
+                              type: "string",
+                              description:
+                                "The ending serial recorded during close (closing_serial)",
+                            },
                             tickets_sold: { type: "integer" },
                             sales_amount: { type: "number" },
                           },
@@ -6941,13 +6999,28 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           },
           include: {
             day_packs: {
-              include: {
+              // Select pre-calculated values from commitClose to avoid recalculation
+              select: {
+                pack_id: true,
+                starting_serial: true,
+                ending_serial: true,
+                // Use pre-calculated values (with correct fencepost handling)
+                tickets_sold: true,
+                sales_amount: true,
                 pack: {
-                  include: {
+                  select: {
+                    pack_number: true,
                     game: {
                       select: {
                         name: true,
                         price: true,
+                      },
+                    },
+                    // Include bin for day_close_summary display
+                    bin: {
+                      select: {
+                        bin_id: true,
+                        display_order: true,
                       },
                     },
                   },
@@ -7209,16 +7282,21 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             };
           }
 
-          // Determine starting serial:
+          // Determine starting serial and is_first_period for correct ticket counting:
           // Priority 1: If there's a closed day ending serial (either today closed, or previous day closed)
-          //             -> use that as the current/starting position
+          //             -> use that as the current/starting position (NOT first period)
           // Priority 2: Use LotteryDayPack data if available for today and day is OPEN (day-based tracking)
           // Priority 3: Use shift-based data (backward compatibility)
-          //   a. If opened today -> use today's opening serial
-          //   b. If no opening today but has history -> use most recent closing serial
-          //   c. If no history -> use pack's serial_start
+          //   a. If opened today -> use today's opening serial (FIRST period - inclusive counting)
+          //   b. If no opening today but has history -> use most recent closing serial (NOT first period)
+          //   c. If no history -> use pack's serial_start (FIRST period - inclusive counting)
+          //
+          // is_first_period determines ticket counting formula (fencepost error prevention):
+          //   - true: tickets = closing - starting + 1 (new pack, starting serial is first ticket)
+          //   - false: tickets = closing - starting (continuing, starting serial was last sold)
           let startingSerial: string;
           let endingSerial: string | null;
+          let isFirstPeriod: boolean;
 
           const dayPackData = dayPackByPackId.get(pack.pack_id);
 
@@ -7227,19 +7305,24 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             // This handles: today closed (show where we ended), or new day after close (carry forward)
             startingSerial = previousDayEndingByPack.get(pack.pack_id)!;
             endingSerial = null; // No new ending yet for the next period
+            isFirstPeriod = false; // Continuing pack - last sold ticket
           } else if (dayPackData && lotteryBusinessDay?.status === "OPEN") {
             // Use day-based tracking data for today (only if day is still OPEN)
             startingSerial = dayPackData.starting_serial;
             endingSerial = dayPackData.ending_serial;
+            // Check if this pack has any history (closing from a previous day)
+            isFirstPeriod = !historicalClosingByPack.has(pack.pack_id);
           } else {
-            // Fall back to shift-based data
-            if (firstOpeningByPack.has(pack.pack_id)) {
-              startingSerial = firstOpeningByPack.get(pack.pack_id)!;
-            } else if (historicalClosingByPack.has(pack.pack_id)) {
-              startingSerial = historicalClosingByPack.get(pack.pack_id)!;
-            } else {
-              startingSerial = pack.serial_start;
-            }
+            // No day-based tracking data - this is a NEW pack that has never been through a day close
+            // For day close purposes, we always start from the pack's serial_start (first ticket)
+            // regardless of any shift closings that may have happened.
+            //
+            // Shift closings (LotteryShiftClosing) are for shift-level tracking and audit trail,
+            // but don't affect day-level starting position. Each business day starts from:
+            // - The previous day's ending serial (handled above via previousDayEndingByPack), OR
+            // - The pack's serial_start for packs that have never been through a day close
+            startingSerial = pack.serial_start;
+            isFirstPeriod = true; // New pack - first ticket (inclusive counting)
             endingSerial = lastClosingByPack.get(pack.pack_id) || null;
           }
 
@@ -7256,6 +7339,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               starting_serial: startingSerial,
               ending_serial: endingSerial,
               serial_end: pack.serial_end,
+              is_first_period: isFirstPeriod,
             },
           };
         });
@@ -7301,7 +7385,75 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           game_name: pack.game.name,
           game_price: Number(pack.game.price),
           bin_number: pack.bin ? pack.bin.display_order + 1 : 0,
+          activated_at: pack.activated_at?.toISOString() || "",
           depleted_at: pack.depleted_at?.toISOString() || "",
+        }));
+
+        // ============================================================================
+        // ACTIVATED PACKS QUERY: Enterprise Close-to-Close Model
+        // ============================================================================
+        // Show ALL packs activated since the last closed business day, regardless
+        // of their current status (ACTIVE, DEPLETED, or RETURNED).
+        //
+        // Business Rationale:
+        // - A pack that was activated and subsequently depleted during the same
+        //   business period should still appear in the "Activated Packs" list
+        // - This provides complete audit visibility of all pack activations
+        // - The status field allows the UI to differentiate currently-active
+        //   packs from those that have been sold out or returned
+        //
+        // MCP Guidance Applied:
+        // - DB-006: TENANT_ISOLATION - store_id filter enforces tenant scoping
+        //   ensuring stores never see other stores' data
+        // - DB-001: ORM_USAGE - Using Prisma ORM with query builder, no raw SQL
+        // - SEC-006: SQL_INJECTION - All parameters bound via Prisma ORM
+        // - SEC-014: INPUT_VALIDATION - Response data sanitized before return
+        // ============================================================================
+        const activatedPacks = await prisma.lotteryPack.findMany({
+          where: {
+            // DB-006: TENANT_ISOLATION - Mandatory store scoping from auth context
+            store_id: params.storeId,
+            // NOTE: Removed status filter to include ALL activations during period
+            // Previously: status: "ACTIVE" - this incorrectly excluded depleted packs
+            // Now: Show packs regardless of status (ACTIVE, DEPLETED, RETURNED)
+            activated_at: {
+              // Use the open business period start (last day close) as lower bound
+              // This ensures activated packs are visible even if day close was missed
+              gte: openBusinessPeriodStart,
+              // Only include packs that have been activated (not null)
+              not: null,
+            },
+          },
+          include: {
+            game: {
+              select: {
+                name: true,
+                price: true,
+              },
+            },
+            bin: {
+              select: {
+                display_order: true,
+              },
+            },
+          },
+          orderBy: { activated_at: "desc" },
+        });
+
+        // Transform to API response format
+        // MCP: SEC-014 INPUT_VALIDATION - Validate and sanitize data before returning
+        // MCP: API-003 ERROR_HANDLING - Defensive null checks with safe fallbacks
+        const activatedPacksData = activatedPacks.map((pack) => ({
+          pack_id: pack.pack_id,
+          pack_number: pack.pack_number,
+          game_name: pack.game.name,
+          game_price: Number(pack.game.price),
+          // Defensive: handle missing bin gracefully with fallback to 0
+          bin_number: pack.bin ? pack.bin.display_order + 1 : 0,
+          activated_at: pack.activated_at?.toISOString() || "",
+          // Include current status so UI can differentiate active vs depleted packs
+          // This enables showing "(Sold Out)" badge for depleted packs in the list
+          status: pack.status,
         }));
 
         // Calculate days since last close for UI warning display
@@ -7312,6 +7464,100 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 (1000 * 60 * 60 * 24),
             )
           : null;
+
+        // ============================================================================
+        // DAY CLOSE SUMMARY: Pre-calculated totals when day is closed
+        // ============================================================================
+        // When the business day is CLOSED, we include a summary with the actual
+        // calculation data (starting_serial, ending_serial, tickets_sold, sales_amount)
+        // for each bin that was closed.
+        //
+        // This is essential because:
+        // 1. The bins[].pack.starting_serial is updated to show the NEXT day's starting
+        //    position after close, not the value used for today's calculations
+        // 2. The frontend needs the original calculation data for display and validation
+        // 3. Enterprise audit trail requires accurate historical data
+        //
+        // MCP Guidance Applied:
+        // - API-008: OUTPUT_FILTERING - Whitelist fields in response, no internal IDs
+        // - SEC-014: INPUT_VALIDATION - Validated data with safe numeric parsing
+        // - API-003: ERROR_HANDLING - Defensive null checks throughout
+        // ============================================================================
+
+        // Define bin close data type for type safety
+        interface BinCloseData {
+          bin_number: number;
+          pack_number: string;
+          game_name: string;
+          game_price: number;
+          starting_serial: string;
+          ending_serial: string;
+          tickets_sold: number;
+          sales_amount: number;
+        }
+
+        interface DayCloseSummaryData {
+          lottery_total: number;
+          closings_count: number;
+          closed_at: string | null;
+          bins_closed: BinCloseData[];
+        }
+
+        let dayCloseSummary: DayCloseSummaryData | null = null;
+
+        // Only build summary when day is CLOSED and has day_packs data
+        if (
+          lotteryBusinessDay?.status === "CLOSED" &&
+          lotteryBusinessDay.day_packs &&
+          lotteryBusinessDay.day_packs.length > 0
+        ) {
+          let lotteryTotal = 0;
+          const binsClosedData: BinCloseData[] = [];
+
+          for (const dayPack of lotteryBusinessDay.day_packs) {
+            // SEC-014: Validate serial data exists before display
+            if (!dayPack.starting_serial || !dayPack.ending_serial) {
+              continue;
+            }
+
+            // Use pre-calculated values from commitClose (with correct fencepost handling)
+            // These values are stored with proper is_new_pack logic applied
+            const ticketsSold = dayPack.tickets_sold ?? 0;
+            const salesAmount = Number(dayPack.sales_amount ?? 0);
+            lotteryTotal += salesAmount;
+
+            // Get bin number from pack's bin relation
+            const binNumber = dayPack.pack?.bin
+              ? dayPack.pack.bin.display_order + 1
+              : 0;
+
+            // Get game price for display (not for calculation - already done)
+            const gamePrice = dayPack.pack?.game
+              ? Number(dayPack.pack.game.price)
+              : 0;
+
+            binsClosedData.push({
+              bin_number: binNumber,
+              pack_number: dayPack.pack?.pack_number || "",
+              game_name: dayPack.pack?.game?.name || "",
+              game_price: gamePrice,
+              starting_serial: dayPack.starting_serial,
+              ending_serial: dayPack.ending_serial,
+              tickets_sold: ticketsSold,
+              sales_amount: salesAmount,
+            });
+          }
+
+          // Sort by bin number for consistent display
+          binsClosedData.sort((a, b) => a.bin_number - b.bin_number);
+
+          dayCloseSummary = {
+            lottery_total: lotteryTotal,
+            closings_count: binsClosedData.length,
+            closed_at: lotteryBusinessDay.closed_at?.toISOString() || null,
+            bins_closed: binsClosedData,
+          };
+        }
 
         return {
           success: true,
@@ -7351,6 +7597,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               is_first_period: !lastClosedBusinessDay,
             },
             depleted_packs: depletedPacksData,
+            activated_packs: activatedPacksData,
+            // Include day close summary when day is closed (for frontend calculations)
+            day_close_summary: dayCloseSummary,
           },
         };
       } catch (error: any) {
@@ -7986,9 +8235,15 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             },
           });
 
+          // Determine starting serial and whether this is first period for correct counting
+          // Fencepost prevention: new packs use inclusive counting (+1), continuing packs use exclusive
           let startingSerial: string;
+          let isFirstPeriod: boolean;
+
           if (todayOpening) {
+            // Pack was opened today - first period (inclusive counting)
             startingSerial = todayOpening.opening_serial;
+            isFirstPeriod = true;
           } else {
             // Check for historical closing
             const lastClosing = await prisma.lotteryShiftClosing.findFirst({
@@ -8002,11 +8257,30 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             });
 
             if (lastClosing) {
+              // Continuing pack - exclusive counting (last sold ticket)
               startingSerial = lastClosing.closing_serial;
+              isFirstPeriod = false;
             } else {
+              // New pack using serial_start - first period (inclusive counting)
               startingSerial = pack.serial_start;
+              isFirstPeriod = true;
             }
           }
+
+          // Calculate tickets sold with correct fencepost handling
+          const closingNum = parseInt(closing.closing_serial, 10);
+          const startingNum = parseInt(startingSerial, 10);
+          const ticketsSold =
+            !Number.isNaN(closingNum) && !Number.isNaN(startingNum)
+              ? Math.max(
+                  0,
+                  isFirstPeriod
+                    ? closingNum - startingNum + 1 // NEW: inclusive (000-029 = 30 tickets)
+                    : closingNum - startingNum, // CONTINUING: exclusive
+                )
+              : 0;
+          const gamePrice = Number(pack.game.price);
+          const salesAmount = ticketsSold * gamePrice;
 
           // Check if LotteryDayPack already exists for this pack and day
           const existingDayPack = await prisma.lotteryDayPack.findUnique({
@@ -8019,17 +8293,19 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           });
 
           if (existingDayPack) {
-            // Update ending_serial
+            // Update ending_serial and recalculate totals
             await prisma.lotteryDayPack.update({
               where: {
                 day_pack_id: existingDayPack.day_pack_id,
               },
               data: {
                 ending_serial: closing.closing_serial,
+                tickets_sold: ticketsSold,
+                sales_amount: salesAmount,
               },
             });
           } else {
-            // Create new LotteryDayPack record
+            // Create new LotteryDayPack record with calculated values
             await prisma.lotteryDayPack.create({
               data: {
                 day_id: lotteryBusinessDay.day_id,
@@ -8037,6 +8313,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 bin_id: bin?.bin_id || null,
                 starting_serial: startingSerial,
                 ending_serial: closing.closing_serial,
+                tickets_sold: ticketsSold,
+                sales_amount: salesAmount,
               },
             });
           }
@@ -8076,13 +8354,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           );
           const dayPack = dayPackMap.get(closing.pack_id);
 
-          // Calculate tickets sold and sales amount
+          // Use pre-calculated values from LotteryDayPack if available
+          // These values were calculated with correct fencepost handling
           const startingSerial = dayPack?.starting_serial || pack.serial_start;
-          const closingSerialNum = parseInt(closing.closing_serial, 10);
-          const startingSerialNum = parseInt(startingSerial, 10);
-          const ticketsSold = Math.max(0, closingSerialNum - startingSerialNum);
+          const ticketsSold = dayPack?.tickets_sold ?? 0;
+          const salesAmount = Number(dayPack?.sales_amount ?? 0);
           const gamePrice = Number(pack.game.price);
-          const salesAmount = ticketsSold * gamePrice;
 
           lotteryTotal += salesAmount;
 

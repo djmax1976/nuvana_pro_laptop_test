@@ -158,8 +158,12 @@ export interface ShiftQueryResult {
  * Shift detail response
  * Story 4.7: Shift Management UI
  * Extended response for shift detail view with transaction count and variance details
+ *
+ * @security SEC-014: shift_number is a sequential business identifier, not a UUID - safe for display
  */
 export interface ShiftDetailResponse extends ShiftResponse {
+  /** Sequential shift number for display (not a UUID, safe for UI) */
+  shift_number: number | null;
   transaction_count: number;
   variance_reason: string | null;
   approved_by: string | null;
@@ -1965,6 +1969,7 @@ export class ShiftService {
         `[ShiftService] Missing pos_terminal_id for shift ${shift.shift_id}. This may indicate a data integrity issue.`,
       );
     }
+    // @security SEC-014: shift_number is a sequential business identifier, safe for display
     const response: ShiftDetailResponse = {
       shift_id: shift.shift_id,
       store_id: shift.store_id,
@@ -1972,6 +1977,7 @@ export class ShiftService {
       cashier_id: shift.cashier_id,
       pos_terminal_id: shift.pos_terminal_id as string | null,
       status: shift.status,
+      shift_number: shift.shift_number,
       opening_cash: Number(shift.opening_cash),
       closing_cash: shift.closing_cash ? Number(shift.closing_cash) : null,
       expected_cash: expectedCash,

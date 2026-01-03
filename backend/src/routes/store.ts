@@ -2447,6 +2447,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
                 },
                 status: { type: "string" },
                 has_active_shift: { type: "boolean" },
+                active_shift_cashier_name: { type: "string", nullable: true },
                 deleted_at: {
                   type: "string",
                   nullable: true,
