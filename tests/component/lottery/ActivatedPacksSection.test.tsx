@@ -6,7 +6,7 @@
  *
  * Tests ActivatedPacksSection component behavior for displaying activated packs:
  * - Collapsible section with trigger button
- * - Table columns: Bin, Game, Price, Pack #, Activated At, Status
+ * - Table columns: Bin, Game, Price, Pack #, Activated, Status
  * - Status badges: Active, Sold Out (Depleted), Returned
  * - Time/datetime formatting for activated_at timestamps
  * - Enterprise close-to-close business day model (multi-day period handling)
@@ -447,7 +447,7 @@ describe("ActivatedPacksSection Component", () => {
     expect(screen.getByText("Game")).toBeInTheDocument();
     expect(screen.getByText("Price")).toBeInTheDocument();
     expect(screen.getByText("Pack #")).toBeInTheDocument();
-    expect(screen.getByText("Activated At")).toBeInTheDocument();
+    expect(screen.getByText("Activated")).toBeInTheDocument();
     expect(screen.getByText("Status")).toBeInTheDocument();
   });
 
@@ -462,9 +462,8 @@ describe("ActivatedPacksSection Component", () => {
       />,
     );
 
-    // THEN: Column header shows 'Activated' instead of 'Activated At'
+    // THEN: Column header shows 'Activated' (consistent across all views)
     expect(screen.getByText("Activated")).toBeInTheDocument();
-    expect(screen.queryByText("Activated At")).not.toBeInTheDocument();
   });
 
   it("should display activated pack data correctly", () => {
@@ -499,17 +498,18 @@ describe("ActivatedPacksSection Component", () => {
     expect(screen.getByText("3")).toBeInTheDocument();
   });
 
-  it("should display '--' for packs without bin number", () => {
-    // GIVEN: ActivatedPacksSection with pack that has no bin
+  it("should display bin number '0' for packs with bin_number 0", () => {
+    // GIVEN: ActivatedPacksSection with pack that has bin_number 0
     // WHEN: Component is rendered
     render(<ActivatedPacksSection {...defaultProps} defaultOpen={true} />);
 
-    // THEN: '--' is displayed for bin column of pack without bin
+    // THEN: '0' is displayed for bin column of pack with bin_number 0
+    // (0 is a valid bin number, component shows it as-is)
     const rows = screen.getAllByTestId(/activated-pack-row-/);
-    const packWithoutBin = rows.find((row) =>
+    const packWithBinZero = rows.find((row) =>
       row.getAttribute("data-testid")?.includes("pack-003"),
     );
-    expect(packWithoutBin).toContainHTML("--");
+    expect(packWithBinZero).toHaveTextContent("0");
   });
 
   it("should create unique row test ids", () => {

@@ -175,8 +175,8 @@ describe("DepletedPacksSection Component", () => {
     expect(screen.getByText("Game")).toBeInTheDocument();
     expect(screen.getByText("Price")).toBeInTheDocument();
     expect(screen.getByText("Pack #")).toBeInTheDocument();
-    expect(screen.getByText("Activated At")).toBeInTheDocument();
-    expect(screen.getByText("Sold Out At")).toBeInTheDocument();
+    expect(screen.getByText("Activated")).toBeInTheDocument();
+    expect(screen.getByText("Sold Out")).toBeInTheDocument();
   });
 
   it("should display depleted pack data correctly", () => {
