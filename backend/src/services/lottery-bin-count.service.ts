@@ -17,7 +17,6 @@
  * - Reactivating bins: If increasing and soft-deleted bins exist, reactivate them first
  */
 
-import { Prisma } from "@prisma/client";
 import { prisma } from "../utils/db";
 import {
   MIN_LOTTERY_BIN_COUNT,

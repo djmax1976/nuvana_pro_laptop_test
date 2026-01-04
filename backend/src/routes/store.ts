@@ -4387,8 +4387,6 @@ export async function storeRoutes(fastify: FastifyInstance) {
         permissionMiddleware(PERMISSIONS.LOTTERY_BIN_CONFIG_READ),
       ],
       schema: {
-        description: "Get lottery bin count configuration for a store",
-        tags: ["stores", "lottery"],
         params: {
           type: "object",
           required: ["storeId"],
@@ -4420,9 +4418,9 @@ export async function storeRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (request, reply) => {
-      const { storeId } = request.params;
-      const user = request.user as UserIdentity;
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { storeId } = request.params as { storeId: string };
+      const user = (request as any).user as UserIdentity;
 
       try {
         // Validate store access
@@ -4508,8 +4506,6 @@ export async function storeRoutes(fastify: FastifyInstance) {
         permissionMiddleware(PERMISSIONS.LOTTERY_BIN_CONFIG_WRITE),
       ],
       schema: {
-        description: "Update lottery bin count and sync bin rows",
-        tags: ["stores", "lottery"],
         params: {
           type: "object",
           required: ["storeId"],
@@ -4554,9 +4550,9 @@ export async function storeRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (request, reply) => {
-      const { storeId } = request.params;
-      const user = request.user as UserIdentity;
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { storeId } = request.params as { storeId: string };
+      const user = (request as any).user as UserIdentity;
       const ipAddress =
         (request.headers["x-forwarded-for"] as string) ||
         request.ip ||
@@ -4573,7 +4569,7 @@ export async function storeRoutes(fastify: FastifyInstance) {
             error: {
               code: "VALIDATION_ERROR",
               message: "Invalid request body",
-              details: validation.error.errors.map((e) => ({
+              details: validation.error.issues.map((e) => ({
                 field: e.path.join("."),
                 message: e.message,
               })),
@@ -4703,8 +4699,6 @@ export async function storeRoutes(fastify: FastifyInstance) {
         permissionMiddleware(PERMISSIONS.LOTTERY_BIN_CONFIG_READ),
       ],
       schema: {
-        description: "Validate proposed bin count change",
-        tags: ["stores", "lottery"],
         params: {
           type: "object",
           required: ["storeId"],
@@ -4747,10 +4741,10 @@ export async function storeRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (request, reply) => {
-      const { storeId } = request.params;
-      const { new_count: newCountStr } = request.query;
-      const user = request.user as UserIdentity;
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { storeId } = request.params as { storeId: string };
+      const { new_count: newCountStr } = request.query as { new_count: string };
+      const user = (request as any).user as UserIdentity;
 
       try {
         // Parse and validate new_count
