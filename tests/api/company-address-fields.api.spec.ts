@@ -67,7 +67,7 @@ test.describe("Company Address API - Update with Address Fields", () => {
 
       const response = await superadminApiRequest.put(
         `/api/companies/${company.company_id}`,
-        { data: updateData },
+        updateData,
       );
 
       // THEN: Company is updated with address fields
@@ -116,11 +116,7 @@ test.describe("Company Address API - Update with Address Fields", () => {
       // WHEN: Updating with null values
       const response = await superadminApiRequest.put(
         `/api/companies/${company.company_id}`,
-        {
-          data: {
-            address_line2: null,
-          },
-        },
+        { address_line2: null },
       );
 
       // THEN: Address field is cleared
@@ -293,7 +289,7 @@ test.describe("Company Address API - List Includes Address", () => {
 // =============================================================================
 
 test.describe("Company Address API - Validation", () => {
-  test("TC-006: validates address_line1 max length", async ({
+  test("TC-006: validates address_line1 max length at service level", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -304,20 +300,18 @@ test.describe("Company Address API - Validation", () => {
     });
 
     try {
-      // WHEN: Updating with too-long address_line1
+      // WHEN: Updating with too-long address_line1 (exceeds 255 char service limit)
+      // Note: The Fastify schema maxLength is 255, so this should be rejected
       const response = await superadminApiRequest.put(
         `/api/companies/${company.company_id}`,
-        {
-          data: {
-            address_line1: "A".repeat(300), // Exceeds 255 char limit
-          },
-        },
+        { address_line1: "A".repeat(300) },
       );
 
-      // THEN: Returns validation error
+      // THEN: Returns validation error (400) from service-level validation
+      // The service checks: data.address_line1.trim().length > 255
       expect(response.status()).toBe(400);
       const body = await response.json();
-      expect(body.error || body.message).toBeDefined();
+      expect(body.error || body.message || body.success === false).toBeTruthy();
     } finally {
       // Cleanup
       await prismaClient.company.delete({
@@ -344,10 +338,8 @@ test.describe("Company Address API - Validation", () => {
       const response = await superadminApiRequest.put(
         `/api/companies/${company.company_id}`,
         {
-          data: {
-            address_line1: "  123 Main Street  ",
-            city: "  Atlanta  ",
-          },
+          address_line1: "  123 Main Street  ",
+          city: "  Atlanta  ",
         },
       );
 
@@ -368,7 +360,7 @@ test.describe("Company Address API - Validation", () => {
     }
   });
 
-  test("TC-008: validates state_id is valid UUID", async ({
+  test("TC-008: validates state_id is valid UUID at service level", async ({
     superadminApiRequest,
     prismaClient,
   }) => {
@@ -380,17 +372,17 @@ test.describe("Company Address API - Validation", () => {
 
     try {
       // WHEN: Updating with invalid UUID
+      // The service validates UUID format using regex check
       const response = await superadminApiRequest.put(
         `/api/companies/${company.company_id}`,
-        {
-          data: {
-            state_id: "not-a-valid-uuid",
-          },
-        },
+        { state_id: "not-a-valid-uuid" },
       );
 
-      // THEN: Returns validation error
+      // THEN: Returns validation error (400) from service-level validation
+      // The service checks: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
       expect(response.status()).toBe(400);
+      const body = await response.json();
+      expect(body.error || body.message || body.success === false).toBeTruthy();
     } finally {
       // Cleanup
       await prismaClient.company.delete({
@@ -420,18 +412,18 @@ test.describe("Company Address API - Security", () => {
 
     try {
       // WHEN: Updating with XSS attempt in address
+      // The service has XSS protection pattern:
+      // /<script|<iframe|javascript:|onerror=|onload=/i
       const response = await superadminApiRequest.put(
         `/api/companies/${company.company_id}`,
-        {
-          data: {
-            address_line1: "<script>alert('xss')</script>",
-          },
-        },
+        { address_line1: "<script>alert('xss')</script>" },
       );
 
-      // THEN: XSS is rejected or sanitized
-      // The backend should reject HTML tags with validation error
+      // THEN: XSS is rejected with validation error (400)
+      // Service throws: "Invalid address_line1: HTML tags and scripts are not allowed"
       expect(response.status()).toBe(400);
+      const body = await response.json();
+      expect(body.error || body.message || body.success === false).toBeTruthy();
     } finally {
       // Cleanup
       await prismaClient.company.delete({
@@ -487,10 +479,8 @@ test.describe("Company Address API - Geographic Relations", () => {
       const response = await superadminApiRequest.put(
         `/api/companies/${company.company_id}`,
         {
-          data: {
-            state_id: georgia.state_id,
-            county_id: county.county_id,
-          },
+          state_id: georgia.state_id,
+          county_id: county.county_id,
         },
       );
 
@@ -604,19 +594,21 @@ test.describe("Company Address API - Edit Modal Scenario", () => {
 
     try {
       // WHEN: First update - add address
-      await superadminApiRequest.put(`/api/companies/${company.company_id}`, {
-        data: {
+      const firstUpdateResponse = await superadminApiRequest.put(
+        `/api/companies/${company.company_id}`,
+        {
           address_line1: "First Address",
           city: "First City",
         },
-      });
+      );
+      expect(firstUpdateResponse.status()).toBe(200);
 
       // Second update - change name only
-      await superadminApiRequest.put(`/api/companies/${company.company_id}`, {
-        data: {
-          name: `Test Updated Persist ${testId}`,
-        },
-      });
+      const secondUpdateResponse = await superadminApiRequest.put(
+        `/api/companies/${company.company_id}`,
+        { name: `Test Updated Persist ${testId}` },
+      );
+      expect(secondUpdateResponse.status()).toBe(200);
 
       // THEN: Fetch and verify address persisted
       const response = await superadminApiRequest.get(

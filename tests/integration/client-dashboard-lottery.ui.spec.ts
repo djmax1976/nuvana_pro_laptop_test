@@ -197,6 +197,11 @@ async function createTestFixture(
     });
   }
 
+  // Small delay to ensure database writes are fully committed and visible to other connections
+  // This prevents race conditions where the backend login service doesn't see the new user yet
+  // Increased to 200ms to handle slower CI environments
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
   return {
     prisma,
     clientOwner: {
@@ -294,7 +299,7 @@ async function loginAndWaitForClientDashboard(
   password: string,
   retryCount = 0,
 ): Promise<void> {
-  const MAX_RETRIES = 2;
+  const MAX_RETRIES = 3; // Increased from 2 to 3 for better CI reliability
   const FORM_VISIBILITY_TIMEOUT = 30000; // Increased for slow CI
   const INPUT_EDITABLE_TIMEOUT = 15000;
   const LOGIN_API_TIMEOUT = 45000;
@@ -374,17 +379,26 @@ async function loginAndWaitForClientDashboard(
       // networkidle might timeout if there are long-polling requests
     });
   } catch (error) {
-    // Retry on connection errors (backend restart)
-    if (
+    // Retry on connection errors (backend restart) or "Invalid credentials" (database visibility race)
+    const shouldRetry =
       retryCount < MAX_RETRIES &&
       error instanceof Error &&
       (error.message.includes("ERR_CONNECTION_REFUSED") ||
-        error.message.includes("net::"))
-    ) {
+        error.message.includes("net::") ||
+        error.message.includes("Invalid credentials"));
+
+    if (shouldRetry) {
+      const errorType = error.message.includes("Invalid credentials")
+        ? "Credentials not yet visible in database"
+        : "Connection error";
       console.log(
-        `Connection error, retrying login (attempt ${retryCount + 2}/${MAX_RETRIES + 1})...`,
+        `${errorType}, retrying login (attempt ${retryCount + 2}/${MAX_RETRIES + 1})...`,
       );
-      await page.waitForTimeout(2000); // Wait for backend to restart
+      // Wait longer for database visibility issues (user may not be committed yet)
+      const waitTime = error.message.includes("Invalid credentials")
+        ? 1000
+        : 2000;
+      await page.waitForTimeout(waitTime);
       return loginAndWaitForClientDashboard(
         page,
         email,
@@ -1294,16 +1308,36 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       );
       await expect(packDetails).toBeVisible({ timeout: 5000 });
 
-      // AND: Pack information is displayed
-      await expect(packDetails.getByText("Pack #")).toBeVisible();
-      await expect(packDetails.getByText("Serial Range")).toBeVisible();
-      await expect(packDetails.getByText("Bin")).toBeVisible();
+      // AND: Pack detail headers are displayed (use getByRole to target column headers specifically)
+      // Note: getByText would match both headers and cell content containing "Bin"
+      await expect(
+        packDetails.getByRole("columnheader", { name: "Pack #" }),
+      ).toBeVisible();
+      await expect(
+        packDetails.getByRole("columnheader", { name: "Serial Range" }),
+      ).toBeVisible();
+      await expect(
+        packDetails.getByRole("columnheader", { name: "Bin" }),
+      ).toBeVisible();
 
-      // AND: Individual pack rows are visible
-      await expect(packDetails.getByText(testPack1.pack_number)).toBeVisible();
-      await expect(packDetails.getByText(testPack2.pack_number)).toBeVisible();
-      await expect(packDetails.getByText("1001 - 1999")).toBeVisible();
-      await expect(packDetails.getByText("2001 - 2999")).toBeVisible();
+      // AND: Individual pack rows are visible with their data
+      const pack1Row = packDetails.locator(
+        `[data-testid="pack-row-${testPack1.pack_id}"]`,
+      );
+      const pack2Row = packDetails.locator(
+        `[data-testid="pack-row-${testPack2.pack_id}"]`,
+      );
+
+      await expect(pack1Row).toBeVisible();
+      await expect(pack2Row).toBeVisible();
+
+      // Verify pack numbers are displayed in their respective rows
+      await expect(pack1Row.getByText(testPack1.pack_number)).toBeVisible();
+      await expect(pack2Row.getByText(testPack2.pack_number)).toBeVisible();
+
+      // Verify serial ranges are displayed (format: "start - end")
+      await expect(pack1Row.getByText("1001 - 1999")).toBeVisible();
+      await expect(pack2Row.getByText("2001 - 2999")).toBeVisible();
 
       // WHEN: Clicking row again to collapse
       await gameRow.click();

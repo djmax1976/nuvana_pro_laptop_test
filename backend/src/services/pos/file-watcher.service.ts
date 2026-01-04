@@ -810,6 +810,11 @@ export class POSFileWatcherService extends EventEmitter {
       throw error;
     }
 
+    // Sort files alphabetically to ensure deterministic processing order
+    // This is important for POS systems where transaction files often have
+    // sequence numbers or timestamps in filenames (e.g., TLog_001.xml, TLog_002.xml)
+    files.sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
+
     return files;
   }
 

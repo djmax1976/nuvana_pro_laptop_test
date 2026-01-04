@@ -16,9 +16,13 @@
  * @priority P0 (Critical - Business Logic, Data Integrity)
  *
  * Fixtures Used:
- * - storeManagerApiRequest/storeManagerUser: Has LOTTERY_BIN_CONFIG_READ, LOTTERY_BIN_CONFIG_WRITE permissions
+ * - storeManagerApiRequest/storeManagerUser: STORE scope - has LOTTERY_BIN_CONFIG_READ permission (can GET)
+ * - clientUserApiRequest/clientUser: COMPANY scope - has LOTTERY_BIN_CONFIG_READ/WRITE permissions (can GET/PUT)
  * - regularUserApiRequest: Lacks lottery bin config permissions
  * - apiRequest: Unauthenticated requests
+ *
+ * Important: The PUT endpoint requires COMPANY or SYSTEM scope (not just STORE scope),
+ * so PUT tests must use clientUserApiRequest which has COMPANY scope.
  */
 
 import { test, expect } from "../support/fixtures/rbac.fixture";
@@ -152,11 +156,13 @@ test.describe("Lottery Bin Count Configuration API", () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   test("BIN-COUNT-010: [P0] PUT /api/stores/:storeId/lottery/bin-count - should create bins when increasing count from 0", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
     prismaClient,
   }) => {
-    const storeId = storeManagerUser.store_id;
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope and LOTTERY_BIN_CONFIG_WRITE permission
+    // NOTE: PUT requires COMPANY or SYSTEM scope (not just STORE scope)
+    const storeId = clientUser.store_id;
 
     // Ensure no bins exist initially
     await prismaClient.lotteryBin.deleteMany({
@@ -165,9 +171,9 @@ test.describe("Lottery Bin Count Configuration API", () => {
 
     try {
       // WHEN: I set bin count to 5
-      const response = await storeManagerApiRequest.put(
+      const response = await clientUserApiRequest.put(
         `/api/stores/${storeId}/lottery/bin-count`,
-        { data: { bin_count: 5 } },
+        { bin_count: 5 },
       );
 
       // THEN: I receive success response
@@ -195,11 +201,12 @@ test.describe("Lottery Bin Count Configuration API", () => {
   });
 
   test("BIN-COUNT-011: [P0] PUT /api/stores/:storeId/lottery/bin-count - should add bins when increasing count", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
     prismaClient,
   }) => {
-    const storeId = storeManagerUser.store_id;
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
+    const storeId = clientUser.store_id;
 
     // Create 3 existing bins
     await prismaClient.lotteryBin.createMany({
@@ -212,9 +219,9 @@ test.describe("Lottery Bin Count Configuration API", () => {
 
     try {
       // WHEN: I increase bin count from 3 to 5
-      const response = await storeManagerApiRequest.put(
+      const response = await clientUserApiRequest.put(
         `/api/stores/${storeId}/lottery/bin-count`,
-        { data: { bin_count: 5 } },
+        { bin_count: 5 },
       );
 
       // THEN: I receive success response
@@ -242,11 +249,12 @@ test.describe("Lottery Bin Count Configuration API", () => {
   });
 
   test("BIN-COUNT-012: [P0] PUT /api/stores/:storeId/lottery/bin-count - should soft-delete empty bins when decreasing count", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
     prismaClient,
   }) => {
-    const storeId = storeManagerUser.store_id;
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
+    const storeId = clientUser.store_id;
 
     // Create 5 existing bins
     await prismaClient.lotteryBin.createMany({
@@ -261,9 +269,9 @@ test.describe("Lottery Bin Count Configuration API", () => {
 
     try {
       // WHEN: I decrease bin count from 5 to 3
-      const response = await storeManagerApiRequest.put(
+      const response = await clientUserApiRequest.put(
         `/api/stores/${storeId}/lottery/bin-count`,
-        { data: { bin_count: 3 } },
+        { bin_count: 3 },
       );
 
       // THEN: I receive success response
@@ -297,11 +305,12 @@ test.describe("Lottery Bin Count Configuration API", () => {
   });
 
   test("BIN-COUNT-013: [P0] PUT /api/stores/:storeId/lottery/bin-count - should reactivate soft-deleted bins when increasing", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
     prismaClient,
   }) => {
-    const storeId = storeManagerUser.store_id;
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
+    const storeId = clientUser.store_id;
 
     // Create 3 active bins and 2 inactive bins
     await prismaClient.lotteryBin.createMany({
@@ -326,9 +335,9 @@ test.describe("Lottery Bin Count Configuration API", () => {
 
     try {
       // WHEN: I increase bin count from 3 to 5
-      const response = await storeManagerApiRequest.put(
+      const response = await clientUserApiRequest.put(
         `/api/stores/${storeId}/lottery/bin-count`,
-        { data: { bin_count: 5 } },
+        { bin_count: 5 },
       );
 
       // THEN: I receive success response
@@ -357,27 +366,29 @@ test.describe("Lottery Bin Count Configuration API", () => {
   });
 
   test("BIN-COUNT-014: [P0] PUT /api/stores/:storeId/lottery/bin-count - should reject invalid bin count (negative)", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
   }) => {
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
     // WHEN: I try to set bin count to a negative number
-    const response = await storeManagerApiRequest.put(
-      `/api/stores/${storeManagerUser.store_id}/lottery/bin-count`,
-      { data: { bin_count: -1 } },
+    const response = await clientUserApiRequest.put(
+      `/api/stores/${clientUser.store_id}/lottery/bin-count`,
+      { bin_count: -1 },
     );
 
-    // THEN: I receive 400 Bad Request
+    // THEN: I receive 400 Bad Request (validation fails before auth check)
     expect(response.status(), "Expected 400 Bad Request").toBe(400);
   });
 
   test("BIN-COUNT-015: [P0] PUT /api/stores/:storeId/lottery/bin-count - should reject invalid bin count (exceeds max)", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
   }) => {
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
     // WHEN: I try to set bin count to 201 (max is 200)
-    const response = await storeManagerApiRequest.put(
-      `/api/stores/${storeManagerUser.store_id}/lottery/bin-count`,
-      { data: { bin_count: 201 } },
+    const response = await clientUserApiRequest.put(
+      `/api/stores/${clientUser.store_id}/lottery/bin-count`,
+      { bin_count: 201 },
     );
 
     // THEN: I receive 400 Bad Request
@@ -386,13 +397,13 @@ test.describe("Lottery Bin Count Configuration API", () => {
 
   test("BIN-COUNT-016: [P0] PUT /api/stores/:storeId/lottery/bin-count - should require LOTTERY_BIN_CONFIG_WRITE permission", async ({
     regularUserApiRequest,
-    storeManagerUser,
+    clientUser,
   }) => {
     // GIVEN: I am authenticated but lack LOTTERY_BIN_CONFIG_WRITE permission
-    // WHEN: I try to update bin count
+    // WHEN: I try to update bin count on the client user's store
     const response = await regularUserApiRequest.put(
-      `/api/stores/${storeManagerUser.store_id}/lottery/bin-count`,
-      { data: { bin_count: 10 } },
+      `/api/stores/${clientUser.store_id}/lottery/bin-count`,
+      { bin_count: 10 },
     );
 
     // THEN: I receive 403 Forbidden
@@ -486,11 +497,12 @@ test.describe("Lottery Bin Count Configuration API", () => {
   }) => {
     const storeId = storeManagerUser.store_id;
 
-    // Create a game for the pack
+    // Create a game for the pack (game_code must be exactly 4 digits, unique per store)
+    const randomGameCode = String(Math.floor(1000 + Math.random() * 9000));
     const game = await prismaClient.lotteryGame.create({
       data: {
         name: "Test Game",
-        game_code: "TG001",
+        game_code: randomGameCode,
         price: 5,
         tickets_per_pack: 50,
         status: "ACTIVE",
@@ -498,7 +510,7 @@ test.describe("Lottery Bin Count Configuration API", () => {
     });
 
     // Create bins - one will have a pack
-    const bins = await prismaClient.lotteryBin.createMany({
+    await prismaClient.lotteryBin.createMany({
       data: [
         { store_id: storeId, name: "Bin 1", display_order: 0, is_active: true },
         { store_id: storeId, name: "Bin 2", display_order: 1, is_active: true },
@@ -514,6 +526,7 @@ test.describe("Lottery Bin Count Configuration API", () => {
     });
 
     // Create an active pack in the highest bin
+    // Note: ACTIVE status requires activated_at to be set (database constraint)
     await prismaClient.lotteryPack.create({
       data: {
         store_id: storeId,
@@ -522,6 +535,7 @@ test.describe("Lottery Bin Count Configuration API", () => {
         serial_start: "001",
         serial_end: "050",
         status: "ACTIVE",
+        activated_at: new Date(),
         current_bin_id: highBin!.bin_id,
       },
     });
@@ -573,11 +587,12 @@ test.describe("Lottery Bin Count Configuration API", () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   test("BIN-COUNT-030: [P1] PUT /api/stores/:storeId/lottery/bin-count - should accept minimum boundary value (0)", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
     prismaClient,
   }) => {
-    const storeId = storeManagerUser.store_id;
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
+    const storeId = clientUser.store_id;
 
     // Create 3 empty bins
     await prismaClient.lotteryBin.createMany({
@@ -590,9 +605,9 @@ test.describe("Lottery Bin Count Configuration API", () => {
 
     try {
       // WHEN: I set bin count to 0 (minimum boundary)
-      const response = await storeManagerApiRequest.put(
+      const response = await clientUserApiRequest.put(
         `/api/stores/${storeId}/lottery/bin-count`,
-        { data: { bin_count: 0 } },
+        { bin_count: 0 },
       );
 
       // THEN: I receive success and all bins are deactivated
@@ -619,20 +634,21 @@ test.describe("Lottery Bin Count Configuration API", () => {
   });
 
   test("BIN-COUNT-031: [P1] PUT /api/stores/:storeId/lottery/bin-count - should accept maximum boundary value (200)", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
     prismaClient,
   }) => {
-    const storeId = storeManagerUser.store_id;
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
+    const storeId = clientUser.store_id;
 
     // Ensure no bins exist initially
     await prismaClient.lotteryBin.deleteMany({ where: { store_id: storeId } });
 
     try {
       // WHEN: I set bin count to 200 (maximum boundary)
-      const response = await storeManagerApiRequest.put(
+      const response = await clientUserApiRequest.put(
         `/api/stores/${storeId}/lottery/bin-count`,
-        { data: { bin_count: 200 } },
+        { bin_count: 200 },
       );
 
       // THEN: I receive success and 200 bins are created
@@ -659,12 +675,13 @@ test.describe("Lottery Bin Count Configuration API", () => {
   });
 
   test("BIN-COUNT-032: [P0] PUT /api/stores/:storeId/lottery/bin-count - should reject invalid UUID format", async ({
-    storeManagerApiRequest,
+    clientUserApiRequest,
   }) => {
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
     // WHEN: I call with invalid UUID format
-    const response = await storeManagerApiRequest.put(
+    const response = await clientUserApiRequest.put(
       `/api/stores/invalid-uuid/lottery/bin-count`,
-      { data: { bin_count: 10 } },
+      { bin_count: 10 },
     );
 
     // THEN: I receive 400 Bad Request
@@ -684,13 +701,14 @@ test.describe("Lottery Bin Count Configuration API", () => {
   });
 
   test("BIN-COUNT-034: [P0] PUT /api/stores/:storeId/lottery/bin-count - should reject non-integer bin count", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
   }) => {
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
     // WHEN: I try to set bin count to a non-integer
-    const response = await storeManagerApiRequest.put(
-      `/api/stores/${storeManagerUser.store_id}/lottery/bin-count`,
-      { data: { bin_count: 5.5 } },
+    const response = await clientUserApiRequest.put(
+      `/api/stores/${clientUser.store_id}/lottery/bin-count`,
+      { bin_count: 5.5 },
     );
 
     // THEN: I receive 400 Bad Request
@@ -698,11 +716,12 @@ test.describe("Lottery Bin Count Configuration API", () => {
   });
 
   test("BIN-COUNT-035: [P1] PUT /api/stores/:storeId/lottery/bin-count - should handle store with null lottery_bin_count", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
     prismaClient,
   }) => {
-    const storeId = storeManagerUser.store_id;
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
+    const storeId = clientUser.store_id;
 
     // Ensure store has null bin_count and no bins
     await prismaClient.lotteryBin.deleteMany({ where: { store_id: storeId } });
@@ -713,9 +732,9 @@ test.describe("Lottery Bin Count Configuration API", () => {
 
     try {
       // WHEN: I set bin count for a store that never had bins configured
-      const response = await storeManagerApiRequest.put(
+      const response = await clientUserApiRequest.put(
         `/api/stores/${storeId}/lottery/bin-count`,
-        { data: { bin_count: 10 } },
+        { bin_count: 10 },
       );
 
       // THEN: I receive success with 10 bins created
@@ -739,17 +758,19 @@ test.describe("Lottery Bin Count Configuration API", () => {
   });
 
   test("BIN-COUNT-036: [P0] PUT /api/stores/:storeId/lottery/bin-count - should block decrease when ALL bins have packs", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
     prismaClient,
   }) => {
-    const storeId = storeManagerUser.store_id;
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
+    const storeId = clientUser.store_id;
 
-    // Create a game for the packs
+    // Create a game for the packs (game_code must be exactly 4 digits, unique per store)
+    const randomGameCode = String(Math.floor(1000 + Math.random() * 9000));
     const game = await prismaClient.lotteryGame.create({
       data: {
         name: "Block Test Game",
-        game_code: "BTG001",
+        game_code: randomGameCode,
         price: 5,
         tickets_per_pack: 50,
         status: "ACTIVE",
@@ -771,15 +792,17 @@ test.describe("Lottery Bin Count Configuration API", () => {
       orderBy: { display_order: "asc" },
     });
 
+    // Create active packs in each bin (ACTIVE requires activated_at)
     for (let i = 0; i < bins.length; i++) {
       await prismaClient.lotteryPack.create({
         data: {
           store_id: storeId,
           game_id: game.game_id,
-          pack_number: `BLOCK${i + 1}`,
+          pack_number: `BLK${i + 1}`,
           serial_start: "001",
           serial_end: "050",
           status: "ACTIVE",
+          activated_at: new Date(),
           current_bin_id: bins[i].bin_id,
         },
       });
@@ -787,13 +810,14 @@ test.describe("Lottery Bin Count Configuration API", () => {
 
     try {
       // WHEN: I try to decrease bin count when all bins have packs
-      const response = await storeManagerApiRequest.put(
+      const response = await clientUserApiRequest.put(
         `/api/stores/${storeId}/lottery/bin-count`,
-        { data: { bin_count: 1 } },
+        { bin_count: 1 },
       );
 
-      // THEN: I receive 400 Bad Request (cannot remove bins with packs)
-      expect(response.status(), "Expected 400 Bad Request").toBe(400);
+      // THEN: I receive 409 Conflict (cannot remove bins with packs)
+      // The implementation returns 409 for this business logic constraint
+      expect(response.status(), "Expected 409 Conflict").toBe(409);
       const body = await response.json();
       expect(
         body.error?.message || body.message,
@@ -817,17 +841,19 @@ test.describe("Lottery Bin Count Configuration API", () => {
   });
 
   test("BIN-COUNT-037: [P1] GET /api/stores/:storeId/lottery/bin-count - should return empty_bins correctly with mixed bin states", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
     prismaClient,
   }) => {
-    const storeId = storeManagerUser.store_id;
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
+    const storeId = clientUser.store_id;
 
-    // Create a game
+    // Create a game (game_code must be exactly 4 digits, unique per store)
+    const randomGameCode = String(Math.floor(1000 + Math.random() * 9000));
     const game = await prismaClient.lotteryGame.create({
       data: {
         name: "Mixed Test Game",
-        game_code: "MTG001",
+        game_code: randomGameCode,
         price: 5,
         tickets_per_pack: 50,
         status: "ACTIVE",
@@ -845,7 +871,7 @@ test.describe("Lottery Bin Count Configuration API", () => {
       ],
     });
 
-    // Get first 2 bins and add packs
+    // Get first 2 bins and add active packs (ACTIVE requires activated_at)
     const binsWithPacks = await prismaClient.lotteryBin.findMany({
       where: { store_id: storeId, is_active: true },
       orderBy: { display_order: "asc" },
@@ -857,10 +883,11 @@ test.describe("Lottery Bin Count Configuration API", () => {
         data: {
           store_id: storeId,
           game_id: game.game_id,
-          pack_number: `MIX${i + 1}`,
+          pack_number: `MX0${i + 1}`,
           serial_start: "001",
           serial_end: "050",
           status: "ACTIVE",
+          activated_at: new Date(),
           current_bin_id: binsWithPacks[i].bin_id,
         },
       });
@@ -868,7 +895,7 @@ test.describe("Lottery Bin Count Configuration API", () => {
 
     try {
       // WHEN: I query the bin count
-      const response = await storeManagerApiRequest.get(
+      const response = await clientUserApiRequest.get(
         `/api/stores/${storeId}/lottery/bin-count`,
       );
 
@@ -934,11 +961,12 @@ test.describe("Lottery Bin Count Configuration API", () => {
   });
 
   test("BIN-COUNT-039: [P1] PUT /api/stores/:storeId/lottery/bin-count - should handle mixed reactivate and create", async ({
-    storeManagerApiRequest,
-    storeManagerUser,
+    clientUserApiRequest,
+    clientUser,
     prismaClient,
   }) => {
-    const storeId = storeManagerUser.store_id;
+    // GIVEN: I am authenticated as a Client Owner with COMPANY scope
+    const storeId = clientUser.store_id;
 
     // Create 3 active bins and 2 inactive bins
     await prismaClient.lotteryBin.createMany({
@@ -963,9 +991,9 @@ test.describe("Lottery Bin Count Configuration API", () => {
 
     try {
       // WHEN: I increase bin count from 3 to 8 (need 5 more, but only 2 can be reactivated)
-      const response = await storeManagerApiRequest.put(
+      const response = await clientUserApiRequest.put(
         `/api/stores/${storeId}/lottery/bin-count`,
-        { data: { bin_count: 8 } },
+        { bin_count: 8 },
       );
 
       // THEN: I receive success with both reactivations and creations

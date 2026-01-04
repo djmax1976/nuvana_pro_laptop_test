@@ -170,12 +170,18 @@ test.describe("4.7-E2E: Shift Management UI", () => {
     await navigateToShiftsPage(clientOwnerPage);
 
     // THEN: Shift list should be displayed
-    // Wait for the page heading
+    // Wait for the page heading in header (title is "Shift Management" set via PageTitleContext)
+    // The heading is rendered in the Header component with data-testid="header-page-title"
     await expect(
-      clientOwnerPage.getByRole("heading", { name: /shifts/i }),
+      clientOwnerPage.locator('[data-testid="header-page-title"]'),
     ).toBeVisible({
       timeout: 15000,
     });
+
+    // Verify the heading contains expected text (case-insensitive match for "shift")
+    await expect(
+      clientOwnerPage.locator('[data-testid="header-page-title"]'),
+    ).toContainText(/shift/i, { timeout: 5000 });
 
     // Wait for either the table (if shifts exist) or empty state (if no shifts)
     await Promise.race([

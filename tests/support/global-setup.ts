@@ -312,7 +312,18 @@ async function globalSetup() {
           console.log(`   Deleted ${companyResult.count} companies`);
       }
 
-      // 8. Delete test users
+      // 8. Delete lottery game imports for test users
+      if (userIds.length > 0) {
+        const lotteryImportResult = await tx.lotteryGameImport.deleteMany({
+          where: { created_by_user_id: { in: userIds } },
+        });
+        if (lotteryImportResult.count > 0)
+          console.log(
+            `   Deleted ${lotteryImportResult.count} lottery game imports`,
+          );
+      }
+
+      // 9. Delete test users
       if (userIds.length > 0) {
         const userResult = await tx.user.deleteMany({
           where: { user_id: { in: userIds } },
@@ -321,7 +332,7 @@ async function globalSetup() {
           console.log(`   Deleted ${userResult.count} users`);
       }
 
-      // 9. Clean up orphaned audit logs (optional, for test data)
+      // 10. Clean up orphaned audit logs (optional, for test data)
       const auditResult = await tx.auditLog.deleteMany({
         where: {
           OR: [
