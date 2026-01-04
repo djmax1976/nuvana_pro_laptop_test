@@ -191,10 +191,10 @@ export function MyStoreSidebar({ className, onNavigate }: MyStoreSidebarProps) {
                   data-testid={terminalTestId}
                   onClick={() => handleTerminalClick(terminal)}
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors",
+                    "flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm font-medium transition-colors",
                     isTerminalActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border text-muted-foreground hover:border-accent-foreground/30 hover:bg-accent hover:text-accent-foreground",
                   )}
                 >
                   <span className="flex-1 truncate">{terminal.name}</span>

@@ -46,6 +46,7 @@ export const INVENTORY_ORDER = "INVENTORY_ORDER";
 
 // Lottery Permissions
 export const LOTTERY_GAME_READ = "LOTTERY_GAME_READ";
+export const LOTTERY_GAME_CREATE = "LOTTERY_GAME_CREATE";
 export const LOTTERY_PACK_READ = "LOTTERY_PACK_READ";
 export const LOTTERY_PACK_RECEIVE = "LOTTERY_PACK_RECEIVE";
 export const LOTTERY_PACK_ACTIVATE = "LOTTERY_PACK_ACTIVATE";
@@ -165,6 +166,7 @@ export const PERMISSIONS = {
 
   // Lottery
   LOTTERY_GAME_READ,
+  LOTTERY_GAME_CREATE,
   LOTTERY_PACK_READ,
   LOTTERY_PACK_RECEIVE,
   LOTTERY_PACK_ACTIVATE,
@@ -296,6 +298,7 @@ export const PERMISSION_DESCRIPTIONS: Record<PermissionCode, string> = {
 
   // Lottery
   [LOTTERY_GAME_READ]: "View lottery games",
+  [LOTTERY_GAME_CREATE]: "Create and import lottery games",
   [LOTTERY_PACK_READ]: "View lottery packs",
   [LOTTERY_PACK_RECEIVE]: "Receive lottery packs",
   [LOTTERY_PACK_ACTIVATE]: "Activate lottery packs",
@@ -419,6 +422,7 @@ export const PERMISSION_CATEGORIES = {
     description: "Permissions for lottery pack management and reconciliation",
     permissions: [
       LOTTERY_GAME_READ,
+      LOTTERY_GAME_CREATE,
       LOTTERY_PACK_READ,
       LOTTERY_PACK_RECEIVE,
       LOTTERY_PACK_ACTIVATE,
@@ -567,6 +571,7 @@ export const CLIENT_ASSIGNABLE_PERMISSIONS: PermissionCode[] = [
 
   // Lottery - Scratch-off pack management
   LOTTERY_GAME_READ,
+  LOTTERY_GAME_CREATE,
   LOTTERY_PACK_READ,
   LOTTERY_PACK_RECEIVE,
   LOTTERY_PACK_ACTIVATE,

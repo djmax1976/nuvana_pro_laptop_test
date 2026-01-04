@@ -17,6 +17,16 @@ import apiClient from "./client";
 // ============ Types ============
 
 /**
+ * Scope type for lottery games
+ * - STATE: Game is visible to all stores in the state
+ * - STORE: Game is visible only to a specific store
+ * - GLOBAL: Legacy global game (deprecated)
+ *
+ * Story: State-Scoped Lottery Games Phase
+ */
+export type GameScopeType = "STATE" | "STORE" | "GLOBAL";
+
+/**
  * Lottery pack status enum
  */
 export type LotteryPackStatus = "RECEIVED" | "ACTIVE" | "DEPLETED" | "RETURNED";
@@ -365,6 +375,7 @@ export async function receivePackBatch(
 
 /**
  * Lottery game response
+ * Story: State-Scoped Lottery Games Phase - Added scope_type, state_id, store_id
  */
 export interface LotteryGameResponse {
   game_id: string;
@@ -377,6 +388,18 @@ export interface LotteryGameResponse {
   status: string;
   created_at: string;
   updated_at: string;
+  /** Scope type: STATE, STORE, or GLOBAL */
+  scope_type?: GameScopeType;
+  /** State UUID for STATE-scoped games */
+  state_id?: string | null;
+  /** Store UUID for STORE-scoped games */
+  store_id?: string | null;
+  /** State info for display */
+  state?: {
+    state_id: string;
+    code: string;
+    name: string;
+  } | null;
 }
 
 /**
@@ -395,7 +418,13 @@ export async function getGames(): Promise<ApiResponse<LotteryGameResponse[]>> {
 /**
  * Create a new lottery game
  * POST /api/lottery/games
- * @param data - Game data (game_code, name, price, pack_value, optional description)
+ *
+ * SuperAdmin creates STATE-scoped games (visible to all stores in that state)
+ * Non-SuperAdmin creates STORE-scoped games (visible only to that store)
+ *
+ * Story: State-Scoped Lottery Games Phase
+ *
+ * @param data - Game data (game_code, name, price, pack_value, state_id OR store_id, optional description)
  * @returns Created game response
  */
 export interface CreateGameInput {
@@ -403,7 +432,10 @@ export interface CreateGameInput {
   name: string;
   price: number;
   pack_value: number;
-  store_id: string;
+  /** State UUID - for SuperAdmin creating STATE-scoped games */
+  state_id?: string;
+  /** Store UUID - for non-SuperAdmin creating STORE-scoped games (fallback) */
+  store_id?: string;
   description?: string;
 }
 
@@ -415,6 +447,9 @@ export interface CreateGameResponse {
   pack_value: number;
   total_tickets: number;
   status: string;
+  scope_type: GameScopeType;
+  state_id: string | null;
+  store_id: string | null;
 }
 
 export async function createGame(

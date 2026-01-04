@@ -30,6 +30,7 @@ import { clientRoleRoutes } from "./routes/client-roles";
 import { cashierRoutes } from "./routes/cashiers";
 import { adminRolesRoutes } from "./routes/admin-roles";
 import { lotteryRoutes } from "./routes/lottery";
+import { lotteryImportRoutes } from "./routes/lottery-import";
 import { shiftClosingRoutes } from "./routes/shift-closing";
 import { tenderTypeRoutes } from "./routes/tender-types";
 import { departmentRoutes } from "./routes/departments";
@@ -41,6 +42,8 @@ import { daySummaryRoutes } from "./routes/day-summaries";
 import { xReportRoutes } from "./routes/x-reports";
 import { zReportRoutes } from "./routes/z-reports";
 import { reconciliationRoutes } from "./routes/reconciliation";
+import documentScanningRoutes from "./routes/document-scanning";
+import { geographicRoutes } from "./routes/geographic";
 import { rlsPlugin } from "./middleware/rls.middleware";
 
 const PORT = parseInt(
@@ -376,6 +379,9 @@ app.register(cashierRoutes);
 // Register lottery management routes
 app.register(lotteryRoutes);
 
+// Register lottery game import routes (bulk import feature)
+app.register(lotteryImportRoutes);
+
 // Register shift closing routes
 app.register(shiftClosingRoutes);
 
@@ -415,6 +421,12 @@ app.register(zReportRoutes);
 
 // Register reconciliation routes (Phase 5.3: Validation & Reconciliation)
 app.register(reconciliationRoutes);
+
+// Register document scanning routes (OCR Feature)
+app.register(documentScanningRoutes, { prefix: "/api/documents" });
+
+// Register geographic reference routes (State-Scoped Lottery Games Phase)
+app.register(geographicRoutes);
 
 // Root endpoint - API information and status
 app.get("/", async () => {

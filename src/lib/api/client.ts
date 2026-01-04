@@ -102,7 +102,8 @@ function createApiClient(): AxiosInstance {
           requestUrl.includes("/auth/verify-management") ||
           requestUrl.includes("/auth/verify-user-permission") ||
           requestUrl.includes("/auth/verify-cashier-permission") ||
-          requestUrl.includes("/cashiers/authenticate-pin");
+          requestUrl.includes("/cashiers/authenticate-pin") ||
+          requestUrl.includes("/cashiers/authenticate");
 
         if (isCredentialVerificationEndpoint) {
           // Extract error details for proper error message display
