@@ -30,30 +30,36 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Create mock functions with proper typing
+const mockStoreFindUnique = vi.fn();
+const mockStoreUpdate = vi.fn();
+const mockLotteryBinCount = vi.fn();
+const mockLotteryBinFindMany = vi.fn();
+const mockLotteryBinCreateMany = vi.fn();
+const mockLotteryBinCreate = vi.fn();
+const mockLotteryBinUpdate = vi.fn();
+const mockTransaction = vi.fn();
+
 // Mock the prisma import - factory function must return the mock
 vi.mock("../../../backend/src/utils/db", () => ({
   prisma: {
     store: {
-      findUnique: vi.fn(),
-      update: vi.fn(),
+      findUnique: mockStoreFindUnique,
+      update: mockStoreUpdate,
     },
     lotteryBin: {
-      count: vi.fn(),
-      findMany: vi.fn(),
-      createMany: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
+      count: mockLotteryBinCount,
+      findMany: mockLotteryBinFindMany,
+      createMany: mockLotteryBinCreateMany,
+      create: mockLotteryBinCreate,
+      update: mockLotteryBinUpdate,
     },
-    $transaction: vi.fn(),
+    $transaction: mockTransaction,
   },
 }));
 
 // Import after mock setup
 import { LotteryBinCountService } from "../../../backend/src/services/lottery-bin-count.service";
-import { prisma } from "../../../backend/src/utils/db";
-
-// Get typed mocks
-const mockPrisma = vi.mocked(prisma);
 
 describe("LotteryBinCountService", () => {
   let service: LotteryBinCountService;
@@ -72,11 +78,11 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-001: [P0] should return bin count statistics", async () => {
       // GIVEN: A store exists with some bins
-      mockPrisma.store.findUnique.mockResolvedValue({
+      mockStoreFindUnique.mockResolvedValue({
         store_id: validStoreId,
         lottery_bin_count: 10,
       } as any);
-      mockPrisma.lotteryBin.count
+      mockLotteryBinCount
         .mockResolvedValueOnce(10) // active bins
         .mockResolvedValueOnce(3); // bins with packs
 
@@ -105,7 +111,7 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-002b: [P0] should throw error when store not found", async () => {
       // GIVEN: Store doesn't exist
-      mockPrisma.store.findUnique.mockResolvedValue(null);
+      mockStoreFindUnique.mockResolvedValue(null);
 
       // WHEN/THEN: getBinCount throws
       await expect(service.getBinCount(validStoreId)).rejects.toThrow(
@@ -115,11 +121,11 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-001b: [P1] should handle null lottery_bin_count", async () => {
       // GIVEN: Store has null bin_count
-      mockPrisma.store.findUnique.mockResolvedValue({
+      mockStoreFindUnique.mockResolvedValue({
         store_id: validStoreId,
         lottery_bin_count: null,
       } as any);
-      mockPrisma.lotteryBin.count
+      mockLotteryBinCount
         .mockResolvedValueOnce(5) // active bins
         .mockResolvedValueOnce(2); // bins with packs
 
@@ -164,7 +170,7 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-003d: [P0] should accept boundary value 0", async () => {
       // GIVEN: Transaction mock
-      mockPrisma.$transaction.mockImplementation(async (fn: any) => {
+      mockTransaction.mockImplementation(async (fn: any) => {
         const mockTx = {
           store: {
             findUnique: vi.fn().mockResolvedValue({
@@ -197,7 +203,7 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-003e: [P0] should accept boundary value 200", async () => {
       // GIVEN: Transaction mock
-      mockPrisma.$transaction.mockImplementation(async (fn: any) => {
+      mockTransaction.mockImplementation(async (fn: any) => {
         const mockTx = {
           store: {
             findUnique: vi.fn().mockResolvedValue({
@@ -228,7 +234,7 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-004: [P0] should create bins when increasing count", async () => {
       // GIVEN: Store has 3 bins, increasing to 5
-      mockPrisma.$transaction.mockImplementation(async (fn: any) => {
+      mockTransaction.mockImplementation(async (fn: any) => {
         const mockTx = {
           store: {
             findUnique: vi.fn().mockResolvedValue({
@@ -260,7 +266,7 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-005: [P1] should reactivate inactive bins before creating new ones", async () => {
       // GIVEN: Store has 3 active and 2 inactive bins, increasing to 6
-      mockPrisma.$transaction.mockImplementation(async (fn: any) => {
+      mockTransaction.mockImplementation(async (fn: any) => {
         const mockTx = {
           store: {
             findUnique: vi.fn().mockResolvedValue({
@@ -295,7 +301,7 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-006: [P0] should soft-delete bins when decreasing count", async () => {
       // GIVEN: Store has 5 empty bins, decreasing to 3
-      mockPrisma.$transaction.mockImplementation(async (fn: any) => {
+      mockTransaction.mockImplementation(async (fn: any) => {
         const mockTx = {
           store: {
             findUnique: vi.fn().mockResolvedValue({
@@ -329,7 +335,7 @@ describe("LotteryBinCountService", () => {
     it("LBCS-007: [P0] should prevent removal when only bin with pack is in removal range", async () => {
       // GIVEN: Store has 2 bins, top one has active pack - reducing to 1 requires removing b2
       // Service removes from highest display_order down, so b2 must be removed
-      mockPrisma.$transaction.mockImplementation(async (fn: any) => {
+      mockTransaction.mockImplementation(async (fn: any) => {
         const mockTx = {
           store: {
             findUnique: vi.fn().mockResolvedValue({
@@ -362,7 +368,7 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-007b: [P0] should skip bins with packs and throw if cannot remove enough", async () => {
       // GIVEN: Store has 5 bins, top 3 have packs, trying to reduce to 1
-      mockPrisma.$transaction.mockImplementation(async (fn: any) => {
+      mockTransaction.mockImplementation(async (fn: any) => {
         const mockTx = {
           store: {
             findUnique: vi.fn().mockResolvedValue({
@@ -416,8 +422,8 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-008: [P1] should return correct preview for adding bins", async () => {
       // GIVEN: Store has 5 active bins
-      mockPrisma.lotteryBin.count.mockResolvedValue(5);
-      mockPrisma.lotteryBin.findMany.mockResolvedValue([]);
+      mockLotteryBinCount.mockResolvedValue(5);
+      mockLotteryBinFindMany.mockResolvedValue([]);
 
       // WHEN: validateBinCountChange to 10
       const result = await service.validateBinCountChange(validStoreId, 10);
@@ -431,8 +437,8 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-008b: [P1] should return correct preview for removing empty bins", async () => {
       // GIVEN: Store has 10 active bins, none with packs
-      mockPrisma.lotteryBin.count.mockResolvedValue(10);
-      mockPrisma.lotteryBin.findMany.mockResolvedValue([]);
+      mockLotteryBinCount.mockResolvedValue(10);
+      mockLotteryBinFindMany.mockResolvedValue([]);
 
       // WHEN: validateBinCountChange to 5
       const result = await service.validateBinCountChange(validStoreId, 5);
@@ -446,8 +452,8 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-008c: [P1] should return no changes message for same count", async () => {
       // GIVEN: Store has 5 active bins
-      mockPrisma.lotteryBin.count.mockResolvedValue(5);
-      mockPrisma.lotteryBin.findMany.mockResolvedValue([]);
+      mockLotteryBinCount.mockResolvedValue(5);
+      mockLotteryBinFindMany.mockResolvedValue([]);
 
       // WHEN: validateBinCountChange to 5
       const result = await service.validateBinCountChange(validStoreId, 5);
@@ -461,8 +467,8 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-009: [P0] should block when bins with packs would be removed", async () => {
       // GIVEN: Store has 10 bins, top 3 have packs (display_order 7,8,9)
-      mockPrisma.lotteryBin.count.mockResolvedValue(10);
-      mockPrisma.lotteryBin.findMany.mockResolvedValue([
+      mockLotteryBinCount.mockResolvedValue(10);
+      mockLotteryBinFindMany.mockResolvedValue([
         { display_order: 7 },
         { display_order: 8 },
         { display_order: 9 },
@@ -479,8 +485,8 @@ describe("LotteryBinCountService", () => {
 
     it("LBCS-009b: [P1] should allow removal when packs are not in affected range", async () => {
       // GIVEN: Store has 10 bins, bottom 2 have packs (display_order 0,1)
-      mockPrisma.lotteryBin.count.mockResolvedValue(10);
-      mockPrisma.lotteryBin.findMany.mockResolvedValue([
+      mockLotteryBinCount.mockResolvedValue(10);
+      mockLotteryBinFindMany.mockResolvedValue([
         { display_order: 0 },
         { display_order: 1 },
       ] as any);
