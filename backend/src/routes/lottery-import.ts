@@ -102,7 +102,22 @@ export async function lotteryImportRoutes(fastify: FastifyInstance) {
                           enum: ["create", "update", "skip"],
                           nullable: true,
                         },
-                        data: { type: "object" },
+                        data: {
+                          type: "object",
+                          additionalProperties: true,
+                          properties: {
+                            game_code: { type: "string" },
+                            name: { type: "string" },
+                            price: { type: "number" },
+                            description: { type: "string", nullable: true },
+                            pack_value: { type: "number" },
+                            tickets_per_pack: {
+                              type: "integer",
+                              nullable: true,
+                            },
+                            status: { type: "string" },
+                          },
+                        },
                         errors: {
                           type: "array",
                           items: { type: "string" },
@@ -206,8 +221,6 @@ export async function lotteryImportRoutes(fastify: FastifyInstance) {
         // Read file buffer
         const fileBuffer = await data.toBuffer();
 
-        // Parse form fields
-        const fields: Record<string, string> = {};
         // Note: @fastify/multipart doesn't provide fields when using request.file()
         // We need to use request.parts() for mixed file and fields
         // For simplicity, we'll require state_id as query parameter
@@ -533,7 +546,7 @@ export async function lotteryImportRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (_request: FastifyRequest, reply: FastifyReply) => {
       const template = generateImportTemplate();
 
       reply.header("Content-Type", "text/csv");

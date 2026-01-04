@@ -10,6 +10,12 @@ import {
   safeValidateCreateTerminalInput,
   safeValidateUpdateTerminalInput,
 } from "../schemas/terminal.schema";
+import {
+  safeValidateUpdateLotteryBinCount,
+  MIN_LOTTERY_BIN_COUNT,
+  MAX_LOTTERY_BIN_COUNT,
+} from "../schemas/lottery-bin-count.schema";
+import { lotteryBinCountService } from "../services/lottery-bin-count.service";
 import { prisma } from "../utils/db";
 import { generatePublicId, PUBLIC_ID_PREFIXES } from "../utils/public-id";
 import {
@@ -130,6 +136,21 @@ export async function storeRoutes(fastify: FastifyInstance) {
                       type: "object",
                       additionalProperties: true,
                     },
+                    // Structured address fields
+                    address_line1: { type: "string", nullable: true },
+                    address_line2: { type: "string", nullable: true },
+                    city: { type: "string", nullable: true },
+                    state_id: {
+                      type: "string",
+                      format: "uuid",
+                      nullable: true,
+                    },
+                    county_id: {
+                      type: "string",
+                      format: "uuid",
+                      nullable: true,
+                    },
+                    zip_code: { type: "string", nullable: true },
                     timezone: { type: "string" },
                     status: { type: "string" },
                     created_at: { type: "string", format: "date-time" },
@@ -410,6 +431,13 @@ export async function storeRoutes(fastify: FastifyInstance) {
                 type: "object",
                 additionalProperties: true,
               },
+              // Structured address fields
+              address_line1: { type: "string", nullable: true },
+              address_line2: { type: "string", nullable: true },
+              city: { type: "string", nullable: true },
+              state_id: { type: "string", format: "uuid", nullable: true },
+              county_id: { type: "string", format: "uuid", nullable: true },
+              zip_code: { type: "string", nullable: true },
               timezone: { type: "string" },
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
@@ -977,6 +1005,21 @@ export async function storeRoutes(fastify: FastifyInstance) {
                       type: "object",
                       additionalProperties: true,
                     },
+                    // Structured address fields
+                    address_line1: { type: "string", nullable: true },
+                    address_line2: { type: "string", nullable: true },
+                    city: { type: "string", nullable: true },
+                    state_id: {
+                      type: "string",
+                      format: "uuid",
+                      nullable: true,
+                    },
+                    county_id: {
+                      type: "string",
+                      format: "uuid",
+                      nullable: true,
+                    },
+                    zip_code: { type: "string", nullable: true },
                     timezone: { type: "string" },
                     status: { type: "string" },
                     created_at: { type: "string", format: "date-time" },
@@ -1115,6 +1158,13 @@ export async function storeRoutes(fastify: FastifyInstance) {
                 type: "object",
                 additionalProperties: true,
               },
+              // Structured address fields
+              address_line1: { type: "string", nullable: true },
+              address_line2: { type: "string", nullable: true },
+              city: { type: "string", nullable: true },
+              state_id: { type: "string", format: "uuid", nullable: true },
+              county_id: { type: "string", format: "uuid", nullable: true },
+              zip_code: { type: "string", nullable: true },
               timezone: { type: "string" },
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
@@ -1310,10 +1360,12 @@ export async function storeRoutes(fastify: FastifyInstance) {
               properties: {
                 address: {
                   type: "string",
-                  description: "Store address",
+                  description:
+                    "Store address (deprecated - use structured fields)",
                 },
               },
-              description: "Store location (address only)",
+              description:
+                "Store location - DEPRECATED: Use structured address fields instead",
             },
             timezone: {
               type: "string",
@@ -1324,6 +1376,38 @@ export async function storeRoutes(fastify: FastifyInstance) {
               type: "string",
               enum: ["ACTIVE", "INACTIVE", "CLOSED"],
               description: "Store status",
+            },
+            // === Structured Address Fields ===
+            address_line1: {
+              type: "string",
+              maxLength: 255,
+              description: "Street address line 1 (e.g., '123 Main Street')",
+            },
+            address_line2: {
+              type: ["string", "null"],
+              maxLength: 255,
+              description: "Street address line 2 (e.g., 'Suite 100')",
+            },
+            city: {
+              type: "string",
+              maxLength: 100,
+              description: "City name",
+            },
+            state_id: {
+              type: "string",
+              format: "uuid",
+              description:
+                "State UUID - CRITICAL: determines lottery game visibility",
+            },
+            county_id: {
+              type: "string",
+              format: "uuid",
+              description: "County UUID - for tax jurisdiction",
+            },
+            zip_code: {
+              type: "string",
+              pattern: "^[0-9]{5}(-[0-9]{4})?$",
+              description: "ZIP code (5-digit or ZIP+4 format)",
             },
           },
         },
@@ -1341,6 +1425,28 @@ export async function storeRoutes(fastify: FastifyInstance) {
               },
               timezone: { type: "string" },
               status: { type: "string" },
+              // Structured address fields in response
+              address_line1: { type: ["string", "null"] },
+              address_line2: { type: ["string", "null"] },
+              city: { type: ["string", "null"] },
+              state_id: { type: ["string", "null"], format: "uuid" },
+              county_id: { type: ["string", "null"], format: "uuid" },
+              zip_code: { type: ["string", "null"] },
+              state: {
+                type: ["object", "null"],
+                properties: {
+                  state_id: { type: "string", format: "uuid" },
+                  code: { type: "string" },
+                  name: { type: "string" },
+                },
+              },
+              county: {
+                type: ["object", "null"],
+                properties: {
+                  county_id: { type: "string", format: "uuid" },
+                  name: { type: "string" },
+                },
+              },
               created_at: { type: "string", format: "date-time" },
               updated_at: { type: "string", format: "date-time" },
             },
@@ -1410,6 +1516,13 @@ export async function storeRoutes(fastify: FastifyInstance) {
           };
           timezone?: string;
           status?: "ACTIVE" | "INACTIVE" | "CLOSED";
+          // Structured address fields
+          address_line1?: string;
+          address_line2?: string | null;
+          city?: string;
+          state_id?: string;
+          county_id?: string;
+          zip_code?: string;
         };
         const user = (request as any).user as UserIdentity;
 
@@ -1502,6 +1615,13 @@ export async function storeRoutes(fastify: FastifyInstance) {
             location_json: body.location_json,
             timezone: body.timezone,
             status: body.status,
+            // Structured address fields
+            address_line1: body.address_line1,
+            address_line2: body.address_line2,
+            city: body.city,
+            state_id: body.state_id,
+            county_id: body.county_id,
+            zip_code: body.zip_code,
           },
         );
 
@@ -4237,6 +4357,478 @@ export async function storeRoutes(fastify: FastifyInstance) {
           error: {
             code: "INTERNAL_ERROR",
             message: "Failed to check open shifts",
+          },
+        };
+      }
+    },
+  );
+
+  // =============================================================================
+  // LOTTERY BIN COUNT ENDPOINTS
+  // =============================================================================
+
+  /**
+   * GET /api/stores/:storeId/lottery/bin-count
+   * Get the configured lottery bin count and statistics for a store
+   *
+   * @enterprise-standards
+   * - API-001: VALIDATION - UUID parameter validation
+   * - API-003: ERROR_HANDLING - Structured error responses
+   * - API-004: AUTHENTICATION - JWT auth required
+   * - DB-006: TENANT_ISOLATION - Company/store scoped access
+   */
+  fastify.get<{
+    Params: { storeId: string };
+  }>(
+    "/api/stores/:storeId/lottery/bin-count",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_BIN_CONFIG_READ),
+      ],
+      schema: {
+        description: "Get lottery bin count configuration for a store",
+        tags: ["stores", "lottery"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  store_id: { type: "string", format: "uuid" },
+                  bin_count: { type: "integer", nullable: true },
+                  active_bins: { type: "integer" },
+                  bins_with_packs: { type: "integer" },
+                  empty_bins: { type: "integer" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { storeId } = request.params;
+      const user = request.user as UserIdentity;
+
+      try {
+        // Validate store access
+        const store = await prisma.store.findUnique({
+          where: { store_id: storeId },
+          select: { store_id: true, company_id: true },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "STORE_NOT_FOUND",
+              message: "Store not found",
+            },
+          };
+        }
+
+        // Check user access to store
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasAccess =
+          userRoles.some((r) => r.scope === "SYSTEM") ||
+          userRoles.some(
+            (r) => r.scope === "COMPANY" && r.company_id === store.company_id,
+          ) ||
+          userRoles.some((r) => r.scope === "STORE" && r.store_id === storeId);
+
+        if (!hasAccess) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message: "You do not have access to this store",
+            },
+          };
+        }
+
+        // Get bin count data
+        const binCountData = await lotteryBinCountService.getBinCount(storeId);
+
+        return {
+          success: true,
+          data: binCountData,
+        };
+      } catch (error: any) {
+        fastify.log.error(
+          { error, storeId },
+          "Error getting lottery bin count",
+        );
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to get lottery bin count",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /api/stores/:storeId/lottery/bin-count
+   * Update the lottery bin count and sync bin rows
+   *
+   * @enterprise-standards
+   * - API-001: VALIDATION - Zod schema validation for request body
+   * - API-003: ERROR_HANDLING - Structured error responses
+   * - API-004: AUTHENTICATION - JWT auth required
+   * - DB-006: TENANT_ISOLATION - Company/store scoped access
+   * - SEC-014: INPUT_VALIDATION - Range constraints enforced
+   */
+  fastify.put<{
+    Params: { storeId: string };
+    Body: { bin_count: number };
+  }>(
+    "/api/stores/:storeId/lottery/bin-count",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_BIN_CONFIG_WRITE),
+      ],
+      schema: {
+        description: "Update lottery bin count and sync bin rows",
+        tags: ["stores", "lottery"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          required: ["bin_count"],
+          properties: {
+            bin_count: {
+              type: "integer",
+              minimum: MIN_LOTTERY_BIN_COUNT,
+              maximum: MAX_LOTTERY_BIN_COUNT,
+              description: `Number of bins (${MIN_LOTTERY_BIN_COUNT}-${MAX_LOTTERY_BIN_COUNT})`,
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  previous_count: { type: "integer", nullable: true },
+                  new_count: { type: "integer" },
+                  bins_created: { type: "integer" },
+                  bins_reactivated: { type: "integer" },
+                  bins_deactivated: { type: "integer" },
+                  bins_with_packs_count: { type: "integer" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { storeId } = request.params;
+      const user = request.user as UserIdentity;
+      const ipAddress =
+        (request.headers["x-forwarded-for"] as string) ||
+        request.ip ||
+        "unknown";
+      const userAgent = (request.headers["user-agent"] as string) || "unknown";
+
+      try {
+        // Validate request body with Zod
+        const validation = safeValidateUpdateLotteryBinCount(request.body);
+        if (!validation.success) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid request body",
+              details: validation.error.errors.map((e) => ({
+                field: e.path.join("."),
+                message: e.message,
+              })),
+            },
+          };
+        }
+
+        const { bin_count } = validation.data;
+
+        // Validate store access
+        const store = await prisma.store.findUnique({
+          where: { store_id: storeId },
+          select: { store_id: true, company_id: true, name: true },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "STORE_NOT_FOUND",
+              message: "Store not found",
+            },
+          };
+        }
+
+        // Check user access to store (need COMPANY or higher for management)
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasAccess =
+          userRoles.some((r) => r.scope === "SYSTEM") ||
+          userRoles.some(
+            (r) => r.scope === "COMPANY" && r.company_id === store.company_id,
+          );
+
+        if (!hasAccess) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message:
+                "You do not have permission to manage lottery bin count for this store",
+            },
+          };
+        }
+
+        // Update bin count and sync bins
+        const result = await lotteryBinCountService.updateBinCount(
+          storeId,
+          bin_count,
+          user.id,
+        );
+
+        // Create audit log
+        await prisma.auditLog.create({
+          data: {
+            user_id: user.id,
+            action: "UPDATE",
+            table_name: "stores",
+            record_id: storeId,
+            old_values: {
+              lottery_bin_count: result.previous_count,
+            } as any,
+            new_values: {
+              lottery_bin_count: result.new_count,
+              bins_created: result.bins_created,
+              bins_reactivated: result.bins_reactivated,
+              bins_deactivated: result.bins_deactivated,
+            } as any,
+            ip_address: ipAddress,
+            user_agent: userAgent,
+            reason: `Lottery bin count updated from ${result.previous_count ?? "not set"} to ${result.new_count} for store ${store.name}`,
+          },
+        });
+
+        return {
+          success: true,
+          data: result,
+        };
+      } catch (error: any) {
+        fastify.log.error(
+          { error, storeId },
+          "Error updating lottery bin count",
+        );
+
+        // Handle specific error cases
+        if (error.message?.includes("Cannot reduce bin count")) {
+          reply.code(409);
+          return {
+            success: false,
+            error: {
+              code: "BINS_HAVE_ACTIVE_PACKS",
+              message: error.message,
+            },
+          };
+        }
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to update lottery bin count",
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * GET /api/stores/:storeId/lottery/bin-count/validate
+   * Pre-flight validation for bin count change
+   * Used to show confirmation dialog before making changes
+   *
+   * @enterprise-standards
+   * - API-001: VALIDATION - UUID and query parameter validation
+   * - API-003: ERROR_HANDLING - Structured error responses
+   */
+  fastify.get<{
+    Params: { storeId: string };
+    Querystring: { new_count: string };
+  }>(
+    "/api/stores/:storeId/lottery/bin-count/validate",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_BIN_CONFIG_READ),
+      ],
+      schema: {
+        description: "Validate proposed bin count change",
+        tags: ["stores", "lottery"],
+        params: {
+          type: "object",
+          required: ["storeId"],
+          properties: {
+            storeId: {
+              type: "string",
+              format: "uuid",
+              description: "Store UUID",
+            },
+          },
+        },
+        querystring: {
+          type: "object",
+          required: ["new_count"],
+          properties: {
+            new_count: {
+              type: "string",
+              description: "Proposed new bin count",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  allowed: { type: "boolean" },
+                  current_count: { type: "integer" },
+                  bins_to_add: { type: "integer" },
+                  bins_to_remove: { type: "integer" },
+                  bins_with_packs_blocking: { type: "integer" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { storeId } = request.params;
+      const { new_count: newCountStr } = request.query;
+      const user = request.user as UserIdentity;
+
+      try {
+        // Parse and validate new_count
+        const newCount = parseInt(newCountStr, 10);
+        if (
+          isNaN(newCount) ||
+          newCount < MIN_LOTTERY_BIN_COUNT ||
+          newCount > MAX_LOTTERY_BIN_COUNT
+        ) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "VALIDATION_ERROR",
+              message: `new_count must be an integer between ${MIN_LOTTERY_BIN_COUNT} and ${MAX_LOTTERY_BIN_COUNT}`,
+            },
+          };
+        }
+
+        // Validate store access
+        const store = await prisma.store.findUnique({
+          where: { store_id: storeId },
+          select: { store_id: true, company_id: true },
+        });
+
+        if (!store) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "STORE_NOT_FOUND",
+              message: "Store not found",
+            },
+          };
+        }
+
+        // Check user access
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasAccess =
+          userRoles.some((r) => r.scope === "SYSTEM") ||
+          userRoles.some(
+            (r) => r.scope === "COMPANY" && r.company_id === store.company_id,
+          ) ||
+          userRoles.some((r) => r.scope === "STORE" && r.store_id === storeId);
+
+        if (!hasAccess) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message: "You do not have access to this store",
+            },
+          };
+        }
+
+        // Validate the proposed change
+        const validationResult =
+          await lotteryBinCountService.validateBinCountChange(
+            storeId,
+            newCount,
+          );
+
+        return {
+          success: true,
+          data: validationResult,
+        };
+      } catch (error: any) {
+        fastify.log.error(
+          { error, storeId },
+          "Error validating lottery bin count change",
+        );
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to validate bin count change",
           },
         };
       }

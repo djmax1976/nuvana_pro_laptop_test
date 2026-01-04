@@ -17,26 +17,17 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { authMiddleware, UserIdentity } from "../middleware/auth.middleware";
+import { authMiddleware } from "../middleware/auth.middleware";
 import { permissionMiddleware } from "../middleware/permission.middleware";
 import { PERMISSIONS } from "../constants/permissions";
 import { prisma } from "../utils/db";
-import { rbacService } from "../services/rbac.service";
 import {
   validateListStatesQuery,
   validateListCountiesQuery,
   validateListCitiesQuery,
   validateListZipCodesQuery,
-  validateZipCodeLookup,
   validateCreateUSState,
   validateUpdateUSState,
-  ListStatesQuery,
-  ListCountiesQuery,
-  ListCitiesQuery,
-  ListZipCodesQuery,
-  ZipCodeLookupQuery,
-  CreateUSStateInput,
-  UpdateUSStateInput,
 } from "../schemas/address.schema";
 import { ZodError } from "zod";
 
@@ -51,19 +42,11 @@ function formatZodError(error: ZodError): {
   return {
     code: "VALIDATION_ERROR",
     message: "Request validation failed",
-    details: error.errors.map((e) => ({
+    details: error.issues.map((e) => ({
       path: e.path.join("."),
       message: e.message,
     })),
   };
-}
-
-/**
- * Check if user has SYSTEM scope (SuperAdmin)
- */
-async function isSystemAdmin(userId: string): Promise<boolean> {
-  const userRoles = await rbacService.getUserRoles(userId);
-  return userRoles.some((role) => role.scope === "SYSTEM");
 }
 
 /**
@@ -252,7 +235,7 @@ export async function geographicRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         authMiddleware,
-        permissionMiddleware(PERMISSIONS.SYSTEM_CONFIG_MANAGE),
+        permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
       ],
       schema: {
         description: "Create a new US state (SuperAdmin only)",
@@ -383,7 +366,7 @@ export async function geographicRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         authMiddleware,
-        permissionMiddleware(PERMISSIONS.SYSTEM_CONFIG_MANAGE),
+        permissionMiddleware(PERMISSIONS.ADMIN_SYSTEM_CONFIG),
       ],
       schema: {
         description: "Update a US state (SuperAdmin only)",
@@ -662,7 +645,7 @@ export async function geographicRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const { stateId } = request.params as { stateId: string };
       const { search, limit = 200 } = request.query as {
         search?: string;
@@ -882,7 +865,7 @@ export async function geographicRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const { stateId } = request.params as { stateId: string };
       const {
         county_id,
@@ -916,6 +899,121 @@ export async function geographicRoutes(fastify: FastifyInstance) {
         select: {
           city_id: true,
           county_id: true,
+          name: true,
+        },
+        orderBy: { name: "asc" },
+        take: limit,
+      });
+
+      return { success: true, data: cities };
+    },
+  );
+
+  /**
+   * GET /api/geographic/counties/:countyId/cities
+   * List cities for a specific county
+   * Enterprise-grade cascading dropdown support
+   *
+   * @enterprise-standards
+   * - API-001: VALIDATION - UUID validation for countyId parameter
+   * - SEC-006: SQL_INJECTION - Prisma ORM prevents injection
+   * - API-003: ERROR_HANDLING - Proper 404 for non-existent county
+   */
+  fastify.get(
+    "/api/geographic/counties/:countyId/cities",
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        description: "List cities for a specific county (cascading dropdown)",
+        tags: ["geographic"],
+        params: {
+          type: "object",
+          required: ["countyId"],
+          properties: {
+            countyId: { type: "string", format: "uuid" },
+          },
+        },
+        querystring: {
+          type: "object",
+          properties: {
+            search: { type: "string", maxLength: 100 },
+            limit: { type: "integer", minimum: 1, maximum: 200, default: 200 },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    city_id: { type: "string", format: "uuid" },
+                    name: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { countyId } = request.params as { countyId: string };
+      const { search, limit = 200 } = request.query as {
+        search?: string;
+        limit?: number;
+      };
+
+      // Verify county exists
+      const county = await prisma.uSCounty.findUnique({
+        where: { county_id: countyId },
+        select: { county_id: true, is_active: true },
+      });
+
+      if (!county) {
+        reply.code(404);
+        return {
+          success: false,
+          error: {
+            code: "NOT_FOUND",
+            message: "County not found",
+          },
+        };
+      }
+
+      // Build where clause
+      const where: Record<string, unknown> = {
+        county_id: countyId,
+        is_active: true,
+      };
+
+      if (search) {
+        where.name = {
+          contains: search,
+          mode: "insensitive",
+        };
+      }
+
+      const cities = await prisma.uSCity.findMany({
+        where,
+        select: {
+          city_id: true,
           name: true,
         },
         orderBy: { name: "asc" },
@@ -1248,7 +1346,7 @@ export async function geographicRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const { stateId } = request.params as { stateId: string };
       const {
         city_name,

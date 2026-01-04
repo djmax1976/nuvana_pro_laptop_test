@@ -233,7 +233,6 @@ export async function parseCsvBuffer(
     const data: Record<string, string> = {};
 
     for (let j = 0; j < normalizedHeaderKeys.length; j++) {
-      const originalHeader = normalizedHeaderKeys[j];
       const normalizedHeader = normalizedHeaderValues[j];
       let value = line[j] || "";
 
@@ -391,7 +390,7 @@ function formatBytes(bytes: number): string {
  * Create a transform stream for parsing CSV data
  * Useful for processing very large files without loading into memory
  */
-export function createCsvParseStream(options: CsvParseOptions = {}): Readable {
+export function createCsvParseStream(_options: CsvParseOptions = {}): Readable {
   // Placeholder for future streaming implementation
   // For now, use parseCsvBuffer which is sufficient for <1000 rows
   throw new Error("Streaming CSV parsing not yet implemented");

@@ -21,7 +21,6 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -54,6 +53,7 @@ import {
   ConnectionConfigForm,
   type ConnectionConfigFormProps,
 } from "@/components/stores/ConnectionConfigForm";
+import { AddressFields, type AddressFieldsValue } from "@/components/address";
 
 /**
  * Validate IANA timezone format (safer implementation to avoid ReDoS)
@@ -132,7 +132,17 @@ function validateIANATimezone(timezone: string): boolean {
 }
 
 /**
+ * UUID validation regex for address field validation
+ */
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
  * Store edit form validation schema
+ *
+ * @enterprise-standards
+ * - FE-002: FORM_VALIDATION - Mirrors backend validation
+ * - SEC-014: INPUT_VALIDATION - UUID validation for geographic IDs
  */
 const editStoreSchema = z.object({
   name: z
@@ -146,10 +156,38 @@ const editStoreSchema = z.object({
       (val) => validateIANATimezone(val),
       "Timezone must be in IANA format (e.g., America/New_York, Europe/London)",
     ),
-  address: z.string().optional(),
   status: z.enum(["ACTIVE", "INACTIVE", "CLOSED"], {
     message: "Please select a status",
   }),
+  // === Structured Address Fields (All Required) ===
+  address_line1: z
+    .string()
+    .min(1, "Street address is required")
+    .max(255, "Street address must be 255 characters or less"),
+  address_line2: z
+    .string()
+    .max(255, "Address line 2 must be 255 characters or less")
+    .optional(),
+  state_id: z
+    .string()
+    .min(1, "State is required")
+    .refine((val) => UUID_REGEX.test(val), "Invalid state selection"),
+  county_id: z
+    .string()
+    .min(1, "County is required")
+    .refine((val) => UUID_REGEX.test(val), "Invalid county selection"),
+  city: z
+    .string()
+    .min(1, "City is required")
+    .max(100, "City must be 100 characters or less"),
+  zip_code: z
+    .string()
+    .min(1, "ZIP code is required")
+    .regex(
+      // eslint-disable-next-line security/detect-unsafe-regex -- Safe: Linear regex for ZIP code validation
+      /^[0-9]{5}(-[0-9]{4})?$/,
+      "ZIP code must be in format 12345 or 12345-6789",
+    ),
 });
 
 type EditStoreFormValues = z.infer<typeof editStoreSchema>;
@@ -184,19 +222,82 @@ export function EditStoreModal({
     defaultValues: {
       name: "",
       timezone: "America/New_York",
-      address: "",
       status: "ACTIVE",
+      // Structured address fields
+      address_line1: "",
+      address_line2: "",
+      state_id: "",
+      county_id: "",
+      city: "",
+      zip_code: "",
     },
   });
+
+  // State for address fields (to work with AddressFields component)
+  const [addressData, setAddressData] = useState<Partial<AddressFieldsValue>>({
+    address_line1: "",
+    address_line2: "",
+    state_id: "",
+    county_id: "",
+    city: "",
+    zip_code: "",
+  });
+
+  // Sync address data to form when it changes
+  useEffect(() => {
+    if (addressData.address_line1 !== undefined) {
+      form.setValue("address_line1", addressData.address_line1);
+    }
+    if (addressData.address_line2 !== undefined) {
+      form.setValue("address_line2", addressData.address_line2 || "");
+    }
+    if (addressData.state_id !== undefined) {
+      form.setValue("state_id", addressData.state_id);
+    }
+    if (addressData.county_id !== undefined) {
+      form.setValue("county_id", addressData.county_id);
+    }
+    if (addressData.city !== undefined) {
+      form.setValue("city", addressData.city);
+    }
+    if (addressData.zip_code !== undefined) {
+      form.setValue("zip_code", addressData.zip_code);
+    }
+  }, [addressData, form]);
 
   // Sync form state when store prop changes
   useEffect(() => {
     if (store && open) {
+      const storeWithAddress = store as Store & {
+        address_line1?: string | null;
+        address_line2?: string | null;
+        city?: string | null;
+        state_id?: string | null;
+        county_id?: string | null;
+        zip_code?: string | null;
+      };
+
       form.reset({
         name: store.name || "",
         timezone: store.timezone || "America/New_York",
-        address: store.location_json?.address || "",
         status: store.status || "ACTIVE",
+        // Structured address fields
+        address_line1: storeWithAddress.address_line1 || "",
+        address_line2: storeWithAddress.address_line2 || "",
+        state_id: storeWithAddress.state_id || "",
+        county_id: storeWithAddress.county_id || "",
+        city: storeWithAddress.city || "",
+        zip_code: storeWithAddress.zip_code || "",
+      });
+
+      // Also update addressData for the AddressFields component
+      setAddressData({
+        address_line1: storeWithAddress.address_line1 || "",
+        address_line2: storeWithAddress.address_line2 || "",
+        state_id: storeWithAddress.state_id || "",
+        county_id: storeWithAddress.county_id || "",
+        city: storeWithAddress.city || "",
+        zip_code: storeWithAddress.zip_code || "",
       });
     }
   }, [store, open, form]);
@@ -233,10 +334,13 @@ export function EditStoreModal({
         name: values.name,
         timezone: values.timezone,
         status: values.status,
-        // Always include location_json if address is provided (even empty string clears it)
-        ...(values.address !== undefined
-          ? { location_json: { address: values.address } }
-          : {}),
+        // Structured address fields (required)
+        address_line1: values.address_line1,
+        address_line2: values.address_line2 || null,
+        city: values.city,
+        state_id: values.state_id,
+        county_id: values.county_id,
+        zip_code: values.zip_code,
       };
 
       await updateMutation.mutateAsync({
@@ -344,28 +448,24 @@ export function EditStoreModal({
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="address"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Address</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Enter store address"
-                        {...field}
-                        value={field.value ?? ""}
-                        disabled={isSubmitting}
-                        rows={3}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Physical address of the store (optional)
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Address Fields Section - Cascading Dropdowns */}
+              <div className="border rounded-lg p-4">
+                <AddressFields
+                  value={addressData}
+                  onChange={setAddressData}
+                  required={true}
+                  disabled={isSubmitting}
+                  errors={{
+                    address_line1: form.formState.errors.address_line1?.message,
+                    state_id: form.formState.errors.state_id?.message,
+                    county_id: form.formState.errors.county_id?.message,
+                    city: form.formState.errors.city?.message,
+                    zip_code: form.formState.errors.zip_code?.message,
+                  }}
+                  testIdPrefix="store-address"
+                  sectionLabel="Store Location"
+                />
+              </div>
 
               <FormField
                 control={form.control}

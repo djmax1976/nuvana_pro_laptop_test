@@ -6,6 +6,9 @@
  * Main entry point for all report types.
  *
  * Phase 6: Frontend & Admin UI
+ *
+ * Security Considerations (FE-001: STATE_MANAGEMENT):
+ * - Page title uses centralized context for consistent header display
  */
 
 import Link from "next/link";
@@ -15,13 +18,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  CalendarDays,
-  Calendar,
-  CalendarRange,
-  Clock,
-  BarChart3,
-} from "lucide-react";
+import { CalendarDays, Calendar, CalendarRange, Clock } from "lucide-react";
+import { usePageTitleEffect } from "@/contexts/PageTitleContext";
 
 const reportTypes = [
   {
@@ -51,18 +49,11 @@ const reportTypes = [
 ];
 
 export default function ReportsPage() {
+  // Set page title in header (FE-001: STATE_MANAGEMENT)
+  usePageTitleEffect("Reports");
+
   return (
     <div className="space-y-6" data-testid="client-reports-page">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <BarChart3 className="h-6 w-6" />
-          Reports
-        </h1>
-        <p className="text-muted-foreground">
-          Access shift reports, daily summaries, and financial analytics
-        </p>
-      </div>
-
       <div className="grid gap-4 md:grid-cols-2">
         {reportTypes.map((report) => {
           const Icon = report.icon;

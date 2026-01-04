@@ -325,3 +325,48 @@ export async function getZipCodesByState(
   );
   return response.data;
 }
+
+/**
+ * City response for county-scoped queries (simplified)
+ */
+export interface USCitySimpleResponse {
+  city_id: string;
+  name: string;
+}
+
+/**
+ * Get cities for a specific county
+ * GET /api/geographic/counties/:countyId/cities
+ * Enterprise-grade cascading dropdown support
+ *
+ * @enterprise-standards
+ * - Validates countyId before making request
+ * - Used for State → County → City cascading dropdown pattern
+ *
+ * @param countyId - County UUID
+ * @param search - Optional search string for filtering
+ * @param limit - Max results (default 200)
+ * @returns List of cities in the county
+ */
+export async function getCitiesByCounty(
+  countyId: string,
+  search?: string,
+  limit?: number,
+): Promise<ApiResponse<USCitySimpleResponse[]>> {
+  const response = await apiClient.get<ApiResponse<USCitySimpleResponse[]>>(
+    `/api/geographic/counties/${countyId}/cities`,
+    { params: { search, limit } },
+  );
+  return response.data;
+}
+
+/**
+ * Get all active states for dropdown selection
+ * Convenience function that returns only active states
+ * @returns List of active US states
+ */
+export async function getActiveStates(): Promise<
+  ApiResponse<USStateResponse[]>
+> {
+  return getStates({ is_active: true });
+}

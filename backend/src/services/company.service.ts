@@ -182,6 +182,13 @@ export class CompanyService {
         owner_email: company.owner?.email,
         name: company.name,
         address: company.address,
+        // Structured address fields
+        address_line1: company.address_line1,
+        address_line2: company.address_line2,
+        city: company.city,
+        state_id: company.state_id,
+        county_id: company.county_id,
+        zip_code: company.zip_code,
         status: company.status,
         created_at: company.created_at,
         updated_at: company.updated_at,
@@ -291,6 +298,13 @@ export class CompanyService {
           owner_email: company.owner?.email,
           name: company.name,
           address: company.address,
+          // Structured address fields
+          address_line1: company.address_line1,
+          address_line2: company.address_line2,
+          city: company.city,
+          state_id: company.state_id,
+          county_id: company.county_id,
+          zip_code: company.zip_code,
           status: company.status,
           created_at: company.created_at,
           updated_at: company.updated_at,
@@ -336,13 +350,89 @@ export class CompanyService {
       throw new Error("Company name cannot exceed 255 characters");
     }
 
-    // Validate address if provided
+    // Validate address if provided (deprecated legacy field)
     if (data.address !== undefined) {
       if (data.address !== null && typeof data.address !== "string") {
         throw new Error("Address must be a string or null");
       }
       if (data.address && data.address.trim().length > 500) {
         throw new Error("Address cannot exceed 500 characters");
+      }
+    }
+
+    // === Validate Structured Address Fields ===
+    // SEC-014: INPUT_VALIDATION - Validate all address inputs
+
+    // Validate address_line1
+    if (data.address_line1 !== undefined) {
+      if (typeof data.address_line1 !== "string") {
+        throw new Error("address_line1 must be a string");
+      }
+      if (data.address_line1.trim().length > 255) {
+        throw new Error("address_line1 cannot exceed 255 characters");
+      }
+      // XSS protection: Reject addresses containing dangerous HTML
+      const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+      if (xssPattern.test(data.address_line1)) {
+        throw new Error(
+          "Invalid address_line1: HTML tags and scripts are not allowed",
+        );
+      }
+    }
+
+    // Validate address_line2
+    if (data.address_line2 !== undefined && data.address_line2 !== null) {
+      if (typeof data.address_line2 !== "string") {
+        throw new Error("address_line2 must be a string");
+      }
+      if (data.address_line2.trim().length > 255) {
+        throw new Error("address_line2 cannot exceed 255 characters");
+      }
+      const xssPattern = /<script|<iframe|javascript:|onerror=|onload=/i;
+      if (xssPattern.test(data.address_line2)) {
+        throw new Error(
+          "Invalid address_line2: HTML tags and scripts are not allowed",
+        );
+      }
+    }
+
+    // Validate city
+    if (data.city !== undefined) {
+      if (typeof data.city !== "string") {
+        throw new Error("city must be a string");
+      }
+      if (data.city.trim().length > 100) {
+        throw new Error("city cannot exceed 100 characters");
+      }
+    }
+
+    // Validate state_id (UUID format)
+    if (data.state_id !== undefined) {
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(data.state_id)) {
+        throw new Error("state_id must be a valid UUID");
+      }
+    }
+
+    // Validate county_id (UUID format)
+    if (data.county_id !== undefined) {
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(data.county_id)) {
+        throw new Error("county_id must be a valid UUID");
+      }
+    }
+
+    // Validate zip_code (5-digit or ZIP+4 format)
+    if (data.zip_code !== undefined) {
+      if (typeof data.zip_code !== "string") {
+        throw new Error("zip_code must be a string");
+      }
+      // eslint-disable-next-line security/detect-unsafe-regex -- Safe: bounded quantifiers with fixed length
+      const zipRegex = /^[0-9]{5}(-[0-9]{4})?$/;
+      if (!zipRegex.test(data.zip_code)) {
+        throw new Error("zip_code must be in format 12345 or 12345-6789");
       }
     }
 
@@ -402,6 +492,27 @@ export class CompanyService {
       }
       // Note: owner_user_id is immutable - cannot be changed after creation
 
+      // === Structured Address Fields ===
+      if (data.address_line1 !== undefined) {
+        updateData.address_line1 = data.address_line1.trim();
+      }
+      if (data.address_line2 !== undefined) {
+        updateData.address_line2 =
+          data.address_line2 === null ? null : data.address_line2.trim();
+      }
+      if (data.city !== undefined) {
+        updateData.city = data.city.trim();
+      }
+      if (data.state_id !== undefined) {
+        updateData.state_id = data.state_id;
+      }
+      if (data.county_id !== undefined) {
+        updateData.county_id = data.county_id;
+      }
+      if (data.zip_code !== undefined) {
+        updateData.zip_code = data.zip_code;
+      }
+
       const company = await prisma.company.update({
         where: {
           company_id: companyId,
@@ -414,6 +525,19 @@ export class CompanyService {
               name: true,
               email: true,
               status: true,
+            },
+          },
+          state: {
+            select: {
+              state_id: true,
+              code: true,
+              name: true,
+            },
+          },
+          county: {
+            select: {
+              county_id: true,
+              name: true,
             },
           },
         },
@@ -449,6 +573,15 @@ export class CompanyService {
         owner_email: company.owner?.email,
         name: company.name,
         address: company.address,
+        // Structured address fields
+        address_line1: company.address_line1,
+        address_line2: company.address_line2,
+        city: company.city,
+        state_id: company.state_id,
+        county_id: company.county_id,
+        zip_code: company.zip_code,
+        state: company.state,
+        county: company.county,
         status: company.status,
         created_at: company.created_at,
         updated_at: company.updated_at,

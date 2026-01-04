@@ -5,19 +5,19 @@
  * Displays day reconciliation view with shift summaries and daily totals
  *
  * Story: 4.8 - Cashier Shift Start Flow
+ *
+ * Security Considerations (FE-001: STATE_MANAGEMENT):
+ * - Page title uses centralized context for consistent header display
  */
 
+import { usePageTitleEffect } from "@/contexts/PageTitleContext";
+
 export default function ShiftAndDayPage() {
+  // Set page title in header (FE-001: STATE_MANAGEMENT)
+  usePageTitleEffect("Daily Summary");
+
   return (
     <div className="space-y-6" data-testid="shift-and-day-page">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Shift and Day</h1>
-        <p className="text-sm text-muted-foreground mt-2">
-          View day reconciliations, daily summaries, and shift totals
-        </p>
-      </div>
-
       {/* Content Area - To be implemented */}
       <div className="rounded-lg border border-dashed p-8 text-center">
         <p className="text-muted-foreground">

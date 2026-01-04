@@ -1506,3 +1506,116 @@ export async function getCashierActiveShift(
   );
   return response.data;
 }
+
+// ============ Lottery Bin Count API ============
+
+/**
+ * Lottery bin count configuration response
+ * Story: Lottery Bin Count Configuration
+ */
+export interface LotteryBinCountResponse {
+  store_id: string;
+  bin_count: number | null;
+  active_bins: number;
+  bins_with_packs: number;
+  empty_bins: number;
+}
+
+/**
+ * Bin count update result
+ */
+export interface BinCountSyncResult {
+  previous_count: number | null;
+  new_count: number;
+  bins_created: number;
+  bins_reactivated: number;
+  bins_deactivated: number;
+  bins_with_packs_count: number;
+}
+
+/**
+ * Bin count validation result
+ */
+export interface BinCountValidationResult {
+  allowed: boolean;
+  current_count: number;
+  bins_to_add: number;
+  bins_to_remove: number;
+  bins_with_packs_blocking: number;
+  message: string;
+}
+
+/**
+ * Get the configured lottery bin count for a store
+ * GET /api/stores/:storeId/lottery/bin-count
+ * Story: Lottery Bin Count Configuration
+ *
+ * Returns the configured bin count and statistics about active bins.
+ *
+ * MCP Guidance Applied:
+ * - DB-006: TENANT_ISOLATION - Store-scoped query
+ * - API-003: ERROR_HANDLING - Structured error responses
+ *
+ * @param storeId - Store UUID
+ * @returns Bin count configuration with statistics
+ */
+export async function getLotteryBinCount(
+  storeId: string,
+): Promise<ApiResponse<LotteryBinCountResponse>> {
+  const response = await apiClient.get<ApiResponse<LotteryBinCountResponse>>(
+    `/api/stores/${storeId}/lottery/bin-count`,
+  );
+  return response.data;
+}
+
+/**
+ * Update the lottery bin count for a store
+ * PUT /api/stores/:storeId/lottery/bin-count
+ * Story: Lottery Bin Count Configuration
+ *
+ * Updates the bin count and automatically syncs bin rows:
+ * - Increasing: Creates new bins or reactivates soft-deleted bins
+ * - Decreasing: Soft-deletes empty bins (fails if bins have active packs)
+ *
+ * MCP Guidance Applied:
+ * - API-001: VALIDATION - Zod schema validation
+ * - DB-006: TENANT_ISOLATION - Store-scoped operation
+ * - SEC-014: INPUT_VALIDATION - Range constraints (0-200)
+ *
+ * @param storeId - Store UUID
+ * @param binCount - New bin count (0-200)
+ * @returns Sync result with details of changes made
+ */
+export async function updateLotteryBinCount(
+  storeId: string,
+  binCount: number,
+): Promise<ApiResponse<BinCountSyncResult>> {
+  const response = await apiClient.put<ApiResponse<BinCountSyncResult>>(
+    `/api/stores/${storeId}/lottery/bin-count`,
+    { bin_count: binCount },
+  );
+  return response.data;
+}
+
+/**
+ * Validate a proposed bin count change before applying
+ * GET /api/stores/:storeId/lottery/bin-count/validate
+ * Story: Lottery Bin Count Configuration
+ *
+ * Pre-flight validation to show confirmation dialog with details
+ * about what will happen if the change is applied.
+ *
+ * @param storeId - Store UUID
+ * @param newCount - Proposed new bin count
+ * @returns Validation result with allowed flag and message
+ */
+export async function validateLotteryBinCountChange(
+  storeId: string,
+  newCount: number,
+): Promise<ApiResponse<BinCountValidationResult>> {
+  const response = await apiClient.get<ApiResponse<BinCountValidationResult>>(
+    `/api/stores/${storeId}/lottery/bin-count/validate`,
+    { params: { new_count: newCount.toString() } },
+  );
+  return response.data;
+}

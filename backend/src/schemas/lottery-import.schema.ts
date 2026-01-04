@@ -418,7 +418,7 @@ export function normalizeHeader(header: string): string | undefined {
  */
 export function validateCsvRow(
   rowData: Record<string, unknown>,
-  rowNumber: number,
+  _rowNumber: number,
 ):
   | { success: true; data: LotteryGameCsvRow }
   | { success: false; errors: string[] } {

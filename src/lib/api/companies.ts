@@ -27,7 +27,15 @@ export interface Company {
   owner_name?: string;
   owner_email?: string;
   name: string;
+  /** @deprecated Use structured address fields instead */
   address?: string | null;
+  // Structured address fields
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  state_id?: string | null;
+  county_id?: string | null;
+  zip_code?: string | null;
   status: CompanyStatus;
   created_at: string;
   updated_at: string;
@@ -37,11 +45,29 @@ export interface Company {
  * Update company input
  * Note: Companies are now created through the User creation flow (CLIENT_OWNER role)
  * owner_user_id cannot be changed after creation
+ *
+ * @enterprise-standards
+ * - API-001: VALIDATION - All inputs validated via Zod schemas
+ * - SEC-014: INPUT_VALIDATION - Strict validation for address fields
  */
 export interface UpdateCompanyInput {
   name?: string;
+  /** @deprecated Use structured address fields instead */
   address?: string;
   status?: CompanyStatus;
+  // === Structured Address Fields ===
+  /** Street address line 1 (e.g., "123 Main Street") */
+  address_line1?: string;
+  /** Street address line 2 (e.g., "Suite 100") */
+  address_line2?: string | null;
+  /** City name (denormalized for display) */
+  city?: string;
+  /** FK to us_states - determines lottery game visibility */
+  state_id?: string;
+  /** FK to us_counties - for tax jurisdiction */
+  county_id?: string;
+  /** ZIP code (5-digit or ZIP+4 format) */
+  zip_code?: string;
 }
 
 /**

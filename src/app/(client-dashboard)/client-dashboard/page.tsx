@@ -4,6 +4,7 @@ import * as React from "react";
 import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { Loader2 } from "lucide-react";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
+import { usePageTitleEffect } from "@/contexts/PageTitleContext";
 
 // Import all dashboard components
 import {
@@ -267,6 +268,9 @@ export default function ClientDashboardPage() {
   const { user } = useClientAuth();
   const { data, isLoading, isError, error } = useClientDashboard();
 
+  // Set page title in header (FE-001: STATE_MANAGEMENT)
+  usePageTitleEffect("Dashboard");
+
   // Loading state
   if (isLoading) {
     return <DashboardSkeleton />;
@@ -277,9 +281,6 @@ export default function ClientDashboardPage() {
     return (
       <div className="space-y-6" data-testid="client-dashboard-page">
         <div className="space-y-1">
-          <h1 className="text-2xl font-bold text-foreground">
-            Welcome back{user?.name ? `, ${user.name}` : ""}
-          </h1>
           <p className="text-destructive">
             Failed to load dashboard: {error?.message || "Unknown error"}
           </p>

@@ -1,5 +1,18 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * Design Token System
+ *
+ * This configuration defines semantic design tokens for consistent styling across the application.
+ * Tokens are organized by component type and size variant.
+ *
+ * Usage:
+ * - Tables: Use `size` prop on Table component ("default" | "compact" | "dense")
+ * - Spacing: Use semantic spacing tokens (e.g., `p-table-cell-compact`)
+ *
+ * To modify global table density, update the corresponding token values below.
+ */
+
 const config: Config = {
   darkMode: ["class"],
   content: [
@@ -9,6 +22,51 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      /**
+       * Semantic Spacing Tokens
+       * Organized by component type for maintainability
+       */
+      spacing: {
+        // Table cell padding - vertical (py)
+        "table-cell-y-default": "1rem", // 16px - standard padding
+        "table-cell-y-compact": "0.375rem", // 6px - compact rows
+        "table-cell-y-dense": "0.25rem", // 4px - maximum density
+
+        // Table cell padding - horizontal (px)
+        "table-cell-x-default": "1rem", // 16px
+        "table-cell-x-compact": "1rem", // 16px - maintain horizontal spacing
+        "table-cell-x-dense": "0.75rem", // 12px
+
+        // Table header heights
+        "table-header-default": "3rem", // 48px
+        "table-header-compact": "2.25rem", // 36px
+        "table-header-dense": "1.75rem", // 28px
+
+        // Nested/accordion table spacing
+        "table-nested-padding": "0.375rem", // 6px - wrapper padding for nested tables
+      },
+
+      /**
+       * Component Height Tokens
+       * Used for consistent interactive element sizing within tables
+       */
+      height: {
+        // Table header row heights
+        "table-header-default": "3rem", // 48px
+        "table-header-compact": "2.25rem", // 36px
+        "table-header-dense": "1.75rem", // 28px
+
+        // Button heights within tables
+        "table-button-default": "2.25rem", // 36px
+        "table-button-compact": "1.75rem", // 28px
+        "table-button-dense": "1.5rem", // 24px
+
+        // Icon button heights (expand/collapse)
+        "table-icon-button-default": "1.5rem", // 24px
+        "table-icon-button-compact": "1.25rem", // 20px
+        "table-icon-button-dense": "1rem", // 16px
+      },
+
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

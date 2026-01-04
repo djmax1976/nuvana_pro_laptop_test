@@ -16,7 +16,7 @@
 
 import { prisma } from "../utils/db";
 import { Prisma, LotteryGameStatus } from "@prisma/client";
-import { parseCsvBuffer, CsvParseResult } from "./csv-parser.service";
+import { parseCsvBuffer } from "./csv-parser.service";
 import {
   normalizeHeader,
   validateCsvRow,
@@ -199,11 +199,30 @@ export async function validateImport(
     const validationResult = validateCsvRow(rowData, rowNumber);
 
     if (!validationResult.success) {
+      // For error rows, we still need to provide properly typed data for display
+      // Convert raw string values to expected types (with fallbacks for display)
+      const displayData: LotteryGameCsvRow = {
+        game_code: String(rowData.game_code || ""),
+        name: String(rowData.name || ""),
+        price:
+          parseFloat(String(rowData.price || "").replace(/[$,\s]/g, "")) || 0,
+        description: rowData.description || null,
+        pack_value:
+          parseFloat(String(rowData.pack_value || "").replace(/[$,\s]/g, "")) ||
+          300,
+        tickets_per_pack: rowData.tickets_per_pack
+          ? parseInt(String(rowData.tickets_per_pack), 10)
+          : null,
+        status:
+          (String(
+            rowData.status || "ACTIVE",
+          ).toUpperCase() as LotteryGameStatus) || "ACTIVE",
+      };
       validatedRows.push({
         row_number: rowNumber,
         status: "error",
         action: null,
-        data: rowData as unknown as LotteryGameCsvRow,
+        data: displayData,
         errors: validationResult.errors,
       });
       errorCount++;

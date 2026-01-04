@@ -188,6 +188,12 @@ model Store {
   // ZIP code (5-digit or ZIP+4 format: 12345 or 12345-6789)
   zip_code String? @db.VarChar(10)
 
+  // === LOTTERY CONFIGURATION ===
+  // Number of lottery bins configured for this store
+  // Owner sets this value, system auto-creates/syncs bin rows
+  // Valid range: 0-200 (null means not configured yet)
+  lottery_bin_count Int? @db.Integer
+
   // === EXISTING FIELDS ===
   timezone            String   @default("America/New_York") @db.VarChar(50)
   status              String   @default("ACTIVE") @db.VarChar(50)

@@ -12,11 +12,8 @@
  */
 
 import { PrismaClient } from "@prisma/client";
-import {
-  georgiaCounties,
-  georgiaCities,
-  georgiaZipCodes,
-} from "./georgia-counties";
+import { georgiaCities, georgiaZipCodes } from "./georgia-counties";
+import { usCountiesByState, getStatesWithCountyData } from "./us-counties";
 
 const prisma = new PrismaClient();
 
@@ -33,24 +30,25 @@ async function seedGeographicData(): Promise<void> {
     const states = await ensureStates();
     console.log(`  ✓ ${states.length} states verified\n`);
 
-    // Step 2: Seed Georgia Counties
-    console.log("Step 2: Seeding Georgia counties...");
+    // Step 2: Seed ALL US Counties
+    console.log("Step 2: Seeding counties for all US states...");
+    const totalCountyCount = await seedAllUSCounties(states);
+    console.log(`  ✓ ${totalCountyCount} counties seeded across all states\n`);
+
+    // Step 3: Seed Georgia Cities (as sample data)
+    console.log("Step 3: Seeding Georgia cities (sample data)...");
     const gaState = states.find((s) => s.code === "GA");
-    if (!gaState) {
-      throw new Error("Georgia state not found");
+    if (gaState) {
+      const cityCount = await seedCities(gaState.state_id);
+      console.log(`  ✓ ${cityCount} Georgia cities seeded\n`);
     }
-    const countyCount = await seedCounties(gaState.state_id);
-    console.log(`  ✓ ${countyCount} Georgia counties seeded\n`);
 
-    // Step 3: Seed Georgia Cities
-    console.log("Step 3: Seeding Georgia cities...");
-    const cityCount = await seedCities(gaState.state_id);
-    console.log(`  ✓ ${cityCount} Georgia cities seeded\n`);
-
-    // Step 4: Seed Georgia ZIP Codes
-    console.log("Step 4: Seeding Georgia ZIP codes...");
-    const zipCount = await seedZipCodes(gaState.state_id);
-    console.log(`  ✓ ${zipCount} Georgia ZIP codes seeded\n`);
+    // Step 4: Seed Georgia ZIP Codes (as sample data)
+    console.log("Step 4: Seeding Georgia ZIP codes (sample data)...");
+    if (gaState) {
+      const zipCount = await seedZipCodes(gaState.state_id);
+      console.log(`  ✓ ${zipCount} Georgia ZIP codes seeded\n`);
+    }
 
     console.log("Geographic data seed completed successfully!");
   } catch (error) {
@@ -61,13 +59,206 @@ async function seedGeographicData(): Promise<void> {
 
 /**
  * Ensure all required states exist
+ * All 50 US states + DC with FIPS codes and timezones
  */
 async function ensureStates() {
   const stateData = [
     {
+      code: "AL",
+      name: "Alabama",
+      fips_code: "01",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "AK",
+      name: "Alaska",
+      fips_code: "02",
+      timezone_default: "America/Anchorage",
+    },
+    {
+      code: "AZ",
+      name: "Arizona",
+      fips_code: "04",
+      timezone_default: "America/Phoenix",
+    },
+    {
+      code: "AR",
+      name: "Arkansas",
+      fips_code: "05",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "CA",
+      name: "California",
+      fips_code: "06",
+      timezone_default: "America/Los_Angeles",
+    },
+    {
+      code: "CO",
+      name: "Colorado",
+      fips_code: "08",
+      timezone_default: "America/Denver",
+    },
+    {
+      code: "CT",
+      name: "Connecticut",
+      fips_code: "09",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "DE",
+      name: "Delaware",
+      fips_code: "10",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "DC",
+      name: "District of Columbia",
+      fips_code: "11",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "FL",
+      name: "Florida",
+      fips_code: "12",
+      timezone_default: "America/New_York",
+    },
+    {
       code: "GA",
       name: "Georgia",
       fips_code: "13",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "HI",
+      name: "Hawaii",
+      fips_code: "15",
+      timezone_default: "Pacific/Honolulu",
+    },
+    {
+      code: "ID",
+      name: "Idaho",
+      fips_code: "16",
+      timezone_default: "America/Boise",
+    },
+    {
+      code: "IL",
+      name: "Illinois",
+      fips_code: "17",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "IN",
+      name: "Indiana",
+      fips_code: "18",
+      timezone_default: "America/Indiana/Indianapolis",
+    },
+    {
+      code: "IA",
+      name: "Iowa",
+      fips_code: "19",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "KS",
+      name: "Kansas",
+      fips_code: "20",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "KY",
+      name: "Kentucky",
+      fips_code: "21",
+      timezone_default: "America/Kentucky/Louisville",
+    },
+    {
+      code: "LA",
+      name: "Louisiana",
+      fips_code: "22",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "ME",
+      name: "Maine",
+      fips_code: "23",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "MD",
+      name: "Maryland",
+      fips_code: "24",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "MA",
+      name: "Massachusetts",
+      fips_code: "25",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "MI",
+      name: "Michigan",
+      fips_code: "26",
+      timezone_default: "America/Detroit",
+    },
+    {
+      code: "MN",
+      name: "Minnesota",
+      fips_code: "27",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "MS",
+      name: "Mississippi",
+      fips_code: "28",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "MO",
+      name: "Missouri",
+      fips_code: "29",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "MT",
+      name: "Montana",
+      fips_code: "30",
+      timezone_default: "America/Denver",
+    },
+    {
+      code: "NE",
+      name: "Nebraska",
+      fips_code: "31",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "NV",
+      name: "Nevada",
+      fips_code: "32",
+      timezone_default: "America/Los_Angeles",
+    },
+    {
+      code: "NH",
+      name: "New Hampshire",
+      fips_code: "33",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "NJ",
+      name: "New Jersey",
+      fips_code: "34",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "NM",
+      name: "New Mexico",
+      fips_code: "35",
+      timezone_default: "America/Denver",
+    },
+    {
+      code: "NY",
+      name: "New York",
+      fips_code: "36",
       timezone_default: "America/New_York",
     },
     {
@@ -77,10 +268,106 @@ async function ensureStates() {
       timezone_default: "America/New_York",
     },
     {
+      code: "ND",
+      name: "North Dakota",
+      fips_code: "38",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "OH",
+      name: "Ohio",
+      fips_code: "39",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "OK",
+      name: "Oklahoma",
+      fips_code: "40",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "OR",
+      name: "Oregon",
+      fips_code: "41",
+      timezone_default: "America/Los_Angeles",
+    },
+    {
+      code: "PA",
+      name: "Pennsylvania",
+      fips_code: "42",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "RI",
+      name: "Rhode Island",
+      fips_code: "44",
+      timezone_default: "America/New_York",
+    },
+    {
       code: "SC",
       name: "South Carolina",
       fips_code: "45",
       timezone_default: "America/New_York",
+    },
+    {
+      code: "SD",
+      name: "South Dakota",
+      fips_code: "46",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "TN",
+      name: "Tennessee",
+      fips_code: "47",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "TX",
+      name: "Texas",
+      fips_code: "48",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "UT",
+      name: "Utah",
+      fips_code: "49",
+      timezone_default: "America/Denver",
+    },
+    {
+      code: "VT",
+      name: "Vermont",
+      fips_code: "50",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "VA",
+      name: "Virginia",
+      fips_code: "51",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "WA",
+      name: "Washington",
+      fips_code: "53",
+      timezone_default: "America/Los_Angeles",
+    },
+    {
+      code: "WV",
+      name: "West Virginia",
+      fips_code: "54",
+      timezone_default: "America/New_York",
+    },
+    {
+      code: "WI",
+      name: "Wisconsin",
+      fips_code: "55",
+      timezone_default: "America/Chicago",
+    },
+    {
+      code: "WY",
+      name: "Wyoming",
+      fips_code: "56",
+      timezone_default: "America/Denver",
     },
   ];
 
@@ -106,28 +393,51 @@ async function ensureStates() {
 }
 
 /**
- * Seed Georgia counties from reference data
+ * Seed counties for ALL US states from the comprehensive us-counties data
  */
-async function seedCounties(stateId: string): Promise<number> {
-  let count = 0;
+async function seedAllUSCounties(
+  states: Array<{ state_id: string; code: string; name: string }>,
+): Promise<number> {
+  let totalCount = 0;
+  const statesWithData = getStatesWithCountyData();
 
-  for (const county of georgiaCounties) {
-    await prisma.uSCounty.upsert({
-      where: { fips_code: county.fips_code },
-      update: {}, // Don't update if exists
-      create: {
-        state_id: stateId,
-        name: county.name,
-        fips_code: county.fips_code,
-        county_seat: county.county_seat,
-        population: county.population,
-        is_active: true,
-      },
-    });
-    count++;
+  // Create a map of state code to state_id for fast lookup
+  const stateMap = new Map(states.map((s) => [s.code, s.state_id]));
+
+  for (const stateCode of statesWithData) {
+    const stateId = stateMap.get(stateCode);
+    if (!stateId) {
+      console.warn(`  Warning: State ${stateCode} not found in database`);
+      continue;
+    }
+
+    const counties = usCountiesByState[stateCode];
+    if (!counties || counties.length === 0) {
+      continue;
+    }
+
+    let stateCount = 0;
+    for (const county of counties) {
+      await prisma.uSCounty.upsert({
+        where: { fips_code: county.fips_code },
+        update: {}, // Don't update if exists
+        create: {
+          state_id: stateId,
+          name: county.name,
+          fips_code: county.fips_code,
+          county_seat: county.county_seat,
+          population: county.population,
+          is_active: true,
+        },
+      });
+      stateCount++;
+    }
+
+    console.log(`    ${stateCode}: ${stateCount} counties`);
+    totalCount += stateCount;
   }
 
-  return count;
+  return totalCount;
 }
 
 /**
