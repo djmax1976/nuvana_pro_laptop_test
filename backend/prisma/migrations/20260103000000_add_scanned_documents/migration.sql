@@ -299,26 +299,35 @@ DROP POLICY IF EXISTS scanned_documents_tenant_isolation ON scanned_documents;
 DROP POLICY IF EXISTS scanned_documents_insert_policy ON scanned_documents;
 
 -- Policy: Users can only see documents from stores they have access to
+-- Uses existing RLS helper functions: app.is_system_admin(), app.get_user_store_id(),
+-- app.get_user_company_id(), app.is_client_user(), app.get_owned_company_ids()
 CREATE POLICY scanned_documents_tenant_isolation ON scanned_documents
   FOR ALL
   USING (
     -- System admins can see all
-    app.is_system_admin()
+    app.is_system_admin() = TRUE
     OR
-    -- Users can see documents from their stores
-    store_id = ANY(app.current_store_ids())
+    -- Users scoped to a specific store can see documents from that store
+    store_id = app.get_user_store_id()
     OR
-    -- Users can see documents from their companies
-    company_id = ANY(app.current_company_ids())
+    -- Users scoped to a company can see documents from that company
+    company_id = app.get_user_company_id()
+    OR
+    -- Client users (company owners) can see documents from their owned companies
+    (app.is_client_user() = TRUE AND company_id = ANY(app.get_owned_company_ids()))
   );
 
 -- Policy: Insert requires store access
 CREATE POLICY scanned_documents_insert_policy ON scanned_documents
   FOR INSERT
   WITH CHECK (
-    app.is_system_admin()
+    app.is_system_admin() = TRUE
     OR
-    store_id = ANY(app.current_store_ids())
+    store_id = app.get_user_store_id()
+    OR
+    company_id = app.get_user_company_id()
+    OR
+    (app.is_client_user() = TRUE AND company_id = ANY(app.get_owned_company_ids()))
   );
 
 -- ============================================================================
