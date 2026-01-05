@@ -765,11 +765,19 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       // WHEN: Clicking Total Bins badge to open configuration modal
       await totalBinsBadge.click();
 
-      // THEN: Bin count configuration modal opens
-      // The modal shows bin count configuration dialog
-      await expect(page.getByRole("dialog").getByText(/bin/i)).toBeVisible({
-        timeout: 10000,
-      });
+      // THEN: Bin count configuration modal opens with correct title
+      // Use specific data-testid or heading selector to avoid strict mode violations
+      // (multiple elements contain "bin" text in the modal)
+      await expect(page.locator('[data-testid="bin-count-modal"]')).toBeVisible(
+        {
+          timeout: 10000,
+        },
+      );
+
+      // AND: Modal header displays correct title
+      await expect(
+        page.getByRole("heading", { name: "Configure Lottery Bins" }),
+      ).toBeVisible();
     } finally {
       await cleanupTestFixture(fixture);
     }
