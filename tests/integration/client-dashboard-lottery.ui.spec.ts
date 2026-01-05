@@ -441,10 +441,15 @@ async function waitForLotteryPageLoaded(page: Page): Promise<void> {
     .locator('[data-testid="client-dashboard-lottery-page"]')
     .waitFor({ state: "visible", timeout: PAGE_CONTAINER_TIMEOUT });
 
-  // Wait for store tabs OR loading/error/empty state to complete
+  // Wait for store selector OR loading/error/empty state to complete
+  // NOTE: LotteryTable now uses a Select dropdown (store-selector) instead of tabs
   await Promise.race([
     page
-      .locator('[data-testid="store-tabs"]')
+      .locator('[data-testid="store-selector"]')
+      .waitFor({ state: "visible", timeout: STORE_TABS_TIMEOUT })
+      .catch(() => null),
+    page
+      .locator('[data-testid="lottery-table"]')
       .waitFor({ state: "visible", timeout: STORE_TABS_TIMEOUT })
       .catch(() => null),
     page
@@ -458,11 +463,31 @@ async function waitForLotteryPageLoaded(page: Page): Promise<void> {
   ]);
 }
 
+/**
+ * Helper to select a store from the dropdown
+ * The LotteryTable uses a Select dropdown for store selection
+ */
+async function selectStoreFromDropdown(
+  page: Page,
+  storeName: string,
+): Promise<void> {
+  const storeSelector = page.locator('[data-testid="store-selector"]');
+  await storeSelector.click();
+
+  // Wait for dropdown to open and select the store
+  const storeOption = page.getByRole("option", { name: storeName });
+  await expect(storeOption).toBeVisible({ timeout: 5000 });
+  await storeOption.click();
+
+  // Wait for the selection to take effect
+  await expect(storeSelector).toContainText(storeName, { timeout: 5000 });
+}
+
 // REMOVED: test.describe.configure({ mode: "serial" });
 // Each test now has isolated fixtures - no need for serial mode
 
 test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
-  test("6.10.1-UI-001: [P1] Store tabs display and switching (AC #1)", async ({
+  test("6.10.1-UI-001: [P1] Store dropdown display and switching (AC #1)", async ({
     page,
   }) => {
     const fixture = await createTestFixture("001");
@@ -483,27 +508,29 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       // Wait for page to load
       await waitForLotteryPageLoaded(page);
 
-      // THEN: Store tabs are displayed (for multiple stores)
-      const storeTabs = page.locator('[data-testid="store-tabs"]');
-      await expect(storeTabs).toBeVisible({ timeout: 30000 });
+      // THEN: Store selector dropdown is displayed (for multiple stores)
+      const storeSelector = page.locator('[data-testid="store-selector"]');
+      await expect(storeSelector).toBeVisible({ timeout: 30000 });
 
-      // AND: Both stores are shown in tabs
-      await expect(
-        page.locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`),
-      ).toBeVisible({ timeout: 30000 });
-      await expect(
-        page.locator(`[data-testid="store-tab-${fixture.store2.store_id}"]`),
-      ).toBeVisible({ timeout: 30000 });
+      // AND: First store is initially selected (shown in dropdown)
+      await expect(storeSelector).toContainText(fixture.store1.name, {
+        timeout: 5000,
+      });
 
-      // WHEN: Clicking on store 2 tab
-      await page
-        .locator(`[data-testid="store-tab-${fixture.store2.store_id}"]`)
-        .click();
+      // WHEN: Opening dropdown and selecting store 2
+      await storeSelector.click();
 
-      // THEN: Store 2 tab is active
-      await expect(
-        page.locator(`[data-testid="store-tab-${fixture.store2.store_id}"]`),
-      ).toHaveAttribute("aria-selected", "true", { timeout: 5000 });
+      // Wait for dropdown content to appear
+      const store2Option = page.getByRole("option", {
+        name: fixture.store2.name,
+      });
+      await expect(store2Option).toBeVisible({ timeout: 5000 });
+      await store2Option.click();
+
+      // THEN: Store 2 is now selected (shown in dropdown)
+      await expect(storeSelector).toContainText(fixture.store2.name, {
+        timeout: 5000,
+      });
     } finally {
       await cleanupTestFixture(fixture);
     }
@@ -551,23 +578,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // Wait for store tabs to load, then select store 1
-      await page
-        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
-        .waitFor({ state: "visible", timeout: 30000 });
-      await page
-        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
-        .click();
-
-      // Wait for content to load (table or empty state)
-      await Promise.race([
-        page
-          .locator('[data-testid="lottery-table"]')
-          .waitFor({ state: "visible", timeout: 30000 }),
-        page
-          .locator('[data-testid="lottery-table-empty"]')
-          .waitFor({ state: "visible", timeout: 30000 }),
-      ]);
+      // Select store 1 from dropdown (first store is auto-selected, but ensure it's correct)
+      await selectStoreFromDropdown(page, fixture.store1.name);
 
       // Wait for table to be visible (we created packs, so table should show)
       await expect(page.locator('[data-testid="lottery-table"]')).toBeVisible({
@@ -629,17 +641,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // Select store 2 (no packs) if tab exists
-      const store2Tab = page.locator(
-        `[data-testid="store-tab-${fixture.store2.store_id}"]`,
-      );
-      if (await store2Tab.isVisible()) {
-        await store2Tab.click();
-        // Wait for store selection to be reflected in aria-selected
-        await expect(store2Tab).toHaveAttribute("aria-selected", "true", {
-          timeout: 5000,
-        });
-      }
+      // Select store 2 (no packs) from dropdown
+      await selectStoreFromDropdown(page, fixture.store2.name);
 
       // Wait for empty state or table (store 2 has no packs, so should show empty state)
       await Promise.race([
@@ -684,13 +687,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // Select store 1 if tab exists
-      const store1Tab = page.locator(
-        `[data-testid="store-tab-${fixture.store1.store_id}"]`,
-      );
-      if (await store1Tab.isVisible()) {
-        await store1Tab.click();
-      }
+      // Select store 1 from dropdown
+      await selectStoreFromDropdown(page, fixture.store1.name);
 
       // WHEN: Clicking "+ Receive Packs" button
       await page.locator('[data-testid="receive-packs-button"]').click();
@@ -890,18 +888,28 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // THEN: Other store's tab is NOT visible (RLS enforcement)
-      await expect(
-        page.locator(`[data-testid="store-tab-${otherStore.store_id}"]`),
-      ).not.toBeVisible({ timeout: 5000 });
+      // THEN: Store dropdown should be visible and contain only user's stores
+      const storeSelector = page.locator('[data-testid="store-selector"]');
+      await expect(storeSelector).toBeVisible({ timeout: 30000 });
+
+      // Open dropdown to check available options
+      await storeSelector.click();
 
       // User should only see their own stores (store1 and store2)
       await expect(
-        page.locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`),
-      ).toBeVisible();
+        page.getByRole("option", { name: fixture.store1.name }),
+      ).toBeVisible({ timeout: 5000 });
       await expect(
-        page.locator(`[data-testid="store-tab-${fixture.store2.store_id}"]`),
-      ).toBeVisible();
+        page.getByRole("option", { name: fixture.store2.name }),
+      ).toBeVisible({ timeout: 5000 });
+
+      // Other store should NOT be visible (RLS enforcement)
+      await expect(
+        page.getByRole("option", { name: otherStore.name }),
+      ).not.toBeVisible({ timeout: 2000 });
+
+      // Close dropdown by clicking elsewhere
+      await page.keyboard.press("Escape");
     } finally {
       // Cleanup other company's data
       if (otherPack) {
@@ -923,7 +931,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     }
   });
 
-  test("6.10.1-UI-008: [P1] Single store displays as badge, not tabs", async ({
+  test("6.10.1-UI-008: [P1] Single store hides dropdown (auto-selected)", async ({
     page,
   }) => {
     // Create a fixture with single store mode
@@ -941,19 +949,27 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // THEN: For single store, it shows as a badge (not clickable tabs)
-      // The StoreTabs component shows single store as a highlighted badge
-      const storeTabs = page.locator('[data-testid="store-tabs"]');
-      await expect(storeTabs).toBeVisible();
+      // THEN: For single store, dropdown is NOT shown (store is auto-selected)
+      // The LotteryTable only shows dropdown for multi-store companies
+      const storeSelector = page.locator('[data-testid="store-selector"]');
+      await expect(storeSelector).not.toBeVisible({ timeout: 5000 });
 
-      // Single store shows the store name in a badge format
-      await expect(storeTabs.getByText(fixture.store1.name)).toBeVisible();
+      // BUT: The lottery filters section is still visible
+      await expect(page.locator('[data-testid="lottery-filters"]')).toBeVisible(
+        {
+          timeout: 5000,
+        },
+      );
 
-      // AND: The badge should not be a button (single store = non-interactive badge)
-      // Check that there's no button role or tab role in the store tabs container
-      const tabButtons = storeTabs.locator('button[role="tab"]');
-      const tabButtonCount = await tabButtons.count();
-      expect(tabButtonCount).toBe(0);
+      // AND: Table or empty state should be visible (page is functional)
+      await Promise.race([
+        page
+          .locator('[data-testid="lottery-table"]')
+          .waitFor({ state: "visible", timeout: 10000 }),
+        page
+          .locator('[data-testid="lottery-table-empty"]')
+          .waitFor({ state: "visible", timeout: 10000 }),
+      ]);
     } finally {
       await cleanupTestFixture(fixture);
     }
@@ -1016,10 +1032,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // Select store 1
-      await page
-        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
-        .click();
+      // Select store 1 from dropdown
+      await selectStoreFromDropdown(page, fixture.store1.name);
 
       // Wait for table
       await page
@@ -1045,7 +1059,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     }
   });
 
-  test("6.10.1-UI-011: [P2] Store tabs keyboard navigation", async ({
+  test("6.10.1-UI-011: [P2] Store dropdown keyboard navigation", async ({
     page,
   }) => {
     const fixture = await createTestFixture("011");
@@ -1062,33 +1076,35 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // Focus on first store tab
-      const store1Tab = page.locator(
-        `[data-testid="store-tab-${fixture.store1.store_id}"]`,
-      );
-      await store1Tab.waitFor({ state: "visible", timeout: 30000 });
-      await store1Tab.focus();
+      // Focus on store selector dropdown
+      const storeSelector = page.locator('[data-testid="store-selector"]');
+      await storeSelector.waitFor({ state: "visible", timeout: 30000 });
+      await storeSelector.focus();
 
-      // Verify first tab is focused
-      await expect(store1Tab).toBeFocused({ timeout: 5000 });
+      // Verify dropdown is focused
+      await expect(storeSelector).toBeFocused({ timeout: 5000 });
 
-      // WHEN: Pressing ArrowRight key
-      await page.keyboard.press("ArrowRight");
+      // WHEN: Pressing Enter to open dropdown
+      await page.keyboard.press("Enter");
 
-      // THEN: Focus moves to next tab (store 2) and it becomes selected
-      // The StoreTabs component uses onStoreSelect which triggers a useEffect
-      // that focuses the new tab after React state update
-      const store2Tab = page.locator(
-        `[data-testid="store-tab-${fixture.store2.store_id}"]`,
-      );
+      // THEN: Dropdown opens with options visible
+      await expect(
+        page.getByRole("option", { name: fixture.store1.name }),
+      ).toBeVisible({ timeout: 5000 });
+      await expect(
+        page.getByRole("option", { name: fixture.store2.name }),
+      ).toBeVisible({ timeout: 5000 });
 
-      // Wait for the aria-selected attribute to change first (state update)
-      await expect(store2Tab).toHaveAttribute("aria-selected", "true", {
+      // WHEN: Pressing ArrowDown to navigate to store 2
+      await page.keyboard.press("ArrowDown");
+
+      // WHEN: Pressing Enter to select
+      await page.keyboard.press("Enter");
+
+      // THEN: Store 2 is now selected
+      await expect(storeSelector).toContainText(fixture.store2.name, {
         timeout: 5000,
       });
-
-      // Then verify focus moved (happens after state update via useEffect)
-      await expect(store2Tab).toBeFocused({ timeout: 5000 });
     } finally {
       await cleanupTestFixture(fixture);
     }
@@ -1120,10 +1136,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // Select store 1
-      await page
-        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
-        .click();
+      // Select store 1 from dropdown
+      await selectStoreFromDropdown(page, fixture.store1.name);
 
       // Wait for filter section
       await page
@@ -1203,10 +1217,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // Select store 1
-      await page
-        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
-        .click();
+      // Select store 1 from dropdown
+      await selectStoreFromDropdown(page, fixture.store1.name);
 
       // Wait for table
       await page
@@ -1286,10 +1298,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // Select store 1
-      await page
-        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
-        .click();
+      // Select store 1 from dropdown
+      await selectStoreFromDropdown(page, fixture.store1.name);
 
       // Wait for table
       await page
@@ -1385,10 +1395,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // Select store 1
-      await page
-        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
-        .click();
+      // Select store 1 from dropdown
+      await selectStoreFromDropdown(page, fixture.store1.name);
 
       // Wait for filter section to load
       await page
@@ -1449,10 +1457,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // Select store 1
-      await page
-        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
-        .click();
+      // Select store 1 from dropdown
+      await selectStoreFromDropdown(page, fixture.store1.name);
 
       // Wait for filter section to load
       await page
@@ -1518,10 +1524,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // Select store 1
-      await page
-        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
-        .click();
+      // Select store 1 from dropdown
+      await selectStoreFromDropdown(page, fixture.store1.name);
 
       // Wait for table (shows active packs by default)
       await page
