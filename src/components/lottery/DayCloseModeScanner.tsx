@@ -70,6 +70,7 @@ import {
   prepareLotteryDayClose,
   type DayBin,
   type PrepareLotteryDayCloseResponse,
+  type ReturnedPackDay,
   type DepletedPackDay,
   type ActivatedPackDay,
   type OpenBusinessPeriod,
@@ -84,6 +85,7 @@ import {
   type BinDecision,
 } from "@/components/lottery/UnscannedBinWarningModal";
 import { validateManualEntryEnding } from "@/lib/services/lottery-closing-validation";
+import { ReturnedPacksSection } from "@/components/lottery/ReturnedPacksSection";
 import { DepletedPacksSection } from "@/components/lottery/DepletedPacksSection";
 import { ActivatedPacksSection } from "@/components/lottery/ActivatedPacksSection";
 
@@ -200,6 +202,8 @@ interface DayCloseModeScannerProps {
   deferCommit?: boolean;
   /** Callback with pending closings data when deferCommit is true */
   onPendingClosings?: (data: PendingClosingsData) => void;
+  /** Returned packs for the current business period (enterprise close-to-close model) */
+  returnedPacks?: ReturnedPackDay[];
   /** Depleted packs for the current business period (enterprise close-to-close model) */
   depletedPacks?: DepletedPackDay[];
   /** Activated packs for the current business period (enterprise close-to-close model) */
@@ -233,6 +237,7 @@ export function DayCloseModeScanner({
   scannedBins: externalScannedBins,
   onScannedBinsChange,
   blockingShifts = [],
+  returnedPacks,
   depletedPacks,
   activatedPacks,
   openBusinessPeriod,
@@ -1736,12 +1741,22 @@ export function DayCloseModeScanner({
          * - SEC-014: INPUT_VALIDATION - Components handle null/empty gracefully
          * - SEC-004: XSS - React auto-escapes all output in child components
          * ============================================================================ */}
-        {(depletedPacks && depletedPacks.length > 0) ||
+        {(returnedPacks && returnedPacks.length > 0) ||
+        (depletedPacks && depletedPacks.length > 0) ||
         (activatedPacks && activatedPacks.length > 0) ? (
           <div
             className="px-6 py-4 space-y-4 border-t"
             data-testid="packs-sections-container"
           >
+            {/* Returned Packs Section - Before Depleted Packs */}
+            {returnedPacks && returnedPacks.length > 0 && (
+              <ReturnedPacksSection
+                returnedPacks={returnedPacks}
+                openBusinessPeriod={openBusinessPeriod}
+                defaultOpen={false}
+              />
+            )}
+
             {/* Depleted Packs Section */}
             {depletedPacks && depletedPacks.length > 0 && (
               <DepletedPacksSection

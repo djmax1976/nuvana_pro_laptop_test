@@ -26,6 +26,7 @@ import {
 } from "@/components/lottery/DayBinsTable";
 import { validateManualEntryEnding } from "@/lib/services/lottery-closing-validation";
 import { DepletedPacksSection } from "@/components/lottery/DepletedPacksSection";
+import { ReturnedPacksSection } from "@/components/lottery/ReturnedPacksSection";
 import { ActivatedPacksSection } from "@/components/lottery/ActivatedPacksSection";
 import { PackReceptionForm } from "@/components/lottery/PackReceptionForm";
 import { EnhancedPackActivationForm } from "@/components/lottery/EnhancedPackActivationForm";
@@ -690,6 +691,13 @@ export default function LotteryManagementPage() {
             validationErrors={validationErrors}
             onValidateEnding={handleValidateEnding}
             onMarkSoldOut={handleMarkSoldOutClick}
+          />
+
+          {/* Returned Packs Section (Collapsible) - Enterprise Close-to-Close Model */}
+          <ReturnedPacksSection
+            returnedPacks={dayBinsData.returned_packs}
+            openBusinessPeriod={dayBinsData.open_business_period}
+            defaultOpen={false}
           />
 
           {/* Depleted Packs Section (Collapsible) - Enterprise Close-to-Close Model */}

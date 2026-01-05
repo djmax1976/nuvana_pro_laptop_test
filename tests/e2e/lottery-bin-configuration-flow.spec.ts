@@ -327,7 +327,8 @@ async function waitForBinConfigurationPageLoaded(page: Page): Promise<void> {
 
 /**
  * Helper function to wait for lottery page to fully load.
- * The lottery page has two tabs: Inventory and Configuration.
+ * NOTE: The lottery page was redesigned - tabs were removed.
+ * Bin configuration is now accessed via the "Total Bins" badge.
  */
 async function waitForLotteryPageLoaded(page: Page): Promise<void> {
   // Wait for dashboard API call to complete
@@ -344,10 +345,21 @@ async function waitForLotteryPageLoaded(page: Page): Promise<void> {
     .locator('[data-testid="client-dashboard-lottery-page"]')
     .waitFor({ state: "visible", timeout: 30000 });
 
-  // Wait for tabs to be visible
-  await expect(page.getByRole("tab", { name: "Inventory" })).toBeVisible({
-    timeout: 15000,
-  });
+  // Wait for filters section or store selector to be visible (page is loaded)
+  await Promise.race([
+    page
+      .locator('[data-testid="lottery-filters"]')
+      .waitFor({ state: "visible", timeout: 15000 })
+      .catch(() => null),
+    page
+      .locator('[data-testid="store-selector"]')
+      .waitFor({ state: "visible", timeout: 15000 })
+      .catch(() => null),
+    page
+      .getByText(/no stores available/i)
+      .waitFor({ state: "visible", timeout: 15000 })
+      .catch(() => null),
+  ]);
 
   // Wait for DOM to settle
   await page.waitForLoadState("domcontentloaded");
@@ -483,7 +495,7 @@ test.describe("6.13-E2E: Lottery Bin Configuration Flow", () => {
         timeout: 10000,
       });
 
-      // WHEN: I navigate to lottery page to view the bin display
+      // WHEN: I navigate to lottery page to verify bin configuration is accessible
       await page.goto("/client-dashboard/lottery", {
         waitUntil: "domcontentloaded",
       });
@@ -496,30 +508,21 @@ test.describe("6.13-E2E: Lottery Bin Configuration Flow", () => {
         page.locator('[data-testid="client-dashboard-lottery-page"]'),
       ).toBeVisible({ timeout: 20000 });
 
-      // Click on the Configuration tab to view bin display
-      const configurationTab = page.getByRole("tab", { name: "Configuration" });
-      await expect(configurationTab).toBeVisible({ timeout: 15000 });
-      await configurationTab.click();
+      // NOTE: The lottery page was redesigned - Configuration tab was removed.
+      // Bin configuration is now accessible via the "Total Bins" badge.
+      // Verify Total Bins badge is visible and clickable
+      const totalBinsBadge = page.locator('[data-testid="total-bins-badge"]');
+      await expect(totalBinsBadge).toBeVisible({ timeout: 15000 });
 
-      // Wait for tab content to load
-      await page.waitForLoadState("domcontentloaded");
+      // AND: Total bins count is displayed (fixture creates bins)
+      const binsCount = page.locator('[data-testid="total-bins-count"]');
+      await expect(binsCount).toBeVisible({ timeout: 5000 });
 
-      // Verify page structure is correct
-      const hasBinTable = await page
-        .locator('[data-testid="bin-list-table"]')
-        .isVisible()
-        .catch(() => false);
-      const hasBinEmptyState = await page
-        .locator('[data-testid="bin-list-empty"]')
-        .isVisible()
-        .catch(() => false);
-      const hasBinConfigHeading = await page
-        .getByText("Bin Configuration")
-        .isVisible()
-        .catch(() => false);
+      // WHEN: Clicking Total Bins badge to access bin configuration
+      await totalBinsBadge.click();
 
-      // Either state is valid
-      expect(hasBinTable || hasBinEmptyState || hasBinConfigHeading).toBe(true);
+      // THEN: Bin count configuration modal opens
+      await expect(page.getByRole("dialog")).toBeVisible({ timeout: 10000 });
     } finally {
       await cleanupTestFixture(fixture);
     }

@@ -50,6 +50,7 @@ model User {
   pack_bin_history            LotteryPackBinHistory[] @relation("PackMover")
   packs_activated             LotteryPack[]           @relation("PackActivatedBy")
   packs_depleted              LotteryPack[]           @relation("PackDepletedBy")
+  packs_returned              LotteryPack[]           @relation("PackReturnedBy")
   packs_serial_override_approved LotteryPack[]        @relation("PackSerialOverrideApprovedBy")
   packs_mark_sold_approved       LotteryPack[]        @relation("PackMarkSoldApprovedBy")
   manual_entry_authorizations LotteryShiftClosing[]   @relation("ManualEntryAuthorizer")
@@ -608,6 +609,17 @@ enum LotteryPackDepletionReason {
   AUTO_REPLACED   // Auto-depleted when new pack activated in same bin
   MANUAL_SOLD_OUT // Manually marked as sold out by user
   POS_LAST_TICKET // Future: POS reported last ticket sold
+}
+
+/// Lottery Pack Return Reason - Tracks why a pack was returned
+/// Used for audit trail, reporting, and supplier reconciliation
+enum LotteryPackReturnReason {
+  SUPPLIER_RECALL       // Supplier recalled the pack
+  DAMAGED               // Pack was damaged
+  EXPIRED               // Pack expired before being sold
+  INVENTORY_ADJUSTMENT  // Inventory correction
+  STORE_CLOSURE         // Store closing/relocating
+  OTHER                 // Other reason (requires notes)
 }
 
 enum LotteryConfigType {
@@ -1172,6 +1184,7 @@ model Shift {
   ticket_serials    LotteryTicketSerial[]
   packs_activated   LotteryPack[]         @relation("PackActivatedInShift")
   packs_depleted    LotteryPack[]         @relation("PackDepletedInShift")
+  packs_returned    LotteryPack[]         @relation("PackReturnedInShift")
   // Shift Summary relation (Phase 2.1) - one-to-one since summary is created on close
   shift_summary     ShiftSummary?
   // X/Z Report relations (Phase 4)
@@ -1508,6 +1521,16 @@ model LotteryPack {
   depleted_shift_id  String?                      @db.Uuid
   depletion_reason   LotteryPackDepletionReason?
 
+  // Pack return context (tracks when pack is returned to supplier mid-pack)
+  returned_by            String?                    @db.Uuid
+  returned_shift_id      String?                    @db.Uuid
+  returned_day_id        String?                    @db.Uuid
+  return_reason          LotteryPackReturnReason?
+  return_notes           String?                    @db.VarChar(500)
+  last_sold_serial       String?                    @db.VarChar(100)
+  tickets_sold_on_return Int?
+  return_sales_amount    Decimal?                   @db.Decimal(10, 2)
+
   // Serial override approval (dual-auth when cashier needs manager to approve serial change)
   serial_override_approved_by String?   @db.Uuid
   serial_override_approved_at DateTime? @db.Timestamptz(6)
@@ -1533,6 +1556,9 @@ model LotteryPack {
   depletedShift                Shift? @relation("PackDepletedInShift", fields: [depleted_shift_id], references: [shift_id])
   serialOverrideApprovedByUser User?  @relation("PackSerialOverrideApprovedBy", fields: [serial_override_approved_by], references: [user_id])
   markSoldApprovedByUser       User?  @relation("PackMarkSoldApprovedBy", fields: [mark_sold_approved_by], references: [user_id])
+  returnedByUser               User?              @relation("PackReturnedBy", fields: [returned_by], references: [user_id])
+  returnedShift                Shift?             @relation("PackReturnedInShift", fields: [returned_shift_id], references: [shift_id])
+  returnedDay                  LotteryBusinessDay? @relation("PackReturnedOnDay", fields: [returned_day_id], references: [day_id])
 
   @@unique([store_id, pack_number])
   @@index([game_id])
@@ -1547,6 +1573,10 @@ model LotteryPack {
   @@index([depleted_shift_id])
   @@index([serial_override_approved_by])
   @@index([mark_sold_approved_by])
+  @@index([returned_by])
+  @@index([returned_shift_id])
+  @@index([returned_day_id])
+  @@index([return_reason])
   @@map("lottery_packs")
 }
 
@@ -1754,6 +1784,7 @@ model LotteryBusinessDay {
   closedByUser       User?            @relation("LotteryDayClosedBy", fields: [closed_by], references: [user_id], onDelete: SetNull)
   pendingCloseByUser User?            @relation("LotteryDayPendingCloseBy", fields: [pending_close_by], references: [user_id], onDelete: SetNull)
   day_packs          LotteryDayPack[]
+  packs_returned     LotteryPack[]    @relation("PackReturnedOnDay")
   // Scanned Documents (OCR Feature)
   scanned_documents  ScannedDocument[]
 

@@ -56,8 +56,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // Mock useLotteryPacks hook
 vi.mock("@/hooks/useLottery", () => ({
   useLotteryPacks: vi.fn(),
+  usePackDetails: vi.fn(() => ({
+    data: null,
+    isLoading: false,
+    isError: false,
+    error: null,
+  })),
   useUpdateGame: vi.fn(() => ({
     mutateAsync: vi.fn(),
+    isPending: false,
+  })),
+  useReturnPack: vi.fn(() => ({
+    mutateAsync: vi.fn().mockResolvedValue({ success: true }),
     isPending: false,
   })),
 }));
@@ -67,6 +77,23 @@ const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
 import { useLotteryPacks } from "@/hooks/useLottery";
+
+/**
+ * Default test props for LotteryTable component
+ * SEC-014: INPUT_VALIDATION - Test stores are validated in component
+ */
+const defaultTestStores = [
+  { store_id: "store-1", name: "Test Store 1" },
+  { store_id: "store-2", name: "Test Store 2" },
+];
+
+const defaultTestProps = {
+  storeId: "store-1",
+  stores: defaultTestStores,
+  onStoreChange: vi.fn(),
+  onEdit: vi.fn(),
+  onDelete: vi.fn(),
+};
 
 // Helper to wrap component with QueryClient
 function renderWithQueryClient(ui: React.ReactElement) {
@@ -193,9 +220,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
   it("6.10.1-COMPONENT-005: [P2] should display table with correct columns", async () => {
     // GIVEN: LotteryTable component with packs
     // WHEN: Component is rendered
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Table headers are displayed
     expect(
@@ -229,9 +254,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
   it("6.10.1-COMPONENT-006: [P2] should group packs by game and display counts", async () => {
     // GIVEN: LotteryTable component with multiple packs of same game
     // WHEN: Component is rendered
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Games are displayed (not individual packs)
     expect(
@@ -277,9 +300,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
   it("6.10.1-COMPONENT-007: [P2] should show status badges with pack counts", async () => {
     // GIVEN: LotteryTable component with mixed status packs
     // WHEN: Component is rendered
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Status badges are displayed with counts
     expect(
@@ -328,9 +349,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     });
 
     // WHEN: Component is rendered
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: DEPLETED pack is NOT counted in default view (still shows 2 for Mega Millions)
     expect(
@@ -354,9 +373,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     });
 
     // WHEN: Component is rendered
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Empty state message is displayed
     expect(
@@ -380,9 +397,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     });
 
     // WHEN: Component is rendered
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Loading spinner is displayed
     expect(
@@ -402,9 +417,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     });
 
     // WHEN: Component is rendered
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Error message is displayed
     expect(
@@ -422,9 +435,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
   it("6.10.1-COMPONENT-FILTER-001: [P2] should filter games by name search", async () => {
     // GIVEN: LotteryTable component with multiple games
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // WHEN: User types in game name filter
     const filterInput = screen.getByTestId("filter-game-name");
@@ -438,9 +449,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
   it("6.10.1-COMPONENT-FILTER-002: [P2] should filter games by game code", async () => {
     // GIVEN: LotteryTable component with multiple games
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // WHEN: User types game code in filter
     const filterInput = screen.getByTestId("filter-game-name");
@@ -454,9 +463,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
   it("6.10.1-COMPONENT-FILTER-003: [P2] should display empty state when filter matches no games", async () => {
     // GIVEN: LotteryTable component
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // WHEN: User types non-matching filter
     const filterInput = screen.getByTestId("filter-game-name");
@@ -505,9 +512,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     });
 
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // WHEN: User selects SOLD status filter
     const statusSelect = screen.getByTestId("filter-status");
@@ -524,9 +529,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
   it("6.10.1-COMPONENT-FILTER-005: [P2] should filter by date range", async () => {
     // GIVEN: LotteryTable with packs received on different dates
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // WHEN: User sets date range that only includes one pack's received_at
     const dateFromInput = screen.getByTestId("filter-date-from");
@@ -550,76 +553,73 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
   it("6.10.1-COMPONENT-EXPAND-001: [P2] should expand row when clicked", async () => {
     // GIVEN: LotteryTable component
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // WHEN: User clicks on a game row
     const gameRow = screen.getByTestId("lottery-table-row-game-1");
     await user.click(gameRow);
 
-    // THEN: Pack details are expanded
+    // THEN: Pack details header row and pack rows are expanded
     expect(screen.getByTestId("pack-details-game-1")).toBeInTheDocument();
+    expect(screen.getByTestId("pack-row-pack-1")).toBeInTheDocument();
+    expect(screen.getByTestId("pack-row-pack-2")).toBeInTheDocument();
   });
 
   it("6.10.1-COMPONENT-EXPAND-002: [P2] should display pack details in expanded row", async () => {
     // GIVEN: LotteryTable component
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // WHEN: User expands a game row
     const gameRow = screen.getByTestId("lottery-table-row-game-1");
     await user.click(gameRow);
 
-    // THEN: Pack details table shows correct columns and data
+    // THEN: Sub-list header row shows column headers aligned with parent
     const packDetails = screen.getByTestId("pack-details-game-1");
-
-    // Check sub-table headers
     expect(within(packDetails).getByText("Pack #")).toBeInTheDocument();
-    expect(within(packDetails).getByText("Serial Range")).toBeInTheDocument();
-    expect(within(packDetails).getByText("Bin")).toBeInTheDocument();
+    expect(within(packDetails).getByText("Received At")).toBeInTheDocument();
+    expect(within(packDetails).getByText("Activated At")).toBeInTheDocument();
+    expect(within(packDetails).getByText("Returned At")).toBeInTheDocument();
+    expect(within(packDetails).getByText("Status")).toBeInTheDocument();
+    expect(within(packDetails).getByText("Returned")).toBeInTheDocument();
 
-    // Check pack data
-    expect(within(packDetails).getByText("P001")).toBeInTheDocument();
-    expect(within(packDetails).getByText("P002")).toBeInTheDocument();
-    expect(within(packDetails).getByText("1000 - 2000")).toBeInTheDocument();
-    expect(within(packDetails).getByText("Bin 1")).toBeInTheDocument();
-    expect(within(packDetails).getByText("Bin 2")).toBeInTheDocument();
+    // AND: Pack data rows are visible (pack number only, no serial range)
+    expect(screen.getByText("#P001")).toBeInTheDocument();
+    expect(screen.getByText("#P002")).toBeInTheDocument();
   });
 
   it("6.10.1-COMPONENT-EXPAND-003: [P2] should collapse row when clicked again", async () => {
     // GIVEN: LotteryTable component with expanded row
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     const gameRow = screen.getByTestId("lottery-table-row-game-1");
     await user.click(gameRow); // Expand
     expect(screen.getByTestId("pack-details-game-1")).toBeInTheDocument();
+    expect(screen.getByTestId("pack-row-pack-1")).toBeInTheDocument();
 
     // WHEN: User clicks the row again
     await user.click(gameRow);
 
     // THEN: Pack details are collapsed
     expect(screen.queryByTestId("pack-details-game-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pack-row-pack-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pack-row-pack-2")).not.toBeInTheDocument();
   });
 
   it("6.10.1-COMPONENT-EXPAND-004: [P2] should expand via chevron button", async () => {
     // GIVEN: LotteryTable component
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // WHEN: User clicks the expand button
     const expandButton = screen.getByTestId("expand-game-game-1");
     await user.click(expandButton);
 
-    // THEN: Pack details are expanded
+    // THEN: Pack details header and pack rows are expanded
     expect(screen.getByTestId("pack-details-game-1")).toBeInTheDocument();
+    expect(screen.getByTestId("pack-row-pack-1")).toBeInTheDocument();
+    expect(screen.getByTestId("pack-row-pack-2")).toBeInTheDocument();
   });
 
   it("6.10.1-COMPONENT-EXPAND-005: [P2] should hide DEPLETED packs in expanded sub-list", async () => {
@@ -658,28 +658,23 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     });
 
     const user = userEvent.setup();
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // WHEN: User expands Mega Millions row
     const gameRow = screen.getByTestId("lottery-table-row-game-1");
     await user.click(gameRow);
 
     // THEN: DEPLETED pack is NOT shown in sub-list
-    const packDetails = screen.getByTestId("pack-details-game-1");
-    expect(within(packDetails).getByText("P001")).toBeInTheDocument();
-    expect(within(packDetails).getByText("P002")).toBeInTheDocument();
-    expect(within(packDetails).queryByText("P999")).not.toBeInTheDocument();
+    expect(screen.getByText("#P001")).toBeInTheDocument();
+    expect(screen.getByText("#P002")).toBeInTheDocument();
+    expect(screen.queryByText("#P999")).not.toBeInTheDocument();
   });
 
   // ============ BADGE TESTS ============
 
   it("6.10.1-COMPONENT-BADGE-001: [P2] should display total bins count", async () => {
     // GIVEN: LotteryTable component with mocked bins
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Total bins badge shows correct count
     await waitFor(() => {
@@ -690,9 +685,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
 
   it("6.10.1-COMPONENT-BADGE-002: [P2] should display total remaining packs count", async () => {
     // GIVEN: LotteryTable component with 3 packs (2 ACTIVE, 1 RECEIVED)
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Total remaining packs badge shows 3
     expect(
@@ -738,9 +731,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
       refetch: vi.fn(),
     });
 
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Total remaining packs still shows 3 (DEPLETED not counted)
     expect(screen.getByTestId("total-remaining-packs-count")).toHaveTextContent(
@@ -756,7 +747,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     const user = userEvent.setup();
     renderWithQueryClient(
       <LotteryTable
-        storeId="store-1"
+        {...defaultTestProps}
         onReceivePacksClick={onReceivePacksClick}
       />,
     );
@@ -771,7 +762,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
 
   it("6.10.1-COMPONENT-CALLBACK-002: [P2] should display Receive Packs button with correct text", async () => {
     // GIVEN: LotteryTable component
-    renderWithQueryClient(<LotteryTable storeId="store-1" />);
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Button displays correct text
     const receiveButton = screen.getByTestId("receive-packs-button");
@@ -813,9 +804,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     });
 
     // WHEN: Component is rendered
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: XSS attempts are escaped (React escapes by default)
     // Verify game name is displayed as plain text
@@ -837,7 +826,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
   it("6.10.1-COMPONENT-SEC-008: [P0] should prevent XSS in filter input", async () => {
     // GIVEN: LotteryTable component
     const user = userEvent.setup();
-    renderWithQueryClient(<LotteryTable storeId="store-1" />);
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // WHEN: User types XSS attempt in filter
     const filterInput = screen.getByTestId("filter-game-name");
@@ -853,9 +842,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
   it("6.10.1-COMPONENT-A11Y-003: [P2] should have proper ARIA attributes for table", async () => {
     // GIVEN: LotteryTable component
     // WHEN: Component is rendered
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Table has proper ARIA attributes
     const tableRegion = screen.getByTestId("lottery-table");
@@ -875,7 +862,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
 
   it("6.10.1-COMPONENT-A11Y-004: [P2] should have aria-label on Receive Packs button", async () => {
     // GIVEN: LotteryTable component
-    renderWithQueryClient(<LotteryTable storeId="store-1" />);
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Button has aria-label
     const receiveButton = screen.getByTestId("receive-packs-button");
@@ -915,9 +902,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     });
 
     // WHEN: Component is rendered
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Table displays fallback values for missing game data
     expect(
@@ -951,9 +936,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     });
 
     // WHEN: Component is rendered
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Table displays "N/A" for missing price
     expect(
@@ -971,9 +954,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
   it("6.10.1-COMPONENT-019: [P2] should sort games alphabetically by name", async () => {
     // GIVEN: LotteryTable component with games in random order
     // WHEN: Component is rendered
-    renderWithQueryClient(
-      <LotteryTable storeId="store-1" onEdit={vi.fn()} onDelete={vi.fn()} />,
-    );
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Games are sorted alphabetically (Mega Millions before Powerball)
     const rows = screen.getAllByTestId(/lottery-table-row-/);
@@ -998,7 +979,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     });
 
     // WHEN: Component is rendered
-    renderWithQueryClient(<LotteryTable storeId="store-1" />);
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     // THEN: Total bins shows 0 (graceful fallback)
     await waitFor(() => {
@@ -1043,7 +1024,7 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     const user = userEvent.setup();
 
     // Select SOLD filter to see the game
-    renderWithQueryClient(<LotteryTable storeId="store-1" />);
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
 
     const statusSelect = screen.getByTestId("filter-status");
     await user.click(statusSelect);
@@ -1054,10 +1035,399 @@ describe("6.10.1-COMPONENT: LotteryTable (Grouped by Game)", () => {
     const gameRow = screen.getByTestId("lottery-table-row-game-1");
     await user.click(gameRow);
 
-    // THEN: Message about no active/received packs is shown
-    const packDetails = screen.getByTestId("pack-details-game-1");
+    // THEN: Sub-list header is shown and empty message is displayed
+    expect(screen.getByTestId("pack-details-game-1")).toBeInTheDocument();
     expect(
-      within(packDetails).getByText(/no active or received packs/i),
+      screen.getByText(/no active or received packs/i),
     ).toBeInTheDocument();
+  });
+
+  // ============ STORE DROPDOWN TESTS ============
+
+  it("6.10.1-COMPONENT-STORE-001: [P2] should show store dropdown when multiple stores exist", async () => {
+    // GIVEN: LotteryTable with multiple stores
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // THEN: Store dropdown is displayed
+    expect(screen.getByTestId("store-selector")).toBeInTheDocument();
+  });
+
+  it("6.10.1-COMPONENT-STORE-002: [P2] should hide store dropdown when only one store exists", async () => {
+    // GIVEN: LotteryTable with single store
+    const singleStoreProps = {
+      ...defaultTestProps,
+      stores: [{ store_id: "store-1", name: "Only Store" }],
+    };
+
+    renderWithQueryClient(<LotteryTable {...singleStoreProps} />);
+
+    // THEN: Store dropdown is NOT displayed
+    expect(screen.queryByTestId("store-selector")).not.toBeInTheDocument();
+  });
+
+  it("6.10.1-COMPONENT-STORE-003: [P2] should call onStoreChange when store is selected", async () => {
+    // GIVEN: LotteryTable with multiple stores
+    const onStoreChange = vi.fn();
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <LotteryTable {...defaultTestProps} onStoreChange={onStoreChange} />,
+    );
+
+    // WHEN: User selects a different store
+    const storeSelector = screen.getByTestId("store-selector");
+    await user.click(storeSelector);
+    const store2Option = await screen.findByRole("option", {
+      name: "Test Store 2",
+    });
+    await user.click(store2Option);
+
+    // THEN: onStoreChange is called with the new store ID
+    expect(onStoreChange).toHaveBeenCalledWith("store-2");
+  });
+
+  it("6.10.1-COMPONENT-STORE-004: [P2] should validate store selection against allowed stores", async () => {
+    // GIVEN: LotteryTable with specific stores
+    const onStoreChange = vi.fn();
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <LotteryTable {...defaultTestProps} onStoreChange={onStoreChange} />,
+    );
+
+    // WHEN: User selects a valid store
+    const storeSelector = screen.getByTestId("store-selector");
+    await user.click(storeSelector);
+    const store2Option = await screen.findByRole("option", {
+      name: "Test Store 2",
+    });
+    await user.click(store2Option);
+
+    // THEN: Callback is invoked (validation passed)
+    expect(onStoreChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("6.10.1-COMPONENT-STORE-005: [P2] should have accessible label on store dropdown", async () => {
+    // GIVEN: LotteryTable with multiple stores
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // THEN: Store dropdown has aria-label
+    const storeSelector = screen.getByTestId("store-selector");
+    expect(storeSelector).toHaveAttribute("aria-label", "Select store");
+  });
+
+  // ============ RETURNED FILTER TESTS (Story: Lottery Pack Return Feature) ============
+
+  it("6.10.1-COMPONENT-RETURN-001: [P2] should have RETURNED option in status filter", async () => {
+    // GIVEN: LotteryTable component
+    const user = userEvent.setup();
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // WHEN: User opens status filter dropdown
+    const statusSelect = screen.getByTestId("filter-status");
+    await user.click(statusSelect);
+
+    // THEN: RETURNED option is available
+    const returnedOption = await screen.findByRole("option", {
+      name: "Returned",
+    });
+    expect(returnedOption).toBeInTheDocument();
+  });
+
+  it("6.10.1-COMPONENT-RETURN-002: [P2] should filter to show RETURNED packs when Returned selected", async () => {
+    // GIVEN: LotteryTable with RETURNED packs
+    const packsWithReturned = [
+      ...mockPacks,
+      {
+        pack_id: "pack-returned",
+        pack_number: "P100",
+        status: "RETURNED" as const,
+        serial_start: "8001",
+        serial_end: "9000",
+        game_id: "game-3",
+        store_id: "store-1",
+        current_bin_id: null,
+        received_at: "2025-01-10T10:00:00Z",
+        activated_at: null,
+        depleted_at: null,
+        returned_at: "2025-01-15T10:00:00Z",
+        game: {
+          game_id: "game-3",
+          game_code: "003",
+          name: "Returned Game",
+          price: 3.0,
+        },
+        bin: null,
+      },
+    ];
+
+    (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: packsWithReturned,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    const user = userEvent.setup();
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // WHEN: User selects RETURNED status filter
+    const statusSelect = screen.getByTestId("filter-status");
+    await user.click(statusSelect);
+    const returnedOption = await screen.findByRole("option", {
+      name: "Returned",
+    });
+    await user.click(returnedOption);
+
+    // THEN: Only RETURNED games are shown
+    expect(screen.getByText("Returned Game")).toBeInTheDocument();
+    expect(screen.queryByText("Mega Millions")).not.toBeInTheDocument();
+    expect(screen.queryByText("Powerball")).not.toBeInTheDocument();
+  });
+
+  it("6.10.1-COMPONENT-RETURN-003: [P2] should show Returned badge with count in game summary", async () => {
+    // GIVEN: LotteryTable with RETURNED packs
+    const packsWithReturned = [
+      ...mockPacks,
+      {
+        pack_id: "pack-returned",
+        pack_number: "P100",
+        status: "RETURNED" as const,
+        serial_start: "8001",
+        serial_end: "9000",
+        game_id: "game-1", // Same game as mockPacks
+        store_id: "store-1",
+        current_bin_id: null,
+        received_at: "2025-01-10T10:00:00Z",
+        activated_at: null,
+        depleted_at: null,
+        returned_at: "2025-01-15T10:00:00Z",
+        game: {
+          game_id: "game-1",
+          game_code: "001",
+          name: "Mega Millions",
+          price: 5.0,
+        },
+        bin: null,
+      },
+    ];
+
+    (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: packsWithReturned,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    const user = userEvent.setup();
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // WHEN: User selects RETURNED status filter to see the badge
+    const statusSelect = screen.getByTestId("filter-status");
+    await user.click(statusSelect);
+    const returnedOption = await screen.findByRole("option", {
+      name: "Returned",
+    });
+    await user.click(returnedOption);
+
+    // THEN: Returned badge is shown with count
+    expect(screen.getByText("1 Returned")).toBeInTheDocument();
+  });
+
+  it("6.10.1-COMPONENT-RETURN-004: [P2] should show return checkbox in expanded pack row", async () => {
+    // GIVEN: LotteryTable component
+    const user = userEvent.setup();
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // WHEN: User expands a game row
+    const gameRow = screen.getByTestId("lottery-table-row-game-1");
+    await user.click(gameRow);
+
+    // THEN: Return checkboxes are displayed for each pack
+    expect(screen.getByTestId("return-checkbox-pack-1")).toBeInTheDocument();
+    expect(screen.getByTestId("return-checkbox-pack-2")).toBeInTheDocument();
+  });
+
+  it("6.10.1-COMPONENT-RETURN-005: [P2] should disable return checkbox for already RETURNED packs", async () => {
+    // GIVEN: LotteryTable with RETURNED pack
+    const packsWithReturned = [
+      {
+        pack_id: "pack-returned",
+        pack_number: "P100",
+        status: "RETURNED" as const,
+        serial_start: "8001",
+        serial_end: "9000",
+        game_id: "game-3",
+        store_id: "store-1",
+        current_bin_id: null,
+        received_at: "2025-01-10T10:00:00Z",
+        activated_at: null,
+        depleted_at: null,
+        returned_at: "2025-01-15T10:00:00Z",
+        game: {
+          game_id: "game-3",
+          game_code: "003",
+          name: "Returned Game",
+          price: 3.0,
+        },
+        bin: null,
+      },
+    ];
+
+    (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: packsWithReturned,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    const user = userEvent.setup();
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // Select RETURNED filter to see the pack
+    const statusSelect = screen.getByTestId("filter-status");
+    await user.click(statusSelect);
+    const returnedOption = await screen.findByRole("option", {
+      name: "Returned",
+    });
+    await user.click(returnedOption);
+
+    // Expand the game row
+    const gameRow = screen.getByTestId("lottery-table-row-game-3");
+    await user.click(gameRow);
+
+    // THEN: Return checkbox is checked and disabled
+    const checkbox = screen.getByTestId("return-checkbox-pack-returned");
+    expect(checkbox).toBeDisabled();
+    expect(checkbox).toHaveAttribute("aria-label", "Pack already returned");
+  });
+
+  it("6.10.1-COMPONENT-RETURN-006: [P2] should show aligned columns in expanded pack sub-list", async () => {
+    // GIVEN: LotteryTable component
+    const user = userEvent.setup();
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // WHEN: User expands a game row
+    const gameRow = screen.getByTestId("lottery-table-row-game-1");
+    await user.click(gameRow);
+
+    // THEN: Sub-list has aligned column headers (no serial range, just Pack #)
+    const packDetails = screen.getByTestId("pack-details-game-1");
+    expect(within(packDetails).getByText("Pack #")).toBeInTheDocument();
+    expect(within(packDetails).getByText("Received At")).toBeInTheDocument();
+    expect(within(packDetails).getByText("Activated At")).toBeInTheDocument();
+    expect(within(packDetails).getByText("Returned At")).toBeInTheDocument();
+    expect(within(packDetails).getByText("Status")).toBeInTheDocument();
+    expect(within(packDetails).getByText("Returned")).toBeInTheDocument();
+  });
+
+  it("6.10.1-COMPONENT-RETURN-007: [P2] should show Pack # only in aligned sub-list (no serial range)", async () => {
+    // GIVEN: LotteryTable component
+    const user = userEvent.setup();
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // WHEN: User expands a game row
+    const gameRow = screen.getByTestId("lottery-table-row-game-1");
+    await user.click(gameRow);
+
+    // THEN: Pack number is displayed (no serial range per user request)
+    expect(screen.getByText("#P001")).toBeInTheDocument();
+    expect(screen.getByText("#P002")).toBeInTheDocument();
+    // Serial range should NOT be displayed
+    expect(screen.queryByText("1000 - 2000")).not.toBeInTheDocument();
+  });
+
+  it("6.10.1-COMPONENT-RETURN-008: [P2] should not count RETURNED packs in remaining total", async () => {
+    // GIVEN: LotteryTable with RETURNED packs
+    const packsWithReturned = [
+      ...mockPacks,
+      {
+        pack_id: "pack-returned",
+        pack_number: "P100",
+        status: "RETURNED" as const,
+        serial_start: "8001",
+        serial_end: "9000",
+        game_id: "game-3",
+        store_id: "store-1",
+        current_bin_id: null,
+        received_at: "2025-01-10T10:00:00Z",
+        activated_at: null,
+        depleted_at: null,
+        returned_at: "2025-01-15T10:00:00Z",
+        game: {
+          game_id: "game-3",
+          game_code: "003",
+          name: "Returned Game",
+          price: 3.0,
+        },
+        bin: null,
+      },
+    ];
+
+    (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: packsWithReturned,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // THEN: Total remaining packs still shows 3 (RETURNED not counted)
+    expect(screen.getByTestId("total-remaining-packs-count")).toHaveTextContent(
+      "3",
+    );
+  });
+
+  it("6.10.1-COMPONENT-RETURN-009: [P2] should hide RETURNED packs from default view sub-list", async () => {
+    // GIVEN: LotteryTable with mix of ACTIVE and RETURNED packs for same game
+    const packsWithReturned = [
+      ...mockPacks.slice(0, 2), // Keep the 2 ACTIVE Mega Millions packs
+      {
+        pack_id: "pack-returned",
+        pack_number: "P999",
+        status: "RETURNED" as const,
+        serial_start: "9001",
+        serial_end: "9999",
+        game_id: "game-1", // Same game
+        store_id: "store-1",
+        current_bin_id: null,
+        received_at: "2025-01-10T10:00:00Z",
+        activated_at: null,
+        depleted_at: null,
+        returned_at: "2025-01-15T10:00:00Z",
+        game: {
+          game_id: "game-1",
+          game_code: "001",
+          name: "Mega Millions",
+          price: 5.0,
+        },
+        bin: null,
+      },
+    ];
+
+    (useLotteryPacks as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: packsWithReturned,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    const user = userEvent.setup();
+    renderWithQueryClient(<LotteryTable {...defaultTestProps} />);
+
+    // WHEN: User expands Mega Millions row
+    const gameRow = screen.getByTestId("lottery-table-row-game-1");
+    await user.click(gameRow);
+
+    // THEN: RETURNED pack is NOT shown in sub-list (pack rows are direct children, not nested)
+    expect(screen.getByText("#P001")).toBeInTheDocument();
+    expect(screen.getByText("#P002")).toBeInTheDocument();
+    expect(screen.queryByText("#P999")).not.toBeInTheDocument();
   });
 });

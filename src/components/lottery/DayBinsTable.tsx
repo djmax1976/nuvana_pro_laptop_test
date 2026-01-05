@@ -243,7 +243,7 @@ export function DayBinsTable({
       data-testid="day-bins-table"
     >
       <div className="max-h-[70vh] overflow-y-auto">
-        <Table>
+        <Table size="compact">
           <TableHeader className="sticky top-0 bg-background z-10 border-b">
             <TableRow>
               <TableHead scope="col" className="w-16 md:w-20">

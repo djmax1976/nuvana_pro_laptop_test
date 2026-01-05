@@ -1123,6 +1123,7 @@ export interface DayCloseSummary {
  * Uses enterprise close-to-close business day model:
  * - depleted_packs: All packs depleted since last closed day (not just today)
  * - activated_packs: All packs activated since last closed day (not just today)
+ * - returned_packs: All packs returned since last closed day with sales tracking
  * - open_business_period: Metadata about current open period for UI display
  * - day_close_summary: Pre-calculated totals when day is CLOSED
  *
@@ -1139,6 +1140,11 @@ export interface DayBinsResponse {
   depleted_packs: DepletedPackDay[];
   /** All packs activated since last day close (enterprise model) */
   activated_packs: ActivatedPackDay[];
+  /**
+   * All packs returned since last day close with partial sales tracking.
+   * Story: Lottery Pack Return Feature
+   */
+  returned_packs: ReturnedPackDay[];
   /**
    * Pre-calculated lottery close summary. Only present when business_day.status is CLOSED.
    * Contains the actual calculation data (not transformed for next day display).
@@ -1503,6 +1509,146 @@ export async function getCashierActiveShift(
 ): Promise<ApiResponse<CashierActiveShiftResponse>> {
   const response = await apiClient.get<ApiResponse<CashierActiveShiftResponse>>(
     `/api/stores/${storeId}/cashiers/${cashierId}/active-shift`,
+  );
+  return response.data;
+}
+
+// ============ Pack Return API ============
+
+/**
+ * Return reason enum for lottery pack returns
+ * Story: Lottery Pack Return Feature
+ */
+export type LotteryPackReturnReason =
+  | "SUPPLIER_RECALL"
+  | "DAMAGED"
+  | "EXPIRED"
+  | "INVENTORY_ADJUSTMENT"
+  | "STORE_CLOSURE"
+  | "OTHER";
+
+/**
+ * Input for returning a lottery pack
+ * Story: Lottery Pack Return Feature
+ *
+ * MCP Guidance Applied:
+ * - FE-002: FORM_VALIDATION - Interface for validated form data
+ * - SEC-014: INPUT_VALIDATION - Required reason enum and serial format
+ */
+export interface ReturnPackInput {
+  /** Return reason category (required) */
+  return_reason: LotteryPackReturnReason;
+  /** Additional notes about the return (required for OTHER reason) */
+  return_notes?: string;
+  /** 3-digit serial number of the last ticket sold before return (required) */
+  last_sold_serial: string;
+}
+
+/**
+ * Response from returning a lottery pack
+ * Story: Lottery Pack Return Feature
+ */
+export interface ReturnPackResponse {
+  pack_id: string;
+  pack_number: string;
+  status: "RETURNED";
+  returned_at: string;
+  return_reason: LotteryPackReturnReason;
+  return_notes: string | null;
+  game_name: string;
+  bin_name: string | null;
+  last_sold_serial: string;
+  tickets_sold: number;
+  sales_amount: string;
+  starting_serial: string;
+}
+
+/**
+ * Returned pack for the current open business period
+ * Shows all packs returned since the last day close.
+ * Returned packs are tracked for sales calculations with partial ticket data.
+ *
+ * Story: Lottery Pack Return Feature
+ *
+ * MCP Guidance Applied:
+ * - SEC-014: INPUT_VALIDATION - Strict type definitions for API response
+ * - FE-001: STATE_MANAGEMENT - Immutable data structure for safe consumption
+ */
+export interface ReturnedPackDay {
+  pack_id: string;
+  pack_number: string;
+  game_name: string;
+  game_price: number;
+  bin_number: number;
+  /** When the pack was originally activated (ISO datetime) */
+  activated_at: string;
+  /** When the pack was returned (ISO datetime) */
+  returned_at: string;
+  /** Return reason category */
+  return_reason: LotteryPackReturnReason | null;
+  /** Additional notes about the return (required for OTHER reason) */
+  return_notes: string | null;
+  /** Serial number of the last ticket sold before return */
+  last_sold_serial: string | null;
+  /** Number of tickets sold before the pack was returned */
+  tickets_sold_on_return: number | null;
+  /** Sales amount at time of return (tickets_sold * game_price) */
+  return_sales_amount: number | null;
+  /** Name of user who processed the return */
+  returned_by_name: string | null;
+}
+
+/**
+ * Mark a lottery pack as returned to supplier with sales tracking
+ * POST /api/lottery/packs/:packId/return
+ * Story: Lottery Pack Return Feature
+ *
+ * Business Rules:
+ * - Only ACTIVE packs can be returned (must be in a bin)
+ * - RECEIVED packs cannot be returned (delete or adjust inventory)
+ * - DEPLETED and already RETURNED packs cannot be returned
+ * - Last sold serial is required to calculate sales
+ * - Tracks return in current shift and business day
+ *
+ * MCP Guidance Applied:
+ * - API-001: VALIDATION - Server validates all input fields
+ * - DB-006: TENANT_ISOLATION - Server enforces store-level isolation
+ * - SEC-014: INPUT_VALIDATION - UUID validation, serial format, enum validation
+ *
+ * @param packId - Pack UUID to return
+ * @param data - Return data with reason, notes, and last sold serial
+ * @returns Response with returned pack info and calculated sales
+ */
+export async function returnPack(
+  packId: string,
+  data: ReturnPackInput,
+): Promise<ApiResponse<ReturnPackResponse>> {
+  // SEC-014: INPUT_VALIDATION - Validate UUID format client-side
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!packId || !uuidRegex.test(packId)) {
+    throw new Error("Invalid pack ID format");
+  }
+
+  // FE-002: FORM_VALIDATION - Validate last sold serial format
+  const serialRegex = /^[0-9]{3}$/;
+  if (!data.last_sold_serial || !serialRegex.test(data.last_sold_serial)) {
+    throw new Error("Last sold serial must be a 3-digit number (e.g., 025)");
+  }
+
+  // FE-002: FORM_VALIDATION - Validate notes for OTHER reason
+  if (
+    data.return_reason === "OTHER" &&
+    (!data.return_notes || data.return_notes.trim().length < 3)
+  ) {
+    throw new Error(
+      "Return notes are required when reason is OTHER (minimum 3 characters)",
+    );
+  }
+
+  const response = await apiClient.post<ApiResponse<ReturnPackResponse>>(
+    `/api/lottery/packs/${packId}/return`,
+    data,
   );
   return response.data;
 }

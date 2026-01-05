@@ -284,6 +284,7 @@ jobs:
     name: E2E Full Test Suite
     needs: lint_typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     permissions:
       contents: read

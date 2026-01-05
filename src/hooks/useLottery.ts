@@ -26,6 +26,7 @@ import {
   getGames,
   updateGame,
   depletePack,
+  returnPack,
   type ReceivePackInput,
   type UpdatePackInput,
   type UpdateGameInput,
@@ -35,6 +36,7 @@ import {
   type CloseLotteryDayInput,
   type MarkPackAsSoldOutInput,
   type FullActivatePackInput,
+  type ReturnPackInput,
 } from "../lib/api/lottery";
 
 // ============ TanStack Query Keys ============
@@ -574,6 +576,53 @@ export function useDepletePack() {
         queryKey: lotteryKeys.packDetail(packId),
       });
       // Invalidate day bins to refresh the bin display
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.dayBins() });
+    },
+  });
+}
+
+// ============ Pack Return Hooks ============
+
+/**
+ * Input for the return pack mutation
+ * Story: Lottery Pack Return Feature
+ */
+export interface ReturnPackMutationInput {
+  packId: string;
+  data: ReturnPackInput;
+}
+
+/**
+ * Hook to return a lottery pack to supplier
+ * POST /api/lottery/packs/:packId/return
+ * Story: Lottery Pack Return Feature
+ *
+ * Business Rules:
+ * - RECEIVED packs can be returned directly
+ * - ACTIVE packs require manager approval (data.manager_approved_by)
+ * - DEPLETED and already RETURNED packs cannot be returned
+ *
+ * MCP Guidance Applied:
+ * - FE-001: STATE_MANAGEMENT - Proper cache invalidation after mutation
+ * - API-001: VALIDATION - Server validates all input fields
+ * - DB-006: TENANT_ISOLATION - Server enforces store-level isolation
+ *
+ * @returns Mutation hook for pack return
+ */
+export function useReturnPack() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ packId, data }: ReturnPackMutationInput) =>
+      returnPack(packId, data),
+    onSuccess: (_, { packId }) => {
+      // Invalidate packs list to refresh after return
+      queryClient.invalidateQueries({ queryKey: lotteryKeys.packs() });
+      // Invalidate pack detail
+      queryClient.invalidateQueries({
+        queryKey: lotteryKeys.packDetail(packId),
+      });
+      // Invalidate day bins in case pack was active in a bin
       queryClient.invalidateQueries({ queryKey: lotteryKeys.dayBins() });
     },
   });

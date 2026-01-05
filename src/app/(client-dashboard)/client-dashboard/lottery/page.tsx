@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
 import { usePageTitleEffect } from "@/contexts/PageTitleContext";
-import { StoreTabs } from "@/components/lottery/StoreTabs";
 import { LotteryTable } from "@/components/lottery/LotteryTable";
 import {
   PackReceptionForm,
@@ -12,61 +11,65 @@ import {
 } from "@/components/lottery/PackReceptionForm";
 import { EditLotteryDialog } from "@/components/lottery/EditLotteryDialog";
 import { DeleteLotteryDialog } from "@/components/lottery/DeleteLotteryDialog";
-import { AddBinModal } from "@/components/lottery/AddBinModal";
-import { BinListDisplay, BinItem } from "@/components/lottery/BinListDisplay";
-import { Loader2, Plus } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2 } from "lucide-react";
 import { useInvalidateLottery } from "@/hooks/useLottery";
-import { Button } from "@/components/ui/button";
-import { useQueryClient } from "@tanstack/react-query";
 
 /**
  * Client Dashboard Lottery Page
- * Displays active lottery packs across all stores with store tabs for navigation
+ * Displays lottery inventory for stores with integrated store selection
+ *
+ * @description
+ * Streamlined lottery management page with store dropdown integrated into
+ * the filters row. Configuration tab removed as bin count management is
+ * now accessible via the "Total Bins" badge in the LotteryTable component.
  *
  * @requirements
- * - AC #1: Store tabs for all accessible stores, sidebar link exists and functional
- * - AC #2: Table listing active lottery packs with columns: Bin Number, Dollar Amount, Game Number, Game Name, Pack Number, Status, Actions
- * - AC #3: Only ACTIVE status packs shown, bins displayed in order
- * - AC #4: "+ Add New Lottery" button opens form/modal
- * - AC #7: Proper authentication (JWT tokens), RLS enforcement, error messages, loading states
- * - AC #8: Empty state when no active packs exist
+ * - Store dropdown in filters row (only shown for multi-store companies)
+ * - Table listing lottery packs grouped by game with expandable rows
+ * - Bin count configuration via clickable "Total Bins" badge
+ * - Pack reception, editing, and deletion via modals
+ *
+ * @security
+ * - FE-001: STATE_MANAGEMENT - Lifted state for pack reception persistence
+ * - FE-005: UI_SECURITY - No sensitive data exposed in UI
+ * - SEC-004: XSS - React auto-escapes all text content
  */
 export default function ClientDashboardLotteryPage() {
-  const { user } = useClientAuth();
+  // Authentication context hook - ensures user is authenticated
+  useClientAuth();
+
+  // Dashboard data including stores list
   const {
     data: dashboardData,
     isLoading: dashboardLoading,
     isError: dashboardError,
   } = useClientDashboard();
+
+  // Query invalidation for refreshing lottery data
   const { invalidatePacks } = useInvalidateLottery();
-  const queryClient = useQueryClient();
+
+  // Selected store state - FE-001: STATE_MANAGEMENT
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
+
+  // Modal states for pack operations
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [isAddBinDialogOpen, setIsAddBinDialogOpen] = useState(false);
+  const [editingPackId, setEditingPackId] = useState<string | null>(null);
+  const [deletingPackId, setDeletingPackId] = useState<string | null>(null);
 
   // Set page title in header (FE-001: STATE_MANAGEMENT)
   usePageTitleEffect("Lottery Management");
 
-  // MCP FE-001: STATE_MANAGEMENT - Lifted state for pack reception
-  // Pack list is owned by parent to persist across modal close/reopen
-  // Prevents data loss if user accidentally closes modal during batch scanning
+  /**
+   * FE-001: STATE_MANAGEMENT - Lifted state for pack reception
+   * Pack list is owned by parent to persist across modal close/reopen
+   * Prevents data loss if user accidentally closes modal during batch scanning
+   */
   const [receptionPackList, setReceptionPackList] = useState<PackItem[]>([]);
-  const [editingPackId, setEditingPackId] = useState<string | null>(null);
-  const [deletingPackId, setDeletingPackId] = useState<string | null>(null);
-  const [occupiedBinNumbers, setOccupiedBinNumbers] = useState<number[]>([]);
 
-  // Memoized callback to handle bin data loaded - prevents infinite re-render loop
-  const handleBinsDataLoaded = useCallback((bins: BinItem[]) => {
-    // Extract bin numbers that have an active pack assigned
-    const occupied = bins
-      .filter((bin) => bin.current_pack != null)
-      .map((bin) => bin.display_order + 1); // display_order is 0-indexed, bin numbers are 1-indexed
-    setOccupiedBinNumbers(occupied);
-  }, []);
-
-  // MCP FE-001: STATE_MANAGEMENT - Lifted state callbacks for PackReceptionForm
-  // These handlers manage pack list state at parent level for persistence
+  /**
+   * FE-001: STATE_MANAGEMENT - Lifted state callbacks for PackReceptionForm
+   * These handlers manage pack list state at parent level for persistence
+   */
   const handlePackAdd = useCallback((pack: PackItem) => {
     // Prepend new pack to list (newest first for immediate visual feedback)
     setReceptionPackList((prev) => [pack, ...prev]);
@@ -80,40 +83,70 @@ export default function ClientDashboardLotteryPage() {
     setReceptionPackList([]);
   }, []);
 
-  // Set first store as selected when stores are loaded
+  /**
+   * Memoized stores array to prevent unnecessary re-renders
+   * SEC-014: INPUT_VALIDATION - Stores are validated by backend RLS
+   */
   const stores = useMemo(
     () => dashboardData?.stores || [],
     [dashboardData?.stores],
   );
+
+  /**
+   * Auto-select first store when stores are loaded
+   * Ensures a valid store is always selected when available
+   */
   useEffect(() => {
     if (stores.length > 0 && selectedStoreId === null) {
       setSelectedStoreId(stores[0].store_id);
     }
   }, [stores, selectedStoreId]);
 
-  // Loading state
+  /**
+   * Handle store change from LotteryTable dropdown
+   * SEC-014: INPUT_VALIDATION - Validates store exists in allowed list
+   */
+  const handleStoreChange = useCallback(
+    (storeId: string) => {
+      // Validate that the selected store is in the allowed stores list
+      const isValidStore = stores.some((store) => store.store_id === storeId);
+      if (isValidStore) {
+        setSelectedStoreId(storeId);
+      }
+    },
+    [stores],
+  );
+
+  // Loading state with accessible loading indicator
   if (dashboardLoading) {
     return (
       <div className="space-y-6" data-testid="client-dashboard-lottery-page">
-        <div className="flex items-center justify-center p-8">
+        <div
+          className="flex items-center justify-center p-8"
+          role="status"
+          aria-label="Loading lottery data"
+        >
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <span className="sr-only">Loading lottery data...</span>
         </div>
       </div>
     );
   }
 
-  // Error state
+  // Error state with user-friendly message
   if (dashboardError) {
     return (
       <div className="space-y-6" data-testid="client-dashboard-lottery-page">
-        <p className="text-destructive">
-          Failed to load stores. Please try again.
-        </p>
+        <div role="alert" aria-live="assertive">
+          <p className="text-destructive">
+            Failed to load stores. Please try again.
+          </p>
+        </div>
       </div>
     );
   }
 
-  // No stores available
+  // No stores available state
   if (stores.length === 0) {
     return (
       <div className="space-y-6" data-testid="client-dashboard-lottery-page">
@@ -122,75 +155,27 @@ export default function ClientDashboardLotteryPage() {
     );
   }
 
-  // Get selected store name for display
-  const selectedStore = stores.find((s) => s.store_id === selectedStoreId);
-
   return (
     <div className="space-y-6" data-testid="client-dashboard-lottery-page">
-      {/* Store Tabs */}
-      <StoreTabs
-        stores={stores}
-        selectedStoreId={selectedStoreId}
-        onStoreSelect={setSelectedStoreId}
-      />
-
-      {/* Main Content Tabs */}
-      <Tabs defaultValue="inventory" className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
-          <TabsTrigger value="inventory">Inventory</TabsTrigger>
-          <TabsTrigger value="configuration">Configuration</TabsTrigger>
-        </TabsList>
-
-        {/* Inventory Tab */}
-        <TabsContent value="inventory" className="space-y-4">
-          {/* Lottery Table (includes filters, total books badge, and receive packs button) */}
-          {selectedStoreId && (
-            <LotteryTable
-              storeId={selectedStoreId}
-              onReceivePacksClick={() => setIsAddDialogOpen(true)}
-              onEdit={(packId) => {
-                setEditingPackId(packId);
-              }}
-              onDelete={(packId) => {
-                setDeletingPackId(packId);
-              }}
-            />
-          )}
-        </TabsContent>
-
-        {/* Configuration Tab - Bin Management */}
-        <TabsContent value="configuration" className="space-y-4">
-          {selectedStoreId && selectedStore && (
-            <>
-              {/* Add Bin Button */}
-              <div className="flex justify-between items-center">
-                <div>
-                  <h2 className="text-lg font-semibold">Bin Configuration</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Manage lottery bins for {selectedStore.name}
-                  </p>
-                </div>
-                <Button
-                  onClick={() => setIsAddBinDialogOpen(true)}
-                  data-testid="add-bin-button"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Bin
-                </Button>
-              </div>
-
-              {/* Bin List Display */}
-              <BinListDisplay
-                storeId={selectedStoreId}
-                onDataLoaded={handleBinsDataLoaded}
-              />
-            </>
-          )}
-        </TabsContent>
-      </Tabs>
+      {/* Lottery Table with integrated store dropdown */}
+      {/* Store dropdown only shown for multi-store companies (handled in LotteryTable) */}
+      {selectedStoreId && (
+        <LotteryTable
+          storeId={selectedStoreId}
+          stores={stores}
+          onStoreChange={handleStoreChange}
+          onReceivePacksClick={() => setIsAddDialogOpen(true)}
+          onEdit={(packId) => {
+            setEditingPackId(packId);
+          }}
+          onDelete={(packId) => {
+            setDeletingPackId(packId);
+          }}
+        />
+      )}
 
       {/* Pack Reception Form (Serialized Input) */}
-      {/* MCP FE-001: STATE_MANAGEMENT - Parent owns pack list state for persistence */}
+      {/* FE-001: STATE_MANAGEMENT - Parent owns pack list state for persistence */}
       {/* Pack list survives modal close/reopen to prevent accidental data loss */}
       {selectedStoreId && (
         <PackReceptionForm
@@ -238,25 +223,6 @@ export default function ClientDashboardLotteryPage() {
           // Table will refresh automatically via query invalidation
         }}
       />
-
-      {/* Add Bin Modal */}
-      {selectedStoreId && (
-        <AddBinModal
-          open={isAddBinDialogOpen}
-          onOpenChange={setIsAddBinDialogOpen}
-          storeId={selectedStoreId}
-          occupiedBinNumbers={occupiedBinNumbers}
-          onBinCreated={() => {
-            setIsAddBinDialogOpen(false);
-            // Invalidate bins query to refresh the list
-            queryClient.invalidateQueries({
-              queryKey: ["lottery-bins", selectedStoreId],
-            });
-            // Also invalidate packs as pack status may have changed
-            invalidatePacks();
-          }}
-        />
-      )}
     </div>
   );
 }
