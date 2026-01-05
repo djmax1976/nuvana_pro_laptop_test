@@ -1,19 +1,21 @@
 "use client";
 
 /**
- * Depleted Packs Section Component (Sold Out Packs)
+ * Returned Packs Section Component
  *
- * Story: MyStore Lottery Page Redesign
+ * Story: Lottery Pack Return Feature
  * Enhancement: Enterprise Close-to-Close Business Day Model
  *
- * Displays depleted packs for the current OPEN business period (close-to-close model).
- * Shows bin number, game name, price, pack number, activated datetime, and sold out datetime.
+ * Displays returned packs for the current OPEN business period (close-to-close model).
+ * Shows bin number, game name, price, pack number, return reason, tickets sold,
+ * sales amount, and return datetime.
  *
  * Enterprise Pattern:
  * - Business day = period from last day close to next day close (not midnight-to-midnight)
- * - Shows ALL packs depleted since last closed day, preventing orphaned data
+ * - Shows ALL packs returned since last closed day, preventing orphaned data
  * - Displays warning when multiple calendar days have passed without day close
  * - Always shows full date+time with year since packs can span multiple days
+ * - Includes return reason categorization for audit trail
  *
  * Responsive Design:
  * - All screen sizes use horizontal scroll table (no card view)
@@ -29,12 +31,7 @@
  */
 
 import { useState, useCallback } from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  Package,
-  AlertTriangle,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, Undo2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -50,7 +47,8 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import type { DepletedPackDay, OpenBusinessPeriod } from "@/lib/api/lottery";
+import { Badge } from "@/components/ui/badge";
+import type { ReturnedPackDay, OpenBusinessPeriod } from "@/lib/api/lottery";
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -58,15 +56,15 @@ import type { DepletedPackDay, OpenBusinessPeriod } from "@/lib/api/lottery";
 // ============================================================================
 
 /**
- * Props for DepletedPacksSection component
+ * Props for ReturnedPacksSection component
  *
  * MCP Guidance Applied:
  * - SEC-014: INPUT_VALIDATION - Strict type definitions for component props
  * - FE-001: STATE_MANAGEMENT - Immutable data structure for safe consumption
  */
-export interface DepletedPacksSectionProps {
-  /** Depleted packs since last day close (enterprise close-to-close model) */
-  depletedPacks: DepletedPackDay[];
+export interface ReturnedPacksSectionProps {
+  /** Returned packs since last day close (enterprise close-to-close model) */
+  returnedPacks: ReturnedPackDay[];
   /** Open business period metadata for context display */
   openBusinessPeriod?: OpenBusinessPeriod;
   /** Default open state */
@@ -88,7 +86,7 @@ interface ParsedDateTime {
 
 // ============================================================================
 // CONSTANTS
-// MCP: SEC-014 INPUT_VALIDATION - Constrained lookup table for safe suffix generation
+// MCP: SEC-014 INPUT_VALIDATION - Constrained lookup tables for safe display
 // ============================================================================
 
 /**
@@ -102,6 +100,34 @@ const ORDINAL_SUFFIXES: Readonly<Record<number, string>> = {
   22: "nd",
   23: "rd",
   31: "st",
+} as const;
+
+/**
+ * Return reason display labels
+ * MCP: SEC-014 INPUT_VALIDATION - Constrained lookup for safe string display
+ */
+const RETURN_REASON_LABELS: Readonly<Record<string, string>> = {
+  SUPPLIER_RECALL: "Supplier Recall",
+  DAMAGED: "Damaged",
+  EXPIRED: "Expired",
+  INVENTORY_ADJUSTMENT: "Inventory Adjustment",
+  STORE_CLOSURE: "Store Closure",
+  OTHER: "Other",
+} as const;
+
+/**
+ * Return reason badge variants for visual differentiation
+ * MCP: SEC-004 XSS - Only uses safe badge variant values
+ */
+const RETURN_REASON_VARIANTS: Readonly<
+  Record<string, "default" | "secondary" | "destructive" | "outline">
+> = {
+  SUPPLIER_RECALL: "destructive",
+  DAMAGED: "destructive",
+  EXPIRED: "secondary",
+  INVENTORY_ADJUSTMENT: "outline",
+  STORE_CLOSURE: "secondary",
+  OTHER: "outline",
 } as const;
 
 // ============================================================================
@@ -144,7 +170,7 @@ function getOrdinalSuffix(day: number): string {
  * @param isoString - ISO 8601 datetime string from API
  * @returns Parsed datetime with date and time strings
  */
-function parseDateTime(isoString: string): ParsedDateTime {
+function parseDateTime(isoString: string | null | undefined): ParsedDateTime {
   // Input validation - check for null/undefined/empty
   if (!isoString || typeof isoString !== "string") {
     return { date: "--", time: "--", isValid: false };
@@ -200,27 +226,59 @@ function parseDateTime(isoString: string): ParsedDateTime {
   }
 }
 
+/**
+ * Get human-readable label for return reason
+ * MCP: SEC-014 INPUT_VALIDATION - Safe lookup with fallback
+ *
+ * @param reason - Return reason code from API
+ * @returns Human-readable label
+ */
+function getReturnReasonLabel(reason: string | null | undefined): string {
+  if (!reason || typeof reason !== "string") {
+    return "Unknown";
+  }
+  // eslint-disable-next-line security/detect-object-injection -- Safe: reason is validated string, lookup returns undefined for invalid keys
+  return RETURN_REASON_LABELS[reason] || reason;
+}
+
+/**
+ * Get badge variant for return reason
+ * MCP: SEC-014 INPUT_VALIDATION - Safe lookup with fallback
+ *
+ * @param reason - Return reason code from API
+ * @returns Badge variant string
+ */
+function getReturnReasonVariant(
+  reason: string | null | undefined,
+): "default" | "secondary" | "destructive" | "outline" {
+  if (!reason || typeof reason !== "string") {
+    return "outline";
+  }
+  // eslint-disable-next-line security/detect-object-injection -- Safe: reason is validated string, lookup returns undefined for invalid keys
+  return RETURN_REASON_VARIANTS[reason] || "outline";
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
 /**
- * DepletedPacksSection component
- * Collapsible section showing packs that were depleted during the current open business period.
+ * ReturnedPacksSection component
+ * Collapsible section showing packs that were returned during the current open business period.
  * Uses enterprise close-to-close model - shows all packs since last day close.
  *
  * @example
- * <DepletedPacksSection
- *   depletedPacks={dayBinsData.depleted_packs}
+ * <ReturnedPacksSection
+ *   returnedPacks={dayBinsData.returned_packs}
  *   openBusinessPeriod={dayBinsData.open_business_period}
  *   defaultOpen={false}
  * />
  */
-export function DepletedPacksSection({
-  depletedPacks,
+export function ReturnedPacksSection({
+  returnedPacks,
   openBusinessPeriod,
   defaultOpen = false,
-}: DepletedPacksSectionProps) {
+}: ReturnedPacksSectionProps) {
   // ========================================================================
   // STATE MANAGEMENT
   // MCP: FE-001 STATE_MANAGEMENT - Local state for collapse toggle
@@ -237,9 +295,9 @@ export function DepletedPacksSection({
   // MCP: SEC-014 INPUT_VALIDATION - Defensive null/undefined check
   // ========================================================================
   if (
-    !depletedPacks ||
-    !Array.isArray(depletedPacks) ||
-    depletedPacks.length === 0
+    !returnedPacks ||
+    !Array.isArray(returnedPacks) ||
+    returnedPacks.length === 0
   ) {
     return null;
   }
@@ -247,6 +305,14 @@ export function DepletedPacksSection({
   // ========================================================================
   // COMPUTED VALUES
   // ========================================================================
+
+  // Calculate total sales from returned packs
+  const totalReturnSales = returnedPacks.reduce((sum, pack) => {
+    if (typeof pack.return_sales_amount === "number") {
+      return sum + pack.return_sales_amount;
+    }
+    return sum;
+  }, 0);
 
   // Determine if multiple days have passed (for warning display)
   const daysSinceClose = openBusinessPeriod?.days_since_last_close;
@@ -259,10 +325,10 @@ export function DepletedPacksSection({
   // Build the section title based on context
   // MCP: SEC-004 XSS - Only using safe numeric values in string interpolation
   const sectionTitle = openBusinessPeriod?.is_first_period
-    ? `Sold Out Packs (${depletedPacks.length})`
+    ? `Returned Packs (${returnedPacks.length})`
     : isMultipleDays
-      ? `Sold Out Packs - Current Period (${depletedPacks.length})`
-      : `Sold Out Packs Today (${depletedPacks.length})`;
+      ? `Returned Packs - Current Period (${returnedPacks.length})`
+      : `Returned Packs Today (${returnedPacks.length})`;
 
   // ========================================================================
   // RENDER
@@ -275,7 +341,7 @@ export function DepletedPacksSection({
         <Alert
           variant="default"
           className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950"
-          data-testid="multi-day-warning"
+          data-testid="multi-day-return-warning"
         >
           <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
           <AlertDescription className="text-amber-800 dark:text-amber-200">
@@ -287,7 +353,7 @@ export function DepletedPacksSection({
                   (last closed: {openBusinessPeriod.last_closed_date})
                 </span>
               )}
-            . Sold out packs from all days in this period are shown below.
+            . Returned packs from all days in this period are shown below.
           </AlertDescription>
         </Alert>
       )}
@@ -296,22 +362,28 @@ export function DepletedPacksSection({
         open={isOpen}
         onOpenChange={handleOpenChange}
         className="rounded-lg border"
-        data-testid="depleted-packs-section"
+        data-testid="returned-packs-section"
       >
         <CollapsibleTrigger asChild>
           <Button
             variant="ghost"
             className="w-full flex items-center justify-between p-4 hover:bg-muted/50"
-            data-testid="depleted-packs-trigger"
+            data-testid="returned-packs-trigger"
             aria-expanded={isOpen}
-            aria-controls="depleted-packs-content"
+            aria-controls="returned-packs-content"
           >
             <div className="flex items-center gap-2">
-              <Package
+              <Undo2
                 className="h-4 w-4 flex-shrink-0 text-muted-foreground"
                 aria-hidden="true"
               />
               <span className="font-medium text-left">{sectionTitle}</span>
+              {/* Show total return sales in header */}
+              {totalReturnSales > 0 && (
+                <span className="text-sm text-muted-foreground ml-2">
+                  (${totalReturnSales.toFixed(2)} sales)
+                </span>
+              )}
             </div>
             {isOpen ? (
               <ChevronDown
@@ -328,11 +400,11 @@ export function DepletedPacksSection({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div
-            id="depleted-packs-content"
+            id="returned-packs-content"
             className="border-t overflow-x-auto"
-            data-testid="depleted-packs-content"
+            data-testid="returned-packs-content"
             role="region"
-            aria-label="Sold out packs table"
+            aria-label="Returned packs table"
           >
             {/* Single Table View - Horizontal scroll on all screen sizes */}
             <Table size="compact">
@@ -356,29 +428,40 @@ export function DepletedPacksSection({
                   <TableHead scope="col" className="w-28 whitespace-nowrap">
                     Pack #
                   </TableHead>
-                  <TableHead scope="col" className="w-36 whitespace-nowrap">
-                    Activated
+                  <TableHead scope="col" className="w-32 whitespace-nowrap">
+                    Reason
+                  </TableHead>
+                  <TableHead
+                    scope="col"
+                    className="w-20 text-right whitespace-nowrap"
+                  >
+                    Sold
+                  </TableHead>
+                  <TableHead
+                    scope="col"
+                    className="w-24 text-right whitespace-nowrap"
+                  >
+                    Sales $
                   </TableHead>
                   <TableHead scope="col" className="w-36 whitespace-nowrap">
-                    Sold Out
+                    Returned
                   </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {depletedPacks.map((pack) => {
+                {returnedPacks.map((pack) => {
                   // MCP: SEC-014 INPUT_VALIDATION - Validate pack object structure
                   if (!pack || typeof pack.pack_id !== "string") {
                     return null;
                   }
 
                   // Parse datetime for stacked display
-                  const activatedDateTime = parseDateTime(pack.activated_at);
-                  const depletedDateTime = parseDateTime(pack.depleted_at);
+                  const returnedDateTime = parseDateTime(pack.returned_at);
 
                   return (
                     <TableRow
                       key={pack.pack_id}
-                      data-testid={`depleted-pack-row-${pack.pack_id}`}
+                      data-testid={`returned-pack-row-${pack.pack_id}`}
                     >
                       {/* Bin Number */}
                       <TableCell className="font-mono text-primary font-semibold text-center">
@@ -408,26 +491,39 @@ export function DepletedPacksSection({
                           : "--"}
                       </TableCell>
 
-                      {/* Activated - Stacked Date/Time */}
-                      <TableCell className="text-sm whitespace-nowrap">
-                        <div className="flex flex-col">
-                          <span className="text-foreground font-medium">
-                            {activatedDateTime.date}
-                          </span>
-                          <span className="text-muted-foreground text-xs">
-                            {activatedDateTime.time}
-                          </span>
-                        </div>
+                      {/* Return Reason with Badge */}
+                      <TableCell>
+                        <Badge
+                          variant={getReturnReasonVariant(pack.return_reason)}
+                          className="text-xs"
+                          title={pack.return_notes || undefined}
+                        >
+                          {getReturnReasonLabel(pack.return_reason)}
+                        </Badge>
                       </TableCell>
 
-                      {/* Sold Out - Stacked Date/Time */}
+                      {/* Tickets Sold */}
+                      <TableCell className="text-right tabular-nums">
+                        {typeof pack.tickets_sold_on_return === "number"
+                          ? pack.tickets_sold_on_return
+                          : "--"}
+                      </TableCell>
+
+                      {/* Sales Amount */}
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {typeof pack.return_sales_amount === "number"
+                          ? `$${pack.return_sales_amount.toFixed(2)}`
+                          : "--"}
+                      </TableCell>
+
+                      {/* Returned - Stacked Date/Time */}
                       <TableCell className="text-sm whitespace-nowrap">
                         <div className="flex flex-col">
                           <span className="text-foreground font-medium">
-                            {depletedDateTime.date}
+                            {returnedDateTime.date}
                           </span>
                           <span className="text-muted-foreground text-xs">
-                            {depletedDateTime.time}
+                            {returnedDateTime.time}
                           </span>
                         </div>
                       </TableCell>

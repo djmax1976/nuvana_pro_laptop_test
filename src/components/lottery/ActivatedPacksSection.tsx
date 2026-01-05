@@ -408,7 +408,7 @@ export function ActivatedPacksSection({
           aria-label="Activated packs table"
         >
           {/* Single Table View - Horizontal scroll on all screen sizes */}
-          <Table>
+          <Table size="compact">
             <TableHeader>
               <TableRow>
                 <TableHead

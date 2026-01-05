@@ -73,6 +73,7 @@ import { ReportScanningStep } from "@/components/day-close/ReportScanningStep";
 import type { ReportScanningState } from "@/components/day-close/ReportScanningStep";
 
 // Import lottery pack sections for Step 3
+import { ReturnedPacksSection } from "@/components/lottery/ReturnedPacksSection";
 import { DepletedPacksSection } from "@/components/lottery/DepletedPacksSection";
 import { ActivatedPacksSection } from "@/components/lottery/ActivatedPacksSection";
 
@@ -825,6 +826,7 @@ export default function DayCloseWizardPage() {
               scannedBins={scannedBins}
               onScannedBinsChange={handleScannedBinsChange}
               blockingShifts={blockingShifts}
+              returnedPacks={dayBinsData?.returned_packs}
               depletedPacks={dayBinsData?.depleted_packs}
               activatedPacks={dayBinsData?.activated_packs}
               openBusinessPeriod={dayBinsData?.open_business_period}
@@ -935,7 +937,7 @@ export default function DayCloseWizardPage() {
             {lotteryData && <LotterySalesDetails data={lotteryData} />}
 
             {/* ============================================================================
-             * DEPLETED & ACTIVATED PACKS SECTIONS
+             * RETURNED, DEPLETED & ACTIVATED PACKS SECTIONS
              * Enterprise close-to-close business day model for Step 3
              *
              * MCP Guidance Applied:
@@ -943,11 +945,23 @@ export default function DayCloseWizardPage() {
              * - SEC-014: INPUT_VALIDATION - Components handle null/empty gracefully
              * - SEC-004: XSS - React auto-escapes all output in child components
              * ============================================================================ */}
-            {((dayBinsData?.depleted_packs &&
-              dayBinsData.depleted_packs.length > 0) ||
+            {((dayBinsData?.returned_packs &&
+              dayBinsData.returned_packs.length > 0) ||
+              (dayBinsData?.depleted_packs &&
+                dayBinsData.depleted_packs.length > 0) ||
               (dayBinsData?.activated_packs &&
                 dayBinsData.activated_packs.length > 0)) && (
               <div className="space-y-4" data-testid="step3-packs-sections">
+                {/* Returned Packs Section - Before Depleted Packs */}
+                {dayBinsData?.returned_packs &&
+                  dayBinsData.returned_packs.length > 0 && (
+                    <ReturnedPacksSection
+                      returnedPacks={dayBinsData.returned_packs}
+                      openBusinessPeriod={dayBinsData.open_business_period}
+                      defaultOpen={false}
+                    />
+                  )}
+
                 {/* Depleted Packs Section */}
                 {dayBinsData?.depleted_packs &&
                   dayBinsData.depleted_packs.length > 0 && (

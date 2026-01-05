@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { Loader2, Settings, ChevronRight, ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -14,6 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -24,6 +25,7 @@ import {
 import { useLotteryPacks } from "@/hooks/useLottery";
 import { GameManagementModal } from "./GameManagementModal";
 import { BinCountModal } from "./BinCountModal";
+import { ReturnPackDialog } from "./ReturnPackDialog";
 import type { LotteryPackResponse } from "@/lib/api/lottery";
 
 const API_BASE_URL =
@@ -31,6 +33,7 @@ const API_BASE_URL =
 
 /**
  * Fetch bins for a store
+ * SEC-006: SQL_INJECTION - API uses parameterized queries
  */
 async function fetchBins(storeId: string): Promise<{ bin_id: string }[]> {
   const response = await fetch(`${API_BASE_URL}/api/lottery/bins/${storeId}`, {
@@ -49,19 +52,47 @@ async function fetchBins(storeId: string): Promise<{ bin_id: string }[]> {
   return data.data || [];
 }
 
+/**
+ * Store item for dropdown selection
+ * @interface StoreItem
+ */
+interface StoreItem {
+  /** Unique store identifier (UUID) */
+  readonly store_id: string;
+  /** Display name of the store */
+  readonly name: string;
+}
+
+/**
+ * Props interface for LotteryTable component
+ * @interface LotteryTableProps
+ *
+ * @remarks
+ * FE-001: STATE_MANAGEMENT - Store selection state managed by parent
+ * FE-002: FORM_VALIDATION - Store dropdown validates selection exists in stores array
+ */
 interface LotteryTableProps {
-  storeId: string;
-  // Callback to report total pack count to parent
-  onTotalCountChange?: (count: number) => void;
-  // Callback when Receive Packs button is clicked
-  onReceivePacksClick?: () => void;
-  // Legacy props - kept for backward compatibility but not used in grouped view
-  onEdit?: (packId: string) => void;
-  onDelete?: (packId: string) => void;
+  /** Currently selected store ID */
+  readonly storeId: string;
+  /** List of available stores for dropdown selection */
+  readonly stores: readonly StoreItem[];
+  /** Callback when store selection changes */
+  readonly onStoreChange: (storeId: string) => void;
+  /** Callback to report total pack count to parent */
+  readonly onTotalCountChange?: (count: number) => void;
+  /** Callback when Receive Packs button is clicked */
+  readonly onReceivePacksClick?: () => void;
+  /** Legacy props - kept for backward compatibility but not used in grouped view */
+  readonly onEdit?: (packId: string) => void;
+  readonly onDelete?: (packId: string) => void;
 }
 
 /**
  * Game summary row for inventory display
+ * Story: Lottery Pack Return Feature - Added returnedPacks count
+ *
+ * MCP Guidance Applied:
+ * - SEC-014: INPUT_VALIDATION - Strict type definitions
  */
 interface GameSummary {
   game_id: string;
@@ -73,30 +104,55 @@ interface GameSummary {
   totalPacks: number;
   activePacks: number;
   receivedPacks: number;
-  packs: LotteryPackResponse[]; // Include packs for expandable sub-list
+  returnedPacks: number;
+  packs: LotteryPackResponse[];
 }
 
-type StatusFilter = "all" | "RECEIVED" | "ACTIVE" | "SOLD";
+/**
+ * Status filter type - includes RETURNED option
+ * Story: Lottery Pack Return Feature
+ *
+ * SEC-014: INPUT_VALIDATION - Enum constraint for status filter
+ */
+type StatusFilter = "all" | "RECEIVED" | "ACTIVE" | "SOLD" | "RETURNED";
 
 /**
  * LotteryTable component
  * Displays lottery inventory grouped by game with expandable rows
  *
+ * Story: Lottery Pack Return Feature
+ *
  * Features:
- * - Filters: Game name search, Status dropdown, Date range
- * - Expandable rows showing pack details
+ * - Filters: Game name search, Status dropdown (with Returned option), Date range
+ * - Expandable rows showing pack details with aligned columns
+ * - Return checkbox for marking packs as returned
  * - Total books count reported to parent
+ *
+ * MCP Guidance Applied:
+ * - FE-001: STATE_MANAGEMENT - Controlled component state
+ * - FE-002: FORM_VALIDATION - Input validation before submission
+ * - SEC-004: XSS - React auto-escapes all text content
+ * - SEC-014: INPUT_VALIDATION - Status filter enum constraint
+ * - DB-006: TENANT_ISOLATION - Store-scoped data display
  *
  * @requirements
  * - AC #2: Table listing all lottery inventory for selected store
  * - AC #3: Shows aggregated pack counts by game
  * - AC #8: Empty state when no packs exist
+ * - Story: Filter dropdown includes Returned option
+ * - Story: Accordion columns align with parent table columns
+ * - Story: Return checkbox marks pack as returned
  */
 export function LotteryTable({
   storeId,
+  stores,
+  onStoreChange,
   onTotalCountChange,
   onReceivePacksClick,
 }: LotteryTableProps) {
+  // Derive whether to show store dropdown - only for multi-store companies
+  // FE-005: UI_SECURITY - No sensitive data exposed in dropdown
+  const showStoreDropdown = stores.length > 1;
   const {
     data: packs,
     isLoading,
@@ -115,12 +171,17 @@ export function LotteryTable({
 
   const totalBinsCount = bins?.length ?? 0;
 
+  // FE-001: STATE_MANAGEMENT - Component state
   const [selectedGame, setSelectedGame] = useState<GameSummary | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isBinCountModalOpen, setIsBinCountModalOpen] = useState(false);
   const [expandedGameIds, setExpandedGameIds] = useState<Set<string>>(
     new Set(),
   );
+
+  // Return dialog state - Story: Lottery Pack Return Feature
+  const [returningPack, setReturningPack] =
+    useState<LotteryPackResponse | null>(null);
 
   // Filter state
   const [gameNameFilter, setGameNameFilter] = useState("");
@@ -142,18 +203,24 @@ export function LotteryTable({
     onTotalCountChange?.(totalBooksCount);
   }, [totalBooksCount, onTotalCountChange]);
 
-  // Filter packs based on status and date range
+  /**
+   * Filter packs based on status and date range
+   * Story: Lottery Pack Return Feature - Added RETURNED status handling
+   *
+   * MCP Guidance Applied:
+   * - SEC-014: INPUT_VALIDATION - Status enum constraint
+   */
   const filteredPacks = useMemo(() => {
     if (!packs) return [];
 
     return packs.filter((pack) => {
-      // Status filter
+      // Status filter - Story: Added RETURNED handling
       if (statusFilter !== "all") {
         const targetStatus =
           statusFilter === "SOLD" ? "DEPLETED" : statusFilter;
         if (pack.status !== targetStatus) return false;
       } else {
-        // By default, only show ACTIVE and RECEIVED
+        // By default, only show ACTIVE and RECEIVED (not DEPLETED or RETURNED)
         if (pack.status !== "ACTIVE" && pack.status !== "RECEIVED")
           return false;
       }
@@ -175,7 +242,10 @@ export function LotteryTable({
     });
   }, [packs, statusFilter, dateFrom, dateTo]);
 
-  // Group packs by game and calculate totals
+  /**
+   * Group packs by game and calculate totals
+   * Story: Lottery Pack Return Feature - Added returnedPacks counter
+   */
   const gameSummaries = useMemo(() => {
     if (!filteredPacks.length) return [];
 
@@ -196,6 +266,7 @@ export function LotteryTable({
           totalPacks: 0,
           activePacks: 0,
           receivedPacks: 0,
+          returnedPacks: 0,
           packs: [],
         });
       }
@@ -207,6 +278,8 @@ export function LotteryTable({
         summary.activePacks++;
       } else if (pack.status === "RECEIVED") {
         summary.receivedPacks++;
+      } else if (pack.status === "RETURNED") {
+        summary.returnedPacks++;
       }
     }
 
@@ -229,7 +302,7 @@ export function LotteryTable({
   }, [filteredPacks, gameNameFilter]);
 
   // Toggle row expansion
-  const toggleExpanded = (gameId: string) => {
+  const toggleExpanded = useCallback((gameId: string) => {
     setExpandedGameIds((prev) => {
       const next = new Set(prev);
       if (next.has(gameId)) {
@@ -239,25 +312,68 @@ export function LotteryTable({
       }
       return next;
     });
-  };
+  }, []);
 
   // Handle opening the management modal
-  const handleManageGame = (game: GameSummary, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent row expansion when clicking Manage
-    setSelectedGame(game);
-    setIsModalOpen(true);
-  };
+  const handleManageGame = useCallback(
+    (game: GameSummary, e: React.MouseEvent) => {
+      e.stopPropagation(); // Prevent row expansion when clicking Manage
+      setSelectedGame(game);
+      setIsModalOpen(true);
+    },
+    [],
+  );
 
   // Handle modal close and refresh
-  const handleModalSuccess = () => {
+  const handleModalSuccess = useCallback(() => {
     refetch();
-  };
+  }, [refetch]);
+
+  /**
+   * Handle return checkbox click
+   * Story: Lottery Pack Return Feature
+   */
+  const handleReturnClick = useCallback(
+    (pack: LotteryPackResponse, e: React.MouseEvent) => {
+      e.stopPropagation(); // Prevent row expansion
+      setReturningPack(pack);
+    },
+    [],
+  );
+
+  /**
+   * Handle return dialog success
+   * Story: Lottery Pack Return Feature
+   */
+  const handleReturnSuccess = useCallback(() => {
+    setReturningPack(null);
+    refetch();
+  }, [refetch]);
 
   // Format date for display
-  const formatDate = (dateString: string | null | undefined) => {
+  const formatDate = useCallback((dateString: string | null | undefined) => {
     if (!dateString) return "--";
     return new Date(dateString).toLocaleDateString();
-  };
+  }, []);
+
+  /**
+   * Get status badge variant
+   * Story: Lottery Pack Return Feature - Added RETURNED variant
+   */
+  const getStatusBadgeVariant = useCallback((status: string) => {
+    switch (status) {
+      case "ACTIVE":
+        return "success";
+      case "RECEIVED":
+        return "secondary";
+      case "RETURNED":
+        return "warning";
+      case "DEPLETED":
+        return "destructive";
+      default:
+        return "secondary";
+    }
+  }, []);
 
   // Loading state
   if (isLoading) {
@@ -289,6 +405,42 @@ export function LotteryTable({
         className="flex flex-wrap items-center gap-4 mb-4 p-4 bg-muted/30 rounded-lg"
         data-testid="lottery-filters"
       >
+        {/* Store Selector Dropdown - Only shown for multi-store companies */}
+        {/* FE-005: UI_SECURITY - Store names are non-sensitive display data */}
+        {/* FE-002: FORM_VALIDATION - Selection constrained to valid store IDs */}
+        {showStoreDropdown && (
+          <div className="w-[180px]">
+            <Select
+              value={storeId}
+              onValueChange={(value: string) => {
+                // Validate that selected store exists in the stores array
+                // SEC-014: INPUT_VALIDATION - Validate selection against allowlist
+                const isValidStore = stores.some(
+                  (store) => store.store_id === value,
+                );
+                if (isValidStore) {
+                  onStoreChange(value);
+                }
+              }}
+            >
+              <SelectTrigger
+                data-testid="store-selector"
+                aria-label="Select store"
+              >
+                <SelectValue placeholder="Select store" />
+              </SelectTrigger>
+              <SelectContent>
+                {stores.map((store) => (
+                  <SelectItem key={store.store_id} value={store.store_id}>
+                    {/* SEC-004: XSS - React auto-escapes text content */}
+                    {store.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         {/* Game Name Filter */}
         <div className="flex-1 min-w-[180px]">
           <Input
@@ -300,7 +452,7 @@ export function LotteryTable({
           />
         </div>
 
-        {/* Status Filter */}
+        {/* Status Filter - Story: Added RETURNED option */}
         <div className="w-[140px]">
           <Select
             value={statusFilter}
@@ -314,6 +466,7 @@ export function LotteryTable({
               <SelectItem value="RECEIVED">Received</SelectItem>
               <SelectItem value="ACTIVE">Active</SelectItem>
               <SelectItem value="SOLD">Sold</SelectItem>
+              <SelectItem value="RETURNED">Returned</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -416,7 +569,7 @@ export function LotteryTable({
                   Pack Count
                 </TableHead>
                 <TableHead scope="col">Status</TableHead>
-                <TableHead scope="col" className="text-right">
+                <TableHead scope="col" className="w-[100px] pl-0">
                   Actions
                 </TableHead>
               </TableRow>
@@ -429,12 +582,21 @@ export function LotteryTable({
                     ? `$${Number(game.price).toFixed(2)}`
                     : "N/A";
 
-                // Get packs for sub-list (hide DEPLETED/SOLD)
-                const visiblePacks = game.packs.filter(
-                  (pack) =>
-                    pack.status === "ACTIVE" || pack.status === "RECEIVED",
-                );
+                // Get packs for sub-list based on current filter
+                // Story: When RETURNED filter is selected, show RETURNED packs
+                const visiblePacks =
+                  statusFilter === "RETURNED"
+                    ? game.packs.filter((pack) => pack.status === "RETURNED")
+                    : game.packs.filter(
+                        (pack) =>
+                          pack.status === "ACTIVE" ||
+                          pack.status === "RECEIVED",
+                      );
 
+                /**
+                 * Get status badges for game summary row
+                 * Story: Lottery Pack Return Feature - Added Returned badge
+                 */
                 const getStatusBadges = () => {
                   const badges = [];
                   if (game.activePacks > 0) {
@@ -446,8 +608,19 @@ export function LotteryTable({
                   }
                   if (game.receivedPacks > 0) {
                     badges.push(
-                      <Badge key="received" variant="secondary">
+                      <Badge
+                        key="received"
+                        variant="secondary"
+                        className="mr-1"
+                      >
                         {game.receivedPacks} Received
+                      </Badge>,
+                    );
+                  }
+                  if (game.returnedPacks > 0) {
+                    badges.push(
+                      <Badge key="returned" variant="warning">
+                        {game.returnedPacks} Returned
                       </Badge>,
                     );
                   }
@@ -493,15 +666,15 @@ export function LotteryTable({
                         {game.totalPacks}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-wrap">
                           {getStatusBadges()}
                         </div>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="w-[100px] pl-0">
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-table-button-compact"
+                          className="h-table-button-compact px-2"
                           onClick={(e) => handleManageGame(game, e)}
                           title="Manage game details"
                           data-testid={`manage-game-${game.game_id}`}
@@ -512,84 +685,128 @@ export function LotteryTable({
                       </TableCell>
                     </TableRow>
 
-                    {/* Expandable Pack Details Sub-list */}
+                    {/* Expandable Pack Details Sub-list - Aligned with parent columns */}
+                    {/* Story: Column alignment matches parent table structure */}
+                    {/* Style: Option 5 - Light blue gradient with left border indicator */}
+                    {/* Header row for sub-list so users know what each column means */}
                     {isExpanded && (
                       <TableRow
-                        className="bg-muted/30"
+                        className="bg-gradient-to-r from-blue-50 to-slate-50 border-l-[3px] border-l-blue-500"
                         data-testid={`pack-details-${game.game_id}`}
                       >
-                        <TableCell colSpan={7} className="p-0">
-                          <div className="p-table-nested-padding">
-                            {visiblePacks.length === 0 ? (
-                              <p className="text-sm text-muted-foreground text-center py-1">
-                                No active or received packs for this game.
-                              </p>
-                            ) : (
-                              <Table size="dense" nested>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead className="text-xs">
-                                      Pack #
-                                    </TableHead>
-                                    <TableHead className="text-xs">
-                                      Serial Range
-                                    </TableHead>
-                                    <TableHead className="text-xs">
-                                      Bin
-                                    </TableHead>
-                                    <TableHead className="text-xs">
-                                      Status
-                                    </TableHead>
-                                    <TableHead className="text-xs">
-                                      Received
-                                    </TableHead>
-                                    <TableHead className="text-xs">
-                                      Activated
-                                    </TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {visiblePacks.map((pack) => (
-                                    <TableRow
-                                      key={pack.pack_id}
-                                      data-testid={`pack-row-${pack.pack_id}`}
-                                    >
-                                      <TableCell className="font-mono text-sm">
-                                        {pack.pack_number}
-                                      </TableCell>
-                                      <TableCell className="font-mono text-sm">
-                                        {pack.serial_start} - {pack.serial_end}
-                                      </TableCell>
-                                      <TableCell className="text-sm">
-                                        {pack.bin?.name || "--"}
-                                      </TableCell>
-                                      <TableCell>
-                                        <Badge
-                                          variant={
-                                            pack.status === "ACTIVE"
-                                              ? "success"
-                                              : "secondary"
-                                          }
-                                          className="text-xs"
-                                        >
-                                          {pack.status}
-                                        </Badge>
-                                      </TableCell>
-                                      <TableCell className="text-sm">
-                                        {formatDate(pack.received_at)}
-                                      </TableCell>
-                                      <TableCell className="text-sm">
-                                        {formatDate(pack.activated_at)}
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            )}
-                          </div>
+                        {/* Column 1: Empty (align with expand button) */}
+                        <TableCell className="w-[40px] px-2"></TableCell>
+                        {/* Column 2: Pack # header (align with Game Name) */}
+                        <TableCell className="text-xs font-medium text-blue-700 py-1">
+                          Pack #
+                        </TableCell>
+                        {/* Column 3: Received At header (align with Game Number) */}
+                        <TableCell className="text-xs font-medium text-blue-700 py-1">
+                          Received At
+                        </TableCell>
+                        {/* Column 4: Activated At header (align with Dollar Value) */}
+                        <TableCell className="text-xs font-medium text-blue-700 py-1">
+                          Activated At
+                        </TableCell>
+                        {/* Column 5: Returned At header (align with Pack Count) */}
+                        <TableCell className="text-xs font-medium text-blue-700 py-1 text-center">
+                          Returned At
+                        </TableCell>
+                        {/* Column 6: Status header (align with Status) */}
+                        <TableCell className="text-xs font-medium text-blue-700 py-1">
+                          Status
+                        </TableCell>
+                        {/* Column 7: Returned checkbox header (align with Actions) */}
+                        <TableCell className="text-xs font-medium text-blue-700 py-1 w-[100px] pl-0">
+                          <span className="ml-2">Returned</span>
                         </TableCell>
                       </TableRow>
                     )}
+                    {isExpanded && visiblePacks.length === 0 && (
+                      <TableRow className="bg-gradient-to-r from-blue-50 to-slate-50 border-l-[3px] border-l-blue-500">
+                        <TableCell colSpan={7} className="py-4">
+                          <p className="text-sm text-muted-foreground text-center">
+                            {statusFilter === "RETURNED"
+                              ? "No returned packs for this game."
+                              : "No active or received packs for this game."}
+                          </p>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {isExpanded &&
+                      visiblePacks.map((pack) => {
+                        const isReturned = pack.status === "RETURNED";
+                        const canReturn =
+                          pack.status === "RECEIVED" ||
+                          pack.status === "ACTIVE";
+
+                        return (
+                          <TableRow
+                            key={pack.pack_id}
+                            className="bg-gradient-to-r from-blue-50 to-slate-50 border-l-[3px] border-l-blue-500 hover:from-blue-100 hover:to-blue-50"
+                            data-testid={`pack-row-${pack.pack_id}`}
+                          >
+                            {/* Column 1: Empty (align with expand button) */}
+                            <TableCell className="w-[40px] px-2"></TableCell>
+                            {/* Column 2: Pack # (align with Game Name) - No serial range per user request */}
+                            <TableCell className="font-mono text-sm">
+                              #{pack.pack_number}
+                            </TableCell>
+                            {/* Column 3: Received At (align with Game Number) */}
+                            <TableCell className="text-sm">
+                              {formatDate(pack.received_at)}
+                            </TableCell>
+                            {/* Column 4: Activated At (align with Dollar Value) */}
+                            <TableCell className="text-sm">
+                              {formatDate(pack.activated_at)}
+                            </TableCell>
+                            {/* Column 5: Returned At (align with Pack Count) */}
+                            <TableCell className="text-sm text-center">
+                              {(pack as any).returned_at
+                                ? formatDate((pack as any).returned_at)
+                                : "--"}
+                            </TableCell>
+                            {/* Column 6: Status (align with Status) */}
+                            <TableCell>
+                              <Badge
+                                variant={getStatusBadgeVariant(pack.status)}
+                                className="text-xs"
+                              >
+                                {pack.status}
+                              </Badge>
+                            </TableCell>
+                            {/* Column 7: Returned Checkbox (align with Actions) */}
+                            <TableCell className="w-[100px] pl-0">
+                              <Checkbox
+                                className="ml-2"
+                                checked={isReturned}
+                                disabled={isReturned || !canReturn}
+                                onCheckedChange={() => {}}
+                                onClick={(e) => {
+                                  if (canReturn) {
+                                    handleReturnClick(pack, e);
+                                  }
+                                }}
+                                data-testid={`return-checkbox-${pack.pack_id}`}
+                                aria-label={
+                                  isReturned
+                                    ? "Pack already returned"
+                                    : canReturn
+                                      ? `Mark pack ${pack.pack_number} as returned`
+                                      : "Cannot return this pack"
+                                }
+                                title={
+                                  isReturned
+                                    ? "Pack already returned"
+                                    : canReturn
+                                      ? "Click to mark as returned"
+                                      : "Cannot return depleted packs"
+                                }
+                              />
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                   </React.Fragment>
                 );
               })}
@@ -616,6 +833,19 @@ export function LotteryTable({
           // Refetch bins to update the count display
           refetch();
         }}
+      />
+
+      {/* Return Pack Dialog - Story: Lottery Pack Return Feature */}
+      <ReturnPackDialog
+        open={returningPack !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReturningPack(null);
+          }
+        }}
+        packId={returningPack?.pack_id ?? null}
+        packData={returningPack}
+        onSuccess={handleReturnSuccess}
       />
     </>
   );

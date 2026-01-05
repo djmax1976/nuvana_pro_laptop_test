@@ -2383,6 +2383,596 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * POST /api/lottery/packs/:packId/return
+   * Mark a lottery pack as returned to supplier with sales tracking
+   * Protected route - requires LOTTERY_PACK_MANAGE permission
+   *
+   * Story: Lottery Pack Return Feature
+   *
+   * MCP Guidance Applied:
+   * - API-001: VALIDATION - Zod schema validation for request body
+   * - API-003: ERROR_HANDLING - Structured error responses with codes
+   * - API-004: AUTHENTICATION - JWT validation via authMiddleware
+   * - DB-001: ORM_USAGE - Prisma transaction for atomic updates
+   * - DB-006: TENANT_ISOLATION - RLS enforcement via store access validation
+   * - SEC-006: SQL_INJECTION - Parameterized queries via Prisma ORM
+   * - SEC-014: INPUT_VALIDATION - UUID format and enum validation
+   *
+   * Business Rules:
+   * - Only ACTIVE packs can be returned (pack must be in a bin)
+   * - RECEIVED packs cannot be returned (use delete or different workflow)
+   * - DEPLETED and already RETURNED packs cannot be returned
+   * - Last sold serial is required to calculate sales
+   * - Tracks return in current shift and business day for reporting
+   * - Creates audit log entry and shift closing record for compliance
+   */
+  fastify.post(
+    "/api/lottery/packs/:packId/return",
+    {
+      preHandler: [
+        authMiddleware,
+        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_MANAGE),
+      ],
+      schema: {
+        description:
+          "Mark a lottery pack as returned to supplier with sales tracking",
+        tags: ["lottery"],
+        params: {
+          type: "object",
+          required: ["packId"],
+          properties: {
+            packId: {
+              type: "string",
+              format: "uuid",
+              description: "Pack UUID to mark as returned",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          required: ["return_reason", "last_sold_serial"],
+          properties: {
+            return_reason: {
+              type: "string",
+              enum: [
+                "SUPPLIER_RECALL",
+                "DAMAGED",
+                "EXPIRED",
+                "INVENTORY_ADJUSTMENT",
+                "STORE_CLOSURE",
+                "OTHER",
+              ],
+              description: "Reason category for returning the pack",
+            },
+            return_notes: {
+              type: "string",
+              maxLength: 500,
+              description:
+                "Additional notes about the return (required for OTHER reason)",
+            },
+            last_sold_serial: {
+              type: "string",
+              pattern: "^[0-9]{3}$",
+              description:
+                "3-digit serial number of the last ticket sold before return",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  pack_id: { type: "string", format: "uuid" },
+                  pack_number: { type: "string" },
+                  status: { type: "string", enum: ["RETURNED"] },
+                  returned_at: { type: "string", format: "date-time" },
+                  return_reason: { type: "string" },
+                  return_notes: { type: "string", nullable: true },
+                  game_name: { type: "string" },
+                  bin_name: { type: "string", nullable: true },
+                  last_sold_serial: { type: "string" },
+                  tickets_sold: { type: "integer" },
+                  sales_amount: { type: "string" },
+                  starting_serial: { type: "string" },
+                },
+              },
+            },
+          },
+          400: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          403: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = (request as any).user as UserIdentity;
+      const params = request.params as { packId: string };
+      const body = request.body as {
+        return_reason:
+          | "SUPPLIER_RECALL"
+          | "DAMAGED"
+          | "EXPIRED"
+          | "INVENTORY_ADJUSTMENT"
+          | "STORE_CLOSURE"
+          | "OTHER";
+        return_notes?: string;
+        last_sold_serial: string;
+      };
+
+      try {
+        // SEC-014: INPUT_VALIDATION - Validate UUID format
+        const uuidRegex =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(params.packId)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "INVALID_PACK_ID",
+              message: "Invalid pack ID format",
+            },
+          };
+        }
+
+        // SEC-014: INPUT_VALIDATION - Validate last_sold_serial format
+        const serialRegex = /^[0-9]{3}$/;
+        if (!serialRegex.test(body.last_sold_serial)) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "INVALID_SERIAL_FORMAT",
+              message: "Last sold serial must be a 3-digit number (e.g., 025)",
+            },
+          };
+        }
+
+        // SEC-014: INPUT_VALIDATION - Validate return_notes for OTHER reason
+        if (
+          body.return_reason === "OTHER" &&
+          (!body.return_notes || body.return_notes.trim().length < 3)
+        ) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "NOTES_REQUIRED_FOR_OTHER",
+              message:
+                "Return notes are required when reason is OTHER (minimum 3 characters)",
+            },
+          };
+        }
+
+        // Extract audit metadata for logging
+        const ipAddress =
+          (request.headers["x-forwarded-for"] as string)?.split(",")[0] ||
+          request.ip ||
+          request.socket.remoteAddress ||
+          null;
+        const userAgent = request.headers["user-agent"] || null;
+
+        // Fetch pack with relationships for validation (DB-001: ORM_USAGE)
+        const pack = await prisma.lotteryPack.findUnique({
+          where: { pack_id: params.packId },
+          include: {
+            game: {
+              select: {
+                game_id: true,
+                name: true,
+                ticket_price: true,
+              },
+            },
+            store: {
+              select: {
+                store_id: true,
+                name: true,
+                company_id: true,
+              },
+            },
+            bin: {
+              select: {
+                bin_id: true,
+                name: true,
+              },
+            },
+          },
+        });
+
+        if (!pack) {
+          reply.code(404);
+          return {
+            success: false,
+            error: {
+              code: "PACK_NOT_FOUND",
+              message: "Lottery pack not found",
+            },
+          };
+        }
+
+        // DB-006: TENANT_ISOLATION - Validate user has access to this store
+        const userRoles = await rbacService.getUserRoles(user.id);
+        const hasAccess = validateUserStoreAccess(
+          userRoles,
+          pack.store_id,
+          pack.store.company_id,
+        );
+
+        if (!hasAccess) {
+          reply.code(403);
+          return {
+            success: false,
+            error: {
+              code: "FORBIDDEN",
+              message:
+                "You do not have access to this store's lottery packs (RLS violation)",
+            },
+          };
+        }
+
+        // Business Rule: Validate pack status - only ACTIVE packs can be returned
+        if (pack.status === "RETURNED") {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "ALREADY_RETURNED",
+              message: "Pack has already been returned",
+            },
+          };
+        }
+
+        if (pack.status === "DEPLETED") {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "CANNOT_RETURN_DEPLETED",
+              message:
+                "Cannot return a depleted pack. Pack has already been sold out.",
+            },
+          };
+        }
+
+        if (pack.status === "RECEIVED") {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "CANNOT_RETURN_RECEIVED",
+              message:
+                "Cannot return a pack that has not been activated. Delete or adjust inventory instead.",
+            },
+          };
+        }
+
+        // Business Rule: Validate last_sold_serial is within pack range
+        const lastSoldSerial = parseInt(body.last_sold_serial, 10);
+        const serialStart = parseInt(pack.serial_start, 10);
+        const serialEnd = parseInt(pack.serial_end, 10);
+
+        if (lastSoldSerial < serialStart || lastSoldSerial > serialEnd) {
+          reply.code(400);
+          return {
+            success: false,
+            error: {
+              code: "SERIAL_OUT_OF_RANGE",
+              message: `Last sold serial ${body.last_sold_serial} must be between pack range ${pack.serial_start} - ${pack.serial_end}`,
+            },
+          };
+        }
+
+        // Find the starting serial for today (from previous day close or pack activation)
+        // This determines how many tickets were sold since the business day started
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Find or create current business day
+        let businessDay = await prisma.lotteryBusinessDay.findFirst({
+          where: {
+            store_id: pack.store_id,
+            status: { in: ["OPEN", "PENDING_CLOSE"] },
+          },
+          orderBy: { business_date: "desc" },
+        });
+
+        // Determine starting serial for calculations
+        // Priority: 1) Day pack record from last close, 2) Pack's serial_start
+        let startingSerial = pack.serial_start;
+
+        if (businessDay) {
+          // Check for previous day pack record (from last day close)
+          const previousDayPack = await prisma.lotteryDayPack.findFirst({
+            where: {
+              pack_id: params.packId,
+              ending_serial: { not: null },
+            },
+            orderBy: { created_at: "desc" },
+          });
+
+          if (previousDayPack?.ending_serial) {
+            // Starting serial is the ticket after the last one closed
+            const previousEnding = parseInt(previousDayPack.ending_serial, 10);
+            startingSerial = String(previousEnding + 1).padStart(3, "0");
+          }
+        }
+
+        // Calculate tickets sold and sales amount
+        const startingSerialNum = parseInt(startingSerial, 10);
+        const ticketsSold =
+          lastSoldSerial >= startingSerialNum
+            ? lastSoldSerial - startingSerialNum + 1
+            : 0;
+        const ticketPrice = pack.game.ticket_price
+          ? Number(pack.game.ticket_price)
+          : 0;
+        const salesAmount = ticketsSold * ticketPrice;
+
+        // Find active shift for this store (if any)
+        const activeShift = await prisma.shift.findFirst({
+          where: {
+            store_id: pack.store_id,
+            status: {
+              in: ["OPEN", "ACTIVE", "CLOSING", "RECONCILING"],
+            },
+            closed_at: null,
+          },
+          orderBy: {
+            opened_at: "desc",
+          },
+          select: {
+            shift_id: true,
+            cashier_id: true,
+          },
+        });
+
+        // DB-001: ORM_USAGE - Perform atomic update in transaction
+        const result = await prisma.$transaction(async (tx) => {
+          const now = new Date();
+          const trimmedNotes = body.return_notes?.trim() || null;
+
+          // 1. Update pack status to RETURNED with full tracking data
+          const updatedPack = await tx.lotteryPack.update({
+            where: { pack_id: params.packId },
+            data: {
+              status: "RETURNED",
+              returned_at: now,
+              returned_by: user.id,
+              returned_shift_id: activeShift?.shift_id || null,
+              returned_day_id: businessDay?.day_id || null,
+              return_reason: body.return_reason,
+              return_notes: trimmedNotes,
+              last_sold_serial: body.last_sold_serial,
+              tickets_sold_on_return: ticketsSold,
+              return_sales_amount: salesAmount,
+              // Clear bin assignment
+              current_bin_id: null,
+            },
+            include: {
+              game: { select: { name: true, ticket_price: true } },
+              bin: { select: { name: true } },
+            },
+          });
+
+          // 2. Create shift closing record if there's an active shift
+          if (activeShift) {
+            // Check if closing record already exists for this shift/pack
+            const existingClosing = await tx.lotteryShiftClosing.findUnique({
+              where: {
+                shift_id_pack_id: {
+                  shift_id: activeShift.shift_id,
+                  pack_id: params.packId,
+                },
+              },
+            });
+
+            if (!existingClosing) {
+              await tx.lotteryShiftClosing.create({
+                data: {
+                  shift_id: activeShift.shift_id,
+                  pack_id: params.packId,
+                  cashier_id: activeShift.cashier_id,
+                  closing_serial: body.last_sold_serial,
+                  entry_method: "MANUAL",
+                  manual_entry_authorized_by: user.id,
+                  manual_entry_authorized_at: now,
+                },
+              });
+            }
+          }
+
+          // 3. Create or update day pack record if business day exists
+          if (businessDay) {
+            await tx.lotteryDayPack.upsert({
+              where: {
+                day_id_pack_id: {
+                  day_id: businessDay.day_id,
+                  pack_id: params.packId,
+                },
+              },
+              create: {
+                day_id: businessDay.day_id,
+                pack_id: params.packId,
+                bin_id: pack.current_bin_id,
+                starting_serial: startingSerial,
+                ending_serial: body.last_sold_serial,
+                tickets_sold: ticketsSold,
+                sales_amount: salesAmount,
+                entry_method: "MANUAL",
+              },
+              update: {
+                ending_serial: body.last_sold_serial,
+                tickets_sold: ticketsSold,
+                sales_amount: salesAmount,
+                entry_method: "MANUAL",
+              },
+            });
+          }
+
+          // 4. Create bin history record for audit trail
+          if (pack.current_bin_id) {
+            await tx.lotteryPackBinHistory.create({
+              data: {
+                pack_id: params.packId,
+                bin_id: pack.current_bin_id,
+                moved_by: user.id,
+                reason: `Pack returned: ${body.return_reason}${trimmedNotes ? ` - ${trimmedNotes}` : ""}`,
+              },
+            });
+          }
+
+          // 5. Create audit log entry for compliance
+          try {
+            await tx.auditLog.create({
+              data: {
+                user_id: user.id,
+                action: "PACK_RETURNED",
+                table_name: "lottery_packs",
+                record_id: params.packId,
+                old_values: {
+                  status: pack.status,
+                  current_bin_id: pack.current_bin_id,
+                },
+                new_values: {
+                  status: "RETURNED",
+                  returned_at: now.toISOString(),
+                  returned_by: user.id,
+                  returned_shift_id: activeShift?.shift_id || null,
+                  returned_day_id: businessDay?.day_id || null,
+                  return_reason: body.return_reason,
+                  return_notes: trimmedNotes,
+                  last_sold_serial: body.last_sold_serial,
+                  tickets_sold_on_return: ticketsSold,
+                  return_sales_amount: salesAmount,
+                },
+                ip_address: ipAddress,
+                user_agent: userAgent,
+                reason: `Lottery pack ${pack.pack_number} returned (${body.return_reason}). Sold ${ticketsSold} tickets ($${salesAmount.toFixed(2)})`,
+              },
+            });
+          } catch (auditError) {
+            // Log audit failure but don't fail the operation
+            fastify.log.error(
+              { error: auditError },
+              "Failed to create audit log for pack return",
+            );
+          }
+
+          return { updatedPack, binName: pack.bin?.name || null };
+        });
+
+        // Cleanup UPCs from Redis/POS (pack was ACTIVE)
+        try {
+          const cleanupResult = await syncPackDeactivation(
+            params.packId,
+            pack.store_id,
+          );
+
+          if (cleanupResult.redisDeleted || cleanupResult.posRemoved) {
+            fastify.log.info(
+              {
+                packId: params.packId,
+                redisDeleted: cleanupResult.redisDeleted,
+                posRemoved: cleanupResult.posRemoved,
+              },
+              "Pack UPCs cleaned up on return",
+            );
+          }
+        } catch (cleanupError) {
+          // Log but don't fail return - UPC cleanup is non-critical
+          fastify.log.error(
+            { error: cleanupError, packId: params.packId },
+            "Failed to cleanup pack UPCs on return (non-fatal)",
+          );
+        }
+
+        reply.code(200);
+        return {
+          success: true,
+          data: {
+            pack_id: result.updatedPack.pack_id,
+            pack_number: pack.pack_number,
+            status: result.updatedPack.status,
+            returned_at: result.updatedPack.returned_at?.toISOString(),
+            return_reason: body.return_reason,
+            return_notes: body.return_notes || null,
+            game_name: result.updatedPack.game.name,
+            bin_name: result.binName,
+            last_sold_serial: body.last_sold_serial,
+            tickets_sold: ticketsSold,
+            sales_amount: salesAmount.toFixed(2),
+            starting_serial: startingSerial,
+          },
+        };
+      } catch (error: unknown) {
+        // API-003: ERROR_HANDLING - Generic error response
+        fastify.log.error({ error }, "Error returning lottery pack");
+
+        reply.code(500);
+        return {
+          success: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: "Failed to return pack",
+          },
+        };
+      }
+    },
+  );
+
+  /**
    * GET /api/lottery/games
    * Query active lottery games
    * Protected route - requires LOTTERY_GAME_READ permission
@@ -6863,6 +7453,72 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                       },
                     },
                   },
+                  returned_packs: {
+                    type: "array",
+                    description:
+                      "Packs that were returned during the current open business period",
+                    items: {
+                      type: "object",
+                      properties: {
+                        pack_id: { type: "string", format: "uuid" },
+                        pack_number: { type: "string" },
+                        game_name: { type: "string" },
+                        game_price: { type: "number" },
+                        bin_number: { type: "integer" },
+                        activated_at: {
+                          type: "string",
+                          format: "date-time",
+                          description: "When the pack was originally activated",
+                        },
+                        returned_at: {
+                          type: "string",
+                          format: "date-time",
+                          description: "When the pack was returned",
+                        },
+                        return_reason: {
+                          type: "string",
+                          enum: [
+                            "SUPPLIER_RECALL",
+                            "DAMAGED",
+                            "EXPIRED",
+                            "INVENTORY_ADJUSTMENT",
+                            "STORE_CLOSURE",
+                            "OTHER",
+                          ],
+                          description: "Reason for the pack return",
+                        },
+                        return_notes: {
+                          type: "string",
+                          nullable: true,
+                          description:
+                            "Additional notes about the return (required for OTHER reason)",
+                        },
+                        last_sold_serial: {
+                          type: "string",
+                          nullable: true,
+                          description:
+                            "Serial number of the last ticket sold before return",
+                        },
+                        tickets_sold_on_return: {
+                          type: "integer",
+                          nullable: true,
+                          description:
+                            "Number of tickets sold before the pack was returned",
+                        },
+                        return_sales_amount: {
+                          type: "number",
+                          nullable: true,
+                          description:
+                            "Sales amount at time of return (tickets_sold * game_price)",
+                        },
+                        returned_by_name: {
+                          type: "string",
+                          nullable: true,
+                          description: "Name of user who processed the return",
+                        },
+                      },
+                    },
+                  },
                   activated_packs: {
                     type: "array",
                     description:
@@ -7529,6 +8185,79 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         }));
 
         // ============================================================================
+        // RETURNED PACKS QUERY: Enterprise Close-to-Close Model
+        // ============================================================================
+        // Show ALL packs returned since the last closed business day, not just today.
+        // This ensures no returned packs are hidden when a day close is missed.
+        //
+        // Business Rationale:
+        // - Returned packs track partial sales before pack return (mid-pack returns)
+        // - Essential for lottery accountability and audit trail
+        // - Includes reason codes for return categorization (recall, damage, etc.)
+        // - return_sales_amount contributes to shift/day lottery totals
+        //
+        // MCP Guidance Applied:
+        // - DB-006: TENANT_ISOLATION - store_id filter enforces tenant scoping
+        // - DB-001: ORM_USAGE - Using Prisma ORM with query builder, no raw SQL
+        // - SEC-006: SQL_INJECTION - All parameters bound via Prisma ORM
+        // - SEC-014: INPUT_VALIDATION - Response data sanitized before return
+        // ============================================================================
+        const returnedPacks = await prisma.lotteryPack.findMany({
+          where: {
+            // DB-006: TENANT_ISOLATION - Mandatory store scoping from auth context
+            store_id: params.storeId,
+            status: "RETURNED",
+            returned_at: {
+              // Use the open business period start (last day close) as lower bound
+              // This ensures returned packs are visible even if day close was missed
+              gte: openBusinessPeriodStart,
+            },
+          },
+          include: {
+            game: {
+              select: {
+                name: true,
+                price: true,
+              },
+            },
+            bin: {
+              select: {
+                display_order: true,
+              },
+            },
+            // Include user who processed the return for audit trail
+            returnedByUser: {
+              select: {
+                name: true,
+              },
+            },
+          },
+          orderBy: { returned_at: "desc" },
+        });
+
+        // Transform to API response format
+        // MCP: SEC-014 INPUT_VALIDATION - Validate and sanitize data before returning
+        // MCP: API-003 ERROR_HANDLING - Defensive null checks with safe fallbacks
+        const returnedPacksData = returnedPacks.map((pack) => ({
+          pack_id: pack.pack_id,
+          pack_number: pack.pack_number,
+          game_name: pack.game.name,
+          game_price: Number(pack.game.price),
+          bin_number: pack.bin ? pack.bin.display_order + 1 : 0,
+          activated_at: pack.activated_at?.toISOString() || "",
+          returned_at: pack.returned_at?.toISOString() || "",
+          return_reason: pack.return_reason || null,
+          return_notes: pack.return_notes || null,
+          last_sold_serial: pack.last_sold_serial || null,
+          tickets_sold_on_return: pack.tickets_sold_on_return ?? null,
+          return_sales_amount: pack.return_sales_amount
+            ? Number(pack.return_sales_amount)
+            : null,
+          // Format user name for display
+          returned_by_name: pack.returnedByUser?.name || null,
+        }));
+
+        // ============================================================================
         // ACTIVATED PACKS QUERY: Enterprise Close-to-Close Model
         // ============================================================================
         // Show ALL packs activated since the last closed business day, regardless
@@ -7736,6 +8465,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               is_first_period: !lastClosedBusinessDay,
             },
             depleted_packs: depletedPacksData,
+            returned_packs: returnedPacksData,
             activated_packs: activatedPacksData,
             // Include day close summary when day is closed (for frontend calculations)
             day_close_summary: dayCloseSummary,
