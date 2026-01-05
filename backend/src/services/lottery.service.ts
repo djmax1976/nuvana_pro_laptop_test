@@ -121,20 +121,31 @@ export async function detectVariance(
 }
 
 /**
- * Lookup game by game code with store scoping
+ * Game scope type for lookup results
+ * - STATE: Game is scoped to the store's state (visible to all stores in that state)
+ * - STORE: Game is scoped to a specific store (fallback, edge case)
+ * - GLOBAL: Legacy global game (store_id IS NULL, state_id IS NULL)
+ */
+export type GameScopeType = "STATE" | "STORE" | "GLOBAL";
+
+/**
+ * Lookup game by game code with state-first priority
  * Story 6.12: Serialized Pack Reception with Batch Processing
+ * Story: State-Scoped Lottery Games Phase
  *
- * Game Scoping Rules:
- * - If storeId is provided, first look for a store-scoped game (store_id = storeId)
- * - If no store-scoped game found, fall back to global game (store_id IS NULL)
- * - If storeId is not provided, only look for global games
+ * Game Scoping Rules (Priority Order):
+ * 1. STATE-scoped game: If storeId provided, get store's state_id and look for state-scoped game
+ * 2. STORE-scoped game: If no state game found, look for store-specific game (fallback/edge case)
+ * 3. GLOBAL game: If no state/store game found, look for legacy global game (store_id IS NULL, state_id IS NULL)
  *
- * This allows stores to create their own game definitions that override global games,
- * while still being able to use Super Admin-created global games.
+ * This NEW priority order means:
+ * - State-scoped games (created by SuperAdmin) are the PRIMARY source
+ * - Store-scoped games are a FALLBACK for edge cases only
+ * - Global games provide backwards compatibility
  *
  * @param gameCode - 4-digit game code (e.g., "0001")
- * @param storeId - Optional store ID for scoped lookup
- * @returns Game information (game_id, name, tickets_per_pack, is_global) if found
+ * @param storeId - Optional store ID for scoped lookup (required for state/store scoping)
+ * @returns Game information (game_id, name, tickets_per_pack, scope_type, state_id) if found
  * @throws Error if game_code not found
  */
 export async function lookupGameByCode(
@@ -145,6 +156,8 @@ export async function lookupGameByCode(
   name: string;
   tickets_per_pack: number | null;
   is_global: boolean;
+  scope_type: GameScopeType;
+  state_id: string | null;
 }> {
   // Validate game code format (4 digits)
   if (!/^\d{4}$/.test(gameCode)) {
@@ -153,19 +166,57 @@ export async function lookupGameByCode(
     );
   }
 
-  // If storeId provided, first look for store-scoped game
+  // If storeId provided, get the store's state_id for state-scoped lookup
+  let storeStateId: string | null = null;
   if (storeId) {
-    const storeGame = await prisma.lotteryGame.findFirst({
+    const store = await prisma.store.findUnique({
+      where: { store_id: storeId },
+      select: { state_id: true },
+    });
+    storeStateId = store?.state_id ?? null;
+  }
+
+  // Priority 1: Look for STATE-scoped game (if store has state_id)
+  if (storeStateId) {
+    const stateGame = await prisma.lotteryGame.findFirst({
       where: {
         game_code: gameCode,
-        store_id: storeId,
+        state_id: storeStateId,
         status: "ACTIVE",
       },
       select: {
         game_id: true,
         name: true,
         tickets_per_pack: true,
-        store_id: true,
+        state_id: true,
+      },
+    });
+
+    if (stateGame) {
+      return {
+        game_id: stateGame.game_id,
+        name: stateGame.name,
+        tickets_per_pack: stateGame.tickets_per_pack,
+        is_global: false,
+        scope_type: "STATE",
+        state_id: stateGame.state_id,
+      };
+    }
+  }
+
+  // Priority 2: Look for STORE-scoped game (fallback for edge cases)
+  if (storeId) {
+    const storeGame = await prisma.lotteryGame.findFirst({
+      where: {
+        game_code: gameCode,
+        store_id: storeId,
+        state_id: null, // Store-scoped games should not have state_id
+        status: "ACTIVE",
+      },
+      select: {
+        game_id: true,
+        name: true,
+        tickets_per_pack: true,
       },
     });
 
@@ -175,15 +226,18 @@ export async function lookupGameByCode(
         name: storeGame.name,
         tickets_per_pack: storeGame.tickets_per_pack,
         is_global: false,
+        scope_type: "STORE",
+        state_id: null,
       };
     }
   }
 
-  // Look for global game (store_id IS NULL)
+  // Priority 3: Look for GLOBAL game (legacy, store_id IS NULL AND state_id IS NULL)
   const globalGame = await prisma.lotteryGame.findFirst({
     where: {
       game_code: gameCode,
       store_id: null,
+      state_id: null,
       status: "ACTIVE",
     },
     select: {
@@ -202,7 +256,46 @@ export async function lookupGameByCode(
     name: globalGame.name,
     tickets_per_pack: globalGame.tickets_per_pack,
     is_global: true,
+    scope_type: "GLOBAL",
+    state_id: null,
   };
+}
+
+/**
+ * Lookup game by game code with state ID directly (for state-scoped operations)
+ * Use this when you already have the state_id and want to skip store lookup
+ *
+ * @param gameCode - 4-digit game code
+ * @param stateId - State ID for state-scoped lookup
+ * @returns Game information if found, null otherwise
+ */
+export async function lookupGameByCodeAndState(
+  gameCode: string,
+  stateId: string,
+): Promise<{
+  game_id: string;
+  name: string;
+  tickets_per_pack: number | null;
+} | null> {
+  // Validate game code format (4 digits)
+  if (!/^\d{4}$/.test(gameCode)) {
+    return null;
+  }
+
+  const stateGame = await prisma.lotteryGame.findFirst({
+    where: {
+      game_code: gameCode,
+      state_id: stateId,
+      status: "ACTIVE",
+    },
+    select: {
+      game_id: true,
+      name: true,
+      tickets_per_pack: true,
+    },
+  });
+
+  return stateGame;
 }
 
 /**

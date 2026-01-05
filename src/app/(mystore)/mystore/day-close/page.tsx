@@ -467,6 +467,20 @@ export default function DayCloseWizardPage() {
   }, [pendingLotteryDayId, storeId, router]);
 
   // ============ STEP 2 HANDLERS ============
+  /**
+   * Handle completion of Report Scanning step (Step 2)
+   *
+   * Transfers lottery report data from Step 2 to Step 3:
+   * - Lottery cashes (instant + online) → lotteryPayouts in money received
+   * - Lottery sales/cashes → sales breakdown reports columns
+   *
+   * NOTE: In Day Close flow, Step 1 (Lottery Close) already sets reports.scratchOff
+   * with our calculated lottery_total. This step adds the terminal report data
+   * for the other lottery fields.
+   *
+   * @security SEC-014: INPUT_VALIDATION - Data already validated in ReportScanningStep
+   * @security FE-001: STATE_MANAGEMENT - Immutable state updates
+   */
   const handleReportScanningComplete = useCallback(
     (data: ReportScanningState) => {
       setWizardState((prev) => ({
@@ -476,17 +490,21 @@ export default function DayCloseWizardPage() {
       }));
 
       // Import report data into Step 3 state
-      // Lottery payouts go into money received reports
+      // Total lottery cashes (instant + online) go into money received reports as lotteryPayouts
+      const totalLotteryCashes =
+        (data.lotteryReports?.instantCashes ?? 0) +
+        (data.lotteryReports?.onlineCashes ?? 0);
+
       setMoneyReceivedState((prev) => ({
         ...prev,
         reports: {
           ...prev.reports,
-          lotteryPayouts: data.lotteryReports?.payouts ?? 0,
+          lotteryPayouts: totalLotteryCashes,
         },
       }));
 
       // Lottery data from Step 2 goes into Reports column (our recorded data)
-      // - Reports column: Our data - scratch-off from Step 1 calc, online from Step 2 entry
+      // - Reports column: Our data - scratch-off from Step 1 calc, other fields from Step 2 entry
       // - POS column: Placeholder data from 3rd party POS (future integration)
       // @business-rule: All our lottery data goes to Reports column
       // NOTE: Don't overwrite reports.scratchOff - it has our calculated value from Step 1
@@ -495,7 +513,9 @@ export default function DayCloseWizardPage() {
         reports: {
           ...prev.reports,
           // scratchOff already set from Step 1 - don't overwrite
+          instantCashes: data.lotteryReports?.instantCashes ?? 0,
           onlineLottery: data.lotteryReports?.onlineSales ?? 0,
+          onlineCashes: data.lotteryReports?.onlineCashes ?? 0,
         },
       }));
     },

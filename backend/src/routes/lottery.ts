@@ -2418,6 +2418,29 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                     status: { type: "string" },
                     created_at: { type: "string", format: "date-time" },
                     updated_at: { type: "string", format: "date-time" },
+                    state_id: {
+                      type: "string",
+                      format: "uuid",
+                      nullable: true,
+                    },
+                    store_id: {
+                      type: "string",
+                      format: "uuid",
+                      nullable: true,
+                    },
+                    scope_type: {
+                      type: "string",
+                      enum: ["STATE", "STORE", "GLOBAL"],
+                    },
+                    state: {
+                      type: "object",
+                      nullable: true,
+                      properties: {
+                        state_id: { type: "string", format: "uuid" },
+                        code: { type: "string" },
+                        name: { type: "string" },
+                      },
+                    },
                   },
                 },
               },
@@ -2517,6 +2540,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         }
 
         // Query active lottery games using Prisma ORM (prevents SQL injection)
+        // Story: State-Scoped Lottery Games Phase - Include state_id and state relation
         const games = await prisma.lotteryGame.findMany({
           where: whereClause,
           select: {
@@ -2530,6 +2554,14 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             created_at: true,
             updated_at: true,
             store_id: true,
+            state_id: true,
+            state: {
+              select: {
+                state_id: true,
+                code: true,
+                name: true,
+              },
+            },
           },
           orderBy: {
             name: "asc",
@@ -2567,6 +2599,18 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             const packValue = game.pack_value ? Number(game.pack_value) : null;
             const totalTickets =
               price && packValue ? Math.floor(packValue / price) : null;
+
+            // Determine scope_type based on state_id and store_id
+            // Story: State-Scoped Lottery Games Phase
+            let scopeType: "STATE" | "STORE" | "GLOBAL";
+            if (game.state_id && !game.store_id) {
+              scopeType = "STATE";
+            } else if (game.store_id) {
+              scopeType = "STORE";
+            } else {
+              scopeType = "GLOBAL";
+            }
+
             return {
               game_id: game.game_id,
               game_code: game.game_code,
@@ -2578,7 +2622,16 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               status: game.status,
               created_at: game.created_at.toISOString(),
               updated_at: game.updated_at.toISOString(),
-              is_global: game.store_id === null,
+              state_id: game.state_id,
+              store_id: game.store_id,
+              scope_type: scopeType,
+              state: game.state
+                ? {
+                    state_id: game.state.state_id,
+                    code: game.state.code,
+                    name: game.state.name,
+                  }
+                : null,
             };
           }),
         };
@@ -2602,6 +2655,11 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
    * Create a new lottery game
    * Protected route - requires LOTTERY_PACK_RECEIVE permission (game creation is part of pack reception workflow)
    * Used when receiving packs with unknown game codes
+   *
+   * State-Scoped Lottery Games Phase:
+   * - SuperAdmin creates STATE-scoped games (state_id required)
+   * - Non-SuperAdmin creates store-scoped games (store_id required, fallback for edge cases)
+   *
    * Enhanced: Now requires pack_value for serial number calculation (Story 6.x)
    */
   fastify.post(
@@ -2612,7 +2670,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         permissionMiddleware(PERMISSIONS.LOTTERY_PACK_RECEIVE),
       ],
       schema: {
-        description: "Create a new lottery game",
+        description:
+          "Create a new lottery game (STATE-scoped for SuperAdmin, store-scoped for others)",
         tags: ["lottery"],
         body: {
           type: "object",
@@ -2645,11 +2704,17 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               maxLength: 500,
               description: "Optional game description",
             },
+            state_id: {
+              type: "string",
+              format: "uuid",
+              description:
+                "State ID for state-scoped games (required for SuperAdmin users)",
+            },
             store_id: {
               type: "string",
               format: "uuid",
               description:
-                "Store ID for store-scoped games (required for non-SuperAdmin users, ignored for SuperAdmin)",
+                "Store ID for store-scoped games (required for non-SuperAdmin users)",
             },
           },
         },
@@ -2668,6 +2733,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                   pack_value: { type: "number" },
                   total_tickets: { type: "integer" },
                   status: { type: "string" },
+                  scope_type: { type: "string", enum: ["STATE", "STORE"] },
+                  state_id: { type: "string", format: "uuid", nullable: true },
+                  store_id: { type: "string", format: "uuid", nullable: true },
                 },
               },
             },
@@ -2709,6 +2777,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         price: number;
         pack_value: number;
         description?: string;
+        state_id?: string;
         store_id?: string;
       };
 
@@ -2777,13 +2846,76 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         }
 
         // Determine game scope based on user role
-        // - SUPERADMIN creates global games (store_id = null)
-        // - Other users create store-scoped games (store_id required in body)
+        // - SUPERADMIN creates STATE-scoped games (state_id required)
+        // - Other users create store-scoped games (store_id required, fallback for edge cases)
         const isSuperAdmin = user.roles.includes("SUPERADMIN");
         let storeId: string | null = null;
+        let stateId: string | null = null;
+        let scopeType: "STATE" | "STORE" = "STORE";
 
-        if (!isSuperAdmin) {
-          // Non-SuperAdmin users MUST provide store_id
+        if (isSuperAdmin) {
+          // SuperAdmin creates STATE-scoped games
+          if (!body.state_id) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message:
+                  "state_id is required for SuperAdmin to create state-scoped games",
+              },
+            };
+          }
+
+          // Validate state exists and is active
+          const state = await prisma.uSState.findUnique({
+            where: { state_id: body.state_id },
+            select: {
+              state_id: true,
+              code: true,
+              name: true,
+              is_active: true,
+              lottery_enabled: true,
+            },
+          });
+
+          if (!state) {
+            reply.code(404);
+            return {
+              success: false,
+              error: {
+                code: "NOT_FOUND",
+                message: "State not found",
+              },
+            };
+          }
+
+          if (!state.is_active) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: `State ${state.code} is not active`,
+              },
+            };
+          }
+
+          if (!state.lottery_enabled) {
+            reply.code(400);
+            return {
+              success: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: `Lottery is not enabled for state ${state.code}`,
+              },
+            };
+          }
+
+          stateId = body.state_id;
+          scopeType = "STATE";
+        } else {
+          // Non-SuperAdmin users create store-scoped games (fallback for edge cases)
           if (!body.store_id) {
             reply.code(400);
             return {
@@ -2828,16 +2960,17 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           }
 
           storeId = body.store_id;
+          scopeType = "STORE";
         }
 
         // Check if game_code already exists for this scope
-        // For global games: check if a global game with this code exists
+        // For state games: check if a state game with this code exists for this state
         // For store games: check if a store game with this code exists for this store
         const existingGame = await prisma.lotteryGame.findFirst({
-          where: {
-            game_code: body.game_code,
-            store_id: storeId,
-          },
+          where:
+            scopeType === "STATE"
+              ? { game_code: body.game_code, state_id: stateId }
+              : { game_code: body.game_code, store_id: storeId },
         });
 
         if (existingGame) {
@@ -2846,9 +2979,10 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             success: false,
             error: {
               code: "DUPLICATE_GAME_CODE",
-              message: isSuperAdmin
-                ? `Global game with code ${body.game_code} already exists`
-                : `Game with code ${body.game_code} already exists for this store`,
+              message:
+                scopeType === "STATE"
+                  ? `State-scoped game with code ${body.game_code} already exists for this state`
+                  : `Game with code ${body.game_code} already exists for this store`,
             },
           };
         }
@@ -2865,6 +2999,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             status: "ACTIVE",
             created_by_user_id: user.id,
             store_id: storeId,
+            state_id: stateId,
           },
         });
 
@@ -2877,9 +3012,10 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
         const userAgent = request.headers["user-agent"] || null;
 
         try {
-          const scopeDescription = isSuperAdmin
-            ? "global"
-            : `store-scoped (${storeId})`;
+          const scopeDescription =
+            scopeType === "STATE"
+              ? `state-scoped (${stateId})`
+              : `store-scoped (${storeId})`;
           await prisma.auditLog.create({
             data: {
               user_id: user.id,
@@ -2894,7 +3030,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
                 pack_value: Number(newGame.pack_value),
                 total_tickets: totalTickets,
                 store_id: storeId,
-                is_global: isSuperAdmin,
+                state_id: stateId,
+                scope_type: scopeType,
               } as Record<string, any>,
               ip_address: ipAddress,
               user_agent: userAgent,
@@ -2919,7 +3056,9 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             pack_value: Number(newGame.pack_value),
             total_tickets: totalTickets,
             status: newGame.status,
-            is_global: isSuperAdmin,
+            scope_type: scopeType,
+            state_id: stateId,
+            store_id: storeId,
           },
         };
       } catch (error: any) {

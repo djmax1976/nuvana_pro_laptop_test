@@ -97,6 +97,8 @@ export interface MoneyReceivedState {
 
 /**
  * State for sales breakdown section - POS Totals (read-only from POS)
+ *
+ * @security FE-005: UI_SECURITY - Display-only values, no sensitive data
  */
 export interface SalesBreakdownPOSState {
   gasSales: number;
@@ -105,17 +107,34 @@ export interface SalesBreakdownPOSState {
   beverages: number;
   snacks: number;
   other: number;
+  /** Instant (scratch-off) ticket sales from POS */
   scratchOff: number;
+  /** Instant ticket cashes/redemptions from POS */
+  instantCashes: number;
+  /** Online lottery sales from POS */
   onlineLottery: number;
+  /** Online lottery cashes/redemptions from POS */
+  onlineCashes: number;
   salesTax: number;
 }
 
 /**
  * State for sales breakdown section - Reports Totals (manual input for lottery only)
+ *
+ * These values come from the lottery terminal report entered in Step 1 (Report Scanning).
+ * Separated from POS data for reconciliation purposes.
+ *
+ * @security SEC-014: INPUT_VALIDATION - All values validated via sanitizeNumericInput
  */
 export interface SalesBreakdownReportsState {
+  /** Instant (scratch-off) ticket sales from lottery report */
   scratchOff: number;
+  /** Instant ticket cashes/redemptions from lottery report */
+  instantCashes: number;
+  /** Online lottery sales from lottery report */
   onlineLottery: number;
+  /** Online lottery cashes/redemptions from lottery report */
+  onlineCashes: number;
 }
 
 /**
@@ -301,15 +320,18 @@ export const DEFAULT_MONEY_RECEIVED_STATE: MoneyReceivedState = {
  * Default initial state for sales breakdown
  *
  * Column layout:
- * - Reports Totals: OUR data (lottery tracking, manual entries)
+ * - Reports Totals: OUR data (lottery tracking, manual entries from Report Scanning step)
  * - POS Totals: 3rd party POS data (placeholder until integration)
  *
  * Data flow for lottery:
- * 1. Step 1 (Lottery Close): Our calculated lottery_total → reports.scratchOff
- * 2. Step 2 (Report Scanning): Online lottery entry → reports.onlineLottery
+ * 1. Report Scanning Step: Lottery terminal report data → reports columns
+ *    - Instant Sales, Instant Cashes, Online Sales, Online Cashes
+ * 2. Lottery Close Step (Day Close only): Our calculated lottery_total → reports.scratchOff
  *
  * @business-rule All our lottery data goes to REPORTS column
  * @business-rule POS column is placeholder for future 3rd party POS integration
+ *
+ * @security FE-005: UI_SECURITY - Default values contain no sensitive data
  *
  * Includes sample POS data for department sales (placeholder until POS integration)
  */
@@ -322,14 +344,18 @@ export const DEFAULT_SALES_BREAKDOWN_STATE: SalesBreakdownState = {
     beverages: 450.0,
     snacks: 320.0,
     other: 180.0,
-    // Lottery POS values - populated from lottery terminal report in Step 2
+    // Lottery POS values - populated from 3rd party POS integration (future)
     scratchOff: 0,
+    instantCashes: 0,
     onlineLottery: 0,
+    onlineCashes: 0,
     salesTax: 245.0,
   },
   reports: {
-    // Lottery values from our internal lottery system (populated from Step 1 lottery close)
+    // Lottery values from lottery terminal report (populated from Report Scanning step)
     scratchOff: 0,
+    instantCashes: 0,
     onlineLottery: 0,
+    onlineCashes: 0,
   },
 };

@@ -27,6 +27,10 @@ import {
   TRANSACTION_TIMEOUTS,
 } from "../utils/db";
 import type { RLSContext } from "../utils/db";
+import {
+  getCurrentStoreDate,
+  DEFAULT_STORE_TIMEZONE,
+} from "../utils/timezone.utils";
 
 // ============================================================================
 // TYPES
@@ -298,9 +302,10 @@ export async function prepareClose(
         );
       }
 
-      // Get current date in store timezone
-      const now = new Date();
-      const targetDateStr = now.toISOString().split("T")[0];
+      // Get current date in store timezone (DB-006: timezone-aware date calculation)
+      // CRITICAL: Must use store timezone, not UTC, to determine business day
+      const storeTimezone = store.timezone || DEFAULT_STORE_TIMEZONE;
+      const targetDateStr = getCurrentStoreDate(storeTimezone);
       const targetDate = new Date(targetDateStr + "T00:00:00");
 
       // Find or create business day record with row-level locking
@@ -511,9 +516,23 @@ export async function commitClose(
   return withRLSTransaction(
     rlsContext,
     async (tx) => {
-      // Get current date
-      const now = new Date();
-      const targetDateStr = now.toISOString().split("T")[0];
+      // Get store to retrieve timezone (DB-006: tenant isolation)
+      const store = await tx.store.findUnique({
+        where: { store_id: storeId },
+        select: { store_id: true, timezone: true },
+      });
+
+      if (!store) {
+        throw new DayCloseError(
+          DAY_CLOSE_ERROR_CODES.STORE_NOT_FOUND,
+          "Store not found",
+        );
+      }
+
+      // Get current date in store timezone (DB-006: timezone-aware date calculation)
+      // CRITICAL: Must use store timezone, not UTC, to determine business day
+      const storeTimezone = store.timezone || DEFAULT_STORE_TIMEZONE;
+      const targetDateStr = getCurrentStoreDate(storeTimezone);
       const targetDate = new Date(targetDateStr + "T00:00:00");
 
       // Find business day with row-level locking via FOR UPDATE
@@ -548,6 +567,7 @@ export async function commitClose(
       }
 
       // Check if pending close has expired
+      const now = new Date();
       if (
         businessDay.pending_close_expires_at &&
         businessDay.pending_close_expires_at < now
@@ -723,8 +743,19 @@ export async function cancelClose(
   return withRLSTransaction(
     rlsContext,
     async (tx) => {
-      const now = new Date();
-      const targetDateStr = now.toISOString().split("T")[0];
+      // Get store to retrieve timezone (DB-006: tenant isolation)
+      const store = await tx.store.findUnique({
+        where: { store_id: storeId },
+        select: { store_id: true, timezone: true },
+      });
+
+      if (!store) {
+        return false; // Store not found, nothing to cancel
+      }
+
+      // Get current date in store timezone (DB-006: timezone-aware date calculation)
+      const storeTimezone = store.timezone || DEFAULT_STORE_TIMEZONE;
+      const targetDateStr = getCurrentStoreDate(storeTimezone);
       const targetDate = new Date(targetDateStr + "T00:00:00");
 
       const result = await tx.lotteryBusinessDay.updateMany({
@@ -764,8 +795,15 @@ export async function getDayStatus(storeId: string): Promise<{
 } | null> {
   validateUUID(storeId, "storeId");
 
-  const now = new Date();
-  const targetDateStr = now.toISOString().split("T")[0];
+  // Get store to retrieve timezone (DB-006: tenant isolation)
+  const store = await prisma.store.findUnique({
+    where: { store_id: storeId },
+    select: { timezone: true },
+  });
+
+  // Get current date in store timezone (DB-006: timezone-aware date calculation)
+  const storeTimezone = store?.timezone || DEFAULT_STORE_TIMEZONE;
+  const targetDateStr = getCurrentStoreDate(storeTimezone);
   const targetDate = new Date(targetDateStr + "T00:00:00");
 
   const businessDay = await prisma.lotteryBusinessDay.findUnique({

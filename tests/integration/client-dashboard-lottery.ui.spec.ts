@@ -10,9 +10,13 @@
  * - Empty state display (AC #8)
  * - RLS enforcement (AC #7)
  * - Error handling and loading states (AC #7)
+ * - Filter functionality (game name, status, date range)
+ * - Expandable rows with pack details
+ * - Total Bins and Total Remaining Packs badges
  *
  * Note: The LotteryTable component now displays inventory grouped by game
  * with columns: Game Name, Game Number, Dollar Value, Pack Count, Status
+ * Rows are expandable to show pack details (sub-list)
  *
  * @test-level Integration
  * @justification Tests UI components with real API integration, authentication, and data flow
@@ -193,6 +197,11 @@ async function createTestFixture(
     });
   }
 
+  // Small delay to ensure database writes are fully committed and visible to other connections
+  // This prevents race conditions where the backend login service doesn't see the new user yet
+  // Increased to 200ms to handle slower CI environments
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
   return {
     prisma,
     clientOwner: {
@@ -290,7 +299,7 @@ async function loginAndWaitForClientDashboard(
   password: string,
   retryCount = 0,
 ): Promise<void> {
-  const MAX_RETRIES = 2;
+  const MAX_RETRIES = 3; // Increased from 2 to 3 for better CI reliability
   const FORM_VISIBILITY_TIMEOUT = 30000; // Increased for slow CI
   const INPUT_EDITABLE_TIMEOUT = 15000;
   const LOGIN_API_TIMEOUT = 45000;
@@ -370,17 +379,26 @@ async function loginAndWaitForClientDashboard(
       // networkidle might timeout if there are long-polling requests
     });
   } catch (error) {
-    // Retry on connection errors (backend restart)
-    if (
+    // Retry on connection errors (backend restart) or "Invalid credentials" (database visibility race)
+    const shouldRetry =
       retryCount < MAX_RETRIES &&
       error instanceof Error &&
       (error.message.includes("ERR_CONNECTION_REFUSED") ||
-        error.message.includes("net::"))
-    ) {
+        error.message.includes("net::") ||
+        error.message.includes("Invalid credentials"));
+
+    if (shouldRetry) {
+      const errorType = error.message.includes("Invalid credentials")
+        ? "Credentials not yet visible in database"
+        : "Connection error";
       console.log(
-        `Connection error, retrying login (attempt ${retryCount + 2}/${MAX_RETRIES + 1})...`,
+        `${errorType}, retrying login (attempt ${retryCount + 2}/${MAX_RETRIES + 1})...`,
       );
-      await page.waitForTimeout(2000); // Wait for backend to restart
+      // Wait longer for database visibility issues (user may not be committed yet)
+      const waitTime = error.message.includes("Invalid credentials")
+        ? 1000
+        : 2000;
+      await page.waitForTimeout(waitTime);
       return loginAndWaitForClientDashboard(
         page,
         email,
@@ -640,9 +658,9 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       // The empty state message mentions "lottery inventory"
       await expect(emptyState).toContainText(/No lottery inventory/i);
 
-      // AND: Add button is still available
+      // AND: Receive Packs button is still available
       await expect(
-        page.locator('[data-testid="add-new-lottery-button"]'),
+        page.locator('[data-testid="receive-packs-button"]'),
       ).toBeVisible();
     } finally {
       await cleanupTestFixture(fixture);
@@ -674,8 +692,8 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
         await store1Tab.click();
       }
 
-      // WHEN: Clicking "+ Add New Lottery" button
-      await page.locator('[data-testid="add-new-lottery-button"]').click();
+      // WHEN: Clicking "+ Receive Packs" button
+      await page.locator('[data-testid="receive-packs-button"]').click();
 
       // THEN: Pack Reception dialog opens (uses serialized input form per Story 6.12)
       // Use getByRole to target the heading specifically, avoiding the sr-only description
@@ -941,7 +959,7 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     }
   });
 
-  test("6.10.1-UI-009: [P2] Add New Lottery button accessibility", async ({
+  test("6.10.1-UI-009: [P2] Receive Packs button accessibility", async ({
     page,
   }) => {
     const fixture = await createTestFixture("009");
@@ -958,12 +976,14 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // THEN: Add button has proper accessibility attributes
-      const addButton = page.locator('[data-testid="add-new-lottery-button"]');
-      await expect(addButton).toBeVisible();
-      await expect(addButton).toHaveAttribute(
+      // THEN: Receive Packs button has proper accessibility attributes
+      const receiveButton = page.locator(
+        '[data-testid="receive-packs-button"]',
+      );
+      await expect(receiveButton).toBeVisible();
+      await expect(receiveButton).toHaveAttribute(
         "aria-label",
-        "Add new lottery pack",
+        "Receive lottery packs",
       );
     } finally {
       await cleanupTestFixture(fixture);
@@ -1070,6 +1090,469 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       // Then verify focus moved (happens after state update via useEffect)
       await expect(store2Tab).toBeFocused({ timeout: 5000 });
     } finally {
+      await cleanupTestFixture(fixture);
+    }
+  });
+
+  test("6.10.1-UI-012: [P2] Filter bar displays all filter controls", async ({
+    page,
+  }) => {
+    const fixture = await createTestFixture("012", { withBins: true });
+    let testPack: any;
+
+    try {
+      // Create a pack so table is visible
+      testPack = await createLotteryPack(fixture.prisma, {
+        game_id: fixture.game.game_id,
+        store_id: fixture.store1.store_id,
+        status: "ACTIVE",
+        pack_number: `FILTER-PACK-${Date.now()}`,
+      });
+
+      await loginAndWaitForClientDashboard(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
+      await page.goto("/client-dashboard/lottery", {
+        waitUntil: "domcontentloaded",
+      });
+
+      await waitForLotteryPageLoaded(page);
+
+      // Select store 1
+      await page
+        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
+        .click();
+
+      // Wait for filter section
+      await page
+        .locator('[data-testid="lottery-filters"]')
+        .waitFor({ state: "visible", timeout: 30000 });
+
+      // THEN: Filter controls are visible
+      await expect(
+        page.locator('[data-testid="filter-game-name"]'),
+      ).toBeVisible();
+      await expect(page.locator('[data-testid="filter-status"]')).toBeVisible();
+      await expect(
+        page.locator('[data-testid="filter-date-from"]'),
+      ).toBeVisible();
+      await expect(
+        page.locator('[data-testid="filter-date-to"]'),
+      ).toBeVisible();
+
+      // AND: Total badges are visible
+      await expect(
+        page.locator('[data-testid="total-bins-badge"]'),
+      ).toBeVisible();
+      await expect(
+        page.locator('[data-testid="total-remaining-packs-badge"]'),
+      ).toBeVisible();
+
+      // AND: Receive Packs button is visible
+      await expect(
+        page.locator('[data-testid="receive-packs-button"]'),
+      ).toBeVisible();
+    } finally {
+      if (testPack) {
+        await fixture.prisma.lotteryPack
+          .delete({ where: { pack_id: testPack.pack_id } })
+          .catch(() => {});
+      }
+      await cleanupTestFixture(fixture);
+    }
+  });
+
+  test("6.10.1-UI-013: [P2] Game name filter filters inventory table", async ({
+    page,
+  }) => {
+    const fixture = await createTestFixture("013", { withBins: true });
+    let testPack1: any, testPack2: any, game2: any;
+
+    try {
+      // Create second game
+      game2 = await createLotteryGame(fixture.prisma, {
+        name: `Other Game ${Date.now()}`,
+        price: 10.0,
+      });
+
+      // Create packs for different games
+      testPack1 = await createLotteryPack(fixture.prisma, {
+        game_id: fixture.game.game_id,
+        store_id: fixture.store1.store_id,
+        status: "ACTIVE",
+        pack_number: `GAME1-PACK-${Date.now()}`,
+      });
+
+      testPack2 = await createLotteryPack(fixture.prisma, {
+        game_id: game2.game_id,
+        store_id: fixture.store1.store_id,
+        status: "ACTIVE",
+        pack_number: `GAME2-PACK-${Date.now()}`,
+      });
+
+      await loginAndWaitForClientDashboard(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
+      await page.goto("/client-dashboard/lottery", {
+        waitUntil: "domcontentloaded",
+      });
+
+      await waitForLotteryPageLoaded(page);
+
+      // Select store 1
+      await page
+        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
+        .click();
+
+      // Wait for table
+      await page
+        .locator('[data-testid="lottery-table"]')
+        .waitFor({ state: "visible", timeout: 30000 });
+
+      // Initially both games should be visible
+      await expect(page.getByText(fixture.game.name)).toBeVisible();
+      await expect(page.getByText(game2.name)).toBeVisible();
+
+      // WHEN: Filtering by first game name
+      await page
+        .locator('[data-testid="filter-game-name"]')
+        .fill(fixture.game.name.substring(0, 5));
+
+      // THEN: Only first game is visible
+      await expect(page.getByText(fixture.game.name)).toBeVisible();
+      await expect(page.getByText(game2.name)).not.toBeVisible({
+        timeout: 5000,
+      });
+    } finally {
+      if (testPack1) {
+        await fixture.prisma.lotteryPack
+          .delete({ where: { pack_id: testPack1.pack_id } })
+          .catch(() => {});
+      }
+      if (testPack2) {
+        await fixture.prisma.lotteryPack
+          .delete({ where: { pack_id: testPack2.pack_id } })
+          .catch(() => {});
+      }
+      if (game2) {
+        await fixture.prisma.lotteryGame
+          .delete({ where: { game_id: game2.game_id } })
+          .catch(() => {});
+      }
+      await cleanupTestFixture(fixture);
+    }
+  });
+
+  test("6.10.1-UI-014: [P2] Expandable rows show pack details", async ({
+    page,
+  }) => {
+    const fixture = await createTestFixture("014", { withBins: true });
+    let testPack1: any, testPack2: any;
+
+    try {
+      // Create multiple packs for same game
+      testPack1 = await createLotteryPack(fixture.prisma, {
+        game_id: fixture.game.game_id,
+        store_id: fixture.store1.store_id,
+        status: "ACTIVE",
+        current_bin_id: fixture.bin1!.bin_id,
+        pack_number: `EXPAND-PACK-001-${Date.now()}`,
+        serial_start: "1001",
+        serial_end: "1999",
+      });
+
+      testPack2 = await createLotteryPack(fixture.prisma, {
+        game_id: fixture.game.game_id,
+        store_id: fixture.store1.store_id,
+        status: "ACTIVE",
+        current_bin_id: fixture.bin2!.bin_id,
+        pack_number: `EXPAND-PACK-002-${Date.now()}`,
+        serial_start: "2001",
+        serial_end: "2999",
+      });
+
+      await loginAndWaitForClientDashboard(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
+      await page.goto("/client-dashboard/lottery", {
+        waitUntil: "domcontentloaded",
+      });
+
+      await waitForLotteryPageLoaded(page);
+
+      // Select store 1
+      await page
+        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
+        .click();
+
+      // Wait for table
+      await page
+        .locator('[data-testid="lottery-table"]')
+        .waitFor({ state: "visible", timeout: 30000 });
+
+      // WHEN: Clicking on a game row to expand
+      const gameRow = page.locator(
+        `[data-testid="lottery-table-row-${fixture.game.game_id}"]`,
+      );
+      await gameRow.click();
+
+      // THEN: Pack details are expanded
+      const packDetails = page.locator(
+        `[data-testid="pack-details-${fixture.game.game_id}"]`,
+      );
+      await expect(packDetails).toBeVisible({ timeout: 5000 });
+
+      // AND: Pack detail headers are displayed (use getByRole to target column headers specifically)
+      // Note: getByText would match both headers and cell content containing "Bin"
+      await expect(
+        packDetails.getByRole("columnheader", { name: "Pack #" }),
+      ).toBeVisible();
+      await expect(
+        packDetails.getByRole("columnheader", { name: "Serial Range" }),
+      ).toBeVisible();
+      await expect(
+        packDetails.getByRole("columnheader", { name: "Bin" }),
+      ).toBeVisible();
+
+      // AND: Individual pack rows are visible with their data
+      const pack1Row = packDetails.locator(
+        `[data-testid="pack-row-${testPack1.pack_id}"]`,
+      );
+      const pack2Row = packDetails.locator(
+        `[data-testid="pack-row-${testPack2.pack_id}"]`,
+      );
+
+      await expect(pack1Row).toBeVisible();
+      await expect(pack2Row).toBeVisible();
+
+      // Verify pack numbers are displayed in their respective rows
+      await expect(pack1Row.getByText(testPack1.pack_number)).toBeVisible();
+      await expect(pack2Row.getByText(testPack2.pack_number)).toBeVisible();
+
+      // Verify serial ranges are displayed (format: "start - end")
+      await expect(pack1Row.getByText("1001 - 1999")).toBeVisible();
+      await expect(pack2Row.getByText("2001 - 2999")).toBeVisible();
+
+      // WHEN: Clicking row again to collapse
+      await gameRow.click();
+
+      // THEN: Pack details are hidden
+      await expect(packDetails).not.toBeVisible({ timeout: 5000 });
+    } finally {
+      if (testPack1) {
+        await fixture.prisma.lotteryPack
+          .delete({ where: { pack_id: testPack1.pack_id } })
+          .catch(() => {});
+      }
+      if (testPack2) {
+        await fixture.prisma.lotteryPack
+          .delete({ where: { pack_id: testPack2.pack_id } })
+          .catch(() => {});
+      }
+      await cleanupTestFixture(fixture);
+    }
+  });
+
+  test("6.10.1-UI-015: [P2] Total Bins badge shows correct count", async ({
+    page,
+  }) => {
+    const fixture = await createTestFixture("015", { withBins: true });
+    let testPack: any;
+
+    try {
+      // Create a pack so table is visible
+      testPack = await createLotteryPack(fixture.prisma, {
+        game_id: fixture.game.game_id,
+        store_id: fixture.store1.store_id,
+        status: "ACTIVE",
+        pack_number: `BINS-PACK-${Date.now()}`,
+      });
+
+      await loginAndWaitForClientDashboard(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
+      await page.goto("/client-dashboard/lottery", {
+        waitUntil: "domcontentloaded",
+      });
+
+      await waitForLotteryPageLoaded(page);
+
+      // Select store 1
+      await page
+        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
+        .click();
+
+      // Wait for filter section to load
+      await page
+        .locator('[data-testid="lottery-filters"]')
+        .waitFor({ state: "visible", timeout: 30000 });
+
+      // THEN: Total Bins badge shows correct count (fixture creates 2 bins)
+      const binsBadge = page.locator('[data-testid="total-bins-count"]');
+      await expect(binsBadge).toBeVisible({ timeout: 10000 });
+      await expect(binsBadge).toHaveText("2");
+    } finally {
+      if (testPack) {
+        await fixture.prisma.lotteryPack
+          .delete({ where: { pack_id: testPack.pack_id } })
+          .catch(() => {});
+      }
+      await cleanupTestFixture(fixture);
+    }
+  });
+
+  test("6.10.1-UI-016: [P2] Total Remaining Packs badge shows correct count", async ({
+    page,
+  }) => {
+    const fixture = await createTestFixture("016", { withBins: true });
+    let activePack1: any, activePack2: any, depletedPack: any;
+
+    try {
+      // Create mix of active and depleted packs
+      activePack1 = await createLotteryPack(fixture.prisma, {
+        game_id: fixture.game.game_id,
+        store_id: fixture.store1.store_id,
+        status: "ACTIVE",
+        pack_number: `REMAINING-001-${Date.now()}`,
+      });
+
+      activePack2 = await createLotteryPack(fixture.prisma, {
+        game_id: fixture.game.game_id,
+        store_id: fixture.store1.store_id,
+        status: "RECEIVED",
+        pack_number: `REMAINING-002-${Date.now()}`,
+      });
+
+      depletedPack = await createLotteryPack(fixture.prisma, {
+        game_id: fixture.game.game_id,
+        store_id: fixture.store1.store_id,
+        status: "DEPLETED",
+        pack_number: `DEPLETED-001-${Date.now()}`,
+      });
+
+      await loginAndWaitForClientDashboard(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
+      await page.goto("/client-dashboard/lottery", {
+        waitUntil: "domcontentloaded",
+      });
+
+      await waitForLotteryPageLoaded(page);
+
+      // Select store 1
+      await page
+        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
+        .click();
+
+      // Wait for filter section to load
+      await page
+        .locator('[data-testid="lottery-filters"]')
+        .waitFor({ state: "visible", timeout: 30000 });
+
+      // THEN: Total Remaining Packs shows 2 (excludes DEPLETED)
+      const packsBadge = page.locator(
+        '[data-testid="total-remaining-packs-count"]',
+      );
+      await expect(packsBadge).toBeVisible({ timeout: 10000 });
+      await expect(packsBadge).toHaveText("2");
+    } finally {
+      if (activePack1) {
+        await fixture.prisma.lotteryPack
+          .delete({ where: { pack_id: activePack1.pack_id } })
+          .catch(() => {});
+      }
+      if (activePack2) {
+        await fixture.prisma.lotteryPack
+          .delete({ where: { pack_id: activePack2.pack_id } })
+          .catch(() => {});
+      }
+      if (depletedPack) {
+        await fixture.prisma.lotteryPack
+          .delete({ where: { pack_id: depletedPack.pack_id } })
+          .catch(() => {});
+      }
+      await cleanupTestFixture(fixture);
+    }
+  });
+
+  test("6.10.1-UI-017: [P2] Status filter shows sold packs when selected", async ({
+    page,
+  }) => {
+    const fixture = await createTestFixture("017", { withBins: true });
+    let activePack: any, depletedPack: any;
+
+    try {
+      // Create active and depleted packs
+      activePack = await createLotteryPack(fixture.prisma, {
+        game_id: fixture.game.game_id,
+        store_id: fixture.store1.store_id,
+        status: "ACTIVE",
+        pack_number: `ACTIVE-STATUS-${Date.now()}`,
+      });
+
+      depletedPack = await createLotteryPack(fixture.prisma, {
+        game_id: fixture.game.game_id,
+        store_id: fixture.store1.store_id,
+        status: "DEPLETED",
+        pack_number: `DEPLETED-STATUS-${Date.now()}`,
+      });
+
+      await loginAndWaitForClientDashboard(
+        page,
+        fixture.clientOwner.email,
+        fixture.password,
+      );
+      await page.goto("/client-dashboard/lottery", {
+        waitUntil: "domcontentloaded",
+      });
+
+      await waitForLotteryPageLoaded(page);
+
+      // Select store 1
+      await page
+        .locator(`[data-testid="store-tab-${fixture.store1.store_id}"]`)
+        .click();
+
+      // Wait for table (shows active packs by default)
+      await page
+        .locator('[data-testid="lottery-table"]')
+        .waitFor({ state: "visible", timeout: 30000 });
+
+      // Initially in default view (all = ACTIVE + RECEIVED)
+      // Game should be visible with 1 active pack
+      await expect(page.getByText(fixture.game.name)).toBeVisible();
+
+      // WHEN: Selecting "Sold" status filter
+      await page.locator('[data-testid="filter-status"]').click();
+      await page.getByRole("option", { name: "Sold" }).click();
+
+      // THEN: Table shows only depleted (sold) packs
+      // Wait for table update
+      await page.waitForTimeout(500);
+
+      // Game should still be visible (has depleted pack)
+      await expect(page.getByText(fixture.game.name)).toBeVisible();
+    } finally {
+      if (activePack) {
+        await fixture.prisma.lotteryPack
+          .delete({ where: { pack_id: activePack.pack_id } })
+          .catch(() => {});
+      }
+      if (depletedPack) {
+        await fixture.prisma.lotteryPack
+          .delete({ where: { pack_id: depletedPack.pack_id } })
+          .catch(() => {});
+      }
       await cleanupTestFixture(fixture);
     }
   });

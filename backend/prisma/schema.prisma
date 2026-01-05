@@ -76,6 +76,12 @@ model User {
   // X/Z Report relations (Phase 4)
   x_reports_generated         XReport[]               @relation("XReportGeneratedBy")
   z_reports_generated         ZReport[]               @relation("ZReportGeneratedBy")
+  // Scanned Documents (OCR Feature)
+  documents_scanned           ScannedDocument[]       @relation("ScannedDocumentScannedBy")
+  documents_verified          ScannedDocument[]       @relation("ScannedDocumentVerifiedBy")
+  documents_rejected          ScannedDocument[]       @relation("ScannedDocumentRejectedBy")
+  // Lottery Game Import relations
+  lottery_game_imports        LotteryGameImport[]     @relation("LotteryGameImportCreatedBy")
 
   @@index([email])
   @@index([status])
@@ -87,13 +93,45 @@ model User {
 model Company {
   company_id    String               @id @default(uuid()) @db.Uuid
   name          String               @db.VarChar(255)
+
+  // === LEGACY ADDRESS FIELD (DEPRECATED) ===
+  // @deprecated Use structured address fields below
+  // Will be removed in future migration after data migration complete
   address       String?              @db.VarChar(500)
+
+  // === STRUCTURED ADDRESS FIELDS ===
+  // Enterprise-grade address storage following Square/Shopify patterns
+  // Enables address validation, tax jurisdiction, and geographic filtering
+
+  // Street address line 1 (e.g., "123 Main Street")
+  address_line1 String? @db.VarChar(255)
+
+  // Street address line 2 (e.g., "Suite 100", "Building A")
+  address_line2 String? @db.VarChar(255)
+
+  // City name (denormalized for display, validated against state)
+  city String? @db.VarChar(100)
+
+  // FK to us_states - determines available lottery games and tax jurisdiction
+  state_id String? @db.Uuid
+
+  // FK to us_counties - critical for future tax jurisdiction calculation
+  county_id String? @db.Uuid
+
+  // ZIP code (5-digit or ZIP+4 format: 12345 or 12345-6789)
+  zip_code String? @db.VarChar(10)
+
+  // === EXISTING FIELDS ===
   status        String               @default("ACTIVE") @db.VarChar(50)
   created_at    DateTime             @default(now()) @db.Timestamptz(6)
   updated_at    DateTime             @default(now()) @updatedAt @db.Timestamptz(6)
   owner_user_id String               @db.Uuid
   public_id     String               @unique @db.VarChar(30)
+
+  // === RELATIONS ===
   owner         User                 @relation("CompanyOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
+  state         USState?             @relation("CompanyState", fields: [state_id], references: [state_id], onDelete: Restrict)
+  county        USCounty?            @relation("CompanyCounty", fields: [county_id], references: [county_id], onDelete: SetNull)
   stores        Store[]
   user_roles    UserRole[]
   allowed_roles CompanyAllowedRole[] @relation("CompanyAllowedRoleCompany")
@@ -102,30 +140,77 @@ model Company {
   tax_rates     TaxRate[]            @relation("TaxRateClient")
   // POS Audit relations (Phase 0)
   pos_audits    POSDataExchangeAudit[]
+  // Scanned Documents (OCR Feature)
+  scanned_documents ScannedDocument[]
 
+  // === INDEXES ===
   @@index([owner_user_id])
   @@index([status])
   @@index([public_id])
+  @@index([state_id])
+  @@index([county_id])
+  @@index([zip_code])
   @@map("companies")
 }
 
 model Store {
-  store_id              String                   @id @default(uuid()) @db.Uuid
-  company_id            String                   @db.Uuid
-  name                  String                   @db.VarChar(255)
-  location_json         Json?
-  timezone              String                   @default("America/New_York") @db.VarChar(50)
-  status                String                   @default("ACTIVE") @db.VarChar(50)
-  created_at            DateTime                 @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime                 @default(now()) @updatedAt @db.Timestamptz(6)
-  configuration         Json?
-  public_id             String                   @unique @db.VarChar(30)
-  store_login_user_id   String?                  @db.Uuid // Optional FK to User - the CLIENT_USER login credential for this store's dashboard
+  store_id   String @id @default(uuid()) @db.Uuid
+  company_id String @db.Uuid
+  name       String @db.VarChar(255)
+
+  // === LEGACY LOCATION FIELD (DEPRECATED) ===
+  // @deprecated Use structured address fields below
+  // Will be removed in future migration after data migration complete
+  location_json Json?
+
+  // === STRUCTURED ADDRESS FIELDS ===
+  // Enterprise-grade address storage for store physical location
+  // CRITICAL: state_id determines which lottery games are visible to this store
+
+  // Street address line 1 (e.g., "456 Commerce Drive")
+  address_line1 String? @db.VarChar(255)
+
+  // Street address line 2 (e.g., "Unit 5", "Next to Walmart")
+  address_line2 String? @db.VarChar(255)
+
+  // City name (denormalized for display)
+  city String? @db.VarChar(100)
+
+  // FK to us_states - CRITICAL: determines lottery game visibility
+  // After migration, this will become NOT NULL (required)
+  // Stores can only see lottery games scoped to their state
+  state_id String? @db.Uuid
+
+  // FK to us_counties - for future tax jurisdiction calculation
+  // County must belong to the store's state (enforced at application level)
+  county_id String? @db.Uuid
+
+  // ZIP code (5-digit or ZIP+4 format: 12345 or 12345-6789)
+  zip_code String? @db.VarChar(10)
+
+  // === LOTTERY CONFIGURATION ===
+  // Number of lottery bins configured for this store
+  // Owner sets this value, system auto-creates/syncs bin rows
+  // Valid range: 0-200 (null means not configured yet)
+  lottery_bin_count Int? @db.Integer
+
+  // === EXISTING FIELDS ===
+  timezone            String   @default("America/New_York") @db.VarChar(50)
+  status              String   @default("ACTIVE") @db.VarChar(50)
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  configuration       Json?
+  public_id           String   @unique @db.VarChar(30)
+  store_login_user_id String?  @db.Uuid // Optional FK to User - the CLIENT_USER login credential for this store's dashboard
+
+  // === RELATIONS ===
+  company               Company                  @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  state                 USState?                 @relation("StoreState", fields: [state_id], references: [state_id], onDelete: Restrict)
+  county                USCounty?                @relation("StoreCounty", fields: [county_id], references: [county_id], onDelete: SetNull)
+  store_login           User?                    @relation("StoreLogin", fields: [store_login_user_id], references: [user_id], onDelete: SetNull)
   pos_terminals         POSTerminal[]
   shifts                Shift[]
   cashiers              Cashier[]
-  company               Company                  @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
-  store_login           User?                    @relation("StoreLogin", fields: [store_login_user_id], references: [user_id], onDelete: SetNull)
   transactions          Transaction[]
   user_roles            UserRole[]
   cashier_sessions      CashierSession[]
@@ -153,11 +238,19 @@ model Store {
   // NAXML Scheduled Export relations (Phase 2)
   scheduled_exports     NAXMLScheduledExport[]
   scheduled_export_logs NAXMLScheduledExportLog[]
+  // Scanned Documents (OCR Feature)
+  scanned_documents     ScannedDocument[]
 
+  // === INDEXES ===
   @@index([company_id])
   @@index([status])
   @@index([public_id])
   @@index([store_login_user_id])
+  @@index([state_id])
+  @@index([county_id])
+  @@index([zip_code])
+  // Composite index for lottery game filtering by state
+  @@index([state_id, status])
   @@map("stores")
 }
 
@@ -195,6 +288,8 @@ model Cashier {
   shifts                 Shift[]
   sessions               CashierSession[]
   lotteryShiftClosings   LotteryShiftClosing[]  @relation("LotteryShiftClosingCashier")
+  // Scanned Documents (OCR Feature)
+  scanned_documents      ScannedDocument[]
 
   @@unique([store_id, employee_id])
   @@unique([store_id, pin_hash])
@@ -521,6 +616,287 @@ enum LotteryConfigType {
 }
 
 // ============================================================================
+// GEOGRAPHIC REFERENCE TABLES - US States, Counties, Cities, ZIP Codes
+// ============================================================================
+// Enterprise-grade geographic data management for:
+// - State-scoped lottery games (primary use case)
+// - Address validation for Company/Store
+// - Future: Automated tax jurisdiction calculation
+// - Future: Regional compliance and reporting
+//
+// Design Principles:
+// - FIPS codes for government compliance (Federal Information Processing Standards)
+// - Hierarchical relationships: State > County > City > ZIP
+// - Soft delete via is_active flag for data integrity
+// - Extensible for future tax rate and compliance data
+// ============================================================================
+
+/// US State - Reference table for US states and territories
+/// Contains FIPS codes for government compliance and tax jurisdiction integration
+/// Used for lottery game scoping, store assignment, and address validation
+///
+/// ENTERPRISE FEATURES:
+/// - FIPS code (2-digit) for federal reporting standards
+/// - ISO 3166-2:US compliant state codes
+/// - Lottery enablement flag for multi-state support
+/// - Extensible for future tax rate storage
+///
+/// USAGE:
+/// - Store.state_id FK determines lottery game visibility
+/// - LotteryGame.state_id scopes games to specific states
+/// - SuperAdmin creates state-scoped games visible to all stores in that state
+model USState {
+  state_id String @id @default(uuid()) @db.Uuid
+
+  // === STANDARD IDENTIFIERS ===
+  // ISO 3166-2:US subdivision code (e.g., GA, NC, SC)
+  code String @unique @db.Char(2)
+
+  // Full state name for display (e.g., Georgia, North Carolina)
+  name String @db.VarChar(100)
+
+  // Federal Information Processing Standard code
+  // 2-digit code used by US Census and tax authorities
+  // GA=13, NC=37, SC=45
+  // Reference: https://www.census.gov/library/reference/code-lists/ansi.html
+  fips_code String @unique @db.Char(2)
+
+  // === STATUS ===
+  // Soft delete flag - allows disabling without data loss
+  is_active Boolean @default(true)
+
+  // === LOTTERY CONFIGURATION ===
+  // Whether state lottery operations are enabled
+  // Used to filter states in lottery game creation UI
+  lottery_enabled Boolean @default(true)
+
+  // === FUTURE EXPANSION (Nullable) ===
+  // Default timezone for stores in this state (IANA format)
+  timezone_default String? @db.VarChar(50)
+
+  // Base state sales tax rate (future: Avalara/TaxJar integration)
+  tax_rate_state Decimal? @db.Decimal(5, 4)
+
+  // State lottery commission contact info (future)
+  lottery_commission_name  String? @db.VarChar(255)
+  lottery_commission_phone String? @db.VarChar(20)
+  lottery_commission_url   String? @db.VarChar(500)
+
+  // === TIMESTAMPS ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  counties             USCounty[]
+  zip_codes            USZipCode[]
+  cities               USCity[]
+  stores               Store[]              @relation("StoreState")
+  companies            Company[]            @relation("CompanyState")
+  lottery_games        LotteryGame[]        @relation("LotteryGameState")
+  lottery_game_imports LotteryGameImport[]  @relation("LotteryGameImportState")
+
+  // === INDEXES ===
+  @@index([code])
+  @@index([fips_code])
+  @@index([is_active])
+  @@index([lottery_enabled])
+  @@index([is_active, lottery_enabled])
+  @@map("us_states")
+}
+
+/// US County - Reference table for US counties
+/// Contains 5-digit FIPS codes for tax jurisdiction determination
+///
+/// ENTERPRISE FEATURES:
+/// - Full FIPS code (5-digit: state + county) for tax jurisdiction mapping
+/// - County-level tax rate support for future Avalara/TaxJar integration
+/// - Population data for analytics and reporting
+///
+/// TAX JURISDICTION:
+/// County is CRITICAL for accurate sales tax calculation in the US.
+/// Same city name can exist in multiple counties with different tax rates.
+/// Example: Springfield exists in 30+ US states with varying county taxes.
+model USCounty {
+  county_id String @id @default(uuid()) @db.Uuid
+  state_id  String @db.Uuid
+
+  // === IDENTIFICATION ===
+  // County name (e.g., Fulton, DeKalb, Cobb)
+  name String @db.VarChar(100)
+
+  // Full 5-digit FIPS code (state 2-digit + county 3-digit)
+  // Example: 13121 = Georgia (13) + Fulton County (121)
+  // Reference: https://www.census.gov/library/reference/code-lists/ansi.html
+  fips_code String @unique @db.Char(5)
+
+  // === STATUS ===
+  is_active Boolean @default(true)
+
+  // === FUTURE EXPANSION ===
+  // County-level sales tax rate (future: tax automation)
+  tax_rate_county Decimal? @db.Decimal(5, 4)
+
+  // Population for analytics (US Census data)
+  population Int?
+
+  // County seat city name
+  county_seat String? @db.VarChar(100)
+
+  // === TIMESTAMPS ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  // RESTRICT: Cannot delete state with counties
+  state     USState     @relation(fields: [state_id], references: [state_id], onDelete: Restrict)
+  cities    USCity[]
+  zip_codes USZipCode[]
+  stores    Store[]     @relation("StoreCounty")
+  companies Company[]   @relation("CompanyCounty")
+
+  // === CONSTRAINTS ===
+  // County name must be unique within a state
+  @@unique([state_id, name], name: "us_counties_state_name_unique")
+
+  // === INDEXES ===
+  @@index([state_id])
+  @@index([name])
+  @@index([fips_code])
+  @@index([is_active])
+  @@index([state_id, is_active])
+  @@map("us_counties")
+}
+
+/// US City - Reference table for US cities
+/// Used for address validation and future city-level tax rates
+///
+/// NOTE ON CITY-COUNTY RELATIONSHIP:
+/// Some cities span multiple counties (e.g., Atlanta spans Fulton and DeKalb).
+/// This table maps to the PRIMARY county. For precise tax jurisdiction,
+/// use ZIP code + address geocoding with a service like Avalara.
+///
+/// ENTERPRISE FEATURES:
+/// - Supports city-level tax rates (separate from county/state)
+/// - Links to primary county for basic jurisdiction
+/// - Population data for analytics
+model USCity {
+  city_id   String @id @default(uuid()) @db.Uuid
+  county_id String @db.Uuid
+  state_id  String @db.Uuid
+
+  // === IDENTIFICATION ===
+  // City name (e.g., Atlanta, Charlotte, Columbia)
+  name String @db.VarChar(100)
+
+  // === STATUS ===
+  is_active Boolean @default(true)
+
+  // === FUTURE EXPANSION ===
+  // City-level sales tax rate (some cities have additional taxes)
+  tax_rate_city Decimal? @db.Decimal(5, 4)
+
+  // Population for analytics
+  population Int?
+
+  // Incorporated city flag
+  is_incorporated Boolean @default(true)
+
+  // === TIMESTAMPS ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  // RESTRICT: Cannot delete county with cities
+  county    USCounty    @relation(fields: [county_id], references: [county_id], onDelete: Restrict)
+  state     USState     @relation(fields: [state_id], references: [state_id], onDelete: Restrict)
+  zip_codes USZipCode[]
+
+  // === CONSTRAINTS ===
+  // City name should be unique within a county (not state - same city name can exist in different counties)
+  @@unique([county_id, name], name: "us_cities_county_name_unique")
+
+  // === INDEXES ===
+  @@index([county_id])
+  @@index([state_id])
+  @@index([name])
+  @@index([is_active])
+  @@index([state_id, name])
+  @@map("us_cities")
+}
+
+/// US ZIP Code - Reference table for US postal codes
+/// Maps ZIP codes to geographic entities for address validation and tax jurisdiction
+///
+/// DESIGN DECISIONS:
+/// - ZIP code is the PRIMARY KEY (natural key, 5-digit, unique by definition)
+/// - Links to PRIMARY county/city (ZIP codes can span multiple - use geocoding for precision)
+/// - Stores denormalized city_name for performance (most common lookup pattern)
+/// - Includes lat/lng for future distance calculations and store locator
+///
+/// TAX JURISDICTION NOTES:
+/// - Same ZIP code can span multiple counties (edge cases)
+/// - For precise tax calculation, use address geocoding with Avalara/TaxJar
+/// - county_id represents the PRIMARY county (covers majority of addresses in ZIP)
+///
+/// DATA SOURCE:
+/// US Census ZCTA (ZIP Code Tabulation Area) data
+/// https://www.census.gov/geographies/reference-files.html
+model USZipCode {
+  // 5-digit ZIP code as primary key (natural key)
+  zip_code String @id @db.Char(5)
+
+  // === GEOGRAPHIC REFERENCES ===
+  state_id  String  @db.Uuid
+  county_id String? @db.Uuid // Primary county (nullable for edge cases)
+  city_id   String? @db.Uuid // Primary city (nullable)
+
+  // Denormalized city name for performance (avoids join for common lookups)
+  city_name String @db.VarChar(100)
+
+  // === STATUS ===
+  is_active Boolean @default(true)
+
+  // === ZIP+4 SUPPORT (Future) ===
+  // JSON array of valid ZIP+4 ranges for this base ZIP
+  // Format: [{"from": "0001", "to": "0099"}, ...]
+  zip_plus4_ranges Json? @db.JsonB
+
+  // === GEOLOCATION (Future: Store Locator) ===
+  // Centroid coordinates for the ZIP code area
+  latitude  Decimal? @db.Decimal(9, 6)
+  longitude Decimal? @db.Decimal(9, 6)
+
+  // === METADATA ===
+  // ZIP code type: STANDARD, PO_BOX, UNIQUE (large volume mailers)
+  zip_type String? @db.VarChar(20)
+
+  // Primary vs secondary classification
+  is_primary Boolean @default(true)
+
+  // === TIMESTAMPS ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  // RESTRICT on state: Cannot delete state with ZIP codes
+  // SET NULL on county/city: Allow orphaning for flexibility
+  state  USState   @relation(fields: [state_id], references: [state_id], onDelete: Restrict)
+  county USCounty? @relation(fields: [county_id], references: [county_id], onDelete: SetNull)
+  city   USCity?   @relation(fields: [city_id], references: [city_id], onDelete: SetNull)
+
+  // === INDEXES ===
+  @@index([state_id])
+  @@index([county_id])
+  @@index([city_id])
+  @@index([city_name])
+  @@index([is_active])
+  @@index([state_id, city_name])
+  // Geospatial index for future store locator
+  @@index([latitude, longitude])
+  @@map("us_zip_codes")
+}
+
+// ============================================================================
 // TENDER TYPE (Payment Method) - Lookup/Dimension Table
 // ============================================================================
 // Replaces hardcoded PaymentMethodEnum with flexible, client-configurable
@@ -801,6 +1177,8 @@ model Shift {
   // X/Z Report relations (Phase 4)
   x_reports         XReport[]
   z_report          ZReport? // One Z per shift
+  // Scanned Documents (OCR Feature)
+  scanned_documents ScannedDocument[]
 
   @@index([store_id])
   @@index([opened_by])
@@ -835,6 +1213,8 @@ model POSTerminal {
   shifts            Shift[]
   transactions      Transaction[]
   cashier_sessions  CashierSession[]
+  // Scanned Documents (OCR Feature)
+  scanned_documents ScannedDocument[]
 
   @@unique([device_id]) // Global uniqueness (device_id can be null, but if set, must be unique across all stores)
   @@index([store_id])
@@ -992,6 +1372,8 @@ model CashierSession {
   store         Store       @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
   authenticated User        @relation("CashierSessionAuthenticator", fields: [authenticated_by], references: [user_id])
   shift         Shift?      @relation(fields: [shift_id], references: [shift_id])
+  // Scanned Documents (OCR Feature)
+  scanned_documents ScannedDocument[]
 
   // Indexes for performance
   @@index([session_token_hash])
@@ -1003,11 +1385,31 @@ model CashierSession {
 
 /// Lottery Game - Represents a lottery scratch-off game
 /// Story 6.1: Lottery Game and Pack Data Models
-/// Lottery Game - Master list of lottery games
-/// Scoping rules:
-/// - store_id IS NULL = Global game (created by Super Admin, visible to all stores)
-/// - store_id IS NOT NULL = Store-scoped game (created at a specific store, visible only to that store)
-/// This allows the same game_code to exist multiple times: once as global, once per store
+///
+/// SCOPING RULES (UPDATED FOR MULTI-STATE SUPPORT):
+/// Games can be scoped at two levels with clear priority:
+///
+/// 1. STATE-SCOPED (PRIMARY - Most Common):
+///    - state_id IS NOT NULL, store_id IS NULL
+///    - Created by SuperAdmin for a specific state (e.g., Georgia Lottery games)
+///    - Visible to ALL stores in that state
+///    - Example: Georgia Lottery "Mega Bucks" visible to all GA stores
+///
+/// 2. STORE-SCOPED (FALLBACK - Rare Edge Cases):
+///    - state_id IS NULL, store_id IS NOT NULL
+///    - Created by store owner for custom/promotional games
+///    - Visible only to that specific store
+///    - Example: Store-specific promotional scratch ticket
+///
+/// LOOKUP PRIORITY:
+/// When a store scans a pack, game lookup follows this order:
+///   1. Look for STATE-scoped game (game.state_id = store.state_id)
+///   2. Fall back to STORE-scoped game (game.store_id = storeId)
+///   3. If not found, prompt user to create store-scoped game
+///
+/// CONSTRAINT:
+/// A game must have EITHER state_id OR store_id set (mutually exclusive)
+/// This is enforced at the application level during creation/update
 model LotteryGame {
   game_id            String            @id @default(uuid()) @db.Uuid
   game_code          String            @db.VarChar(4)
@@ -1020,20 +1422,41 @@ model LotteryGame {
   created_at         DateTime          @default(now()) @db.Timestamptz(6)
   updated_at         DateTime          @default(now()) @updatedAt @db.Timestamptz(6)
   created_by_user_id String?           @db.Uuid // User who created this game (NULL for legacy/seeded games)
-  store_id           String?           @db.Uuid // NULL = global game, UUID = store-scoped game
 
+  // === SCOPING FIELDS ===
+  // NEW: State-scoped game - visible to all stores in this state
+  // SuperAdmin creates these for state lottery games (primary use case)
+  state_id String? @db.Uuid
+
+  // EXISTING: Store-scoped game - visible only to this store (fallback/edge case)
+  // Store owners can create these for custom promotional games
+  store_id String? @db.Uuid
+
+  // === RELATIONS ===
   packs      LotteryPack[]
   created_by User?         @relation("LotteryGameCreator", fields: [created_by_user_id], references: [user_id], onDelete: SetNull)
+  state      USState?      @relation("LotteryGameState", fields: [state_id], references: [state_id], onDelete: Restrict)
   store      Store?        @relation("LotteryGameStore", fields: [store_id], references: [store_id], onDelete: Cascade)
 
+  // === UNIQUE CONSTRAINTS ===
+  // Game code must be unique within a state (for state-scoped games)
+  @@unique([game_code, state_id], name: "lottery_games_game_code_state_unique")
+  // Game code must be unique within a store (for store-scoped games)
   @@unique([game_code, store_id], name: "lottery_games_game_code_store_unique")
+
+  // === INDEXES ===
   @@index([name])
   @@index([game_code])
   @@index([status])
   @@index([price])
   @@index([pack_value])
+  @@index([state_id])
   @@index([store_id])
   @@index([created_by_user_id])
+  // Composite index for state-scoped game lookup (most common query)
+  @@index([game_code, state_id, status])
+  // Composite index for store-scoped game lookup (fallback query)
+  @@index([game_code, store_id, status])
   @@map("lottery_games")
 }
 
@@ -1331,6 +1754,8 @@ model LotteryBusinessDay {
   closedByUser       User?            @relation("LotteryDayClosedBy", fields: [closed_by], references: [user_id], onDelete: SetNull)
   pendingCloseByUser User?            @relation("LotteryDayPendingCloseBy", fields: [pending_close_by], references: [user_id], onDelete: SetNull)
   day_packs          LotteryDayPack[]
+  // Scanned Documents (OCR Feature)
+  scanned_documents  ScannedDocument[]
 
   @@unique([store_id, business_date])
   @@index([store_id])
@@ -2212,6 +2637,8 @@ model DaySummary {
   department_summaries DayDepartmentSummary[]
   tax_summaries        DayTaxSummary[]
   hourly_summaries     DayHourlySummary[]
+  // Scanned Documents (OCR Feature)
+  scanned_documents    ScannedDocument[]
 
   // === INDEXES ===
   @@unique([store_id, business_date])
@@ -2508,4 +2935,231 @@ model ZReport {
   @@index([store_id, business_date])
   @@index([generated_at])
   @@map("z_reports")
+}
+
+// ============================================================================
+// SCANNED DOCUMENTS - OCR Document Scanning Feature
+// ============================================================================
+// Enterprise-grade storage for OCR-scanned documents with complete traceability.
+// Actual files stored in S3/cloud storage - this table tracks the link.
+//
+// TRACEABILITY: store, company, date, shift, cashier, terminal, session
+// AUDIT: who scanned, who verified, when, from where (IP)
+// ============================================================================
+
+/// Document type for OCR scanning
+enum DocumentType {
+  LOTTERY_SALES_REPORT
+  LOTTERY_INVOICE_REPORT
+  GAMING_REPORT
+}
+
+/// OCR processing status lifecycle
+enum OCRStatus {
+  PENDING
+  PREPROCESSING
+  EXTRACTING
+  AWAITING_VERIFICATION
+  VERIFIED
+  FAILED
+  REJECTED
+}
+
+/// Cloud storage provider
+enum StorageProviderType {
+  S3
+  R2
+  LOCAL
+  AZURE
+}
+
+/// How data was captured
+enum ScanEntryMethod {
+  SCAN
+  MANUAL
+}
+
+/// Scanned Document - Complete traceability for OCR-processed documents
+model ScannedDocument {
+  document_id String @id @default(uuid()) @db.Uuid
+
+  // === TENANT ISOLATION & HIERARCHY ===
+  store_id   String @db.Uuid
+  company_id String @db.Uuid
+
+  // === DOCUMENT TYPE ===
+  document_type DocumentType
+
+  // === TEMPORAL CONTEXT ===
+  business_date    DateTime  @db.Date
+  week_ending_date DateTime? @db.Date // For invoice reports (Saturday)
+
+  // === OPERATIONAL CONTEXT (Complete Traceability) ===
+  day_summary_id     String? @db.Uuid
+  lottery_day_id     String? @db.Uuid
+  shift_id           String? @db.Uuid
+  cashier_session_id String? @db.Uuid
+  terminal_id        String? @db.Uuid
+  cashier_id         String? @db.Uuid
+
+  // === PROCESSING STATUS ===
+  status                      OCRStatus       @default(PENDING)
+  entry_method                ScanEntryMethod @default(SCAN)
+  preprocessing_started_at    DateTime?       @db.Timestamptz(6)
+  preprocessing_completed_at  DateTime?       @db.Timestamptz(6)
+  extraction_started_at       DateTime?       @db.Timestamptz(6)
+  extraction_completed_at     DateTime?       @db.Timestamptz(6)
+  total_processing_time_ms    Int?
+
+  // === STORAGE INFORMATION ===
+  storage_provider                 StorageProviderType
+  storage_bucket                   String              @db.VarChar(255)
+  storage_path                     String              @db.VarChar(1000)
+  storage_region                   String?             @db.VarChar(50)
+  cached_presigned_url             String?             @db.Text
+  cached_presigned_url_expires_at  DateTime?           @db.Timestamptz(6)
+
+  // === FILE METADATA ===
+  original_filename        String  @db.VarChar(255)
+  file_size_bytes          Int
+  mime_type                String  @db.VarChar(100)
+  file_hash                String  @db.VarChar(64)
+  image_width              Int?
+  image_height             Int?
+  was_preprocessed         Boolean @default(false)
+  preprocessing_operations Json?   @db.JsonB
+
+  // === EXTRACTED DATA ===
+  ocr_wizard_fields       Json?    @db.JsonB
+  confirmed_wizard_fields Json?    @db.JsonB
+  extracted_data          Json?    @db.JsonB
+  raw_ocr_text            String?  @db.Text
+  confidence_score        Decimal? @db.Decimal(5, 2)
+  field_confidence_scores Json?    @db.JsonB
+
+  // === REPORT METADATA (from scanned document) ===
+  report_date        DateTime? @db.Date
+  report_date_string String?   @db.VarChar(50)
+  retailer_id        String?   @db.VarChar(50)
+  report_type_string String?   @db.VarChar(100)
+
+  // === DATE VALIDATION ===
+  date_validation_passed Boolean?
+  date_validation_error  String?
+
+  // === AUDIT TRAIL - WHO ===
+  scanned_by_user_id  String  @db.Uuid
+  verified_by_user_id String? @db.Uuid
+  rejected_by_user_id String? @db.Uuid
+
+  // === AUDIT TRAIL - WHEN ===
+  scanned_at  DateTime  @default(now()) @db.Timestamptz(6)
+  verified_at DateTime? @db.Timestamptz(6)
+  rejected_at DateTime? @db.Timestamptz(6)
+
+  // === AUDIT TRAIL - WHY ===
+  rejection_reason String? @db.Text
+  rejection_code   String? @db.VarChar(50)
+
+  // === CLIENT CONTEXT ===
+  client_ip_address String? @db.VarChar(45) // IPv6 max length
+  client_user_agent String? @db.Text
+
+  // === REPROCESSING SUPPORT ===
+  reprocessed_from_document_id String? @db.Uuid
+  reprocess_count              Int     @default(0)
+
+  // === TIMESTAMPS ===
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // === RELATIONS ===
+  store                 Store            @relation(fields: [store_id], references: [store_id], onDelete: Cascade)
+  company               Company          @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  day_summary           DaySummary?      @relation(fields: [day_summary_id], references: [day_summary_id], onDelete: SetNull)
+  lottery_day           LotteryBusinessDay? @relation(fields: [lottery_day_id], references: [day_id], onDelete: SetNull)
+  shift                 Shift?           @relation(fields: [shift_id], references: [shift_id], onDelete: SetNull)
+  cashier_session       CashierSession?  @relation(fields: [cashier_session_id], references: [session_id], onDelete: SetNull)
+  terminal              POSTerminal?     @relation(fields: [terminal_id], references: [pos_terminal_id], onDelete: SetNull)
+  cashier               Cashier?         @relation(fields: [cashier_id], references: [cashier_id], onDelete: SetNull)
+  scanned_by_user       User             @relation("ScannedDocumentScannedBy", fields: [scanned_by_user_id], references: [user_id], onDelete: Restrict)
+  verified_by_user      User?            @relation("ScannedDocumentVerifiedBy", fields: [verified_by_user_id], references: [user_id], onDelete: SetNull)
+  rejected_by_user      User?            @relation("ScannedDocumentRejectedBy", fields: [rejected_by_user_id], references: [user_id], onDelete: SetNull)
+  reprocessed_from      ScannedDocument? @relation("ReprocessedDocuments", fields: [reprocessed_from_document_id], references: [document_id], onDelete: SetNull)
+  reprocessed_documents ScannedDocument[] @relation("ReprocessedDocuments")
+
+  // === INDEXES ===
+  @@index([store_id])
+  @@index([company_id])
+  @@index([business_date])
+  @@index([store_id, business_date])
+  @@index([store_id, document_type, business_date])
+  @@index([status])
+  @@index([store_id, status])
+  @@index([day_summary_id])
+  @@index([lottery_day_id])
+  @@index([shift_id])
+  @@index([cashier_id])
+  @@index([scanned_by_user_id])
+  @@index([scanned_at])
+  @@index([storage_path])
+  @@index([file_hash])
+  @@map("scanned_documents")
+}
+
+// ============================================================================
+// LOTTERY GAME IMPORT - Bulk Game Import with Two-Phase Commit
+// ============================================================================
+// Enterprise-grade bulk import for lottery games with validation preview
+// Two-phase commit pattern: Validate → Preview → Commit (or Cancel)
+// ============================================================================
+
+/// LotteryGameImport - Stores validated import jobs awaiting commit
+/// Two-phase commit pattern enables preview/review before committing changes
+/// Tokens expire after 15 minutes to prevent stale imports
+model LotteryGameImport {
+  import_id        String   @id @default(uuid()) @db.Uuid
+  validation_token String   @unique @db.Uuid @default(uuid())
+
+  // === SCOPING ===
+  state_id String @db.Uuid // Target state for imported games
+
+  // === USER CONTEXT ===
+  created_by_user_id String @db.Uuid
+
+  // === VALIDATED DATA ===
+  // Parsed and validated rows stored as JSON array
+  // Each row contains: { row_number, status, action, data, errors?, existing_game? }
+  validated_data Json @db.JsonB
+
+  // === IMPORT OPTIONS ===
+  // Options selected during validation: { skipDuplicates?, updateExisting? }
+  import_options Json @db.JsonB
+
+  // === SUMMARY STATS ===
+  total_rows     Int
+  valid_rows     Int
+  error_rows     Int
+  duplicate_rows Int
+
+  // === LIFECYCLE ===
+  expires_at   DateTime  @db.Timestamptz(6) // Token expiry (15 min from creation)
+  committed_at DateTime? @db.Timestamptz(6) // NULL until committed
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+
+  // === COMMIT RESULTS (populated after commit) ===
+  // Summary: { created, updated, skipped, failed }
+  commit_result Json? @db.JsonB
+
+  // === RELATIONS ===
+  state      USState @relation("LotteryGameImportState", fields: [state_id], references: [state_id], onDelete: Restrict)
+  created_by User    @relation("LotteryGameImportCreatedBy", fields: [created_by_user_id], references: [user_id], onDelete: Restrict)
+
+  // === INDEXES ===
+  @@index([validation_token])
+  @@index([state_id])
+  @@index([created_by_user_id])
+  @@index([expires_at])
+  @@index([committed_at])
+  @@map("lottery_game_imports")
 }

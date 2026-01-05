@@ -665,7 +665,12 @@ export const test = base.extend<RBACFixture>({
         },
       });
 
-      // 6. Delete the user (check if exists first to avoid errors if already deleted by global cleanup)
+      // 6. Delete lottery game imports created by this user (FK constraint: lottery_game_imports_created_by_user_id_fkey)
+      await bypassClient.lotteryGameImport.deleteMany({
+        where: { created_by_user_id: user.user_id },
+      });
+
+      // 7. Delete the user (check if exists first to avoid errors if already deleted by global cleanup)
       const userExists = await bypassClient.user.findUnique({
         where: { user_id: user.user_id },
         select: { user_id: true },

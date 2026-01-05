@@ -232,37 +232,47 @@ test.describe("Phase2-Integration: File Watcher and Adapter Integration", () => 
   });
 
   test("FE-INT-002: [P1] File watcher should process files in order by filename", async () => {
-    // GIVEN: Multiple files in the watch directory
+    // GIVEN: Multiple files in a dedicated watch directory (isolated from parallel tests)
     const { createFileWatcherService } =
       await import("../../backend/dist/services/pos/file-watcher.service");
 
     const watcher = createFileWatcherService();
 
-    // Use unique transaction IDs to avoid duplicate hash detection
+    // Create a dedicated directory to avoid interference from parallel tests
+    const orderTestDir = path.join(testDir, "order_test");
+    const orderProcessedDir = path.join(orderTestDir, "Processed");
+    const orderErrorDir = path.join(orderTestDir, "Error");
+    await fs.mkdir(orderTestDir, { recursive: true });
+    await fs.mkdir(orderProcessedDir, { recursive: true });
+    await fs.mkdir(orderErrorDir, { recursive: true });
+
+    // Use unique transaction IDs with timestamp to avoid duplicate hash detection
+    const uniqueSuffix = Date.now().toString();
     const txnXml1 = SAMPLE_TRANSACTION_XML.replace(
       "TXN-INT-001",
-      "TXN-ORDER-001",
+      `TXN-ORDER-001-${uniqueSuffix}`,
     );
     const txnXml2 = SAMPLE_TRANSACTION_XML.replace(
       "TXN-INT-001",
-      "TXN-ORDER-002",
+      `TXN-ORDER-002-${uniqueSuffix}`,
     );
     const txnXml3 = SAMPLE_TRANSACTION_XML.replace(
       "TXN-INT-001",
-      "TXN-ORDER-003",
+      `TXN-ORDER-003-${uniqueSuffix}`,
     );
 
     // Create files with specific names to verify ordering
-    await fs.writeFile(path.join(boOutboxPath, "TLog_001.xml"), txnXml1);
-    await fs.writeFile(path.join(boOutboxPath, "TLog_002.xml"), txnXml2);
-    await fs.writeFile(path.join(boOutboxPath, "TLog_003.xml"), txnXml3);
+    // All files created BEFORE watcher starts to ensure they are all picked up in the same poll
+    await fs.writeFile(path.join(orderTestDir, "TLog_001.xml"), txnXml1);
+    await fs.writeFile(path.join(orderTestDir, "TLog_002.xml"), txnXml2);
+    await fs.writeFile(path.join(orderTestDir, "TLog_003.xml"), txnXml3);
 
     const config = {
       storeId: TEST_STORE_ID_2,
       posIntegrationId: TEST_POS_ID,
-      watchPath: boOutboxPath,
-      processedPath: processedPath,
-      errorPath: errorPath,
+      watchPath: orderTestDir,
+      processedPath: orderProcessedDir,
+      errorPath: orderErrorDir,
       pollIntervalSeconds: 1,
       filePatterns: ["TLog*.xml"],
       isActive: true,
@@ -275,22 +285,41 @@ test.describe("Phase2-Integration: File Watcher and Adapter Integration", () => 
     };
 
     const processedOrder: string[] = [];
+    const expectedFileCount = 3;
 
-    watcher.on("fileProcessed", (result) => {
-      processedOrder.push(result.fileName);
+    // Create a promise that resolves when all files are processed
+    const allFilesProcessed = new Promise<void>((resolve) => {
+      const checkComplete = () => {
+        if (processedOrder.length >= expectedFileCount) {
+          resolve();
+        }
+      };
+
+      watcher.on("fileProcessed", (result) => {
+        processedOrder.push(result.fileName);
+        checkComplete();
+      });
     });
 
     // WHEN: Starting the watcher
     await watcher.startWatching(config, context);
 
-    // Wait for all files to be processed
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    // Wait for all files to be processed with a timeout
+    await Promise.race([
+      allFilesProcessed,
+      new Promise<void>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Timeout waiting for file processing")),
+          10000,
+        ),
+      ),
+    ]);
 
     await watcher.stopWatching(config.storeId);
 
     // THEN: Files should be processed in sorted order
     expect(processedOrder.length).toBe(3);
-    // Files are sorted alphabetically/by name
+    // Files are sorted alphabetically/by name (per FW-002 requirement)
     expect(processedOrder[0]).toContain("TLog_001");
     expect(processedOrder[1]).toContain("TLog_002");
     expect(processedOrder[2]).toContain("TLog_003");

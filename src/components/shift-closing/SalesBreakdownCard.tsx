@@ -340,10 +340,17 @@ export function SalesBreakdownCard({
 
         <Separator className="my-4" />
 
-        {/* Lottery items - Both columns with highlight */}
+        {/*
+          Lottery items - Both columns with highlight
+          Layout follows the lottery terminal report format:
+          - Instant Sales / Instant Cashes (scratch-off tickets)
+          - Online Sales / Online Cashes (draw games, powerball, etc.)
+
+          @security FE-002: FORM_VALIDATION - Inputs use sanitizeNumericInput
+        */}
         <DualColumnLineItem
           id="scratch-off"
-          label="Scratch Off"
+          label="Instant Sales"
           reportsValue={state.reports.scratchOff}
           posValue={state.pos.scratchOff}
           onReportsChange={createReportsChangeHandler("scratchOff")}
@@ -351,11 +358,29 @@ export function SalesBreakdownCard({
           disabled={disabled}
         />
         <DualColumnLineItem
+          id="instant-cashes"
+          label="Instant Cashes"
+          reportsValue={state.reports.instantCashes}
+          posValue={state.pos.instantCashes}
+          onReportsChange={createReportsChangeHandler("instantCashes")}
+          highlight
+          disabled={disabled}
+        />
+        <DualColumnLineItem
           id="online-lottery"
-          label="Online Lottery"
+          label="Online Sales"
           reportsValue={state.reports.onlineLottery}
           posValue={state.pos.onlineLottery}
           onReportsChange={createReportsChangeHandler("onlineLottery")}
+          highlight
+          disabled={disabled}
+        />
+        <DualColumnLineItem
+          id="online-cashes"
+          label="Online Cashes"
+          reportsValue={state.reports.onlineCashes}
+          posValue={state.pos.onlineCashes}
+          onReportsChange={createReportsChangeHandler("onlineCashes")}
           highlight
           disabled={disabled}
         />

@@ -5,6 +5,10 @@
  * Page for managing employees in client's stores
  *
  * Story: 2.91 - Client Employee Management
+ *
+ * Security Considerations (FE-001: STATE_MANAGEMENT):
+ * - Page title uses centralized context for consistent header display
+ * - No sensitive data stored in component state
  */
 
 import { useState } from "react";
@@ -17,20 +21,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { usePageTitleEffect } from "@/contexts/PageTitleContext";
 
 export default function EmployeesPage() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 
+  // Set page title in header (FE-001: STATE_MANAGEMENT)
+  usePageTitleEffect("Employees");
+
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Employees</h1>
-        <p className="text-muted-foreground">
-          Manage employees for your stores
-        </p>
-      </div>
-
       {/* Employee List */}
       <EmployeeList onCreateEmployee={() => setIsCreateDialogOpen(true)} />
 

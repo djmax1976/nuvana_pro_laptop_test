@@ -6,6 +6,9 @@
  * Main entry point for store configuration options.
  *
  * Phase 6: Frontend & Admin UI
+ *
+ * Security Considerations (FE-001: STATE_MANAGEMENT):
+ * - Page title uses centralized context for consistent header display
  */
 
 import Link from "next/link";
@@ -15,7 +18,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Settings, CreditCard, FolderTree, Percent } from "lucide-react";
+import { CreditCard, FolderTree, Percent } from "lucide-react";
+import { usePageTitleEffect } from "@/contexts/PageTitleContext";
 
 const configOptions = [
   {
@@ -39,18 +43,11 @@ const configOptions = [
 ];
 
 export default function ConfigPage() {
+  // Set page title in header (FE-001: STATE_MANAGEMENT)
+  usePageTitleEffect("Configuration");
+
   return (
     <div className="space-y-6" data-testid="client-config-page">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Settings className="h-6 w-6" />
-          Configuration
-        </h1>
-        <p className="text-muted-foreground">
-          Manage store settings and lookup tables
-        </p>
-      </div>
-
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {configOptions.map((option) => {
           const Icon = option.icon;

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useClientAuth } from "@/contexts/ClientAuthContext";
 import { useClientDashboard } from "@/lib/api/client-dashboard";
+import { usePageTitleEffect } from "@/contexts/PageTitleContext";
 import { StoreTabs } from "@/components/lottery/StoreTabs";
 import { LotteryTable } from "@/components/lottery/LotteryTable";
 import {
@@ -43,6 +44,9 @@ export default function ClientDashboardLotteryPage() {
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isAddBinDialogOpen, setIsAddBinDialogOpen] = useState(false);
+
+  // Set page title in header (FE-001: STATE_MANAGEMENT)
+  usePageTitleEffect("Lottery Management");
 
   // MCP FE-001: STATE_MANAGEMENT - Lifted state for pack reception
   // Pack list is owned by parent to persist across modal close/reopen
@@ -91,12 +95,6 @@ export default function ClientDashboardLotteryPage() {
   if (dashboardLoading) {
     return (
       <div className="space-y-6" data-testid="client-dashboard-lottery-page">
-        <div className="space-y-1">
-          <h1 className="text-heading-2 font-bold text-foreground">
-            Lottery Management
-          </h1>
-          <p className="text-muted-foreground">Loading stores...</p>
-        </div>
         <div className="flex items-center justify-center p-8">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -108,14 +106,9 @@ export default function ClientDashboardLotteryPage() {
   if (dashboardError) {
     return (
       <div className="space-y-6" data-testid="client-dashboard-lottery-page">
-        <div className="space-y-1">
-          <h1 className="text-heading-2 font-bold text-foreground">
-            Lottery Management
-          </h1>
-          <p className="text-destructive">
-            Failed to load stores. Please try again.
-          </p>
-        </div>
+        <p className="text-destructive">
+          Failed to load stores. Please try again.
+        </p>
       </div>
     );
   }
@@ -124,12 +117,7 @@ export default function ClientDashboardLotteryPage() {
   if (stores.length === 0) {
     return (
       <div className="space-y-6" data-testid="client-dashboard-lottery-page">
-        <div className="space-y-1">
-          <h1 className="text-heading-2 font-bold text-foreground">
-            Lottery Management
-          </h1>
-          <p className="text-muted-foreground">No stores available</p>
-        </div>
+        <p className="text-muted-foreground">No stores available</p>
       </div>
     );
   }
@@ -139,16 +127,6 @@ export default function ClientDashboardLotteryPage() {
 
   return (
     <div className="space-y-6" data-testid="client-dashboard-lottery-page">
-      {/* Page Header */}
-      <div className="space-y-1">
-        <h1 className="text-heading-2 font-bold text-foreground">
-          Lottery Management
-        </h1>
-        <p className="text-muted-foreground">
-          View and manage lottery packs and configuration across your stores
-        </p>
-      </div>
-
       {/* Store Tabs */}
       <StoreTabs
         stores={stores}
@@ -165,21 +143,11 @@ export default function ClientDashboardLotteryPage() {
 
         {/* Inventory Tab */}
         <TabsContent value="inventory" className="space-y-4">
-          <div className="flex justify-end">
-            <button
-              onClick={() => setIsAddDialogOpen(true)}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-              data-testid="add-new-lottery-button"
-              aria-label="Add new lottery pack"
-            >
-              + Add New Lottery
-            </button>
-          </div>
-
-          {/* Lottery Table */}
+          {/* Lottery Table (includes filters, total books badge, and receive packs button) */}
           {selectedStoreId && (
             <LotteryTable
               storeId={selectedStoreId}
+              onReceivePacksClick={() => setIsAddDialogOpen(true)}
               onEdit={(packId) => {
                 setEditingPackId(packId);
               }}

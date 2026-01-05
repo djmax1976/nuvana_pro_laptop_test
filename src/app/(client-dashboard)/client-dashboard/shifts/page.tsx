@@ -6,6 +6,10 @@
  *
  * Story: 4.7 - Shift Management UI
  * Story: Client Owner Dashboard - Shift Detail View
+ *
+ * Security Considerations (FE-001: STATE_MANAGEMENT):
+ * - Page title uses centralized context for consistent header display
+ * - No sensitive data stored in component state
  */
 
 import { useState, useCallback } from "react";
@@ -18,6 +22,7 @@ import {
 } from "@/lib/api/shifts";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { usePageTitleEffect } from "@/contexts/PageTitleContext";
 
 export default function ClientShiftsPage() {
   const router = useRouter();
@@ -32,6 +37,9 @@ export default function ClientShiftsPage() {
     offset: number;
     has_more: boolean;
   } | null>(null);
+
+  // Set page title in header (FE-001: STATE_MANAGEMENT)
+  usePageTitleEffect("Shift Management");
 
   // Handle filter changes - parent controls filter state to reset pagination
   const handleFiltersChange = useCallback((newFilters: ShiftQueryFilters) => {
@@ -69,14 +77,6 @@ export default function ClientShiftsPage() {
 
   return (
     <div className="space-y-6" data-testid="client-shifts-page">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Shifts</h1>
-        <p className="text-sm text-muted-foreground mt-2">
-          View and manage shifts, open new shifts, and reconcile cash
-        </p>
-      </div>
-
       {/* Shift List (includes filters) */}
       <ShiftList
         filters={filters}

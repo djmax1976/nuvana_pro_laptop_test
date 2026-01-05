@@ -101,6 +101,9 @@ describe("6.12-COMPONENT: NewGameModal", () => {
         pack_value: 300,
         total_tickets: 60,
         status: "ACTIVE",
+        scope_type: "STATE",
+        state_id: "state-123",
+        store_id: null,
       },
     });
   });

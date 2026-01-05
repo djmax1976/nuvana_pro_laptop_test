@@ -78,6 +78,21 @@ export async function companyRoutes(fastify: FastifyInstance) {
                     owner_email: { type: "string" },
                     name: { type: "string" },
                     address: { type: "string", nullable: true },
+                    // Structured address fields
+                    address_line1: { type: "string", nullable: true },
+                    address_line2: { type: "string", nullable: true },
+                    city: { type: "string", nullable: true },
+                    state_id: {
+                      type: "string",
+                      format: "uuid",
+                      nullable: true,
+                    },
+                    county_id: {
+                      type: "string",
+                      format: "uuid",
+                      nullable: true,
+                    },
+                    zip_code: { type: "string", nullable: true },
                     status: { type: "string" },
                     created_at: { type: "string", format: "date-time" },
                     updated_at: { type: "string", format: "date-time" },
@@ -198,6 +213,13 @@ export async function companyRoutes(fastify: FastifyInstance) {
               owner_email: { type: "string" },
               name: { type: "string" },
               address: { type: "string", nullable: true },
+              // Structured address fields
+              address_line1: { type: "string", nullable: true },
+              address_line2: { type: "string", nullable: true },
+              city: { type: "string", nullable: true },
+              state_id: { type: "string", format: "uuid", nullable: true },
+              county_id: { type: "string", format: "uuid", nullable: true },
+              zip_code: { type: "string", nullable: true },
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
               updated_at: { type: "string", format: "date-time" },
@@ -295,12 +317,44 @@ export async function companyRoutes(fastify: FastifyInstance) {
             address: {
               type: "string",
               maxLength: 500,
-              description: "Company address (optional)",
+              description:
+                "Company address (DEPRECATED - use structured fields)",
             },
             status: {
               type: "string",
               enum: ["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"],
               description: "Company status",
+            },
+            // === Structured Address Fields ===
+            address_line1: {
+              type: "string",
+              maxLength: 255,
+              description: "Street address line 1 (e.g., '123 Main Street')",
+            },
+            address_line2: {
+              type: ["string", "null"],
+              maxLength: 255,
+              description: "Street address line 2 (e.g., 'Suite 100')",
+            },
+            city: {
+              type: "string",
+              maxLength: 100,
+              description: "City name",
+            },
+            state_id: {
+              type: "string",
+              format: "uuid",
+              description: "State UUID - determines lottery game visibility",
+            },
+            county_id: {
+              type: "string",
+              format: "uuid",
+              description: "County UUID - for tax jurisdiction",
+            },
+            zip_code: {
+              type: "string",
+              pattern: "^[0-9]{5}(-[0-9]{4})?$",
+              description: "ZIP code (5-digit or ZIP+4 format)",
             },
           },
         },
@@ -314,6 +368,28 @@ export async function companyRoutes(fastify: FastifyInstance) {
               owner_email: { type: "string" },
               name: { type: "string" },
               address: { type: "string", nullable: true },
+              // Structured address fields in response
+              address_line1: { type: ["string", "null"] },
+              address_line2: { type: ["string", "null"] },
+              city: { type: ["string", "null"] },
+              state_id: { type: ["string", "null"], format: "uuid" },
+              county_id: { type: ["string", "null"], format: "uuid" },
+              zip_code: { type: ["string", "null"] },
+              state: {
+                type: ["object", "null"],
+                properties: {
+                  state_id: { type: "string", format: "uuid" },
+                  code: { type: "string" },
+                  name: { type: "string" },
+                },
+              },
+              county: {
+                type: ["object", "null"],
+                properties: {
+                  county_id: { type: "string", format: "uuid" },
+                  name: { type: "string" },
+                },
+              },
               status: { type: "string" },
               created_at: { type: "string", format: "date-time" },
               updated_at: { type: "string", format: "date-time" },
@@ -350,6 +426,13 @@ export async function companyRoutes(fastify: FastifyInstance) {
           name?: string;
           address?: string;
           status?: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING";
+          // Structured address fields
+          address_line1?: string;
+          address_line2?: string | null;
+          city?: string;
+          state_id?: string;
+          county_id?: string;
+          zip_code?: string;
         };
         const user = (request as any).user as UserIdentity;
 
@@ -372,6 +455,13 @@ export async function companyRoutes(fastify: FastifyInstance) {
             name: body.name,
             address: body.address,
             status: body.status,
+            // Structured address fields
+            address_line1: body.address_line1,
+            address_line2: body.address_line2,
+            city: body.city,
+            state_id: body.state_id,
+            county_id: body.county_id,
+            zip_code: body.zip_code,
           },
           auditContext,
         );

@@ -5,6 +5,10 @@
  * Page for managing cashiers in client's stores
  *
  * Story: 4.9 - Cashier Management
+ *
+ * Security Considerations (FE-001: STATE_MANAGEMENT):
+ * - Page title uses centralized context for consistent header display
+ * - No sensitive data stored in component state
  */
 
 import { useState } from "react";
@@ -18,10 +22,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { usePageTitleEffect } from "@/contexts/PageTitleContext";
 
 export default function CashiersPage() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingCashier, setEditingCashier] = useState<Cashier | null>(null);
+
+  // Set page title in header (FE-001: STATE_MANAGEMENT)
+  usePageTitleEffect("Cashiers");
 
   const handleEditCashier = (cashier: Cashier) => {
     setEditingCashier(cashier);
@@ -33,14 +41,6 @@ export default function CashiersPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Cashiers</h1>
-        <p className="text-muted-foreground">
-          Manage cashiers for your store terminals
-        </p>
-      </div>
-
       {/* Cashier List */}
       <CashierList
         onCreateCashier={() => setIsCreateDialogOpen(true)}

@@ -7,6 +7,10 @@
  * Story 6.14: Store Settings Page with Employee/Cashier Management
  * AC #1: Navigate to /client-dashboard/settings and see store tabs
  * AC #2: Select store tab and see internal tabs (Store Info, Employees, Cashiers)
+ *
+ * Security Considerations (FE-001: STATE_MANAGEMENT):
+ * - Page title uses centralized context for consistent header display
+ * - No sensitive data stored in component state
  */
 
 import { useState, useEffect, useMemo } from "react";
@@ -15,6 +19,7 @@ import { StoreTabs } from "@/components/lottery/StoreTabs";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
+import { usePageTitleEffect } from "@/contexts/PageTitleContext";
 
 // Lazy load tab components to improve initial page load
 const StoreInfoTab = dynamic(
@@ -49,6 +54,9 @@ export default function SettingsPage() {
   } = useClientDashboard();
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
 
+  // Set page title in header (FE-001: STATE_MANAGEMENT)
+  usePageTitleEffect("Settings");
+
   // Set first store as selected when stores are loaded
   const stores = useMemo(
     () => dashboardData?.stores || [],
@@ -64,12 +72,6 @@ export default function SettingsPage() {
   if (dashboardLoading) {
     return (
       <div className="space-y-6" data-testid="settings-page">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold">Settings</h1>
-          <p className="text-sm text-muted-foreground mt-2">
-            Loading stores...
-          </p>
-        </div>
         <div className="flex items-center justify-center p-8">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -81,12 +83,9 @@ export default function SettingsPage() {
   if (dashboardError) {
     return (
       <div className="space-y-6" data-testid="settings-page">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold">Settings</h1>
-          <p className="text-destructive">
-            Failed to load stores. Please try again.
-          </p>
-        </div>
+        <p className="text-destructive">
+          Failed to load stores. Please try again.
+        </p>
       </div>
     );
   }
@@ -95,26 +94,13 @@ export default function SettingsPage() {
   if (stores.length === 0) {
     return (
       <div className="space-y-6" data-testid="settings-page">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold">Settings</h1>
-          <p className="text-muted-foreground">No stores available</p>
-        </div>
+        <p className="text-muted-foreground">No stores available</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6" data-testid="settings-page">
-      {/* Page Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Settings</h1>
-          <p className="text-sm text-muted-foreground mt-2">
-            Manage store information and employee credentials
-          </p>
-        </div>
-      </div>
-
       {/* Store Tabs */}
       {stores.length > 1 && (
         <StoreTabs

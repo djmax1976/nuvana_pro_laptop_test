@@ -191,6 +191,16 @@ export default function ShiftEndWizardPage() {
   const scratchOffTotal = lotteryData?.lottery_total ?? 0;
 
   // ============ STEP 1 HANDLERS ============
+  /**
+   * Handle completion of Report Scanning step
+   *
+   * Transfers lottery report data from Step 1 to Step 2:
+   * - Lottery cashes (instant + online) → lotteryPayouts in money received
+   * - Lottery sales/cashes → sales breakdown reports columns
+   *
+   * @security SEC-014: INPUT_VALIDATION - Data already validated in ReportScanningStep
+   * @security FE-001: STATE_MANAGEMENT - Immutable state updates
+   */
   const handleReportScanningComplete = useCallback(
     (data: ReportScanningState) => {
       setWizardState((prev) => ({
@@ -201,22 +211,29 @@ export default function ShiftEndWizardPage() {
       }));
 
       // Import report data into Step 2 state
-      // Lottery payouts go into money received reports
+      // Total lottery cashes (instant + online) go into money received reports as lotteryPayouts
+      const totalLotteryCashes =
+        (data.lotteryReports?.instantCashes ?? 0) +
+        (data.lotteryReports?.onlineCashes ?? 0);
+
       setMoneyReceivedState((prev) => ({
         ...prev,
         reports: {
           ...prev.reports,
-          lotteryPayouts: data.lotteryReports?.payouts ?? 0,
+          lotteryPayouts: totalLotteryCashes,
         },
       }));
 
-      // Lottery sales go into sales breakdown reports
+      // Lottery sales and cashes go into sales breakdown reports
+      // Each field maps directly from the lottery terminal report
       setSalesBreakdownState((prev) => ({
         ...prev,
         reports: {
           ...prev.reports,
           scratchOff: data.lotteryReports?.instantSales ?? 0,
+          instantCashes: data.lotteryReports?.instantCashes ?? 0,
           onlineLottery: data.lotteryReports?.onlineSales ?? 0,
+          onlineCashes: data.lotteryReports?.onlineCashes ?? 0,
         },
       }));
     },

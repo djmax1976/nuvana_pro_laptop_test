@@ -56,12 +56,16 @@ describe("SalesBreakdownCard Component", () => {
       snacks: 320.0,
       other: 180.0,
       scratchOff: 0, // POS lottery should be 0 by default (comes from POS integration)
+      instantCashes: 0, // POS instant cashes (future integration)
       onlineLottery: 0, // POS lottery should be 0 by default
+      onlineCashes: 0, // POS online cashes (future integration)
       salesTax: 245.0,
     },
     reports: {
       scratchOff: 500.0, // Reports lottery from our lottery close
+      instantCashes: 100.0, // Instant ticket redemptions from lottery terminal report
       onlineLottery: 350.0, // Reports lottery from our system
+      onlineCashes: 75.0, // Online lottery redemptions from lottery terminal report
     },
   };
 
@@ -233,12 +237,16 @@ describe("SalesBreakdownCard Component", () => {
         snacks: 50.0,
         other: 25.0,
         scratchOff: 750.0, // Our lottery total (source of truth until POS integration)
+        instantCashes: 150.0, // Instant ticket redemptions
         onlineLottery: 250.0, // Our lottery total
+        onlineCashes: 50.0, // Online lottery redemptions
         salesTax: 100.0,
       },
       reports: {
         scratchOff: 750.0, // Same value in reports for reconciliation comparison
+        instantCashes: 150.0, // Same instant cashes
         onlineLottery: 250.0, // Same value in reports
+        onlineCashes: 50.0, // Same online cashes
       },
     };
 
@@ -390,12 +398,16 @@ describe("SalesBreakdownCard Component", () => {
         snacks: 0,
         other: 0,
         scratchOff: 0,
+        instantCashes: 0,
         onlineLottery: 0,
+        onlineCashes: 0,
         salesTax: 0,
       },
       reports: {
         scratchOff: 0,
+        instantCashes: 0,
         onlineLottery: 0,
+        onlineCashes: 0,
       },
     };
 
@@ -423,12 +435,16 @@ describe("SalesBreakdownCard Component", () => {
         snacks: 0,
         other: 0,
         scratchOff: 0,
+        instantCashes: 0,
         onlineLottery: 0,
+        onlineCashes: 0,
         salesTax: 0,
       },
       reports: {
         scratchOff: 555555.55,
+        instantCashes: 0,
         onlineLottery: 0,
+        onlineCashes: 0,
       },
     };
 
