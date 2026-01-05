@@ -2411,7 +2411,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
     {
       preHandler: [
         authMiddleware,
-        permissionMiddleware(PERMISSIONS.LOTTERY_PACK_MANAGE),
+        permissionMiddleware(PERMISSIONS.LOTTERY_BIN_MANAGE),
       ],
       schema: {
         description:
@@ -2612,7 +2612,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               select: {
                 game_id: true,
                 name: true,
-                ticket_price: true,
+                price: true,
               },
             },
             store: {
@@ -2755,9 +2755,7 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
           lastSoldSerial >= startingSerialNum
             ? lastSoldSerial - startingSerialNum + 1
             : 0;
-        const ticketPrice = pack.game.ticket_price
-          ? Number(pack.game.ticket_price)
-          : 0;
+        const ticketPrice = pack.game.price ? Number(pack.game.price) : 0;
         const salesAmount = ticketsSold * ticketPrice;
 
         // Find active shift for this store (if any)
@@ -2799,10 +2797,6 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
               return_sales_amount: salesAmount,
               // Clear bin assignment
               current_bin_id: null,
-            },
-            include: {
-              game: { select: { name: true, ticket_price: true } },
-              bin: { select: { name: true } },
             },
           });
 
@@ -2910,8 +2904,12 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             );
           }
 
-          return { updatedPack, binName: pack.bin?.name || null };
+          return { updatedPack };
         });
+
+        // Capture pre-update values for response (bin cleared during update)
+        const gameName = pack.game.name;
+        const binName = pack.bin?.name || null;
 
         // Cleanup UPCs from Redis/POS (pack was ACTIVE)
         try {
@@ -2948,8 +2946,8 @@ export async function lotteryRoutes(fastify: FastifyInstance) {
             returned_at: result.updatedPack.returned_at?.toISOString(),
             return_reason: body.return_reason,
             return_notes: body.return_notes || null,
-            game_name: result.updatedPack.game.name,
-            bin_name: result.binName,
+            game_name: gameName,
+            bin_name: binName,
             last_sold_serial: body.last_sold_serial,
             tickets_sold: ticketsSold,
             sales_amount: salesAmount.toFixed(2),
