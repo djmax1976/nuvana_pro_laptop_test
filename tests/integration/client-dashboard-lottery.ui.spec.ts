@@ -721,10 +721,16 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
     }
   });
 
-  test("6.10.1-UI-005: [P1] Inventory/Configuration tabs functionality", async ({
+  test("6.10.1-UI-005: [P1] Total Bins badge opens bin configuration modal", async ({
     page,
   }) => {
-    const fixture = await createTestFixture("005");
+    /**
+     * Tests bin configuration access via Total Bins badge
+     * NOTE: The lottery page was redesigned - Inventory/Configuration tabs were removed.
+     * Bin count configuration is now accessible via the clickable "Total Bins" badge
+     * in the LotteryTable component's filter section.
+     */
+    const fixture = await createTestFixture("005", { withBins: true });
 
     try {
       // GIVEN: Client owner logged in
@@ -739,31 +745,30 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
 
       await waitForLotteryPageLoaded(page);
 
-      // THEN: Main content tabs are visible (Inventory and Configuration)
-      const inventoryTab = page.locator(
-        'button[role="tab"]:has-text("Inventory")',
-      );
-      const configTab = page.locator(
-        'button[role="tab"]:has-text("Configuration")',
-      );
+      // Select store from dropdown
+      await selectStoreFromDropdown(page, fixture.store1.name);
 
-      await expect(inventoryTab).toBeVisible({ timeout: 30000 });
-      await expect(configTab).toBeVisible({ timeout: 30000 });
+      // Wait for filter section to load
+      await page
+        .locator('[data-testid="lottery-filters"]')
+        .waitFor({ state: "visible", timeout: 30000 });
 
-      // WHEN: Clicking Configuration tab
-      await configTab.click();
+      // THEN: Total Bins badge is visible with count
+      const totalBinsBadge = page.locator('[data-testid="total-bins-badge"]');
+      await expect(totalBinsBadge).toBeVisible({ timeout: 10000 });
 
-      // THEN: Configuration tab becomes active
-      await expect(configTab).toHaveAttribute("data-state", "active", {
-        timeout: 5000,
-      });
+      // AND: Total Bins count is displayed (fixture creates 2 bins)
+      const binsCount = page.locator('[data-testid="total-bins-count"]');
+      await expect(binsCount).toBeVisible({ timeout: 5000 });
+      await expect(binsCount).toHaveText("2");
 
-      // WHEN: Clicking back to Inventory tab
-      await inventoryTab.click();
+      // WHEN: Clicking Total Bins badge to open configuration modal
+      await totalBinsBadge.click();
 
-      // THEN: Inventory tab is active
-      await expect(inventoryTab).toHaveAttribute("data-state", "active", {
-        timeout: 5000,
+      // THEN: Bin count configuration modal opens
+      // The modal shows bin count configuration dialog
+      await expect(page.getByRole("dialog").getByText(/bin/i)).toBeVisible({
+        timeout: 10000,
       });
     } finally {
       await cleanupTestFixture(fixture);
@@ -1312,48 +1317,48 @@ test.describe("6.10.1-Integration: Client Dashboard Lottery Page", () => {
       );
       await gameRow.click();
 
-      // THEN: Pack details are expanded
-      const packDetails = page.locator(
+      // THEN: Pack details header row is expanded
+      // The pack-details testid is on the header row of the expanded section
+      const packDetailsHeader = page.locator(
         `[data-testid="pack-details-${fixture.game.game_id}"]`,
       );
-      await expect(packDetails).toBeVisible({ timeout: 5000 });
+      await expect(packDetailsHeader).toBeVisible({ timeout: 5000 });
 
-      // AND: Pack detail headers are displayed (use getByRole to target column headers specifically)
-      // Note: getByText would match both headers and cell content containing "Bin"
-      await expect(
-        packDetails.getByRole("columnheader", { name: "Pack #" }),
-      ).toBeVisible();
-      await expect(
-        packDetails.getByRole("columnheader", { name: "Serial Range" }),
-      ).toBeVisible();
-      await expect(
-        packDetails.getByRole("columnheader", { name: "Bin" }),
-      ).toBeVisible();
+      // AND: Pack detail headers are displayed in the header row
+      // Current columns: Pack #, Received At, Activated At, Returned At, Status, Returned
+      // Note: Headers are in TableCell elements, not proper th/columnheader roles
+      await expect(packDetailsHeader.getByText("Pack #")).toBeVisible();
+      await expect(packDetailsHeader.getByText("Received At")).toBeVisible();
+      await expect(packDetailsHeader.getByText("Status")).toBeVisible();
 
       // AND: Individual pack rows are visible with their data
-      const pack1Row = packDetails.locator(
+      const pack1Row = page.locator(
         `[data-testid="pack-row-${testPack1.pack_id}"]`,
       );
-      const pack2Row = packDetails.locator(
+      const pack2Row = page.locator(
         `[data-testid="pack-row-${testPack2.pack_id}"]`,
       );
 
-      await expect(pack1Row).toBeVisible();
-      await expect(pack2Row).toBeVisible();
+      await expect(pack1Row).toBeVisible({ timeout: 5000 });
+      await expect(pack2Row).toBeVisible({ timeout: 5000 });
 
-      // Verify pack numbers are displayed in their respective rows
-      await expect(pack1Row.getByText(testPack1.pack_number)).toBeVisible();
-      await expect(pack2Row.getByText(testPack2.pack_number)).toBeVisible();
+      // Verify pack numbers are displayed in their respective rows (format: "#PACK-001")
+      await expect(
+        pack1Row.getByText(`#${testPack1.pack_number}`),
+      ).toBeVisible();
+      await expect(
+        pack2Row.getByText(`#${testPack2.pack_number}`),
+      ).toBeVisible();
 
-      // Verify serial ranges are displayed (format: "start - end")
-      await expect(pack1Row.getByText("1001 - 1999")).toBeVisible();
-      await expect(pack2Row.getByText("2001 - 2999")).toBeVisible();
+      // Verify status badges are displayed
+      await expect(pack1Row.getByText("ACTIVE")).toBeVisible();
+      await expect(pack2Row.getByText("ACTIVE")).toBeVisible();
 
       // WHEN: Clicking row again to collapse
       await gameRow.click();
 
       // THEN: Pack details are hidden
-      await expect(packDetails).not.toBeVisible({ timeout: 5000 });
+      await expect(packDetailsHeader).not.toBeVisible({ timeout: 5000 });
     } finally {
       if (testPack1) {
         await fixture.prisma.lotteryPack
